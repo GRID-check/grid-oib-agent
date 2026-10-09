@@ -151,6 +151,13 @@ describe('POST /api/conversations/[id]/messages/[messageId]/stopped', () => {
     expect((await post({ turnId: TURN_ID, shown: 'Erster' })).status).toBe(409)
   })
 
+  it('409s a cut that would keep nothing of the answer', async () => {
+    const res = await post({ turnId: TURN_ID, shown: 'Ganz anders' })
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toMatchObject({ details: { reason: 'nothing_shown' } })
+  })
+
   it('400s a malformed id or body instead of failing in SQL', async () => {
     expect((await post({ turnId: TURN_ID, shown: 'x' }, 'not-a-uuid')).status).toBe(400)
     expect((await post({ turnId: 'msg_1', shown: 'x' })).status).toBe(400)

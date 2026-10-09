@@ -44,6 +44,20 @@ vi.mock('../store', () => ({
 
 vi.mock('@/adapters/auth', () => ({ useAuth: () => ({ accessToken: null }) }))
 
+// Every element-level animation the answer starts, passed through: the body's
+// fade is read off these calls.
+const animations = vi.hoisted(() => [] as { keyframes: unknown }[])
+vi.mock('motion/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('motion/react')>()
+  return {
+    ...actual,
+    animate: ((...args: Parameters<typeof actual.animate>) => {
+      animations.push({ keyframes: args[1] })
+      return (actual.animate as (...a: unknown[]) => unknown)(...args)
+    }) as typeof actual.animate,
+  }
+})
+
 // The prose as plain text, so what is shown can be read off the DOM exactly.
 // The caret where the renderer would place it: after the last word.
 // Every plugin list the renderer was handed, by identity: a new list re-parses
@@ -256,6 +270,24 @@ describe('the end of a streamed answer', () => {
     expect(screen.getByTestId('role-tab-pending')).toBeInTheDocument()
     expect(useAnswerRevealStore.getState().revealingId).toBeNull()
   })
+
+  // Stop drops a citation still pending at the press, so the frozen body is
+  // not a prefix of the last one: read as a rewrite, the whole answer faded
+  // out and back in as the button was pressed.
+  it('does not fade the body in again when Stop freezes it', () => {
+    const cited = 'Ein zweiter Fluchtweg ist erforderlich [1] und '
+    const { rerender } = render(answer(cited, true))
+    act(() => vi.advanceTimersByTime(3000))
+    expect(screen.getByTestId('prose').textContent).toBe(cited)
+
+    animations.length = 0
+    rerender(
+      <AgentResponse content="Ein zweiter Fluchtweg ist erforderlich und " messageId="m-1" showAnswerFeedback={false} stopped />
+    )
+    act(() => vi.advanceTimersByTime(1000))
+    const fades = animations.filter(({ keyframes }) => JSON.stringify(keyframes) === JSON.stringify({ opacity: [0, 1] }))
+    expect(fades).toEqual([])
+  })
 })
 
 // L27, L28: an answer that mounts in the middle of its turn (a reload's
@@ -323,6 +355,31 @@ describe('a summary that leads a fresh answer', () => {
     rerender(headed(FINAL, false))
     act(() => vi.advanceTimersByTime(1500))
     expect(screen.getByTestId('prose').textContent).toBe(FINAL)
+    expect(standfirst()!.textContent).toBe(SUMMARY)
+  })
+
+  // Stopped while the summary was being written: no prose yet, only the
+  // masthead. Read as an empty answer, the settle after the press dropped the
+  // masthead in one frame, and the stored row drew nothing after a reload.
+  it('keeps the masthead and the summary as far as it was written when stopped under it', () => {
+    const { rerender } = render(headed('', true))
+    act(() => vi.advanceTimersByTime(FRAME_MS * 6))
+    const atStop = standfirst()?.textContent ?? ''
+    expect(atStop.length).toBeGreaterThan(0)
+    expect(atStop.length).toBeLessThan(SUMMARY.length)
+
+    rerender(
+      <AgentResponse content="" messageId="m-sum" answerMeta={META} showAnswerFeedback={false} stopped />
+    )
+    act(() => vi.advanceTimersByTime(1500))
+    expect(screen.getByRole('article')).toBeInTheDocument()
+    expect(standfirst()!.textContent).toBe(atStop)
+    expect(screen.getByTestId('answer-stopped')).toBeInTheDocument()
+  })
+
+  it('draws a stored stopped answer that holds only its masthead', () => {
+    render(<AgentResponse content="" messageId="m-sum" answerMeta={META} showAnswerFeedback={false} stopped />)
+    expect(screen.getByRole('article')).toBeInTheDocument()
     expect(standfirst()!.textContent).toBe(SUMMARY)
   })
 

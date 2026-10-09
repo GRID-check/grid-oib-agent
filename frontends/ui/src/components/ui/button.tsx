@@ -88,8 +88,25 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, loading = false, disabled, children, onClick, ...props }, ref) => {
+  (
+    {
+      className,
+      variant,
+      size,
+      asChild = false,
+      loading = false,
+      disabled,
+      children,
+      onClick,
+      'aria-disabled': ariaDisabled,
+      'aria-busy': ariaBusy,
+      ...props
+    },
+    ref
+  ) => {
     const Comp = asChild ? Slot : 'button'
+    // `loading` is ignored under `asChild` (see the prop), all of it: no
+    // spinner, no aria state, no swallowed click.
     const showSpinner = loading && !asChild
     // `children` is passed through UNTOUCHED unless the spinner is actually
     // rendered: under `asChild`, Slot demands exactly one element child, and
@@ -117,11 +134,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         )}
         ref={ref}
         disabled={disabled || undefined}
-        aria-disabled={loading || props['aria-disabled'] || undefined}
-        aria-busy={loading || undefined}
         {...props}
+        // After the spread and merged, never overridden: a caller's explicit
+        // `aria-disabled={false}` must not announce a loading button as
+        // pressable while its press is being swallowed.
+        aria-disabled={showSpinner || ariaDisabled || undefined}
+        aria-busy={showSpinner || ariaBusy || undefined}
         onClick={
-          loading
+          showSpinner
             ? (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()
             : onClick
         }

@@ -149,6 +149,23 @@ describe('useAnswerFileReferences', () => {
     expect(fetched).toBe(true)
   })
 
+  // The marker plugins are memoised on this result, so a new object per reveal
+  // step re-parsed every block of the answer per word once a name had appeared.
+  it('keeps the same references while the body grows around the same names', async () => {
+    corpora({ projekt: [row('p1', 'pd8280-2.pdf')] })
+    const { result, rerender } = renderHook(({ body }) =>
+      useAnswerFileReferences({ body, projectId: 'proj-1', conversationId: 'conv-1' }),
+      { initialProps: { body: 'Beginnen Sie mit pd8280-2.pdf' } }
+    )
+    await waitFor(() => expect(result.current.fileNames).toEqual(['pd8280-2.pdf']))
+    const before = result.current
+
+    rerender({ body: 'Beginnen Sie mit pd8280-2.pdf und lesen' })
+    rerender({ body: 'Beginnen Sie mit pd8280-2.pdf und lesen Sie' })
+    expect(result.current).toBe(before)
+    expect(result.current.fileNames).toBe(before.fileNames)
+  })
+
   it('degrades to plain prose when the index cannot be read', async () => {
     server.use(
       http.get('/api/documents', () => HttpResponse.error()),

@@ -327,6 +327,23 @@ field, a new required field, a known `CUSTOM` whose value no longer parses.
 `shared/wire/v2/newer-events.jsonl` holds the tolerated drift; the UI spec
 reads it, the Python test refuses it.
 
+**This release is the exception, and it is staged.** The lenient read above
+ships in this release; the bundle before it generated every server-to-client
+schema `.strict()`. A tab of that bundle still open after the deploy refuses
+a hello that names `accepts` (its socket ends `outdated`) and a `RUN_FINISHED`
+whose result has `reasoning_effort` (the turn never ends). So the server
+withholds both until `GRID_WIRE_V2_ADDITIVE_FIELDS` is on, and it is off by
+default in this release (`STAGED_SERVER_FIELDS`, `aiq_api/chat_socket.py`). A
+new tab works without them: with no `accepts` it sends no `shown`, so a Stop
+stores everything streamed so far, as before; a Stop that crossed the
+finished answer is still cut by the BFF (`cutStoppedAnswer`), which needs
+neither field; and the answer shows the level the asker chose, while the
+stored row keeps the resolved one. The next release turns the flag on by
+default and then removes it and the list, once no tab of the strict bundle can
+still be open. Per-client gating was not available: the hello is the server's
+first frame and the client sends nothing before it, so the server cannot know
+which bundle it talks to.
+
 ## b. Producers: where every one of them emits
 
 **The mechanism is LangGraph's own writer.** The conversation graph runs under
@@ -517,8 +534,13 @@ screen and the terminal's part (`stoppedLate`, or `keepStoppedAnswer` when no
 terminal reached it), stores it, and asks the BFF to cut the stored row:
 `POST /api/conversations/{id}/messages/{messageId}/stopped` with the turn and
 the text on screen. Only the asker may, within ten minutes of the row, and the
-BFF applies the same rule to the text it holds, so it can only shorten it; a
-row already stored as stopped is left alone. A superseding `user_message`
+BFF applies the same rule to the text it holds, so it can only shorten it. A
+row that already holds no more than was on screen (markers aside) is left
+alone, so a cut is never applied twice; the stopped mark alone does not decide
+that, because the provenance mirror and any collaborator's PATCH can set it on
+a whole row. The client sends its provenance mirror only after the cut. A cut
+that would keep no text and no card, or a row that is a run hand-off or a
+queue notice, is a 409. A superseding `user_message`
 still cancels a stale turn, as `set_workflow_task` does today.
 
 **HITL.** `RunningTurn.ask(prompt) -> HumanResponse` registers the pending

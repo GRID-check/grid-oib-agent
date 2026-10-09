@@ -279,11 +279,15 @@ export const motionInstant: Transition = { duration: 0, delay: 0 }
  * hides content.
  *
  * The media query is read synchronously on the client (`useSyncExternalStore`),
- * so the first client render already has the right answer: no first frame on
- * the full token, which `@/hooks/use-reduced-motion` (false until its mount
- * effect) cannot promise. motion/react's own `useReducedMotion` caches the
- * answer module-wide on first call and is not used for the same reason. The
- * server snapshot is "motion allowed"; the server renders no animation anyway.
+ * so a component that mounts after hydration (every turn, card and glyph that
+ * arrives in a running thread) has the right answer on its first render: no
+ * first frame on the full token, which `@/hooks/use-reduced-motion` (false
+ * until its mount effect) cannot promise. A component already on the page at
+ * hydration is different: it renders the server snapshot, "motion allowed",
+ * and React re-renders it with the real answer straight after hydration, so a
+ * mount animation it starts in that render keeps the full token. motion/react's
+ * own `useReducedMotion` caches the answer module-wide on first call and never
+ * follows a change of the setting, so it is not used.
  */
 export function useMotionToken<T extends Transition | SpringTransition>(
   token: T
@@ -295,13 +299,29 @@ export function useMotionToken<T extends Transition | SpringTransition>(
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 
+/**
+ * The one MediaQueryList every `useMotionToken` reads. React calls the snapshot
+ * on every render of every subscriber, and `matchMedia` builds a fresh list per
+ * call. Keyed by the `matchMedia` it came from, so a replaced implementation
+ * (a spec's stub) is never answered from the previous one's list.
+ */
+let reducedMotionList: { list: MediaQueryList; from: typeof window.matchMedia } | null = null
+
+function reducedMotionQuery(): MediaQueryList | null {
+  if (typeof window.matchMedia !== 'function') return null
+  if (reducedMotionList?.from !== window.matchMedia) {
+    reducedMotionList = { list: window.matchMedia(REDUCED_MOTION_QUERY), from: window.matchMedia }
+  }
+  return reducedMotionList.list
+}
+
 function readReducedMotion(): boolean {
-  return typeof window.matchMedia === 'function' && window.matchMedia(REDUCED_MOTION_QUERY).matches
+  return reducedMotionQuery()?.matches ?? false
 }
 
 function subscribeReducedMotion(onChange: () => void): () => void {
-  if (typeof window.matchMedia !== 'function') return () => {}
-  const mql = window.matchMedia(REDUCED_MOTION_QUERY)
+  const mql = reducedMotionQuery()
+  if (!mql) return () => {}
   mql.addEventListener('change', onChange)
   return () => mql.removeEventListener('change', onChange)
 }

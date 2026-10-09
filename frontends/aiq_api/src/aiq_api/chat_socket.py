@@ -229,6 +229,50 @@ def chat_affinity_enabled() -> bool:
     return os.getenv("GRID_CHAT_AFFINITY", "1").strip().lower() not in ("0", "false", "no", "off", "")
 
 
+# @environment_variable GRID_WIRE_V2_ADDITIVE_FIELDS
+# @category Server
+# @type str
+# @default off
+# @required false
+# Send the server-to-client fields this release added (``STAGED_SERVER_FIELDS``).
+# Off for one release: a tab opened before the deploy runs a bundle whose wire
+# schemas were strict and refuses a frame with a key it does not know.
+_ADDITIVE_FIELDS_ENV = "GRID_WIRE_V2_ADDITIVE_FIELDS"
+
+#: The server-to-client fields this release added, as (frame kind, member, key). The bundle before it
+#: parsed every frame strictly (``.strict()`` zod), so an open tab of it marks the socket ``outdated`` on
+#: a hello that names ``accepts`` and never folds a ``RUN_FINISHED`` whose result has a
+#: ``reasoning_effort``. Withheld until ``GRID_WIRE_V2_ADDITIVE_FIELDS`` is on; the release after this
+#: one turns it on by default and drops the list, once every open tab reads leniently.
+STAGED_SERVER_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("hello", "value", "accepts"),
+    ("RUN_FINISHED", "result", "reasoning_effort"),
+)
+
+
+def additive_wire_fields_enabled() -> bool:
+    """Whether frames carry ``STAGED_SERVER_FIELDS`` (``GRID_WIRE_V2_ADDITIVE_FIELDS``, off by default)."""
+    return os.getenv(_ADDITIVE_FIELDS_ENV, "off").strip().lower() in ("1", "true", "yes", "on")
+
+
+def for_open_tabs(frame: dict[str, Any]) -> dict[str, Any]:
+    """``frame`` without the fields an open tab of the previous release cannot parse, unless they are on.
+
+    Without ``accepts`` a new tab sends no ``cancel_turn.shown`` and the
+    stopped row keeps everything streamed, as before; without
+    ``reasoning_effort`` it shows the level it asked for. The persisted row is
+    not a frame and keeps the level either way.
+    """
+    if additive_wire_fields_enabled():
+        return frame
+    kind = frame.get("name") if frame.get("type") == "CUSTOM" else frame.get("type")
+    for staged_kind, member, key in STAGED_SERVER_FIELDS:
+        inner = frame.get(member)
+        if kind == staged_kind and isinstance(inner, dict):
+            inner.pop(key, None)
+    return frame
+
+
 if not chat_affinity_enabled():
     # The owner fences itself (`aiq_api.turn_fence`): a TTL it cannot write inside is a misconfiguration to stop on.
     validate_running_ttl(running_ttl())
@@ -518,7 +562,7 @@ class TurnWire:
         if self.on_stamp is not None:
             self.on_stamp(body, self.seq)
         event = stamp(body, conversation_id=self.conversation_id, turn_id=self.turn_id, seq=self.seq, ts=_now_ms())
-        frame = to_frame(event)
+        frame = for_open_tabs(to_frame(event))
         self._frames.append(frame)
         return await self._publish(self.conversation_id, frame)
 
@@ -1367,7 +1411,7 @@ class ChatSocket:
         self.caller = user
         try:
             hello = HelloValue(build=deployed_sha(), accepts=list(ACCEPTED_CLIENT_FIELDS))
-            await self.socket.send_json(to_frame(Hello(ts=_now_ms(), value=hello)))
+            await self.socket.send_json(for_open_tabs(to_frame(Hello(ts=_now_ms(), value=hello))))
             await self._serve_messages()
         except WebSocketDisconnect:
             logger.debug("Chat socket closed for conversation %s", self.bound)

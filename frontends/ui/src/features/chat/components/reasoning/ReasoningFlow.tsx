@@ -109,8 +109,10 @@
  *
  * ## What moves
  *
- * Nothing loops. A new row simply appears, and the pane's height glides to
- * take it. The connectors into the newest row used to march (React Flow's
+ * Nothing loops. A new row simply appears, and the pane's height steps to take
+ * it in one frame, not transitioned: it grows inside the Herleitung's capped,
+ * bottom-pinned scroller, so the growth reads as the row arriving rather than
+ * as the page moving (see the pane's style below). The connectors into the newest row used to march (React Flow's
  * `animated` edge, the library's `dashdraw`); while the turn works the header's
  * shimmer is its one ambient motion, and a second loop beside it competed for
  * the same glance. See `renderedEdges`.

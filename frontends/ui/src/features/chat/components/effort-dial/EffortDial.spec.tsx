@@ -129,4 +129,52 @@ describe('EffortDial', () => {
     rerender(<EffortDial conversationId="c1" hidden />)
     await waitFor(() => expect(screen.queryByTestId('effort-dial')).not.toBeInTheDocument())
   })
+
+  it('hands the focus to the field it is given when it hides while focused', async () => {
+    mockOrgSettings({})
+    const field = { current: null as HTMLTextAreaElement | null }
+    const Row = ({ hidden }: { hidden: boolean }) => (
+      <>
+        <textarea aria-label="field" ref={(node) => void (field.current = node)} />
+        <EffortDial conversationId="c1" hidden={hidden} focusOnHide={field} />
+      </>
+    )
+    const { rerender } = render(<Row hidden={false} />)
+    const trigger = screen.getByTestId('effort-dial-trigger')
+    trigger.focus()
+    expect(trigger).toHaveFocus()
+
+    rerender(<Row hidden />)
+    expect(screen.getByRole('textbox', { name: 'field' })).toHaveFocus()
+  })
+
+  it('hands the focus on from the open slider too, and it stays handed on', async () => {
+    mockOrgSettings({})
+    const field = { current: null as HTMLTextAreaElement | null }
+    const Row = ({ hidden }: { hidden: boolean }) => (
+      <>
+        <textarea aria-label="field" ref={(node) => void (field.current = node)} />
+        <EffortDial conversationId="c1" hidden={hidden} focusOnHide={field} />
+      </>
+    )
+    const { rerender } = render(<Row hidden={false} />)
+    fireEvent.click(screen.getByTestId('effort-dial-trigger'))
+    const slider = await screen.findByRole('slider')
+    slider.focus()
+
+    rerender(<Row hidden />)
+    await waitFor(() => expect(screen.queryByTestId('effort-dial')).not.toBeInTheDocument())
+    // Radix's close returns focus to its trigger; that trigger is hidden now.
+    expect(screen.getByRole('textbox', { name: 'field' })).toHaveFocus()
+  })
+
+  it('lets go of the focus when it hides with nowhere given to send it', () => {
+    mockOrgSettings({})
+    const { rerender } = render(<EffortDial conversationId="c1" />)
+    const trigger = screen.getByTestId('effort-dial-trigger')
+    trigger.focus()
+
+    rerender(<EffortDial conversationId="c1" hidden />)
+    expect(trigger).not.toHaveFocus()
+  })
 })

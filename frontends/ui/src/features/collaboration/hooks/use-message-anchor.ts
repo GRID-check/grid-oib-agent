@@ -23,6 +23,15 @@
  * `isTargetPending()` before it moves the thread, and `onLand` tells it the
  * reader is now somewhere on purpose.
  *
+ * A target that never resolves must not hold the thread forever. The link names
+ * a message that is not displayable, was deleted, or sits in a thread that was
+ * refused, and a target pending for good left every later thread unplaced and
+ * unfollowed. So once the open thread's messages are all here (`ready`) without
+ * it, the target stops holding that thread, and leaving such a thread for one
+ * the link does not name drops the target altogether. It is not dropped at the
+ * first miss: a shared thread's newest message (what an inbox link is about)
+ * can land with its history a moment after a stale local copy rendered.
+ *
  * Returns the id to highlight, or null. Rendering is the caller's business — the
  * hook does not touch classes, and the mark fades on its own so the thread does
  * not keep a permanent decoration nobody asked for.
@@ -45,30 +54,69 @@ export function messageIdFromHash(hash: string | null | undefined): string | nul
 export interface MessageAnchorOptions {
   /** The target was scrolled to: the reader is where the link put them. */
   onLand?: (messageId: string) => void
+  /** The thread on screen. */
+  conversationId?: string | null
+  /**
+   * Whether the thread on screen has all its messages: a target missing from
+   * them then is missing from the thread. Until a caller says so, a target
+   * holds the thread until it lands.
+   */
+  ready?: boolean
 }
 
 export interface MessageAnchor {
   /** The message wearing the arrival mark, or null. */
   highlightedId: string | null
-  /** A target is captured and has not landed yet: the thread must not be moved. */
+  /**
+   * A target is captured, has not landed, and is not known to be missing from
+   * the open thread: the thread must not be moved.
+   */
   isTargetPending: () => boolean
 }
 
+/** The thread a link's `?session=` names, which its target belongs to. */
+const sessionFromUrl = (): string | null =>
+  typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('session')
+
 export function useMessageAnchor(
   messageIds: readonly string[],
-  { onLand }: MessageAnchorOptions = {}
+  { onLand, conversationId = null, ready = false }: MessageAnchorOptions = {}
 ): MessageAnchor {
   // Captured on mount and NOT re-read on render: the hash is consumed below (so
   // a refresh does not re-scroll a thread the reader has since scrolled away
   // from), and reading it again after that would clear the pending target
   // mid-flight. A later `hashchange` replaces it (below).
   const pendingRef = useRef<string | null | undefined>(undefined)
+  // The thread the target belongs to: the link's `?session=`, or the open
+  // thread for a hash that changes in it. Null when the link named none.
+  const boundRef = useRef<string | null>(null)
   if (pendingRef.current === undefined) {
     pendingRef.current =
       typeof window === 'undefined' ? null : messageIdFromHash(window.location.hash)
+    boundRef.current = sessionFromUrl()
   }
   const onLandRef = useRef(onLand)
   onLandRef.current = onLand
+
+  // Decided during the render, not in an effect: the caller asks
+  // `isTargetPending()` from its layout effects in this same commit, before
+  // any effect here has run, and a thread that loaded without the target
+  // must be placed in the commit it loaded.
+  const shownRef = useRef(conversationId)
+  // The last thread that was open, complete, and without the target.
+  const missedInRef = useRef<string | null | undefined>(undefined)
+  const blockingRef = useRef(false)
+  if (shownRef.current !== conversationId) {
+    // Left a thread that had its chance, for one the link does not name: the
+    // reader has moved on, and the target goes with the thread it missed in.
+    if (missedInRef.current === shownRef.current && conversationId !== boundRef.current) {
+      pendingRef.current = null
+    }
+    shownRef.current = conversationId
+  }
+  const missing = Boolean(pendingRef.current) && ready && !messageIds.includes(pendingRef.current ?? '')
+  if (missing) missedInRef.current = conversationId
+  blockingRef.current = Boolean(pendingRef.current) && !missing
 
   const [highlighted, setHighlighted] = useState<string | null>(null)
   // Bumped by a hash change, so the resolution below runs without waiting for
@@ -80,6 +128,9 @@ export function useMessageAnchor(
       const target = messageIdFromHash(window.location.hash)
       if (!target) return
       pendingRef.current = target
+      boundRef.current = shownRef.current
+      missedInRef.current = undefined
+      blockingRef.current = true
       setHashTick((tick) => tick + 1)
     }
     window.addEventListener('hashchange', onHashChange)
@@ -96,6 +147,7 @@ export function useMessageAnchor(
     if (!element) return
 
     pendingRef.current = null
+    blockingRef.current = false
     // Instant, not smooth: the thread was just opened, and a smooth scroll
     // across it was a blur of forty messages, during which the mark's fade had
     // already begun. The reader sees the message, marked, from the first frame.
@@ -131,7 +183,7 @@ export function useMessageAnchor(
     }
   }, [highlighted])
 
-  const isTargetPending = useCallback(() => Boolean(pendingRef.current), [])
+  const isTargetPending = useCallback(() => blockingRef.current, [])
 
   return { highlightedId: highlighted, isTargetPending }
 }

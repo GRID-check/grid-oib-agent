@@ -30,6 +30,12 @@ export const research: typeof en.research = {
       answerReadyWith: 'Antwort fertig: {gist}',
       // Die Lesenden haben die Antwort angehalten.
       stopped: 'Gestoppt',
+      // Der Zug ist gescheitert; die Fehlerkarte darunter sagt wie.
+      failed: 'Fehlgeschlagen',
+      // Der Zug hat einen Auftrag angelegt: die Arbeit hat erst begonnen.
+      handedOff: 'Auftrag angelegt',
+      // Piloti hat die Frage nicht bearbeitet; das Banner sagt warum.
+      refused: 'Nicht bearbeitet',
     },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:

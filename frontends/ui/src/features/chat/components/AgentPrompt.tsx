@@ -20,7 +20,9 @@
 
 import { type FC, type ReactNode, useCallback, useMemo, useState } from 'react'
 import { ChevronDown, MessageSquare } from 'lucide-react'
+import { useIsPresent } from 'motion/react'
 import { AnimatePresence, motion, motionInstant, motionQuick, motionQuickExit } from '@/components/motion'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
@@ -164,19 +166,25 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
       : undefined
   const responseLabel = responseKey ? t(responseKey) : response
 
+  // Each handler refuses once the prompt is answered: a prompt takes one
+  // answer, and a second `interaction_response` is never what a late click
+  // meant (the decision is also inert while it fades; see AnswerSlotBody).
   const handleApprove = useCallback(() => {
+    if (isResponded) return
     respondToInteractionFn?.(
       plan && shownPlan ? approvalReply(plan, shownPlan, rahmen?.ids ?? []) : 'approve'
     )
-  }, [respondToInteractionFn, plan, shownPlan, rahmen])
+  }, [isResponded, respondToInteractionFn, plan, shownPlan, rahmen])
 
   const handleShallow = useCallback(() => {
+    if (isResponded) return
     respondToInteractionFn?.('shallow')
-  }, [respondToInteractionFn])
+  }, [isResponded, respondToInteractionFn])
 
   const handleCancel = useCallback(() => {
+    if (isResponded) return
     respondToInteractionFn?.('cancel')
-  }, [respondToInteractionFn])
+  }, [isResponded, respondToInteractionFn])
 
   // The plan as it was decided: the reader's edits while this mount holds
   // them, else what the reply carried (a reload has only the reply).
@@ -194,10 +202,11 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   const selectedLabel = options.find((option) => option.id === response)?.label
   const handleSelect = useCallback(
     (label: string) => {
+      if (isResponded) return
       const option = options.find((candidate) => candidate.label === label)
       if (option) respondToInteractionFn?.(option.id)
     },
-    [options, respondToInteractionFn]
+    [isResponded, options, respondToInteractionFn]
   )
 
   return (
@@ -354,20 +363,34 @@ const ResponseDisplay: FC<{ response?: string }> = ({ response }) => {
  * card resizes once instead of sliding two contents over each other. Mounted
  * already answered (a restored thread), it paints the receipt with no motion.
  */
-const AnswerSlot: FC<{ answered: boolean; children: ReactNode }> = ({ answered, children }) => {
+const AnswerSlot: FC<{ answered: boolean; children: ReactNode }> = ({ answered, children }) => (
+  <AnimatePresence mode="wait" initial={false}>
+    <AnswerSlotBody key={answered ? 'answered' : 'open'}>{children}</AnswerSlotBody>
+  </AnimatePresence>
+)
+
+/**
+ * One content of the slot. While it fades out, AnimatePresence keeps rendering
+ * the children it last had, buttons and handlers from before the answer
+ * included, so the leaving decision is taken out of reach (`inert`: no click,
+ * no focus, no key) and out of the accessibility tree for its last 180ms, the
+ * way ProposalShell retires a question. Otherwise a second click on the
+ * approve button during the fade sends a second `interaction_response`.
+ */
+const AnswerSlotBody: FC<{ children: ReactNode }> = ({ children }) => {
   const reduced = useReducedMotion()
+  const present = useIsPresent()
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={answered ? 'answered' : 'open'}
-        className="flex flex-col gap-3 empty:hidden"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1, transition: reduced ? motionInstant : motionQuick }}
-        exit={{ opacity: 0, transition: reduced ? motionInstant : motionQuickExit }}
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
+    <motion.div
+      className={cn('flex flex-col gap-3 empty:hidden', !present && 'pointer-events-none')}
+      aria-hidden={present ? undefined : true}
+      inert={!present}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1, transition: reduced ? motionInstant : motionQuick }}
+      exit={{ opacity: 0, transition: reduced ? motionInstant : motionQuickExit }}
+    >
+      {children}
+    </motion.div>
   )
 }
 

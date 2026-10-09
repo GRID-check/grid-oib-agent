@@ -565,6 +565,22 @@ describe('AgentPrompt — the plan card', () => {
     expect(screen.queryByRole('button', { name: /approve plan/i })).not.toBeInTheDocument()
   })
 
+  test('the leaving decision is out of reach while it fades', async () => {
+    // AnimatePresence keeps rendering the decision it last had, handlers from
+    // before the answer included: a click during the fade would send a second
+    // interaction_response.
+    useChatStore.setState({ respondToInteractionFn: vi.fn() })
+    const { rerender } = render(<AgentPrompt content={CONTENT} />)
+    rerender(<AgentPrompt content={CONTENT} isResponded response="approve" />)
+
+    const leaving = await screen.findByRole('button', { name: /approve plan/i, hidden: true })
+    const slot = leaving.closest('[inert]')
+    expect(slot).not.toBeNull()
+    expect(slot).toHaveAttribute('aria-hidden', 'true')
+    expect(slot).toHaveClass('pointer-events-none')
+    expect(await screen.findByTestId('plan-record')).toBeInTheDocument()
+  })
+
   test('has no entrance of its own: the thread row owns it', () => {
     const { container } = render(<AgentPrompt content={CONTENT} />)
     expect(container.innerHTML).not.toMatch(/animate-in/)

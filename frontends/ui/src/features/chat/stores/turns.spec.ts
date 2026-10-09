@@ -325,6 +325,14 @@ describe('Stop, what was on screen', () => {
       expect(client.createMessage).toHaveBeenCalledWith(
         conversationId,
         expect.objectContaining({ id, content: settled.trim(), metadata: expect.objectContaining({ provenance: { stopped: true } }) })
+      )      // And before the provenance mirror, whose stopped mark would otherwise
+      // reach the server's whole row first.
+      await vi.waitFor(() =>
+        expect(client.updateMessageProvenance).toHaveBeenCalledWith(conversationId, id, expect.objectContaining({ stopped: true }))
+      )
+      const provenanceOfAnswer = client.updateMessageProvenance.mock.calls.findIndex(([, messageId]) => messageId === id)
+      expect(client.cutStoppedAnswer.mock.invocationCallOrder[0]).toBeLessThan(
+        client.updateMessageProvenance.mock.invocationCallOrder[provenanceOfAnswer]!
       )
     })
 

@@ -424,17 +424,20 @@ export const createMessagesSlice: StateCreator<
    * The answer the terminal just settled, mirrored to the server with the
    * turn's provenance. A Stop that crossed the finished answer (`stoppedLate`)
    * also asks the BFF to cut the server's whole row to what was on screen:
-   * after this browser's insert, so the row exists either way, and the cut is
-   * a no-op on a row this insert wrote already stopped.
+   * after this browser's insert, so the row exists either way, and before the
+   * provenance mirror, whose stopped mark would otherwise reach the whole row
+   * first (the cut decides by the text, not the mark, but a reload between the
+   * two would show the whole answer marked stopped).
    */
   const persistSettled = (conversationId: string, answer: ChatMessage, view: TurnView): void => {
     if (get().currentConversation?.id !== conversationId) return
     const appended = Promise.resolve(get()._appendMessage(answer))
     const shown = view.shownAtStop
-    if (view.stoppedLate && shown !== undefined) {
-      void appended.then(() => get()._cutStoppedAnswer(conversationId, answer.id, view.turnId, shown))
-    }
-    void get()._persistTurnProvenance()
+    const cut =
+      view.stoppedLate && shown !== undefined
+        ? appended.then(() => get()._cutStoppedAnswer(conversationId, answer.id, view.turnId, shown))
+        : undefined
+    void get()._persistTurnProvenance(cut)
     get().maybeGenerateConversationName(conversationId)
   }
 

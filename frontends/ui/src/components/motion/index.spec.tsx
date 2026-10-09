@@ -308,6 +308,19 @@ describe('useMotionToken', () => {
     const { result } = renderHook(() => useMotionToken({ ...motionBase, delay: 0.3 }))
     expect(result.current).toBe(motionInstant)
   })
+
+  it('asks matchMedia once, however often its subscribers render', () => {
+    // React reads the snapshot on every render of every subscriber, and each
+    // matchMedia call builds a new MediaQueryList.
+    stubReducedMotion(false)
+    const matchMedia = vi.fn(window.matchMedia)
+    vi.stubGlobal('matchMedia', matchMedia)
+    const first = renderHook(() => useMotionToken(motionBase))
+    const second = renderHook(() => useMotionToken(motionQuick))
+    first.rerender()
+    second.rerender()
+    expect(matchMedia).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('iconSwapTransition', () => {

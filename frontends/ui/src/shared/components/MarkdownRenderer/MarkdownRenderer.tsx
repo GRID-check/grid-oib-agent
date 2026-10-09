@@ -347,6 +347,26 @@ interface MarkdownRenderState {
   headingIds: ReadonlyMap<number, string>
   /** The lines of the text being rendered while it streams, else `null`. See {@link isOpenFence}. */
   streamingLines: readonly string[] | null
+}
+
+const NO_HEADINGS: ReadonlyMap<number, string> = new Map()
+
+const MarkdownRenderStateContext = createContext<MarkdownRenderState>({
+  compact: false,
+  headingIds: NO_HEADINGS,
+  streamingLines: null,
+})
+
+const useMarkdownRenderState = (): MarkdownRenderState => useContext(MarkdownRenderStateContext)
+
+/**
+ * Whether the WHOLE text is arriving, provided once by the renderer around
+ * the blocks rather than through them. As a prop of every block it made every
+ * block parse again at the settle, though only a table's tally and status
+ * marks draw differently once the text is complete: those read it here and
+ * re-render alone, and a finished block is not parsed again.
+ */
+interface MarkdownStreamState {
   /** The whole text is still arriving (any block, not only the last). */
   streaming: boolean
   /**
@@ -357,17 +377,9 @@ interface MarkdownRenderState {
   streamedHere: boolean
 }
 
-const NO_HEADINGS: ReadonlyMap<number, string> = new Map()
+const MarkdownStreamStateContext = createContext<MarkdownStreamState>({ streaming: false, streamedHere: false })
 
-const MarkdownRenderStateContext = createContext<MarkdownRenderState>({
-  compact: false,
-  headingIds: NO_HEADINGS,
-  streamingLines: null,
-  streaming: false,
-  streamedHere: false,
-})
-
-const useMarkdownRenderState = (): MarkdownRenderState => useContext(MarkdownRenderStateContext)
+const useMarkdownStreamState = (): MarkdownStreamState => useContext(MarkdownStreamStateContext)
 
 /**
  * The id for one heading element. The line the heading was written on is a
@@ -665,13 +677,16 @@ function MarkdownTable({ children, node }: React.ComponentPropsWithoutRef<'table
   const outcomeLabel = useOutcomeLabel()
   // Collapsed only once the block has arrived: a check that folds away while
   // it streams would make the answer jump up under the reader.
-  const { streaming, streamedHere } = useMarkdownRenderState()
+  const { streaming, streamedHere } = useMarkdownStreamState()
   const passed =
     node?.properties?.dataCollapsed === 'true' && !streaming && !streamedHere ? Number(node.properties.dataPassCount) : 0
   // A table still arriving draws no tally (its counts would tick and its
   // words change per row) but holds the tally's line, so the chips fade into
   // it when the table closes instead of pushing the rows down (`table-shape.ts`).
-  const reserved = tally.length === 0 && node?.properties?.dataTallyReserve === 'true'
+  // A table that closed with no tally keeps that line where it streamed
+  // (`closed`): dropping it pulled the rows up the moment the table finished.
+  const reserve = node?.properties?.dataTallyReserve
+  const reserved = tally.length === 0 && (reserve === 'true' || (reserve === 'closed' && streamedHere))
   const frame = (
     <div className={tableFrameClass(variant)} data-variant={variant === 'plain' ? undefined : variant}>
       {tally.length > 0 && !passed && (
@@ -780,7 +795,7 @@ function MarkdownCell({ children, align, style, node }: React.ComponentPropsWith
   const ask = typeof properties.dataAsk === 'string' ? properties.dataAsk : null
   const outcome = typeof properties.dataOutcome === 'string' ? properties.dataOutcome : null
   const outcomeLabel = useOutcomeLabel()
-  const { streaming } = useMarkdownRenderState()
+  const { streaming } = useMarkdownStreamState()
   if (properties.dataCell === TASK_CELL) {
     return (
       <td className="w-0 whitespace-nowrap px-2 py-1.5 align-top print:hidden" data-cell={TASK_CELL}>
@@ -1030,10 +1045,6 @@ interface MarkdownBlockViewProps {
   compact: boolean
   /** The text is streaming and this is its last block: the one fence that may still be open is in it. */
   open: boolean
-  /** The text is streaming at all. */
-  streaming: boolean
-  /** This view drew the text while it arrived. */
-  streamedHere: boolean
   remarkPlugins: PluggableList
   rehypePlugins: PluggableList
   footnoteOptions: FootnoteOptions
@@ -1052,8 +1063,6 @@ const MarkdownBlockView = memo(function MarkdownBlockView({
   headingIds,
   compact,
   open,
-  streaming,
-  streamedHere,
   remarkPlugins,
   rehypePlugins,
   footnoteOptions,
@@ -1067,8 +1076,8 @@ const MarkdownBlockView = memo(function MarkdownBlockView({
   // fence still being written; trailing blank lines do not end a block.
   const streamingLines = useMemo(() => (open ? source.trimEnd().split('\n') : null), [open, source])
   const renderState = useMemo(
-    (): MarkdownRenderState => ({ compact, headingIds: ids, streamingLines, streaming, streamedHere }),
-    [compact, ids, streamingLines, streaming, streamedHere]
+    (): MarkdownRenderState => ({ compact, headingIds: ids, streamingLines }),
+    [compact, ids, streamingLines]
   )
   return (
     <MarkdownRenderStateContext.Provider value={renderState}>
@@ -1160,6 +1169,10 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
     const headingIds = useMemo(() => headingIdsByBlock(renderedContent, blocks), [renderedContent, blocks])
 
     const withCaret = isStreaming && caret !== undefined && caret !== null && caret !== false
+    const streamState = useMemo(
+      (): MarkdownStreamState => ({ streaming: isStreaming, streamedHere }),
+      [isStreaming, streamedHere]
+    )
 
     // `hyphens-auto`: German compounds („Brandabschnittsfläche") left a ragged
     // right edge and, in a narrow table column, a line of their own. Only
@@ -1170,29 +1183,29 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
     // the reader has read would jitter while the answer streams.
     return (
       <StreamingCaretProvider value={withCaret ? caret : null}>
-        <div
-          className={`markdown-content hyphens-auto [hyphenate-limit-chars:10_4_4] break-words [overflow-wrap:anywhere] [&>*:last-child]:mb-0 ${className}`}
-        >
-          {blocks.map((block, index) => {
-            const last = index === blocks.length - 1
-            return (
-              <MarkdownBlockView
-                // By position: the block the reveal is writing keeps its place,
-                // and everything drawn in it, while it grows.
-                key={index}
-                source={block.source}
-                headingIds={headingIds[index] ?? ''}
-                compact={compact}
-                open={isStreaming && last}
-                streaming={isStreaming}
-                streamedHere={streamedHere}
-                remarkPlugins={last ? plugins.last : plugins.notLast}
-                rehypePlugins={rehypePluginsFor(index === 0, isStreaming && last, withCaret)}
-                footnoteOptions={footnoteOptions}
-              />
-            )
-          })}
-        </div>
+        <MarkdownStreamStateContext.Provider value={streamState}>
+          <div
+            className={`markdown-content hyphens-auto [hyphenate-limit-chars:10_4_4] break-words [overflow-wrap:anywhere] [&>*:last-child]:mb-0 ${className}`}
+          >
+            {blocks.map((block, index) => {
+              const last = index === blocks.length - 1
+              return (
+                <MarkdownBlockView
+                  // By position: the block the reveal is writing keeps its place,
+                  // and everything drawn in it, while it grows.
+                  key={index}
+                  source={block.source}
+                  headingIds={headingIds[index] ?? ''}
+                  compact={compact}
+                  open={isStreaming && last}
+                  remarkPlugins={last ? plugins.last : plugins.notLast}
+                  rehypePlugins={rehypePluginsFor(index === 0, isStreaming && last, withCaret)}
+                  footnoteOptions={footnoteOptions}
+                />
+              )
+            })}
+          </div>
+        </MarkdownStreamStateContext.Provider>
       </StreamingCaretProvider>
     )
   }

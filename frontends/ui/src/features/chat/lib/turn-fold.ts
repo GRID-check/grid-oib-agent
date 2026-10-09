@@ -298,6 +298,10 @@ const afterLocalStop = (view: TurnView, event: WireEvent): TurnView | undefined 
     const elsewhere = Boolean(event.result.run || event.result.job_admission_rejected)
     return event.outcome === 'cancelled' || elsewhere ? closed : stoppedLate(closed, event.result)
   }
+  // The run failing after the reader stopped it (the cancel tearing down a
+  // tool call, a stream cut on the way out) is not news to them: the answer
+  // they stopped stays stopped, not dimmed under an error card.
+  if (event.type === 'RUN_ERROR') return { ...view, steps: closeSteps(view.steps) }
   return CONTENT_EVENTS.has(event.type === 'CUSTOM' ? event.name : event.type) ? view : undefined
 }
 

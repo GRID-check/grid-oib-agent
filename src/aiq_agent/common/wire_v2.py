@@ -335,7 +335,12 @@ class TurnResult(_Model):
     #: else the platform's, else the role's configured one). Absent when the turn
     #: made no answering call or its model sends none. The client records the
     #: level it asked for, but only the asking tab has that; this reaches
-    #: observers and the persisted row too.
+    #: observers and the persisted row too. A STOPPED turn's result carries the
+    #: level the asker stated instead, or None when they stated none: its graph
+    #: state is gone by then, and a stated level is the one the answering call
+    #: runs at, so the two differ only for a turn that stated none.
+    #: Withheld from the frame while ``GRID_WIRE_V2_ADDITIVE_FIELDS`` is off
+    #: (``aiq_api.chat_socket.STAGED_SERVER_FIELDS``); the row keeps it.
     reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
 
 

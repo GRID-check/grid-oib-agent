@@ -40,4 +40,28 @@ describe('Button loading', () => {
     await user.click(screen.getByRole('button', { name: 'Senden' }))
     expect(onSubmit).not.toHaveBeenCalled()
   })
+
+  it("announces itself as unavailable even when the caller passes aria-disabled={false}", () => {
+    render(
+      <Button loading aria-disabled={false}>
+        Speichern
+      </Button>
+    )
+    expect(screen.getByRole('button', { name: 'Speichern' })).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('is ignored entirely under asChild: no aria state, and the click goes through', async () => {
+    const user = userEvent.setup()
+    const onClick = vi.fn()
+    render(
+      <Button asChild loading onClick={onClick}>
+        <a href="#weiter">Weiter</a>
+      </Button>
+    )
+    const link = screen.getByRole('link', { name: 'Weiter' })
+    expect(link).not.toHaveAttribute('aria-disabled')
+    expect(link).not.toHaveAttribute('aria-busy')
+    await user.click(link)
+    expect(onClick).toHaveBeenCalledTimes(1)
+  })
 })

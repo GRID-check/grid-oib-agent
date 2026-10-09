@@ -17,7 +17,8 @@ import { isAwaitingServerMessages } from '@/features/chat/stores/chat-storage'
 /**
  * - `hydrating`: the persisted store has not been read yet.
  * - `loading`: a thread is open (or about to be, from a deep link) whose
- *   messages are not here yet.
+ *   messages are not here yet: from the server, or from a shared thread's
+ *   first read (`ChatArea` names it in `pendingMessagesFor` too).
  * - `empty`: a thread with nothing to show: the greeting's canvas.
  * - `thread`: something to show.
  */

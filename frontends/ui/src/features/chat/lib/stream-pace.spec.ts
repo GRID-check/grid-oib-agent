@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { elapsedMs, growthRatio, LINEAR_BOUND } from '@/test-utils/growth'
 import {
   FINISH_MAX_MS,
   FINISH_MIN_MS,
@@ -77,6 +78,76 @@ describe('furthestCleanCut', () => {
   it('never splits a word', () => {
     const text = 'Fluchtweg Brandabschnitt'
     expect(furthestCleanCut(text, 0, 14)).toBe(10)
+  })
+})
+
+/** Every word gap after `from` that `isCleanCut` accepts, asked position by position: the definition the walk is held to. */
+const cleanCutsByDefinition = (text: string, from: number) => {
+  const cuts: number[] = []
+  for (let i = from + 1; i <= text.length; i++) {
+    if ((text[i - 1] === ' ' || text[i - 1] === '\n') && isCleanCut(text.slice(0, i))) cuts.push(i)
+  }
+  return cuts
+}
+
+/** Every construct `isCleanCut` has a rule for, in one answer. */
+const MIXED = [
+  'Die **Außentreppe** ist [OIB-RL 2](https://example.org) zu prüfen, `R 90` gilt (siehe [1]). ',
+  '',
+  '  ```mermaid',
+  'flowchart TD',
+  '  A --> B',
+  '```',
+  '',
+  'Die Werte:',
+  '',
+  '| Spalte | Wert |',
+  '| --- | --- |',
+  '| Treppe | offen |',
+  '|  | R 30 | ',
+  '| ',
+  '',
+  ' ',
+  '~~~',
+  'roh ( [ ` ',
+  '~~~',
+  'Zuletzt (eine Klammer [und `Code` darin]) und ein Ende ',
+].join('\n')
+
+describe('the clean-cut walk', () => {
+  // `nextCleanCut` and `furthestCleanCut` walk the text once instead of asking
+  // `isCleanCut` per position; they must find exactly the cuts it would.
+  it('finds exactly the cuts isCleanCut accepts, from any start, on every prefix', () => {
+    for (let end = 0; end <= MIXED.length; end += 7) {
+      const text = MIXED.slice(0, end)
+      for (let from = 0; from < text.length; from += 11) {
+        const expected = cleanCutsByDefinition(text, from)
+        expect(nextCleanCut(text, from), `${from} in ${JSON.stringify(text)}`).toBe(expected[0])
+        const limit = from + 40
+        const within = expected.filter((cut) => cut <= limit)
+        expect(furthestCleanCut(text, from, limit)).toBe(within.at(-1) ?? from)
+      }
+    }
+  })
+
+  // Inside an open fence no position is clean, so the search for the next cut
+  // walks to the end of the text. Asking `isCleanCut` per position re-read the
+  // whole prefix each time: 6.9 ms a frame on a desktop for 3.5k of prose
+  // ahead of an open 4k mermaid fence.
+  it('is linear in the text when a fence is still open', () => {
+    const inOpenFence = (chars: number) => {
+      const prose = PROSE.repeat(Math.ceil(chars / 2 / PROSE.length)).slice(0, chars / 2)
+      const fence = 'A --> B\n'.repeat(Math.ceil(chars / 2 / 8)).slice(0, chars / 2)
+      return `${prose}\n\n\`\`\`mermaid\nflowchart TD\n${fence}`
+    }
+    const time = (chars: number) => {
+      const text = inOpenFence(chars)
+      return elapsedMs(() => {
+        nextCleanCut(text, chars / 4)
+        furthestCleanCut(text, chars / 4, text.length)
+      })
+    }
+    expect(growthRatio(time, { size: 2000 })).toBeLessThan(LINEAR_BOUND)
   })
 })
 

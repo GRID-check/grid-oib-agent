@@ -19,7 +19,7 @@
 import { v5 as uuidv5 } from 'uuid'
 import type { Message } from '@/lib/db/schema'
 import { ConflictError } from '@/lib/api/errors'
-import { sharedPrefixChars, stoppedAnswer } from '@/features/chat/lib/stopped-answer'
+import { holdsNoMoreThan, sharedPrefixChars, stoppedAnswer } from '@/features/chat/lib/stopped-answer'
 
 /**
  * How long after the stored answer was written its asker may still cut it.
@@ -45,24 +45,34 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const storedAsStopped = (metadata: Record<string, unknown>): boolean =>
   metadata.stopped === true || (isRecord(metadata.provenance) && metadata.provenance.stopped === true)
 
+/** A row that stands for something other than an answer the reader watched arrive: a run hand-off, a queue notice. */
+const answeredElsewhere = (metadata: Record<string, unknown>): boolean =>
+  metadata.run !== undefined || metadata.job_admission_rejected === true
+
 /**
- * The row's new content and metadata, or null when it is already what the
- * reader saw (stored as stopped by the agent tier's cut or by the browser).
- * Throws `ConflictError` for a row that is not a recent chat answer.
+ * The row's new content and metadata, or null when it already holds no more
+ * than the reader saw (a cut the agent tier, the browser or an earlier call
+ * made). Throws `ConflictError` for a row that is not a recent chat answer,
+ * and for a cut that would keep nothing.
+ *
+ * The stopped mark alone does not end it. The browser's provenance mirror
+ * writes the mark too, and any collaborator may PATCH provenance: a mark on a
+ * row that still holds the whole answer would otherwise leave it whole for
+ * good. What decides is the text, so a retry is still harmless.
  */
 export const cutStoppedRow = (
   existing: Message,
   shown: string,
   now: number
 ): { content: string; metadata: Record<string, unknown> } | null => {
-  if (existing.role !== 'assistant' || existing.runId) {
+  const metadata = isRecord(existing.metadata) ? existing.metadata : {}
+  if (existing.role !== 'assistant' || existing.runId || answeredElsewhere(metadata)) {
     throw new ConflictError('Only a chat answer can be stopped.', { reason: 'not_an_answer' })
   }
   if (now - new Date(existing.createdAt).getTime() > STOP_CUT_WINDOW_MS) {
     throw new ConflictError('This answer can no longer be stopped.', { reason: 'too_late' })
   }
-  const metadata = isRecord(existing.metadata) ? existing.metadata : {}
-  if (storedAsStopped(metadata)) return null
+  if (storedAsStopped(metadata) && holdsNoMoreThan(existing.content, shown)) return null
 
   const cards: unknown[] = Array.isArray(metadata.cards) ? metadata.cards : []
   // The stored text is the settled answer, so its `[N]` resolve to the stored
@@ -73,6 +83,12 @@ export const cutStoppedRow = (
     { text: existing.content, settled: existing.content, sources: citations, cards },
     sharedPrefixChars(existing.content, shown)
   )
+  // A Stop crosses a finished answer by the reveal's lag, with some of it on
+  // screen. A cut to nothing is not that: it would let the asker blank any of
+  // their answers of the last minutes, so it is refused and the row kept.
+  if (!kept.text && kept.cards.length === 0) {
+    throw new ConflictError('Nothing of this answer was on screen to keep.', { reason: 'nothing_shown' })
+  }
   const { cards: _cards, citations: _citations, ...rest } = metadata
   const provenance = isRecord(metadata.provenance) ? metadata.provenance : {}
   return {

@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
-import { vi, describe, test, expect, beforeEach } from 'vitest'
+import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { ChatArea } from './ChatArea'
 import type { ChatStoreWithHydration } from '@/features/chat/store'
 import type { ChatMessage } from '@/features/chat/types'
@@ -1250,6 +1250,67 @@ describe('ChatArea — the live Herleitung', () => {
 
     expect(herleitung().isStopped).toBe(true)
     expect(container.textContent).toContain('Stopped')
+  })
+
+  const settleNote = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('[role="status"][aria-atomic="true"]'))
+      .map((el) => el.textContent ?? '')
+      .join(' ')
+
+  test('a failed answer says „Failed", never that the answer is ready', () => {
+    use(turnState([question(), answer('Die Antw', { failed: true })], true))
+    const { rerender, container } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+    use(turnState([question(), answer('Die Antw', { failed: true })], false))
+    rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+
+    expect(settleNote(container)).toContain('Failed')
+    expect(settleNote(container)).not.toContain('Answer ready')
+  })
+
+  test('a turn handed to a run says the run was commissioned, not the provisional message as the answer', () => {
+    const handedOff: ChatStoreFixture = {
+      turns: { 'user-1': { ...initialTurnView('user-1', 'c1'), phase: 'finished', outcome: 'handed_off' } },
+    }
+    use(turnState([question(), answer('Ich lege einen Auftrag an.')], true, handedOff))
+    const { rerender, container } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+    use(turnState([question(), answer('Ich lege einen Auftrag an.')], false, handedOff))
+    rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+
+    expect(settleNote(container)).toContain('Run commissioned')
+    expect(settleNote(container)).not.toContain('Answer ready')
+  })
+
+  test('an answer row already on screen is not withheld at its first word', () => {
+    // A snapshot can mount the answer before its first word (its sources, no
+    // text). Holding it then pulled the row out of the thread and back in.
+    use(turnState([question()], true))
+    const { rerender } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+    use(turnState([question(), answer('')], true))
+    rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+    const row = document.getElementById('message-answer-1')
+    expect(row).not.toBeNull()
+
+    use(turnState([question(), answer('Die')], true))
+    rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+    // Drawn with its first word at once: a withheld row is left to its exit,
+    // frozen at what it showed before.
+    expect(screen.getByTestId('agent-response')).toHaveTextContent('Die')
+    expect(document.getElementById('message-answer-1')).toBe(row)
+  })
+
+  test('a Stop inside the fold still waits for the fold, then places the answer', async () => {
+    use(turnState([question()], true))
+    const { rerender } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+    use(turnState([question(), answer('Die')], true))
+    rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+    expect(screen.queryByTestId('agent-response')).not.toBeInTheDocument()
+
+    // The turn ends mid-fold: keyed on the live turn, the hold let go at once
+    // and the answer mounted under the panel still fading out.
+    use(turnState([question(), answer('Die', { stopped: true })], false))
+    rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+    expect(screen.queryByTestId('agent-response')).not.toBeInTheDocument()
+    expect(await screen.findByTestId('agent-response')).toBeInTheDocument()
   })
 
   // „Unterbrochen" means the answer was LOST. A turn whose ending this client
@@ -2539,5 +2600,191 @@ describe('ChatArea — opening a thread, its endings and its dock', () => {
     const presence = screen.getByTestId('typing-presence')
     expect(screen.getByTestId('thread-status-dock')).toContainElement(presence)
     expect(screen.getByRole('region')).not.toContainElement(presence)
+  })
+})
+
+/**
+ * Where a thread opens and what it is while it loads, where more than one
+ * input decides it: a deep link, a shared thread's read, a colleague's turns,
+ * the composer's height.
+ */
+describe('ChatArea — placement and phase across inputs', () => {
+  const ANNA = 'user_anna'
+  const setPending = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSharedThread = { ...INERT_SHARED_THREAD }
+    mockSpectated = { turn: null, live: false }
+    mockProjectId = null
+    useAnswerRevealStore.setState({ revealingId: null })
+  })
+
+  const use = (state: ChatStoreFixture) =>
+    vi
+      .mocked(useChatStore)
+      .mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
+        selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+      )
+  const thread = (id: string, messages: MessageFixture[], extra: ChatStoreFixture = {}): ChatStoreFixture => ({
+    currentConversation: { id, messages },
+    isLoading: false,
+    isStreaming: false,
+    hasHydrated: true,
+    currentUserMessageId: null,
+    pendingMessagesFor: null,
+    setPendingMessagesFor: setPending,
+    respondToPrompt: mockRespondToPrompt,
+    dismissErrorCard: mockDismissErrorCard,
+    setComposerPrefill: mockSetComposerPrefill,
+    retryLastUserMessage: vi.fn(),
+    ...extra,
+  })
+  const asked = (id: string, authorUserId?: string): MessageFixture => ({
+    id,
+    role: 'user',
+    messageType: 'user',
+    content: `question ${id}`,
+    ...(authorUserId ? { authorUserId } : {}),
+  })
+  const answered = (id: string): MessageFixture => ({
+    id,
+    role: 'assistant',
+    messageType: 'agent_response',
+    content: 'Antwort.',
+  })
+
+  test("a shared thread's first read names the thread loading in the store, which the layout reads", () => {
+    // MainLayout decides the composer's lift from the store's phase; decided
+    // from ChatArea's own flag alone, it lifted the composer over the skeleton.
+    mockSharedThread = { ...INERT_SHARED_THREAD, shared: true, loading: true }
+    use(thread('c1', []))
+    const { rerender } = render(<ChatArea isAuthenticated canCollaborate onSignIn={vi.fn()} />)
+    expect(setPending).toHaveBeenCalledWith('c1')
+
+    // The history lands: the claim is released.
+    mockSharedThread = { ...INERT_SHARED_THREAD, shared: true, loading: false }
+    use(thread('c1', [asked('m1')], { pendingMessagesFor: 'c1' }))
+    rerender(<ChatArea isAuthenticated canCollaborate onSignIn={vi.fn()} />)
+    expect(setPending).toHaveBeenLastCalledWith(null)
+  })
+
+  test('a thread the store is already fetching is left to that fetch to release', () => {
+    mockSharedThread = { ...INERT_SHARED_THREAD, shared: true, loading: true }
+    use(thread('c1', [], { pendingMessagesFor: 'c1' }))
+    const { rerender } = render(<ChatArea isAuthenticated canCollaborate onSignIn={vi.fn()} />)
+
+    mockSharedThread = { ...INERT_SHARED_THREAD, shared: true, loading: false }
+    rerender(<ChatArea isAuthenticated canCollaborate onSignIn={vi.fn()} />)
+    expect(setPending).not.toHaveBeenCalled()
+  })
+
+  test("watches the composer's height on its ancestors before the composer has measured itself", () => {
+    // Found by the variable, the host was missed until `--composer-h` was set,
+    // and the first thread after a mount never refitted its spacer.
+    const observe = vi.spyOn(MutationObserver.prototype, 'observe')
+    try {
+      use(thread('c1', [asked('m1')]))
+      render(
+        <div data-testid="column">
+          <ChatArea isAuthenticated onSignIn={vi.fn()} />
+        </div>
+      )
+      const column = screen.getByTestId('column')
+      expect(column.style.getPropertyValue('--composer-h')).toBe('')
+      expect(observe).toHaveBeenCalledWith(column, { attributes: true, attributeFilter: ['style'] })
+    } finally {
+      observe.mockRestore()
+    }
+  })
+
+  describe("a colleague's turns, watched live", () => {
+    let questionTop = 300
+    let rect: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      questionTop = 300
+      mockSharedThread = {
+        ...INERT_SHARED_THREAD,
+        shared: true,
+        turnInFlight: { actorUserId: ANNA },
+        authorOf: (userId?: string | null) =>
+          userId === ANNA ? { userId: ANNA, name: 'Anna Berger' } : null,
+      }
+      mockSpectated = { turn: spectatedTurn(), live: true }
+      // A 900px viewport; the composer (its 176px fallback) and the 24px gap
+      // over its foot leave 700px to read. The newest question's top is put
+      // where each test needs it.
+      rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+        this: Element
+      ) {
+        const top = this.id === 'message-m2' ? questionTop : 0
+        const bottom = this.classList.contains('overflow-y-auto') ? 900 : top
+        return { top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }
+      })
+    })
+    afterEach(() => rect.mockRestore())
+
+    const anchored = () =>
+      Array.from(document.querySelectorAll('[data-chat-anchor="true"]')).map((el) => el.id)
+
+    test('anchors the next turn too, for a reader who watched the last one to its end', () => {
+      use(thread('s1', [asked('m1', ANNA)]))
+      const { rerender } = render(<ChatArea isAuthenticated canCollaborate onSignIn={vi.fn()} />)
+      expect(anchored()).toEqual(['message-m1'])
+
+      // Anchoring stopped following; asking for following alone left the
+      // second turn chasing the bottom.
+      use(thread('s1', [asked('m1', ANNA), answered('a1'), asked('m2', ANNA)]))
+      rerender(<ChatArea isAuthenticated canCollaborate onSignIn={vi.fn()} />)
+      expect(anchored()).toEqual(['message-m2'])
+    })
+
+    test('leaves a reader who scrolled up to read where they are', () => {
+      questionTop = 1500
+      use(thread('s1', [asked('m1', ANNA)]))
+      const { rerender } = render(<ChatArea isAuthenticated canCollaborate onSignIn={vi.fn()} />)
+
+      use(thread('s1', [asked('m1', ANNA), answered('a1'), asked('m2', ANNA)]))
+      rerender(<ChatArea isAuthenticated canCollaborate onSignIn={vi.fn()} />)
+      expect(anchored()).toEqual(['message-m1'])
+    })
+  })
+
+  test('a deep-linked thread switched away from and back to is placed like any other', () => {
+    // The link's own visit kept its position; remembered for good, the thread
+    // was never placed again.
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    const scrollHeight = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(2000)
+    const clientHeight = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(900)
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element
+    ) {
+      const top = this.id.startsWith('message-') ? 5000 : 0
+      return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON: () => ({}) }
+    })
+    window.history.replaceState(null, '', '/chat?session=A#message-a1')
+    try {
+      use(thread('A', [asked('a1')]))
+      const { rerender } = render(<ChatArea isAuthenticated onSignIn={vi.fn()} />)
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+
+      use(thread('B', [asked('b1')]))
+      rerender(<ChatArea isAuthenticated onSignIn={vi.fn()} />)
+      const viewport = screen.getByRole('region', { name: /messages/i })
+      viewport.scrollTop = 0
+
+      use(thread('A', [asked('a1')]))
+      rerender(<ChatArea isAuthenticated onSignIn={vi.fn()} />)
+      // Opened at its end: 2000 of content in a 900px viewport.
+      expect(viewport.scrollTop).toBe(1100)
+    } finally {
+      window.history.replaceState(null, '', '/')
+      Element.prototype.scrollIntoView = originalScrollIntoView
+      scrollHeight.mockRestore()
+      clientHeight.mockRestore()
+      rect.mockRestore()
+    }
   })
 })

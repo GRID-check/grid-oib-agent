@@ -310,6 +310,14 @@ describe('after a Stop pressed on this page', () => {
     expect(after.cards).toBe(view.cards)
   })
 
+  it('stays stopped when the run fails after the Stop, rather than turning failed', () => {
+    const view = stoppedHere()
+    const after = foldTurnEvent(view, body(3, { type: 'RUN_ERROR', code: 'workflow_error', message: 'boom' }))
+    expect(after).toMatchObject({ text: 'Nach § 87 ', phase: 'finished', outcome: 'cancelled', lastSeq: 3 })
+    expect(after.error).toBeUndefined()
+    expect(after.cards).toBe(view.cards)
+  })
+
   it('folds the terminal as sent for a view that did not stop here (a replay, a spectator)', () => {
     const view = fold([delta(1, 'Nach § 87 '), finished(2, { text: 'Nach § 87 der Wiener Bauordnung …' }, 'cancelled')])
     expect(view.text).toBe('Nach § 87 der Wiener Bauordnung …')

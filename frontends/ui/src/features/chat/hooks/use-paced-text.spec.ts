@@ -318,6 +318,21 @@ describe('usePacedText, mounting mid-turn', () => {
     expect(result.current.text).toBe(text)
   })
 
+  // The summary is decided in the render after the mount, so a headed answer
+  // joined mid-way mounted with its prose alone and got the head a render
+  // later. That read as a rewrite: the shown prose shrank by the head's length
+  // and was typed out again on every thread switch and reload.
+  it('keeps the shown prose when a head arrives in front of it after a mid-way mount', () => {
+    const { result, rerender } = renderHook(
+      ({ text, lead }) => usePacedText(text, true, true, false, 'headed-after', lead),
+      { initialProps: { text: LONG, lead: 0 } }
+    )
+    expect(result.current.text).toBe(LONG)
+
+    rerender({ text: `${SUMMARY}${LONG}`, lead: SUMMARY.length })
+    expect(result.current.text).toBe(`${SUMMARY}${LONG}`)
+  })
+
   it('shows what a remounted answer had on screen at once, however short', () => {
     const first = renderHook(() => usePacedText(SENTENCE, true, true, false, 'switched'))
     act(() => vi.advanceTimersByTime(16 * 4))

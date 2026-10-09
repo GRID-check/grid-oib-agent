@@ -14,7 +14,16 @@
  * because the write is a synchronous store update, never a round trip.
  */
 
-import { type CSSProperties, type FC, useEffect, useId, useState } from 'react'
+import {
+  type CSSProperties,
+  type FC,
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { ChevronDown, HelpCircle } from 'lucide-react'
 
 import { motion, springGlide } from '@/components/motion'
@@ -57,6 +66,14 @@ interface EffortDialProps {
    * every control beside it jump sideways twice per prompt.
    */
   hidden?: boolean
+  /**
+   * Where the keyboard goes if the dial hides while it holds the focus (the
+   * chip, or the slider in its open popover). The composer passes its field:
+   * the dial hides because a question arrived, and the field is where it is
+   * answered. Without it the focus is let go to <body> rather than left on a
+   * control nobody can see.
+   */
+  focusOnHide?: RefObject<HTMLElement | null>
   className?: string
 }
 
@@ -64,6 +81,7 @@ export const EffortDial: FC<EffortDialProps> = ({
   conversationId,
   disabled = false,
   hidden = false,
+  focusOnHide,
   className,
 }) => {
   const t = useTranslations('chat')
@@ -80,10 +98,28 @@ export const EffortDial: FC<EffortDialProps> = ({
   // leaving its popover standing over an invisible chip.
   const [open, setOpen] = useState(false)
 
+  // Hiding while focused hands the focus on, before paint, so no frame has the
+  // keyboard on an invisible, aria-hidden control (and a screen reader is not
+  // left announcing one).
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!hidden) return
+    const focused = document.activeElement
+    if (!(focused instanceof HTMLElement)) return
+    const holdsFocus =
+      (triggerRef.current?.contains(focused) ?? false) ||
+      (contentRef.current?.contains(focused) ?? false)
+    if (!holdsFocus) return
+    if (focusOnHide?.current) focusOnHide.current.focus()
+    else focused.blur()
+  }, [hidden, focusOnHide])
+
   return (
     <Popover open={open && !hidden} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          ref={triggerRef}
           variant="ghost"
           size="sm"
           data-testid="effort-dial-trigger"
@@ -121,6 +157,12 @@ export const EffortDial: FC<EffortDialProps> = ({
         sideOffset={8}
         className="w-72 p-4"
         data-testid="effort-dial"
+        ref={contentRef}
+        // Closed by hiding: the focus has already moved on (above), and
+        // Radix's return to the trigger would put it back on the hidden chip.
+        onCloseAutoFocus={(event) => {
+          if (hidden) event.preventDefault()
+        }}
       >
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm">

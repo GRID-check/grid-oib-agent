@@ -297,7 +297,11 @@ export function markStatusCells(cells: Element[], text: (cell: Element) => strin
  *    closes;
  *  - draws no tally, but reserves its line (`data-tally-reserve`) from the
  *    header on, so the chips fade into a line that was already there instead
- *    of pushing the table down by a row when it closes.
+ *    of pushing the table down by a row when it closes. A table that closes
+ *    with no tally after all (too few rows to count, or a last row without a
+ *    status word) says `closed`: the renderer keeps the empty line where the
+ *    table streamed, because dropping it then pulled the table up by a row at
+ *    the very moment it finished. A reload has no line to keep.
  *
  * Stacking reads every row, the last included: a cell only grows, so a table
  * that turns prose-stacked stays so.
@@ -305,7 +309,7 @@ export function markStatusCells(cells: Element[], text: (cell: Element) => strin
 function shapeTable(table: Element, open: boolean): void {
   const parts = tableParts(table)
   if (!parts) {
-    stackHeaderOnly(table)
+    stackHeaderOnly(table, open)
     return
   }
   const { head, rows } = parts
@@ -325,12 +329,14 @@ function shapeTable(table: Element, open: boolean): void {
   }
   const statusColumn = columnOf(STATUS_HEADERS)
   if (statusColumn >= 0) {
-    if (!open) {
-      const tally = statusTally(columnCells(rows, statusColumn), text)
-      if (tally) table.properties = { ...table.properties, dataTally: tally }
-    } else if (complete.every(({ cells }) => cells[statusColumn] !== undefined && statusTone(text(cells[statusColumn])))) {
-      table.properties = { ...table.properties, dataTallyReserve: 'true' }
-    }
+    // What the open table reserved on its last frame: every row but the one
+    // being written says a status word. Read the same way once it closes.
+    const held = rows
+      .slice(0, -1)
+      .every(({ cells }) => cells[statusColumn] !== undefined && statusTone(text(cells[statusColumn])))
+    const tally = open ? null : statusTally(columnCells(rows, statusColumn), text)
+    if (tally) table.properties = { ...table.properties, dataTally: tally }
+    else if (held) table.properties = { ...table.properties, dataTallyReserve: open ? 'true' : 'closed' }
     markStatusCells(rows.flatMap((row) => row.cells[statusColumn] ?? []), text)
     markActiveRows(rows, statusColumn, text)
   }
@@ -361,11 +367,18 @@ function shapeTable(table: Element, open: boolean): void {
  * at the first row, hid it and restacked: the header showed for a frame and
  * vanished (stream audit 2026-10). Only the column count is known here, so
  * only the container-width stack is decided; a prose stack waits for a cell.
+ * An open one with a Status column reserves the tally's line already: held
+ * only from the first row on, the line pushed the header down a row there.
  */
-function stackHeaderOnly(table: Element): void {
+function stackHeaderOnly(table: Element, open: boolean): void {
   const thead = elements(table, 'thead')[0]
   const headRow = thead && elements(thead, 'tr')[0]
-  if (headRow && cellsOf(headRow).length >= 3) table.properties = { ...table.properties, dataStack: 'true' }
+  if (!headRow) return
+  const headers = cellsOf(headRow)
+  if (headers.length >= 3) table.properties = { ...table.properties, dataStack: 'true' }
+  if (open && headers.some((cell) => STATUS_HEADERS.has(key(cellText(cell))))) {
+    table.properties = { ...table.properties, dataTallyReserve: 'true' }
+  }
 }
 
 function visitTables(node: Root | Element, open: Element | null): void {

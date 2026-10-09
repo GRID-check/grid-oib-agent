@@ -32,16 +32,26 @@ from aiq_agent.common.wire_v2 import WireSource
 
 logger = logging.getLogger(__name__)
 
+# Every class below is ASCII and spelled out: whitespace is `` \t\n\r\f\v``, a
+# digit is ``0-9``. Python's ``\s``, ``\d`` and ``str.strip()`` are Unicode-wide and
+# JavaScript's differ from them (Python strips U+0085 and U+001C, ``trim`` strips
+# U+FEFF; Python's ``\d`` matches a full-width digit), and any difference is a
+# reload that shows other bytes than the reader stopped on. ``stopped-answer.ts``
+# spells the same classes; ``stopped-cases.jsonl`` holds a case for each.
+
+#: The whitespace the stop rule knows, for ``str.strip``: the ASCII set both languages agree on.
+_STOP_WHITESPACE = " \t\n\r\f\v"
 #: A citation marker the settle has not resolved yet: the streamed ``[N]``.
-_PENDING_MARKER = re.compile(r"\s*\[\d+\]")
+_PENDING_MARKER = re.compile(r"[ \t\n\r\f\v]*\[[0-9]+\]")
 #: A card's place in the prose. A stopped turn carries no cards, so the place would never fill.
-_CARD_MARKER = re.compile(r"\s*\[\[card:\d+\]\]")
+_CARD_MARKER = re.compile(r"[ \t\n\r\f\v]*\[\[card:[0-9]+\]\]")
 #: A card's place, with its number, for a stopped turn that keeps the cards the reader saw.
-_NUMBERED_CARD_MARKER = re.compile(r"\s*\[\[card:(\d+)\]\]")
-#: A marker the reader's cut left open at the very end (``[1``, ``[[card:``): half a marker means nothing.
+_NUMBERED_CARD_MARKER = re.compile(r"[ \t\n\r\f\v]*\[\[card:([0-9]+)\]\]")
+#: A marker the reader's cut left open at the very end (``[1``, ``[[card:``, ``[[card:1]``): half a
+#: marker means nothing. The last one holds a ``]``, which the first alternative stops at.
 #: ``\Z``, not ``$``: ``$`` also matches before a final newline, so ``[1\n`` read as a half marker
 #: here and not in ``stopped-answer.ts``, whose ``$`` is the end of the text.
-_OPEN_MARKER_TAIL = re.compile(r"\s*\[\[?[^\[\]\s]*\Z")
+_OPEN_MARKER_TAIL = re.compile(r"[ \t\n\r\f\v]*(?:\[\[?[^\[\] \t\n\r\f\v]*|\[\[card:[0-9]+\])\Z")
 
 
 @dataclass
@@ -158,14 +168,17 @@ class TurnTextFold:
         resolved = stretch.settled is not None and stretch.settled.startswith(text)
         if not resolved:
             text = _PENDING_MARKER.sub("", text)
-        sources = list(stretch.sources) if resolved and text.strip() else []
+        sources = list(stretch.sources) if resolved and text.strip(_STOP_WHITESPACE) else []
         if shown is None:
-            return StoppedAnswer(text=_CARD_MARKER.sub("", text).strip(), sources=sources)
+            return StoppedAnswer(text=_CARD_MARKER.sub("", text).strip(_STOP_WHITESPACE), sources=sources)
         cards = _placed_cards(stretch, text, shown.seq)
         text = _NUMBERED_CARD_MARKER.sub(lambda m: m.group(0) if int(m.group(1)) <= len(cards) else "", text)
         mastheads = [meta for at, meta in stretch.mastheads if at <= shown.seq]
         return StoppedAnswer(
-            text=text.strip(), sources=sources, answer_meta=mastheads[-1] if mastheads else None, cards=cards
+            text=text.strip(_STOP_WHITESPACE),
+            sources=sources,
+            answer_meta=mastheads[-1] if mastheads else None,
+            cards=cards,
         )
 
 

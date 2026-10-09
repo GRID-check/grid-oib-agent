@@ -182,6 +182,17 @@ const layoutTop = (el: HTMLElement): number => {
   }
 }
 
+/**
+ * The lowest line of the thread the reader can see: the viewport's foot less
+ * the floating composer over it and the list's clearance above that (the
+ * list's bottom padding is the composer's height plus 1.5rem, the same).
+ */
+const visibleBottom = (container: HTMLElement): number => {
+  const composer = Number.parseFloat(getComputedStyle(container).getPropertyValue('--composer-h'))
+  const covered = (Number.isFinite(composer) ? composer : COMPOSER_FALLBACK_PX) + LIST_END_GAP_PX
+  return container.getBoundingClientRect().bottom - covered
+}
+
 interface ChatAreaProps {
   /** Whether the user is authenticated */
   isAuthenticated?: boolean
@@ -240,6 +251,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // the empty canvas, or a thread. The same selector decides whether
   // `MainLayout` lifts the composer, so the two never disagree.
   const threadPhase = useChatStore(selectThreadPhase)
+  const pendingMessagesFor = useChatStore((s) => s.pendingMessagesFor)
+  const setPendingMessagesFor = useChatStore((s) => s.setPendingMessagesFor)
   // The stream ends before the answer's text is all on screen: the answer
   // finishes what its pace held back, then settles. The Herleitung's header
   // stays live until then (`answer-reveal-store.ts`); it folded long before,
@@ -493,9 +506,29 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // way: from storage, from the server, or (for a first-time recipient of a
   // shared thread) from the shared read, whose history lands a moment after
   // the conversation is materialised empty.
-  const showSkeleton =
-    threadPhase === 'hydrating' || threadPhase === 'loading' || (shared && sharedLoading && isEmpty)
+  const sharedHistoryPending = shared && sharedLoading && isEmpty
+  const showSkeleton = threadPhase === 'hydrating' || threadPhase === 'loading' || sharedHistoryPending
   const listReady = !showSkeleton
+  // The shared read is a history fetch like the store's own, so it names the
+  // thread pending in the store too: `MainLayout` reads the phase from there,
+  // and decided "empty" on its own it lifted the composer over this skeleton.
+  // Only a claim this view made is released here; a store fetch that named the
+  // thread first clears its own (a release here would greet the reader while
+  // it is still in flight). Before paint, so the two are never seen apart.
+  const sharedPendingClaimRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    const id = currentConversation?.id ?? null
+    if (sharedHistoryPending && id) {
+      if (sharedPendingClaimRef.current === id || pendingMessagesFor === id) return
+      sharedPendingClaimRef.current = id
+      setPendingMessagesFor?.(id)
+      return
+    }
+    const claimed = sharedPendingClaimRef.current
+    if (!claimed) return
+    sharedPendingClaimRef.current = null
+    if (pendingMessagesFor === claimed) setPendingMessagesFor?.(null)
+  }, [sharedHistoryPending, currentConversation?.id, pendingMessagesFor, setPendingMessagesFor])
   // Whether the list now on screen replaces the skeleton (the frame before was
   // the skeleton): only then does it fade in.
   const skeletonShownRef = useRef(showSkeleton)
@@ -543,6 +576,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // the link was about (they used to, a frame after it landed).
   const deepLinkedConversationRef = useRef<string | undefined>(undefined)
   const { highlightedId: highlightedMessageId, isTargetPending } = useMessageAnchor(anchoredMessageIds, {
+    conversationId: currentConversation?.id ?? null,
+    // All of the thread is here: a target missing now is missing from it, and
+    // stops holding the thread's placement and follow. Not while a shared
+    // thread's history is still arriving, which is where an inbox link's
+    // message usually is.
+    ready: listReady && !sharedLoading,
     onLand: () => {
       deepLinkedConversationRef.current = currentConversation?.id
       glideRef.current?.stop()
@@ -837,10 +876,10 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     if (index < 0) return null
     const rest = displayableMessages.slice(index + 1)
     const nextQuestion = rest.findIndex((m) => m.messageType === 'user' || m.role === 'user')
-    const answer = (nextQuestion >= 0 ? rest.slice(0, nextQuestion) : rest).find(
-      (m) => m.messageType === 'agent_response'
-    )
+    const messages = nextQuestion >= 0 ? rest.slice(0, nextQuestion) : rest
+    const answer = messages.find((m) => m.messageType === 'agent_response')
     return {
+      messages,
       answerId: answer?.id ?? null,
       // Begun the moment the answer has ANYTHING to draw: its masthead or a
       // card can arrive before its first word, and an answer that opened with
@@ -849,6 +888,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
         answer && (answer.content.trim() || answer.answerMeta || answer.cards?.some(Boolean))
       ),
       stopped: answer?.stopped === true,
+      failed: answer?.failed === true,
       gist: answer ? answerGist(answer) : '',
     }
   }, [currentUserMessageId, displayableMessages])
@@ -869,16 +909,27 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // below an open panel (below the fold, on most screens) and was then yanked
   // up by the panel's height, 400 px, as the reader started reading it. Held,
   // it mounts where it stays, directly under the folded bar. Only an answer
-  // this view watched begin, under a Herleitung that had steps to fold.
-  const foldHoldId =
+  // this view watched begin, under a Herleitung that had steps to fold, and
+  // only one not on screen yet: an answer row a snapshot mounted before its
+  // first word (its sources, no text) is already where it stays, and holding
+  // it pulled it out of the thread and back in.
+  //
+  // The hold runs from the fold's start to its end, whatever the turn does
+  // meanwhile: keyed on the live turn, a Stop or an end inside the fold
+  // released it at once, and the answer mounted under the fading panel.
+  const renderedIdsRef = useRef(new Set<string>())
+  const foldStarts =
     turnLive &&
     currentTurnHasSteps &&
     currentTurn?.answerBegun &&
     currentTurn.answerId &&
-    !hydratedIds.has(currentTurn.answerId)
+    !hydratedIds.has(currentTurn.answerId) &&
+    !renderedIdsRef.current.has(currentTurn.answerId)
       ? currentTurn.answerId
       : null
+  const [foldHoldId, setFoldHoldId] = useState<string | null>(null)
   const [releasedHoldId, setReleasedHoldId] = useState<string | null>(null)
+  if (foldStarts && foldStarts !== foldHoldId && foldStarts !== releasedHoldId) setFoldHoldId(foldStarts)
   useEffect(() => {
     if (!foldHoldId || releasedHoldId === foldHoldId) return
     const timer = setTimeout(
@@ -887,18 +938,35 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     )
     return () => clearTimeout(timer)
   }, [foldHoldId, releasedHoldId, prefersReducedMotion])
-  const heldAnswerId = foldHoldId && releasedHoldId !== foldHoldId ? foldHoldId : null
+  const holdId = foldStarts ?? foldHoldId
+  const heldAnswerId = holdId && releasedHoldId !== holdId ? holdId : null
 
   // The settle, said once (WCAG 4.1.3). One stable region for the thread's
   // lifetime, written only when this client's turn ends: a live region that
   // mounts with its text is not announced, and one written per frame would be
   // read per frame. The header's own status says what Piloti is doing; this
-  // says the answer is there to be read, and what it comes to.
+  // says the answer is there to be read, and what it comes to. A turn that
+  // ended without an answer of its own says how, in the Herleitung's own word
+  // for it: „Antwort fertig" over a failed answer, or over the provisional
+  // message of a turn handed to a run, said the opposite of what happened.
   const [turnNote, setTurnNote] = useState({ live: turnLive, text: '' })
   if (turnNote.live !== turnLive) {
     let text = ''
-    if (!turnLive && currentTurn?.answerId) {
+    if (!turnLive && currentTurn && currentUserMessageId) {
+      const view = turns?.[currentUserMessageId]
+      const failed =
+        currentTurn.failed ||
+        view?.phase === 'failed' ||
+        failedTurnIdsRef.current.has(currentUserMessageId) ||
+        currentTurn.messages.some(
+          (m) => m.messageType === 'error' && m.errorData?.errorCode !== 'agent.response_interrupted'
+        )
+      const ending = turnEnding(view, currentTurn.messages, failed)
       if (currentTurn.stopped) text = t('chatArea.status.stopped')
+      else if (ending === 'failed') text = t('chatArea.status.failed')
+      else if (ending === 'handed_off') text = t('chatArea.status.handedOff')
+      else if (ending === 'refused') text = t('chatArea.status.refused')
+      else if (!currentTurn.answerId) text = ''
       else if (currentTurn.gist) text = t('chatArea.status.answerReadyWith', { gist: currentTurn.gist })
       else text = t('chatArea.status.answerReady')
     }
@@ -926,11 +994,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     const container = scrollContainerRef.current
     const spacer = anchorSpacerRef.current
     if (!container || !spacer) return 0
-    const composer = Number.parseFloat(getComputedStyle(container).getPropertyValue('--composer-h'))
-    // The composer floats over the viewport's foot; the list's bottom padding
-    // is its height plus 1.5rem, the same clearance as here.
-    const covered = (Number.isFinite(composer) ? composer : COMPOSER_FALLBACK_PX) + LIST_END_GAP_PX
-    return spacer.getBoundingClientRect().top - (container.getBoundingClientRect().bottom - covered)
+    return spacer.getBoundingClientRect().top - visibleBottom(container)
   }, [])
 
   /** Bring the content's end to just above the composer. */
@@ -1108,11 +1172,14 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     observer.observe(content)
     if (viewport) observer.observe(viewport)
     // The composer's height reaches the list as `--composer-h` on an ancestor's
-    // style, which no ResizeObserver here sees change: watch the attribute.
-    let host: HTMLElement | null = viewport
-    while (host && !host.style.getPropertyValue('--composer-h')) host = host.parentElement
+    // style, which no ResizeObserver here sees change: watch the attribute, on
+    // every ancestor. Found by the variable, the host was missed whenever the
+    // composer had not measured itself yet (the first thread after a mount), and
+    // a composer that shrank after the send left the spacer unfitted.
     const composerWatch = new MutationObserver(() => fitAnchorSpacer())
-    if (host) composerWatch.observe(host, { attributes: true, attributeFilter: ['style'] })
+    for (let host = viewport?.parentElement; host; host = host.parentElement) {
+      composerWatch.observe(host, { attributes: true, attributeFilter: ['style'] })
+    }
     return () => {
       cancelAnimationFrame(followRafRef.current)
       observer.disconnect()
@@ -1137,20 +1204,38 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // question at the top, the answer filling downward. Without it the observer
   // who was following the end chased the bottom of an answer they had not
   // asked for, the question scrolling off above. Only for an observer who was
-  // following: one reading further up is not moved. The reader's own send
-  // takes the anchor back.
+  // at the end: following, or watching the last anchored turn with its end in
+  // view (anchoring stops following, so asking for following alone anchored
+  // the first colleague's turn and none after it). One reading further up is
+  // not moved. The reader's own send takes the anchor back.
   const spectatorLive = isForeignTurn && spectatingLive
   const [spectatorAnchor, setSpectatorAnchor] = useState<{
     id: string
     sentId: string | null | undefined
   } | null>(null)
+  /**
+   * Whether the reader was at the end when this question arrived: its top, the
+   * end of the content before it, is in view above the composer. Measured at
+   * the new row rather than at the content's end, which the row itself has
+   * just moved down by its height.
+   */
+  const sawQuestionArrive = useCallback(
+    (questionId: string): boolean => {
+      const container = scrollContainerRef.current
+      const row = document.getElementById(`message-${questionId}`)
+      if (!container || !row || !container.contains(row)) return false
+      return layoutTop(row) - visibleBottom(container) <= UNSEEN_SLACK_PX
+    },
+    []
+  )
   useEffect(() => {
     const questionId = threadLayout.lastQuestionId
-    if (!spectatorLive || !questionId || !followRef.current) return
+    if (!spectatorLive || !questionId) return
+    if (!followRef.current && !(anchoredRef.current && sawQuestionArrive(questionId))) return
     setSpectatorAnchor((previous) =>
       previous?.id === questionId ? previous : { id: questionId, sentId: currentUserMessageId }
     )
-  }, [spectatorLive, threadLayout.lastQuestionId, currentUserMessageId])
+  }, [spectatorLive, threadLayout.lastQuestionId, currentUserMessageId, sawQuestionArrive])
   const anchorId =
     spectatorAnchor && spectatorAnchor.sentId === currentUserMessageId
       ? spectatorAnchor.id
@@ -1244,6 +1329,9 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
       setSpectatorAnchor(null)
       if (anchorSpacerRef.current) anchorSpacerRef.current.style.minHeight = '0px'
       positionedConversationRef.current = null
+      // The link's position held for its own visit. Coming back is a switch
+      // like any other: kept, the thread was never placed again.
+      deepLinkedConversationRef.current = undefined
     }
     const container = scrollContainerRef.current
     if (!id || !listReady || isEmpty || !container || positionedConversationRef.current === id) return
@@ -1602,6 +1690,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
 
                         // Withheld while the Herleitung above it folds (`heldAnswerId`).
                         if (message.id === heldAnswerId) return null
+                        renderedIdsRef.current.add(message.id)
 
                         // The just-sent question's turn is the top-anchor target on send.
                         const isAnchorTarget = isUserMessage && message.id === anchorId

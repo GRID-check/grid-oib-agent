@@ -9,6 +9,7 @@ import type {
   ResumableTurn,
 } from '../types'
 import { useLayoutStore } from '@/features/layout/store'
+import { forgetThreadPosition } from '@/features/layout/lib/thread-positions'
 import { useDocumentsStore } from '@/features/documents/store'
 import { discardSessionDocumentsResources } from '@/features/documents/discard-session-resources'
 import {
@@ -67,7 +68,8 @@ export type SessionsSlice = {
    * The thread being opened whose messages are not here yet: a fetch of its
    * server history is in flight, or a `?session=` deep link names it and the
    * server list that resolves it has not landed. Reactive, unlike the awaiting
-   * set in `chat-storage.ts`, because the thread draws from it: an open thread
+   * set in `chat-storage.ts`, because the thread draws from it (a shared
+   * thread's first read names it too, from `ChatArea`): an open thread
    * with no messages shows the loading skeleton while this names it, and the
    * empty canvas only once it does not. Read through `selectThreadPhase`.
    */
@@ -118,7 +120,8 @@ export type SessionsSlice = {
    * Separate from `_appendMessage` because none of it exists when the message is
    * posted: it accumulates from the intermediate frames while the answer streams.
    */
-  _persistTurnProvenance: () => Promise<void>
+  /** Mirror the turn's provenance; the PATCHes wait for `after` (a write that must land first), the read does not. */
+  _persistTurnProvenance: (after?: Promise<unknown>) => Promise<void>
   /** Mirror the answer to a HITL prompt onto its message row (ADR-0037). */
   _persistPromptState: (messageId: string, response: string) => Promise<void>
   /**
@@ -478,11 +481,14 @@ export const createSessionsSlice: StateCreator<
     // Messages here are the whole thread unless the server's were never loaded:
     // a follow-up sent before the history arrived is only the tail of it.
     if (conversation.messages.length > 0 && !isAwaitingServerMessages(conversationId)) return
+    // Set before the first await, so the commit that opened the thread already
+    // shows it loading rather than the empty canvas. And before the dedupe
+    // below: a thread reopened while its first fetch is still in flight (A, B,
+    // back to A) had its pending cleared by `selectConversation`, and returning
+    // here first left it reading as empty, the greeting, until that fetch landed.
+    if (get().currentConversation?.id === conversationId) get().setPendingMessagesFor(conversationId)
     if (hydratingConversationIds.has(conversationId)) return
     hydratingConversationIds.add(conversationId)
-    // Set before the first await, so the commit that opened the thread already
-    // shows it loading rather than the empty canvas.
-    if (get().currentConversation?.id === conversationId) get().setPendingMessagesFor(conversationId)
     // Cleared in the same `set` that brings the messages: a render with the
     // messages and the thread still "loading" would seed their entrance
     // bookkeeping as empty and play every row's entrance.
@@ -756,6 +762,8 @@ export const createSessionsSlice: StateCreator<
     // Delete the server-persisted row too — otherwise the next
     // loadServerConversations resurrects the session as an empty ghost.
     forgetServerConversation(conversationId)
+    // Where the reader was in it goes with it.
+    forgetThreadPosition(conversationId)
     getConversationsClient().then((conversationsClient) => {
       conversationsClient.delete(conversationId).catch((err) => {
         console.warn('[deleteConversation] Failed to delete server conversation:', err)
@@ -801,7 +809,10 @@ export const createSessionsSlice: StateCreator<
 
     // Delete the server-persisted rows too — otherwise the next
     // loadServerConversations resurrects every session as an empty ghost.
-    userConversations.forEach((conv) => forgetServerConversation(conv.id))
+    userConversations.forEach((conv) => {
+      forgetServerConversation(conv.id)
+      forgetThreadPosition(conv.id)
+    })
     getConversationsClient().then(async (conversationsClient) => {
       const results = await Promise.allSettled(
         userConversations.map((conv) => conversationsClient.delete(conv.id))
@@ -1226,7 +1237,7 @@ export const createSessionsSlice: StateCreator<
     }
   },
 
-  _persistTurnProvenance: async () => {
+  _persistTurnProvenance: async (after?: Promise<unknown>) => {
     const { currentConversation, currentUserMessageId } = get()
     if (!currentConversation) return
 
@@ -1312,6 +1323,10 @@ export const createSessionsSlice: StateCreator<
     if (targets.length === 0) return
 
     try {
+      // The targets are read above, now: by the time `after` settles the
+      // asker may have sent the next question, and the newest answer would be
+      // the wrong one.
+      await after?.catch(() => undefined)
       const conversationsClient = await getConversationsClient()
       // Sequential: both PATCHes take a row lock on the same conversation's
       // messages, and there is no deadline here worth racing them for.

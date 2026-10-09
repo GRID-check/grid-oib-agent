@@ -299,6 +299,13 @@ describe('a table still arriving', () => {
     expect(stackOf(`${head}\n| Stiege |`)).toBe('true')
   })
 
+  it('holds the tally’s line from the header on, before the first row', () => {
+    // Held only from the first row, the line pushed the header down by a row.
+    const head = CHECK.split('\n').slice(0, 2).join('\n')
+    render(<MarkdownRenderer content={head} isStreaming />)
+    expect(screen.getByTestId('status-tally-reserve')).toBeInTheDocument()
+  })
+
   it('gives a cell not yet written the line its first word will take', () => {
     // A stacked row on a phone grew as each padded cell got its word.
     const { container } = render(<MarkdownRenderer content={`${CHECK}\n| Stiege |`} isStreaming />)
@@ -319,5 +326,32 @@ describe('a table still arriving', () => {
     const { container } = render(<MarkdownRenderer content={`${CHECK}\n\nDanach folgt`} isStreaming />)
     expect(screen.getByTestId('status-tally')).toBeInTheDocument()
     expect(container.querySelector('caption')).not.toBeNull()
+  })
+
+  describe('closing with no tally after all', () => {
+    // Two rows are too few to count (a tally starts at three), so the line the
+    // open table held stays empty. Dropping it at the close pulled the table up
+    // by a row in the frame it finished.
+    const SHORT = CHECK.split('\n').slice(0, 4).join('\n')
+
+    it('keeps the held line where the table streamed', () => {
+      const { rerender } = render(<MarkdownRenderer content={`${SHORT}\n| Stiege | R 30 |`} isStreaming />)
+      expect(screen.getByTestId('status-tally-reserve')).toBeInTheDocument()
+
+      rerender(<MarkdownRenderer content={SHORT} />)
+      expect(screen.queryByTestId('status-tally')).toBeNull()
+      expect(screen.getByTestId('status-tally-reserve')).toBeInTheDocument()
+    })
+
+    it('draws no empty line for the same table loaded finished', () => {
+      render(<MarkdownRenderer content={SHORT} />)
+      expect(screen.queryByTestId('status-tally-reserve')).toBeNull()
+    })
+
+    it('holds no line once a written row says no status word', () => {
+      const plain = `${SHORT}\n| Stiege | R 30 | siehe Plan | [1] |\n| Dach |`
+      render(<MarkdownRenderer content={plain} isStreaming />)
+      expect(screen.queryByTestId('status-tally-reserve')).toBeNull()
+    })
   })
 })

@@ -774,8 +774,9 @@ export async function updateMessageDetail(
  * `turnId` (the id the agent tier derives from it), and the question that
  * opened the turn must be the caller's own. Only the person who asked may
  * stop a turn on the wire (`not_asker`), and the same holds here. The cut
- * only shortens the stored text, within minutes of its writing, and leaves a
- * row already stored as stopped alone, so a retry is harmless.
+ * only shortens the stored text, within minutes of its writing, never to
+ * nothing, and leaves a row that holds no more than was on screen alone, so a
+ * retry is harmless.
  */
 export async function cutStoppedAnswer(
   session: AuthorizedSession,

@@ -340,6 +340,7 @@ async def test_any_other_wire_version_is_closed_4426(harness, query):
 
 async def test_the_first_frame_is_hello_before_any_client_message(harness, monkeypatch):
     monkeypatch.setenv("GRID_GIT_SHA", "abc1234")
+    monkeypatch.setenv("GRID_WIRE_V2_ADDITIVE_FIELDS", "on")
     sock = harness().connect()
     await until(lambda: sock.frames)
 
@@ -1593,6 +1594,36 @@ def test_the_row_is_the_typed_result_in_wire_spelling():
         "routing_decision": "shallow",
         "skills_activated": ["brandschutz"],
     }
+
+
+async def test_the_hello_names_nothing_it_accepts_while_the_additive_fields_are_off(harness, monkeypatch):
+    """An open tab of the previous release parses the hello strictly: ``accepts`` would mark it outdated."""
+    monkeypatch.setenv("GRID_GIT_SHA", "abc1234")
+    monkeypatch.delenv("GRID_WIRE_V2_ADDITIVE_FIELDS", raising=False)
+    sock = harness().connect()
+    await until(lambda: sock.frames)
+
+    assert sock.frames[0]["value"] == {"build": "abc1234"}
+
+
+@pytest.mark.parametrize(("flag", "sent"), [(None, False), ("off", False), ("on", True), ("1", True)])
+async def test_the_level_reaches_the_frame_only_with_the_additive_fields_on(persisted, monkeypatch, flag, sent):
+    if flag is None:
+        monkeypatch.delenv("GRID_WIRE_V2_ADDITIVE_FIELDS", raising=False)
+    else:
+        monkeypatch.setenv("GRID_WIRE_V2_ADDITIVE_FIELDS", flag)
+    published: list[dict] = []
+
+    async def publish(_conversation_id: str, frame: dict) -> bool:
+        published.append(frame)
+        return True
+
+    wire = chat_socket.TurnWire(CONV, "t1", publish)
+    await wire.send(RunFinishedBody(outcome="answered", result=_result(text="Fertig.", reasoning_effort="low")))
+
+    [frame] = published
+    assert ("reasoning_effort" in frame["result"]) is sent
+    assert wire.replay() == published
 
 
 def test_the_level_the_turn_ran_at_is_kept_on_the_row():

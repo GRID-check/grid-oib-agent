@@ -236,9 +236,12 @@ function shapeCheckTable(table: Element, { openTail }: CheckOptions): void {
   // An open check reserves the tally's line from its header on: a check is
   // read for its outcome, so it nearly always has one, and a line inserted
   // above the rows when the block closed pushed the whole table down.
+  // A check that closes without one keeps the line where it streamed
+  // (`closed`, as `rehypeTableShape` says it): dropping it pulled the rows up.
+  const settledTally = openTail ? undefined : (tally ?? table.properties?.dataTally)
   setProps(table, {
-    dataTally: openTail ? undefined : (tally ?? table.properties?.dataTally),
-    dataTallyReserve: openTail ? 'true' : undefined,
+    dataTally: settledTally,
+    dataTallyReserve: openTail ? 'true' : settledTally ? undefined : 'closed',
   })
   // A check every row of which passes says so in one line; the rows stay one click away.
   if (tally && outcomes.every((word) => outcomeTone(word) === 'success')) {

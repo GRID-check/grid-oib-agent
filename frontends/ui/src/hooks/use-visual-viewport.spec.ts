@@ -68,6 +68,39 @@ describe('useVisualViewport', () => {
     expect(scrollTo).toHaveBeenCalledWith(0, 0)
   })
 
+  test.each([
+    ['a dialog or sheet', 'role="dialog"'],
+    ['a vaul drawer', 'data-vaul-drawer'],
+    ['a popover', 'data-radix-popper-content-wrapper'],
+  ])("a field in %s keeps Safari's pan, which is what reveals it", (_, attribute) => {
+    // The overlay is fixed to the screen; a shorter shell does not move it.
+    const host = document.createElement('div')
+    host.innerHTML = `<div ${attribute}><input /></div>`
+    document.body.append(host)
+    host.querySelector('input')?.focus()
+    try {
+      renderHook(() => useVisualViewport())
+      openKeyboard(460, 300)
+      expect(published()).toBe('460px')
+      expect(scrollTo).not.toHaveBeenCalled()
+    } finally {
+      host.remove()
+    }
+  })
+
+  test('a field in the shell still has the pan cancelled', () => {
+    const input = document.createElement('input')
+    document.body.append(input)
+    input.focus()
+    try {
+      renderHook(() => useVisualViewport())
+      openKeyboard(460, 300)
+      expect(scrollTo).toHaveBeenCalledWith(0, 0)
+    } finally {
+      input.remove()
+    }
+  })
+
   test('closing the keyboard removes the variable, so the shell is 100dvh again', () => {
     renderHook(() => useVisualViewport())
     openKeyboard(460)

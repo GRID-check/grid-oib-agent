@@ -93,7 +93,7 @@ import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { RetryThoroughButton } from './RetryThoroughButton'
 import { AnswerActions } from './AnswerActions'
-import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
+import { CardSlot, CardSlotLiveProvider, forgetArrivals } from './CardSlotArrival'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { QuoteStamp } from '@/lib/conversations/message-quote-stamps'
 import { projectKeysIn } from '@/lib/text/answer-directives'
@@ -1059,10 +1059,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // marker anchors it to — or after the prose when unanchored.
   // A streaming answer whose masthead arrived before its first word is not
   // empty: the masthead stands while the prose is still being written.
-  const hasLiveMasthead =
-    live && Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
+  const hasMasthead = Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
+  const hasLiveMasthead = live && hasMasthead
+  // Nor is one stopped (or failed) while its summary was being written: the
+  // masthead is what the reader saw, and Stop keeps what was on screen. Read
+  // as blank, the settle that follows the press dropped masthead and summary
+  // in one frame, and the stored row (no text, a masthead) drew nothing after
+  // a reload.
   const blank =
-    (!content || !content.trim() || content === 'null') && (cards?.length ?? 0) === 0 && !hasLiveMasthead
+    (!content || !content.trim() || content === 'null') &&
+    (cards?.length ?? 0) === 0 &&
+    !(hasMasthead && (live || stopped || failed))
   if (mountedLive && live && !wroteBefore && shownContent.trim()) setWroteBefore(true)
   // Until the next round's first word is on screen, not merely arrived: the
   // pace shows it a frame or more later, and letting go at the arrival
@@ -1272,6 +1279,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     },
     [cards, projectId, cardMessageId, anatomy?.callout, arrivalPrefix, readOnly]
   )
+  // A retracted round's cards are gone, and the next round writes its own at
+  // the same indices: they arrive in front of the reader as new cards.
+  useLayoutEffect(() => {
+    if (retracted && retractionFaded) forgetArrivals(arrivalPrefix)
+  }, [retracted, retractionFaded, arrivalPrefix])
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
   // derivations of one citation is exactly the defect the model removes.
@@ -1482,7 +1494,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   useLayoutEffect(() => {
     const previous = previousBody.current.trimEnd()
     previousBody.current = body
-    // Not for a body that went blank: that is a retraction, faded below.
+    // Not for a body that went blank: that is a retraction, faded below. Nor
+    // for one frozen by Stop or a failure: the frozen text drops a citation
+    // still pending at the press, so it is rarely a prefix of the last body,
+    // and the whole answer blinked out and back as the button was pressed.
+    if (stopped || failed) return
     if (!mountedLive || !previous || !body || body.startsWith(previous) || !proseRef.current) return
     const controls = animate(proseRef.current, { opacity: [0, 1] }, bodyFade)
     const frame = frameRef.current
@@ -1491,7 +1507,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       controls.stop()
       stopGlide?.()
     }
-  }, [body, mountedLive, bodyFade, glideFrameDown])
+  }, [body, mountedLive, bodyFade, glideFrameDown, stopped, failed])
 
   // The retraction, on the elements that are already there (nothing remounts).
   // The words fade out on the exit curve, then give way to the quiet line;

@@ -89,6 +89,12 @@ function startingLength(text: string, id: string | undefined, leadChars: number)
   return joinedMidway ? furthestCleanCut(text, 0, text.length) : 0
 }
 
+/** How much `text` put in front of `previous` and nothing else; 0 when it is not that. */
+const prependedLead = (previous: string, text: string): number =>
+  previous && text.length > previous.length && !text.startsWith(previous) && text.endsWith(previous)
+    ? text.length - previous.length
+    : 0
+
 /**
  * `stopped`: the reader pressed Stop (`ChatMessage.stopped`), or the turn
  * failed under the answer. What they saw is what stays: the held-back rest is
@@ -147,7 +153,15 @@ export function usePacedText(
     const previous = lastText.current
     lastText.current = text
     let next = pace.current
-    if (!text.startsWith(previous.slice(0, shownRef.current))) {
+    const lead = prependedLead(previous, text)
+    if (lead > 0 && next.shown > 0) {
+      // A head put in front of text already shown (the masthead's summary,
+      // decided in the render after a mid-way mount): the shown text moves
+      // down by it and stays shown. Read as a rewrite, the shown length was
+      // counted from the new start, the prose on screen shrank by the head and
+      // was typed out again.
+      next = { ...next, shown: next.shown + lead, arrivals: next.arrivals.map((length) => length + lead) }
+    } else if (!text.startsWith(previous.slice(0, shownRef.current))) {
       next = initialPace(keepThroughRewrite(text, shownRef.current))
     }
     next = noteArrival(next, text.length, performance.now())

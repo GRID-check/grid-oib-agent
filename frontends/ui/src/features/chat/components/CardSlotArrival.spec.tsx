@@ -5,9 +5,9 @@
  */
 import { render, screen, waitFor } from '@/test-utils'
 import { useLayoutEffect, useState, type ReactNode } from 'react'
-import { vi, describe, test, expect, beforeEach } from 'vitest'
+import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
-import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
+import { CardSlot, CardSlotLiveProvider, forgetArrivals, resetArrivalsForTests } from './CardSlotArrival'
 import { useDrawnReporter } from '@/features/a2ui/catalog'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { ChatStoreWithHydration } from '../store'
@@ -83,6 +83,7 @@ describe('CardSlot', () => {
   beforeEach(() => {
     reducedMotion = false
   })
+  afterEach(() => resetArrivalsForTests())
 
   const live = (node: ReactNode) => <CardSlotLiveProvider value>{node}</CardSlotLiveProvider>
   const placeholder = () => document.querySelector('[data-slot="card-placeholder"]')
@@ -157,6 +158,52 @@ describe('CardSlot', () => {
     render(slot)
     expect(placeholder()).toBeNull()
     expect(cardShown()).toBe(true)
+  })
+
+  // A retraction withdraws a round, and the next one writes its cards at the
+  // same indices: remembered as arrived, they appeared without an entrance.
+  test('after its answer is retracted, the next card at the same place arrives again', async () => {
+    const slot = live(
+      <CardSlot arrivalKey="m-retracted:0">
+        <Card drawn={false} />
+      </CardSlot>
+    )
+    const first = render(
+      live(
+        <CardSlot arrivalKey="m-retracted:0">
+          <Card />
+        </CardSlot>
+      )
+    )
+    await waitFor(() => expect(placeholder()).toBeNull())
+    first.unmount()
+
+    forgetArrivals('m-retracted')
+    render(slot)
+    expect(placeholder()).not.toBeNull()
+    expect(cardShown()).toBe(false)
+  })
+
+  test('forgets only the retracted answer’s arrivals', async () => {
+    const first = render(
+      live(
+        <CardSlot arrivalKey="m-kept:0">
+          <Card />
+        </CardSlot>
+      )
+    )
+    await waitFor(() => expect(placeholder()).toBeNull())
+    first.unmount()
+
+    forgetArrivals('m-kept-not')
+    render(
+      live(
+        <CardSlot arrivalKey="m-kept:0">
+          <Card drawn={false} />
+        </CardSlot>
+      )
+    )
+    expect(placeholder()).toBeNull()
   })
 
   test('a card that was already there is shown at once', () => {

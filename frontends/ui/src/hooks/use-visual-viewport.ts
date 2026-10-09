@@ -20,6 +20,24 @@ const OCCLUSION_THRESHOLD_PX = 1
 const ZOOM_EPSILON = 0.01
 
 /**
+ * Surfaces that float above the shell in their own fixed box: dialogs (and the
+ * sheets built on them), vaul drawers, Radix popovers and menus. A field inside
+ * one is positioned against the screen, not the shell, so only Safari's pan can
+ * bring it above the keyboard.
+ */
+const OVERLAY_SELECTOR =
+  '[role="dialog"], [role="alertdialog"], [data-vaul-drawer], [data-radix-popper-content-wrapper]'
+
+/**
+ * Whether the focused element lives in the shell frame, where cancelling
+ * Safari's pan is right because the shell itself now fits above the keyboard.
+ */
+function focusIsInShell(): boolean {
+  const focused = document.activeElement
+  return !(focused instanceof Element && focused.closest(OVERLAY_SELECTOR) !== null)
+}
+
+/**
  * Sizes the app shell to the part of the screen the keyboard leaves visible,
  * on browsers that do not do it themselves.
  *
@@ -35,7 +53,9 @@ const ZOOM_EPSILON = 0.01
  * because of pinch zoom), this publishes its height as
  * {@link VISUAL_VIEWPORT_HEIGHT_VAR} on `<html>` and scrolls the document back
  * to the top, which cancels Safari's pan: the shell now fits above the keyboard
- * and nothing is left to reveal. When the keyboard closes the variable is
+ * and nothing is left to reveal. The scroll is left alone while the focus is in
+ * a dialog, drawer or popover, which the pan is there to reveal (see
+ * {@link OVERLAY_SELECTOR}). When the keyboard closes the variable is
  * removed. On Chromium with `resizes-content` the two viewports shrink
  * together, so this never engages; on desktop they are equal; where
  * `visualViewport` does not exist it does nothing at all.
@@ -64,6 +84,11 @@ export function useVisualViewport(): void {
         return
       }
       root.style.setProperty(VISUAL_VIEWPORT_HEIGHT_VAR, `${viewport.height}px`)
+      // Only for a field in the shell. A field in a dialog, a drawer or a
+      // popover is fixed to the screen, so a shorter shell does not move it,
+      // and the pan is the only thing that reveals it: resetting it on every
+      // scroll would fight Safari for the field's position frame by frame.
+      if (!focusIsInShell()) return
       if (window.scrollY !== 0 || viewport.offsetTop !== 0) window.scrollTo(0, 0)
     }
 

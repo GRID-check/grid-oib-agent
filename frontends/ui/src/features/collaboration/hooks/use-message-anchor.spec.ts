@@ -186,4 +186,58 @@ describe('useMessageAnchor', () => {
     expect(result.current).toBe('msg_8')
     expect(scrollIntoView).toHaveBeenCalledTimes(1)
   })
+
+  describe('a target that never resolves', () => {
+    // The link names a message the thread does not draw, one since deleted, or
+    // one in a thread that was refused. Pending for good, it held every later
+    // thread unplaced and unfollowed.
+    type Props = { ids: string[]; conversationId: string | null; ready: boolean }
+    const mount = (initialProps: Props) =>
+      renderHook(
+        ({ ids, conversationId, ready }: Props) => useMessageAnchor(ids, { conversationId, ready }),
+        { initialProps }
+      )
+
+    test('stops holding a thread that loaded without it', () => {
+      setHash('#message-msg_gone')
+      const { result, rerender } = mount({ ids: [], conversationId: 's1', ready: false })
+      expect(result.current.isTargetPending()).toBe(true)
+
+      rerender({ ids: ['msg_7'], conversationId: 's1', ready: true })
+      expect(result.current.isTargetPending()).toBe(false)
+    })
+
+    test('still lands when the message arrives after all (a shared thread\'s history)', () => {
+      setHash('#message-msg_9')
+      const { result, rerender } = mount({ ids: ['msg_7'], conversationId: 's1', ready: true })
+      expect(result.current.isTargetPending()).toBe(false)
+
+      mountMessage('msg_9')
+      rerender({ ids: ['msg_7', 'msg_9'], conversationId: 's1', ready: true })
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(result.current.highlightedId).toBe('msg_9')
+    })
+
+    test('is dropped when the reader leaves the thread it missed in', () => {
+      setHash('#message-msg_gone')
+      const { result, rerender } = mount({ ids: ['msg_7'], conversationId: 's1', ready: true })
+
+      // The next thread is still loading: before, the stale target held it.
+      rerender({ ids: [], conversationId: 's2', ready: false })
+      expect(result.current.isTargetPending()).toBe(false)
+    })
+
+    test('holds through the thread that was open when the link arrived, until its own thread opens', () => {
+      // The link's thread is selected a moment after mount; the thread open
+      // until then never had the message and must not cost the link its landing.
+      setHash('#message-msg_9')
+      const { result, rerender } = mount({ ids: ['msg_old'], conversationId: 'old', ready: true })
+      rerender({ ids: [], conversationId: 's1', ready: false })
+      expect(result.current.isTargetPending()).toBe(true)
+
+      mountMessage('msg_9')
+      rerender({ ids: ['msg_9'], conversationId: 's1', ready: true })
+      expect(result.current.highlightedId).toBe('msg_9')
+    })
+  })
 })

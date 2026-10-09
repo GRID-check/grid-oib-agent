@@ -26,6 +26,21 @@ import { cn } from '@/lib/utils'
 /** The cards that have arrived on this page, as `messageId:index`: it outlives a remounted slot. */
 const arrived = new Set<string>()
 
+/**
+ * Forget the arrivals of one answer (`messageId`), for a retraction: the next
+ * round writes its cards at the same indices, and remembered as arrived they
+ * appeared without their entrance.
+ */
+export function forgetArrivals(messageId: string): void {
+  const prefix = `${messageId}:`
+  for (const key of arrived) if (key.startsWith(prefix)) arrived.delete(key)
+}
+
+/** Every arrival forgotten, so one spec's cards do not decide the next one's. */
+export function resetArrivalsForTests(): void {
+  arrived.clear()
+}
+
 const LiveContext = createContext(false)
 
 /**

@@ -167,15 +167,58 @@ function mentionRefusalMessage(
 const TEXTAREA_MAX_HEIGHT_PX = 208
 
 /**
- * Close the phone keyboard once a message is sent. On a touch device the soft
- * keyboard covers half the screen, and the answer the reader is about to watch
- * arrive is exactly what it hides; a fine pointer keeps focus, because a desk
- * reader types the follow-up next and a lost caret is a lost keystroke.
+ * How much of the layout viewport the visual viewport must lose before it counts
+ * as an on-screen keyboard. A soft keyboard takes a third of the screen or more;
+ * the shortcut bar iPadOS keeps on screen for a hardware keyboard is a strip,
+ * and that reader keeps typing, so it must not read as one.
+ */
+const SOFT_KEYBOARD_MIN_OCCLUSION_PX = 100
+
+/**
+ * Whether an on-screen keyboard is covering the screen right now. A coarse
+ * pointer alone is not the answer: an iPad with a hardware keyboard is coarse,
+ * has no soft keyboard, and its reader types the follow-up next.
+ *
+ * iOS shrinks only the visual viewport when the keyboard opens, so the
+ * occlusion is measurable. Chromium under `interactiveWidget: 'resizes-content'`
+ * (app/layout.tsx) shrinks both viewports together and leaves nothing to
+ * measure; there a touch-only device (`navigator.virtualKeyboard` marks the
+ * engine) is taken to be typing on glass, which is the overwhelming case.
+ */
+function softKeyboardIsUp(): boolean {
+  if (typeof window.matchMedia !== 'function') return false
+  if (!window.matchMedia('(pointer: coarse)').matches) return false
+  const viewport = window.visualViewport
+  if (
+    viewport &&
+    document.documentElement.clientHeight - viewport.height * viewport.scale >
+      SOFT_KEYBOARD_MIN_OCCLUSION_PX
+  ) {
+    return true
+  }
+  return 'virtualKeyboard' in navigator
+}
+
+/**
+ * Close the on-screen keyboard once a message is sent. It covers half the
+ * screen, and the answer the reader is about to watch arrive is exactly what it
+ * hides. Without one up (a desk, or an iPad on a hardware keyboard) the field
+ * keeps focus: that reader types the follow-up next, and a lost caret is a lost
+ * keystroke.
  */
 function releaseSoftKeyboard(el: HTMLTextAreaElement | null): void {
-  if (!el || typeof window.matchMedia !== 'function') return
-  if (window.matchMedia('(pointer: coarse)').matches) el.blur()
+  if (el && softKeyboardIsUp()) el.blur()
 }
+
+/**
+ * How long after Send turns into Stop (or back) the control ignores presses.
+ * One element does both jobs, so the second click of a double click, or a
+ * bounce on a touch screen, lands on the OTHER job: a Stop pressed twice would
+ * send the follow-up typed ahead, and a Send pressed twice would cancel the
+ * turn it just started. Comfortably above a double-click interval, well under
+ * the time anyone takes to decide to stop an answer they have just seen begin.
+ */
+const SEND_CONTROL_SWAP_GUARD_MS = 400
 
 /**
  * Whether the engine sizes a textarea to its content in CSS. Read once: it is a
@@ -650,6 +693,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // The send control's one job at a time, and the glyph that says it.
   const showStop = isStreaming && !isResponseMode
   const sendGlyph: 'stop' | 'sending' | 'send' = showStop ? 'stop' : isLoading ? 'sending' : 'send'
+  // When the control last changed job (SEND_CONTROL_SWAP_GUARD_MS). A layout
+  // effect, so the stamp is in place before the browser can deliver the next
+  // click to the re-rendered button; the first render is not a change.
+  const sendControlJobRef = useRef(showStop)
+  const sendControlSwappedAtRef = useRef(Number.NEGATIVE_INFINITY)
+  useLayoutEffect(() => {
+    if (sendControlJobRef.current === showStop) return
+    sendControlJobRef.current = showStop
+    sendControlSwappedAtRef.current = performance.now()
+  }, [showStop])
   // An icon swap: scale on `springSnap`, opacity on a tween (opacity never
   // springs), both instant under reduced motion.
   const { enter: glyphEnter, exit: glyphExit } = useIconSwapTransition()
@@ -1300,8 +1353,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // Mid-IME-composition, every key below belongs to the input method: the
       // Enter that confirms a CJK candidate must never SEND, and the arrows
       // that move through candidates must not drive the pickers. Same guard the
-      // shell shortcuts use (`keyboard-shortcuts.tsx`).
-      if (e.nativeEvent.isComposing) return
+      // shell shortcuts use (`keyboard-shortcuts.tsx`). Safari ends the
+      // composition BEFORE the keydown that confirmed it, so that key arrives
+      // with `isComposing` false and only keyCode 229 says it was the IME's.
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return
 
       // The `/` picker gets first refusal on the navigation keys. It and the
       // mention picker are mutually exclusive by caret position (a slash query
@@ -1345,6 +1400,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       if (e.key !== 'Enter') return
       // Shift+Enter inserts a newline — let the textarea handle it natively.
       if (e.shiftKey) return
+      // A held Enter sends once. Its repeats would otherwise land on whatever
+      // the send became: swallowed mid-turn, then the typed-ahead draft the
+      // moment the turn settles.
+      if (e.repeat) {
+        e.preventDefault()
+        return
+      }
       // Plain Enter sends; Cmd/Ctrl+Enter also sends as a discoverable power
       // binding. Both funnel through a single handleSubmit call (no double-fire),
       // and handleSubmit enforces the disabled/streaming/HITL guards.
@@ -1363,24 +1425,51 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     [handleSubmit, mentionPickerOpen, slash]
   )
 
+  // Whether an Escape from <body> is still the composer's: true while the
+  // composer was the last thing focused and the reader has not since clicked
+  // somewhere else. Focus lands on <body> both when a send releases the soft
+  // keyboard and when the reader clicks plain transcript text; only the first
+  // leaves the hands on the composer. A click is the signal rather than a
+  // pointerdown, so scrolling the transcript by touch keeps the claim.
+  const composerHadFocusRef = useRef(false)
+  useEffect(() => {
+    const onFocusIn = (e: FocusEvent) => {
+      composerHadFocusRef.current =
+        e.target instanceof Node && (composerRootRef.current?.contains(e.target) ?? false)
+    }
+    const onClick = (e: MouseEvent) => {
+      if (e.target instanceof Node && composerRootRef.current?.contains(e.target)) return
+      composerHadFocusRef.current = false
+    }
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('click', onClick, true)
+    return () => {
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('click', onClick, true)
+    }
+  }, [])
+
   // Escape stops a streaming turn, from where the hands already are: the
-  // textarea (live while its own turn runs, and focused after a send on a fine
-  // pointer) or nowhere at all (<body>, after a coarse pointer released the
+  // textarea (live while its own turn runs, and focused after a send without a
+  // soft keyboard) or nowhere at all (<body>, after a send released the soft
   // keyboard). A document listener rather than the textarea's onKeyDown, so both
-  // are covered, scoped to keys from the composer or from <body> so an Escape
-  // meant for a dialog, a menu or a field elsewhere never cancels the answer.
-  // Anything that already claimed the key (the `/` and `@` pickers close
-  // themselves and preventDefault) is left alone: with a picker open, the first
-  // Escape closes the picker and only the next one stops the turn. A draft in
-  // the field is never touched — Escape stops the answer, it does not discard
-  // the follow-up being written.
+  // are covered, scoped to keys from the composer, or from <body> while the
+  // composer was the last thing used, so an Escape meant for a dialog, a menu, a
+  // field elsewhere or a text selection in the transcript never cancels the
+  // answer. Anything that already claimed the key (the `/` and `@` pickers
+  // close themselves and preventDefault) is left alone: with a picker open, the
+  // first Escape closes the picker and only the next one stops the turn. An
+  // IME's Escape is the IME's, including Safari's, which arrives after
+  // compositionend and is marked only by keyCode 229. A draft in the field is
+  // never touched — Escape stops the answer, it does not discard the follow-up
+  // being written.
   useEffect(() => {
     if (!showStop || cannotContribute) return
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return
+      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229) return
       const target = e.target
       const fromComposer =
-        target === document.body ||
+        (target === document.body && composerHadFocusRef.current) ||
         (target instanceof Node && (composerRootRef.current?.contains(target) ?? false))
       if (!fromComposer) return
       e.preventDefault()
@@ -1389,6 +1478,25 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [showStop, cannotContribute, stopStreaming])
+
+  // The send control's press. A press that arrives just after the control
+  // changed job belongs to the gesture that changed it (a double click, a
+  // bounce) and is dropped rather than applied to the other job.
+  const handleSendControlClick = useCallback(() => {
+    if (performance.now() - sendControlSwappedAtRef.current < SEND_CONTROL_SWAP_GUARD_MS) return
+    if (showStop) {
+      stopStreaming?.()
+      return
+    }
+    void handleSubmit()
+  }, [showStop, stopStreaming, handleSubmit])
+
+  // A held Enter on the focused button auto-repeats, and every repeat is a
+  // click: it would run through Stop into Send (or back) as soon as the guard
+  // window closed. Only the first keydown of a press activates the control.
+  const handleSendControlKeyDown = useCallback((e: KeyboardEvent<HTMLButtonElement>) => {
+    if (e.repeat && e.key === 'Enter') e.preventDefault()
+  }, [])
 
   /**
    * Insert the picked candidate: the `@fragment` becomes `@Display `, and the
@@ -2098,6 +2206,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   conversationId={currentConversationId}
                   disabled={cannotContribute}
                   hidden={isResponseMode}
+                  focusOnHide={textareaRef}
                 />
 
                 {/* Voice dictation */}
@@ -2173,7 +2282,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   // somebody else's turn is the most consequential thing on
                   // this row, and it was the one control here with no gate.
                   disabled={showStop ? cannotContribute : !message.trim() || disabled}
-                  onClick={showStop ? () => stopStreaming?.() : () => handleSubmit()}
+                  onClick={handleSendControlClick}
+                  onKeyDown={handleSendControlKeyDown}
                   aria-busy={!showStop && isLoading ? true : undefined}
                   aria-label={
                     showStop

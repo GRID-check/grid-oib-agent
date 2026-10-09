@@ -50,24 +50,49 @@ describe('cutStoppedRow', () => {
 
   it('never stores a byte the browser sent: text past the stored one is ignored', () => {
     expect(cutStoppedRow(row(), `${TEXT} und noch erfunden`, NOW)?.content).toBe(TEXT)
-    expect(cutStoppedRow(row(), 'Ganz anders', NOW)?.content).toBe('')
   })
 
-  it('drops the citations and cards when nothing is kept', () => {
-    const cut = cutStoppedRow(row(), '', NOW)
-    expect(cut?.content).toBe('')
-    expect(cut?.metadata).not.toHaveProperty('citations')
+  it('refuses a cut that would keep no text and no card, and leaves the row whole', () => {
+    // Otherwise the asker could blank any answer of theirs of the last minutes.
+    expect(() => cutStoppedRow(row(), 'Ganz anders', NOW)).toThrow(ConflictError)
+    expect(() => cutStoppedRow(row(), '', NOW)).toThrow(ConflictError)
+  })
+
+  it('drops the citations and cards the kept text does not reach', () => {
+    const cut = cutStoppedRow(row(), 'Die Höhe', NOW)
+    expect(cut?.content).toBe('Die Höhe')
     expect(cut?.metadata).not.toHaveProperty('cards')
+    expect(cut?.metadata).toHaveProperty('citations', CITATIONS)
   })
 
-  it('leaves a row already stored as stopped alone, from either writer', () => {
-    expect(cutStoppedRow(row({ metadata: { provenance: { stopped: true } } }), 'Die', NOW)).toBeNull()
-    expect(cutStoppedRow(row({ metadata: { stopped: true } }), 'Die', NOW)).toBeNull()
+  it('leaves a row a cut already made alone, from any writer, so a retry changes nothing', () => {
+    const shown = 'Die Höhe beträgt 3 m [1].\n\n[[card:1]]\n\nWei'
+    const once = cutStoppedRow(row(), shown, NOW)
+    if (!once) throw new Error('the first cut wrote nothing')
+    expect(cutStoppedRow(row({ ...once }), shown, NOW)).toBeNull()
+    // The agent tier's cut of the streamed text drops a pending `[N]` the
+    // screen still showed: a second cut must not part the two at it.
+    const agentCut = row({ content: 'Die Höhe beträgt 3 m.', metadata: { stopped: true } })
+    expect(cutStoppedRow(agentCut, 'Die Höhe beträgt 3 m [1].', NOW)).toBeNull()
+    const browserCut = row({ content: 'Die Höhe', metadata: { provenance: { stopped: true } } })
+    expect(cutStoppedRow(browserCut, 'Die Höhe', NOW)).toBeNull()
   })
 
-  it('refuses a row that is not a chat answer, and an answer past the window', () => {
+  it('still cuts a whole answer the provenance mirror marked stopped before the cut ran', () => {
+    // The asker's provenance PATCH (or any collaborator's) can mark the
+    // server's whole row stopped first. The mark is not the cut.
+    const marked = row({ metadata: { ...(row().metadata as Record<string, unknown>), provenance: { answerConfidence: 'high', stopped: true } } })
+    expect(cutStoppedRow(marked, 'Die Höhe beträgt 3 m [1].', NOW)?.content).toBe('Die Höhe beträgt 3 m [1].')
+    expect(cutStoppedRow(row({ metadata: { stopped: true } }), 'Die', NOW)?.content).toBe('Die')
+  })
+
+  it('refuses a row that is not a chat answer (a run, a queue notice), and an answer past the window', () => {
     expect(() => cutStoppedRow(row({ role: 'user' }), 'Die', NOW)).toThrow(ConflictError)
     expect(() => cutStoppedRow(row({ runId: 'run_1' }), 'Die', NOW)).toThrow(ConflictError)
+    expect(() => cutStoppedRow(row({ metadata: { run: { run_id: 'r' } } }), 'Die', NOW)).toThrow(ConflictError)
+    expect(() => cutStoppedRow(row({ metadata: { job_admission_rejected: true } }), 'Die', NOW)).toThrow(
+      ConflictError
+    )
     const old = row({ createdAt: new Date(NOW - STOP_CUT_WINDOW_MS - 1) })
     expect(() => cutStoppedRow(old, 'Die', NOW)).toThrow(ConflictError)
   })

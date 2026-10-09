@@ -46,6 +46,8 @@ export interface AnswerFileReferences {
 }
 
 const NO_NAMES: readonly string[] = []
+/** A filename cannot contain NUL, so the joined key splits back exactly. */
+const NAME_SEPARATOR = '\u0000'
 const NO_REFERENCES: AnswerFileReferences = { fileNames: NO_NAMES, resolve: () => null }
 
 export function useAnswerFileReferences(options: {
@@ -74,15 +76,22 @@ export function useAnswerFileReferences(options: {
     }
   }, [worthLooking, projectId, conversationId])
 
-  const fileNames = useMemo(
+  // Keyed by the joined names, not by the array: the body grows a word per
+  // reveal step, so a fresh array every step (same names) would rebuild the
+  // marker plugins and re-parse every block of the answer per word.
+  const namesKey = useMemo(
     () =>
       worthLooking && index
         ? fileNamesPresentIn(
             body,
             [...index.values()].map((entry) => entry.file.filename)
-          )
-        : NO_NAMES,
+          ).join(NAME_SEPARATOR)
+        : '',
     [worthLooking, index, body]
+  )
+  const fileNames = useMemo(
+    () => (namesKey ? namesKey.split(NAME_SEPARATOR) : NO_NAMES),
+    [namesKey]
   )
 
   return useMemo(() => {

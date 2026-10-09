@@ -153,20 +153,37 @@ export function useComposerMetrics(isThreadEmpty: boolean): ComposerMetrics {
     observerRef.current = null
     if (!node) return
     const column = node.offsetParent
-    const update = () => {
-      setComposerHeight(node.offsetHeight)
-      if (column) setColumnHeight(column.clientHeight)
+    // What was last published, so an observer tick that changed nothing the
+    // hook reads (a width change, a sub-pixel re-layout) commits nothing.
+    let published = { composer: -1, column: -1 }
+    const read = () => ({ composer: node.offsetHeight, column: column?.clientHeight ?? -1 })
+    const update = (next: typeof published) => {
+      published = next
+      setComposerHeight(next.composer)
+      if (column) setColumnHeight(next.column)
     }
-    update()
+    update(read())
     // Every LATER change arrives through the observer, and its callback runs
     // after layout but before paint. A plain setState there is scheduled, so
     // React commits it after the frame has painted: the composer has already
     // grown (or shrunk, as a send clears the draft) while the transcript's
     // bottom padding is still the old `--composer-h`, and the thread jumps by
     // the difference one frame later. `flushSync` commits the new variable in
-    // the same frame as the box it describes. It only runs on a real resize (a
-    // line wrap, a chip row, a banner), never per keystroke.
-    const ro = new ResizeObserver(() => flushSync(update))
+    // the same frame as the box it describes. It only runs when a height the
+    // hook publishes actually moved by a pixel (a line wrap, a chip row, a
+    // banner): never per keystroke, and never for the observer's other ticks
+    // (a width change, the column re-laid out at the same height), each of
+    // which would otherwise be a synchronous re-render of the whole layout.
+    const ro = new ResizeObserver(() => {
+      const next = read()
+      if (
+        Math.abs(next.composer - published.composer) < 1 &&
+        Math.abs(next.column - published.column) < 1
+      ) {
+        return
+      }
+      flushSync(() => update(next))
+    })
     ro.observe(node)
     if (column) ro.observe(column)
     observerRef.current = ro
