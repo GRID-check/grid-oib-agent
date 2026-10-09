@@ -16,8 +16,8 @@
  * cannot be photographed one half at a time.
  *
  * The column below reproduces `MainLayout`'s chat column — the same relative
- * flex column, the same absolutely-positioned composer stack, the same bottom
- * fade scrim — but the geometry itself is NOT reproduced: both call
+ * flex column, the same absolutely-positioned composer stack, the same scrims
+ * (`ComposerScrim`) — but the geometry itself is NOT reproduced: both call
  * `useComposerMetrics`, which is what keeps this preview from drifting into
  * evidence for a layout the product does not have.
  *
@@ -40,6 +40,8 @@ import { AppConfigProvider, type AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { ChatArea, InputArea } from '@/features/layout/components'
 import { useComposerMetrics } from '@/features/layout/hooks/use-composer-metrics'
+import { ComposerScrim } from '@/features/layout/components/ComposerScrim'
+import { selectThreadPhase } from '@/features/layout/lib/thread-phase'
 import { motion } from '@/components/motion'
 import { useChatStore } from '@/features/chat'
 import type { ChatMessage } from '@/features/chat'
@@ -161,9 +163,9 @@ export default function ChatWelcomePreviewPage() {
   // composer here and send, and the thread stops being empty for the same
   // reason it does in the product, so the greeting's exit and the composer's
   // descent can be driven by hand on this route instead of only in the app.
-  const messageCount = useChatStore((s) => s.currentConversation?.messages?.length ?? 0)
+  const isThreadEmpty = useChatStore((s) => selectThreadPhase(s) === 'empty')
   const { composerRef, columnVars, composerStyle, composerMotion } =
-    useComposerMetrics(messageCount === 0)
+    useComposerMetrics(isThreadEmpty)
 
   if (variant === undefined) return null
 
@@ -172,6 +174,7 @@ export default function ChatWelcomePreviewPage() {
       <main className="bg-background flex h-dvh flex-col">
         <div className="relative flex min-h-0 flex-1 flex-col" style={columnVars}>
           {ready && <ChatArea isAuthenticated />}
+          <ComposerScrim threadEmpty={isThreadEmpty} />
           <motion.div
             ref={composerRef}
             className="absolute inset-x-0 z-10 flex flex-col"

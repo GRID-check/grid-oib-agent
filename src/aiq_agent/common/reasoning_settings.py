@@ -180,3 +180,14 @@ def set_turn_reasoning_effort(effort: str | None) -> None:
 def get_turn_reasoning_effort() -> str | None:
     """The asker's level for the turn in flight, or ``None`` when none was stated."""
     return _turn_effort.get()
+
+
+def effort_of(llm: object) -> str | None:
+    """The level ``llm`` sends with each call, or ``None`` when it sends none we know.
+
+    Read off the model the turn actually ran on, after every layer above has
+    been applied to it, so it is the resolved level rather than the asked one:
+    a turn that stated none reports the platform's or the YAML's.
+    """
+    effort = getattr(llm, "reasoning_effort", None)
+    return effort if effort in _EFFORTS else None
