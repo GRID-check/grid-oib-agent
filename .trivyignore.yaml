@@ -63,35 +63,37 @@ vulnerabilities:
   # otel-collector. There is no unauthenticated surface.
 
   - id: CVE-2026-40345
-    expired_at: 2026-10-09
+    expired_at: 2026-11-09
     statement: |
-      deepmerge-ts 7.1.5 — stack exhaustion when merging recursive object
-      graphs. A denial of service that requires the attacker to control the
-      objects being merged.
+      deepmerge-ts 7.1.5 (GHSA-ggr8-5vv4-36mx) — stack exhaustion when BOTH
+      merged objects reference themselves at the same key path. A denial of
+      service that needs the attacker to supply a cyclic object graph, which
+      plain JSON cannot express.
 
-      Reached by exactly ONE dependent in langfuse's lockfile: `@prisma/config`
-      6.19.3, which merges `prisma.config.ts` with the CLI's defaults when the
-      Prisma CLI and migration engine start. Confirmed by reading the lockfile
-      at the revision each image is labelled with, not inferred from the
-      package name — deepmerge-ts appears nowhere else in the tree.
+      Three copies, every one pulled in by `@prisma/config` 6.19.3, which pins
+      `"deepmerge-ts": "7.1.5"` exactly: `usr/local/lib/node_modules/prisma` and
+      `app/node_modules/.pnpm` in langfuse, `app/worker/node_modules/.pnpm` in
+      langfuse-worker (scan of PR #855, 2026-10-09). The 8.0.2 copy beside them
+      in both images scans clean.
 
-      Not exploitable here, and this one is structural: the object graph fed to
-      `@prisma/config` is the config file baked into the Langfuse image,
-      resolved against the environment `deploy/pulumi/src/platform/langfuse.ts`
-      sets. It is assembled at container start, before any request is served.
-      Nothing on the trace-ingestion or UI path calls deepmerge-ts at all, so no
-      caller — authenticated or not — can supply the recursive graph the defect
-      needs.
+      Not exploitable here, and this one is structural: the Prisma CLI runs only
+      from the web image's entrypoint (`prisma db execute`, `prisma migrate
+      deploy`) before `server.js` starts, merging the config baked into the
+      image with the environment `deploy/pulumi/src/platform/langfuse.ts` sets.
+      The worker runs `node worker/dist/index.js`, and `@prisma/client` has no
+      runtime dependency on `@prisma/config`. No request path reaches
+      deepmerge-ts, authenticated or not.
 
-      This entry is boxed to the same date as the rest of the block even though
-      it waits on a longer chain than they do: the fix is deepmerge-ts 8.0.0
-      (2026-08-16), a MAJOR bump, so Prisma has to take it into
-      `@prisma/config` before Langfuse can pick it up. 7.1.6 (2026-08-11) is
-      not the fix. As of 2026-08-18 langfuse `main` — and the `latest` 4.12.0
-      image built that morning — still resolve deepmerge-ts 7.1.5, so this is
-      not a case of the pin lagging behind an available fix.
+      Re-argued on 2026-10-09 rather than extended. The first box (to
+      2026-10-09) waited on a Langfuse release; none can clear it yet. Every
+      stable `@prisma/config` through 7.10.0 (2026-08-25, `latest` on npm) pins
+      7.1.5, the first to take 8.x is 8.1.0-dev.5 (2026-09-01), and Langfuse
+      4.55.0 (2026-10-08, the newest image) still ships Prisma 6.19.3, read from
+      its layers. Boxed a month because the exit is a Prisma major, then
+      Langfuse adopting it.
 
-      Drop as soon as a Langfuse image ships deepmerge-ts >= 8.0.0.
+      Drop as soon as a Langfuse image ships `@prisma/config` >= 8 (deepmerge-ts
+      >= 8.0.0).
 
   # ── Findings published after the 2026-10-07 bump (scan of PR #853) ────────
   #

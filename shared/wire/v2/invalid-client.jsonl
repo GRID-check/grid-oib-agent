@@ -2,3 +2,5 @@
 {"v":2,"type":"interaction_response","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"t","interaction_id":"a","answer":{"text":"skip","option_id":"1"}}
 {"v":2,"type":"attach","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"t"}
 {"v":2,"type":"user_message","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","message_id":"m","text":"x","include_shelves":["archiv"]}
+{"v":2,"type":"cancel_turn","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"t","shown":{"seq":4,"chars":-1}}
+{"v":2,"type":"cancel_turn","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"t","shown":{"seq":4,"chars":10,"text":"Gesehen"}}
