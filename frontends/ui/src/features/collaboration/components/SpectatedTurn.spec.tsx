@@ -16,8 +16,9 @@ import { CARD_PREVIEW_FIXTURES } from '@/features/grid-cards/preview-fixtures'
 
 const LABEL = 'Piloti beantwortet die Frage von Anna Berger…'
 
+/** A turn this observer watched from its start: `RUN_STARTED` named the answer. */
 function turn(overrides: Partial<TurnView> = {}): TurnView {
-  return { ...initialTurnView('turn-1', 'conv_1'), ...overrides }
+  return { ...initialTurnView('turn-1', 'conv_1'), messageId: 'a', ...overrides }
 }
 
 const keyed = (card: Record<string, unknown>, key = 'k'): KeyedCard => ({ key, card })
@@ -29,8 +30,9 @@ const FILE_PROPOSAL = {
   operations: [{ document: 'Grundriss EG.pdf', source: 'projekt', current: '', target_folder: 'Einreichung' }],
 }
 
-/** Raw bodies folded the way the hook folds them. */
-const folded = (...bodies: Record<string, unknown>[]): TurnView => {
+/** Raw bodies folded the way the hook folds them, from the turn's start. */
+const folded = (...rest: Record<string, unknown>[]): TurnView => {
+  const bodies = [{ type: 'RUN_STARTED', message_id: 'a' }, ...rest]
   const view = bodies.reduce<TurnView | null>(
     (current, body, index) => foldSpectatedEvent(current, eventOf(frameOf(index + 1, body))),
     null
@@ -133,5 +135,44 @@ describe('SpectatedTurn', () => {
   it('offers no copy controls once the turn is done', () => {
     render(<SpectatedTurn turn={turn({ text: 'Ja, ab drei Geschossen.', phase: 'finished' })} label={LABEL} />)
     expect(screen.queryAllByRole('button')).toEqual([])
+  })
+
+  it('an observer who joined mid-answer waits for the whole text rather than starting mid-sentence', () => {
+    // No `RUN_STARTED` seen, and text from the first sight: a fragment.
+    const joined = { ...initialTurnView('turn-1', 'conv_1'), streaming: true, text: 'chossen gilt das nicht.' }
+    const { rerender } = render(<SpectatedTurn turn={joined} label={LABEL} />)
+    expect(screen.getByTestId('spectated-turn')).not.toHaveTextContent('chossen')
+
+    // More of the same fragment: still held.
+    rerender(<SpectatedTurn turn={{ ...joined, text: `${joined.text} Weiter` }} label={LABEL} />)
+    expect(screen.getByTestId('spectated-turn')).not.toHaveTextContent('Weiter')
+
+    // A snapshot brings the answer from its start.
+    rerender(
+      <SpectatedTurn
+        turn={{ ...joined, text: 'Ab drei Geschossen gilt das nicht. Weiter' }}
+        label={LABEL}
+      />
+    )
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('Ab drei Geschossen gilt das nicht.')
+  })
+
+  it('an observer who joined during the steps sees the answer from its first word', () => {
+    const joined = { ...initialTurnView('turn-1', 'conv_1'), stepOrder: [] }
+    const { rerender } = render(<SpectatedTurn turn={joined} label={LABEL} />)
+    rerender(<SpectatedTurn turn={{ ...joined, streaming: true, text: 'Ab drei' }} label={LABEL} />)
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('Ab drei')
+  })
+
+  it('keeps one ambient loop: the headline stops shimmering once the Herleitung carries it', () => {
+    const steps = folded({
+      type: 'STEP_STARTED',
+      step: { id: 's1', kind: 'tool', tool: 'ris_search', status: 'running', scope: 'chat' },
+    })
+    expect(steps.stepOrder.length).toBeGreaterThan(0)
+    const { container } = render(<SpectatedTurn turn={steps} label={LABEL} />)
+    // The headline is plain text, the Herleitung's header the one shimmer.
+    expect(screen.getAllByText(LABEL)).toHaveLength(1)
+    expect(container.querySelectorAll('.animate-shimmer-window')).toHaveLength(1)
   })
 })

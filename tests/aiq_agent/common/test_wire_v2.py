@@ -25,6 +25,7 @@ from aiq_agent.common.wire_v2 import EmptyValue
 from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.common.wire_v2 import StepFinishedBody
 from aiq_agent.common.wire_v2 import TextMessageContentBody
+from aiq_agent.common.wire_v2 import WireEvent as WIRE_EVENT_TYPE
 from aiq_agent.common.wire_v2 import card_key
 from aiq_agent.common.wire_v2 import stamp
 from aiq_agent.common.wire_v2 import to_frame
@@ -89,8 +90,12 @@ def test_every_client_message_parses(raw: dict[str, Any]) -> None:
     assert message.model_dump(mode="json", exclude_defaults=True) == raw
 
 
-@pytest.mark.parametrize("raw", _lines(FIXTURES / "invalid-events.jsonl"))
+@pytest.mark.parametrize("raw", _lines(FIXTURES / "invalid-events.jsonl") + _lines(FIXTURES / "newer-events.jsonl"))
 def test_what_is_not_a_v2_event_is_refused(raw: dict[str, Any]) -> None:
+    # newer-events.jsonl is drift a newer server might send: an unknown key, an
+    # unknown event type, step kind or CUSTOM name. The client reads it
+    # (wire-v2.spec.ts); this server never writes it, because its models
+    # forbid what they do not name.
     with pytest.raises(ValidationError):
         WIRE_EVENT.validate_python(raw)
 
@@ -156,3 +161,40 @@ def test_the_hello_is_the_frame_the_server_writes_and_no_turn_event(raw: dict[st
 def test_a_hello_in_another_dialect_is_refused(raw: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         HELLO.validate_python(raw)
+
+
+def test_a_turn_still_ends_only_on_the_terminals_old_tabs_know() -> None:
+    """Pin the event types, so a new one is a decision, not an accident.
+
+    A tab running an older bundle skips any event type it does not know (the
+    client folds it as a no-op so ``seq`` stays continuous; chat-wire-v2.md,
+    "Compatibility: additive changes are safe"). That makes a new type safe
+    unless it ENDS a turn: old tabs would skip it and wait on the watchdog. A
+    turn must keep ending with ``RUN_FINISHED`` or ``RUN_ERROR``. Adding a type
+    here means checking it is not a terminal before extending the set.
+    """
+    import typing
+
+    def models(annotated: Any) -> list[Any]:
+        # `CustomEvent` is itself an Annotated union, discriminated by `name`.
+        union = typing.get_args(annotated)[0]
+        return [
+            m
+            for member in typing.get_args(union)
+            for m in (models(member) if typing.get_origin(member) is typing.Annotated else [member])
+        ]
+
+    types = {model.model_fields["type"].default for model in models(WIRE_EVENT_TYPE)}
+    assert types == {
+        "RUN_STARTED",
+        "TEXT_MESSAGE_START",
+        "TEXT_MESSAGE_CONTENT",
+        "TEXT_MESSAGE_END",
+        "STATE_SNAPSHOT",
+        "STEP_STARTED",
+        "STEP_FINISHED",
+        "RUN_FINISHED",
+        "RUN_ERROR",
+        "CUSTOM",
+    }
+    assert TERMINAL <= types

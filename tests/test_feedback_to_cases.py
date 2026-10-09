@@ -65,3 +65,49 @@ def test_the_exports_formula_apostrophe_is_taken_back_off(tmp_path):
     row = "2026-10-06T08:00:00Z,o,c,m,down,other,,'=Frage?,A,\"'- 1,10 m\"\n"
     case = yaml.safe_load(_run(tmp_path, HEADER + row))["questions"][0]
     assert (case["question"], case["draft"]["expected_answer"]) == ("=Frage?", "- 1,10 m")
+
+
+def _documented_header() -> list[str]:
+    """The export's columns as the data dictionary lists them (held to the code by `export-columns.spec.ts`)."""
+    doc = (REPO_ROOT / "docs/technical-reference/answer-feedback-export.md").read_text(encoding="utf-8")
+    section = doc.split("## Vote columns", 1)[1].split("\n## ", 1)[0]
+    return [line.split("`")[1] for line in section.splitlines() if line.startswith("| `")]
+
+
+def test_the_current_export_header_still_drafts_a_case(tmp_path):
+    """The reworked export: every vote, both verdicts, `voted_at` instead of `created_at`, and many more columns."""
+    columns = _documented_header()
+    assert {"verdict", "question", "expected_answer", "reason", "voted_at"} <= set(columns)
+    assert "created_at" not in columns
+
+    def row(**values: str) -> str:
+        return ",".join('"' + values.get(column, "").replace('"', '""') + '"' for column in columns)
+
+    text = "\r\n".join(
+        [
+            ",".join(columns),
+            row(
+                voted_at="2026-10-08T07:30:00.000Z",
+                first_voted_at="2026-10-06T08:00:00.000Z",
+                verdict="down",
+                reason="wrong_source",
+                question="Welche Brüstungshöhe gilt?",
+                answer="Die Antwort",
+                organization_id="org-SECRET",
+                voter_key="a1b2c3d4e5f6",
+                expected_answer="1,00 m, ab 12 m Absturzhöhe 1,10 m",
+            ),
+            row(voted_at="2026-10-08T09:00:00.000Z", verdict="up", question="Gute Frage?", expected_answer=""),
+        ]
+    )
+    cases = yaml.safe_load(_run(tmp_path, "\ufeff" + text + "\r\n"))["questions"]
+
+    assert [c["question"] for c in cases] == ["Welche Brüstungshöhe gilt?"]
+    assert cases[0]["draft"] == {
+        "expected_answer": "1,00 m, ab 12 m Absturzhöhe 1,10 m",
+        "reason": "wrong_source",
+        "reported": "2026-10-08",
+    }
+    dumped = _run(tmp_path, "\ufeff" + text + "\r\n")
+    for private in ("org-SECRET", "a1b2c3d4e5f6", "Die Antwort"):
+        assert private not in dumped

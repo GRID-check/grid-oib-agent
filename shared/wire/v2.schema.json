@@ -145,6 +145,18 @@
           "title": "Conversation Id",
           "type": "string"
         },
+        "shown": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ShownAnswer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the asker saw: the stopped answer is cut to it. Sent only to a server whose hello accepts 'cancel_turn.shown'."
+        },
         "turn_id": {
           "minLength": 1,
           "title": "Turn Id",
@@ -542,6 +554,14 @@
     "HelloValue": {
       "additionalProperties": false,
       "properties": {
+        "accepts": {
+          "description": "The optional client fields this server reads, as '<type>.<field>' (ACCEPTED_CLIENT_FIELDS). Free strings, not an enum: a newer server's entry must not make an older page refuse its hello.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Accepts",
+          "type": "array"
+        },
         "build": {
           "description": "The deployed commit (GRID_GIT_SHA), or 'unknown', as /health has it.",
           "minLength": 1,
@@ -1428,6 +1448,30 @@
         "v"
       ],
       "title": "RunStarted",
+      "type": "object"
+    },
+    "ShownAnswer": {
+      "additionalProperties": false,
+      "description": "How much of the answer the asker had on screen when they pressed Stop.\n\nThe first ``chars`` characters (Unicode code points) of the answer's text\nas the client had folded it through ``seq``. A position, not the text: the\nserver keeps only what the model wrote, and the frame stays a few dozen\nbytes, which the gateway's frame limiter reads in full (``ws-frames.js``).",
+      "properties": {
+        "chars": {
+          "description": "How many characters of that text were on screen, in code points.",
+          "minimum": 0,
+          "title": "Chars",
+          "type": "integer"
+        },
+        "seq": {
+          "description": "The last seq of the turn the client had folded when Stop was pressed.",
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq",
+        "chars"
+      ],
+      "title": "ShownAnswer",
       "type": "object"
     },
     "SkillStep": {
@@ -2481,6 +2525,26 @@
           },
           "title": "Read Sources",
           "type": "array"
+        },
+        "reasoning_effort": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning Effort"
         },
         "research_truncated": {
           "default": false,
