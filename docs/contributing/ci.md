@@ -59,7 +59,7 @@ It also lists the third-party image pins the change adds or moves
 
 | Job | Runs when | What it does |
 |---|---|---|
-| Plan (`changes`) | always | the three answers above |
+| Plan (`changes`) | always | the three answers above, written to the run summary with the reason for each |
 | Repo checks (`repo`) | unless reused | pre-commit on all files, the agent-skill lockfile, ruff, release-note lint and (PRs) the release-note requirement, gitleaks over the full history of the commit under test |
 | SAST (`semgrep`) | PRs touching code | Semgrep, diff-aware: blocks findings the PR introduces |
 | Backend tests (`backend`) | backend tier | core suite with the 65% coverage gate, the aiq_api suite, the `sources/` suites |
@@ -115,7 +115,9 @@ against the last green commit, so it covers every commit that was dropped. A
 dropped run concludes `cancelled`, which the deploy reads as superseded.
 
 A pull request's newer push cancels its older run, since every PR run diffs
-the whole PR.
+the whole PR. Merging or closing a pull request cancels its run too
+(`ci-cancel.yml` joins the same concurrency group): the squash merge's push run
+tests the merged tree, and the PR run's slots go back to the queue.
 
 What this does not give you is a test of each PR against the PR merged just
 before it. GitHub's merge queue does that, by testing the merge group before it
@@ -150,6 +152,29 @@ minute analysis on every `develop` push, beside Semgrep, which was adopted to
 replace CodeQL. Turning one of them off is a setting
 (Settings → Code security), and it is the largest remaining cost per push.
 
+## What GitHub offers, and what we use
+
+Checked against GitHub's feature set on 2026-10-09.
+
+| Feature | Status | Why |
+|---|---|---|
+| Concurrency groups | Used | One group per PR and per branch; see above. Groups span workflows, which is how closing a PR cancels its run |
+| `workflow_run` chaining | Used | Deploy follows a green CI push run, no polling |
+| Job outputs, dynamic matrix | Used | The Plan job's answers; the image matrix is the plan's `build` list |
+| Path filtering | Used, in a job | `on.paths` cannot skip a *required* check (it never reports), so the Plan job filters and every job skips through `if:` |
+| Job timeouts | Used | Every job has one, a few times its measured run. The default is 360 minutes, and a hung job holds a capped slot for all of them. A test fails on a job without one |
+| Annotations | Used | oxlint (`--format=github`), ruff (`--output-format=github`) and vitest (`github-actions` reporter) put findings on the PR's diff |
+| Run summaries | Used | Plan's decisions, Semgrep findings, the deploy's URL and image refs |
+| Environments, deployments | Used | `staging` and `production`, with the stack's `appUrl` as the deployment URL; production has required reviewers |
+| Actions pinned by commit SHA | Used | A tag can be moved after review (tj-actions/changed-files, March 2025). Dependabot bumps the SHA and its version comment, workflows and composite actions both. A test and Semgrep's `github-actions-mutable-action-tag` rule refuse a tag |
+| Job-scoped `GITHUB_TOKEN` permissions | Used | Read-only by default; only `image-push` and `publish` can write packages |
+| Caching | Used where measured | pre-commit envs, uv, npm, Astro assets, trivy layers. Not `bun install`: 8 seconds cold, so a cache restore would buy nothing |
+| Merge queue | **Not used: plan** | Would test each PR on top of the one merged before it. Needs the `merge_group` trigger and, for a private repository, GitHub Enterprise Cloud |
+| Artifact attestations | **Not used: plan** | Signed provenance for the images. Private repositories need GitHub Enterprise Cloud |
+| OIDC to Pulumi Cloud | **Not used: your setting** | Would replace the stored `PULUMI_ACCESS_TOKEN` with a short-lived token per job. [cd.md](../deployment/cd.md#3-github-environments-settings--environments) has the steps |
+| Environment branch policies | **Your setting** | `staging` deploys only from `develop`, `production` only from `prod`, and the token is an environment secret, not a repository one. [cd.md](../deployment/cd.md#3-github-environments-settings--environments) |
+| Larger or third-party runners | **Not used: cost** | The cap on runner slots is this design's main constraint. More slots, or faster ones, shorten every run; nothing in the workflows has to change for it |
+
 ## Repository settings this design expects
 
 - Required status checks on `develop`: **`CI OK`** and **`Conventional PR
@@ -166,6 +191,8 @@ workflows run (`ci/`), the hooks (`.pre-commit-config.yaml`) and review routing
 (`.github/CODEOWNERS`). Every one of them gates every pull request, so a change
 that does not serve one of the jobs in the first table needs a reason.
 
+- Every job has a `timeout-minutes` of a few times its measured run, and every
+  action is pinned by commit SHA with a `# vX.Y.Z` comment. Both are tested.
 - A new job takes its `if:` from a `changes` output, or it runs on every merge
   including the reused ones. [`tests/test_ci_workflows.py`](../../tests/test_ci_workflows.py)
   evaluates every job's condition and fails on one that does not skip.
@@ -190,7 +217,8 @@ Verify a change before you push it:
 actionlint                                  # go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
 .venv/bin/pre-commit run --files <changed>
 .venv/bin/pytest tests/test_ci_workflows.py tests/test_reuse_green_run.py \
-  tests/test_last_green.py tests/test_image_inputs.py tests/test_pinned_images.py -q
+  tests/test_last_green.py tests/test_image_inputs.py tests/test_pinned_images.py \
+  tests/test_plan_summary.py -q
 ```
 
 `pre-commit` is not the whole gate: the backend suites run in the `backend` job,

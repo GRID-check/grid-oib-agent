@@ -80,3 +80,25 @@ def test_anything_that_does_not_prove_the_branch_green_is_stepped_over(mod, reje
 def test_no_green_ancestor_means_no_base(mod):
     assert find(mod, [run("n" * 40)], set())[0] is None
     assert find(mod, [], set())[0] is None
+
+
+def test_a_failed_lookup_widens_the_diff_and_keeps_the_output_parseable(mod, monkeypatch, tmp_path):
+    # The reason feeds the Plan job's summary. An exception message spanning
+    # lines must not end the value early: GitHub rejects an output file with a
+    # line that is not `key=value`, and the step would fail instead of widening.
+    commits = {("rev-parse", "HEAD"): HEAD, ("rev-list", "--max-parents=0", "HEAD"): "r" * 40}
+    monkeypatch.setattr(mod, "_git", lambda *args: commits.get(args, f"{HEAD} {'p' * 40}"))
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("HTTP 502\nupstream gone")
+
+    monkeypatch.setattr(mod, "find", broken)
+    output = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
+    monkeypatch.setenv("GITHUB_WORKFLOW_REF", f"{REPO}/{PATH}@refs/heads/develop")
+
+    assert mod.main() == 0
+    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert values["sha"] == "r" * 40 and values["found"] == "false" and values["parent-is-green"] == "false"
+    assert values["reason"].startswith("lookup failed (RuntimeError: HTTP 502 upstream gone)")

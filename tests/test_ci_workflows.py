@@ -142,6 +142,17 @@ def test_a_branch_coalesces_its_pushes_and_a_pull_request_cancels_its_older_run(
     assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
 
 
+def test_closing_a_pull_request_cancels_its_ci_run():
+    # Concurrency groups span workflows, so the cancel workflow cancels CI's
+    # pull request run only while the two group names are the same string.
+    cancel = load("ci-cancel.yml")
+
+    assert cancel["concurrency"] == {"group": CI["concurrency"]["group"], "cancel-in-progress": True}
+    assert cancel["on"]["pull_request"]["types"] == ["closed"]
+    assert cancel["on"]["pull_request"]["branches"] == CI["on"]["pull_request"]["branches"]
+    assert "closed" not in CI["on"]["pull_request"].get("types", [])
+
+
 # --- Reusing a pull request's green result ----------------------------------------
 
 
@@ -314,3 +325,28 @@ def test_staging_deploys_only_a_green_push_run_of_this_repository(run, deploys):
 
     assert bool(evaluate(condition, github=github, inputs={})) is deploys
     assert not evaluate(DEPLOY["jobs"]["deploy-prod"]["if"], github=github, inputs={})
+
+
+@pytest.mark.parametrize("workflow", sorted(path.name for path in WORKFLOWS.glob("*.yml")))
+def test_every_job_has_a_timeout(workflow):
+    # GitHub's default is 360 minutes. Runner slots are capped, so one hung job
+    # holds a slot for six hours while every queued run waits behind it.
+    jobs = load(workflow)["jobs"]
+    missing = [name for name, job in jobs.items() if "uses" not in job and "timeout-minutes" not in job]
+    assert not missing, f"{workflow}: no timeout-minutes on {missing}"
+
+
+def test_every_action_is_pinned_to_a_commit():
+    # A tag can be moved to other code after review; tj-actions/changed-files
+    # was, in March 2025, and leaked the secrets of every workflow using it.
+    # Dependabot (github-actions ecosystem) bumps the SHA and the comment.
+    github = WORKFLOWS.parent
+    pattern = re.compile(r"^\s*-?\s*uses:\s*(?P<ref>\S+)(?P<rest>.*)$", re.M)
+    unpinned = [
+        f"{path.relative_to(github)}: {match['ref']}"
+        for path in sorted(github.rglob("*.yml"))
+        for match in pattern.finditer(path.read_text(encoding="utf-8"))
+        if not match["ref"].startswith(("./", "docker://"))
+        and not (re.fullmatch(r"[^@]+@[0-9a-f]{40}", match["ref"]) and re.match(r"\s+# v\d", match["rest"]))
+    ]
+    assert not unpinned, f"pin these to a commit SHA with a `# vX.Y.Z` comment: {unpinned}"

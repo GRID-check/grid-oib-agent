@@ -59,6 +59,10 @@ jobs:
   changes:
     name: Plan
     runs-on: ubuntu-latest
+    # Every job has a timeout of a few times its measured run. GitHub's
+    # default is 360 minutes, and a hung job holds one of the capped runner
+    # slots for all of them while every queued run waits behind it.
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: read # the last green run, and a pull request run's green marker
@@ -80,7 +84,7 @@ jobs:
       # Third-party image pins this change adds or moves, for trivy.
       pins: ${{ steps.pins.outputs.pins || '[]' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -112,7 +116,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 ci/reuse_green_run.py ci-green
 
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         if: steps.reuse.outputs.hit != 'true'
         with:
@@ -145,6 +149,22 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || steps.green.outputs.sha }}
         run: python3 ci/pinned_images.py new "$BASE"
 
+      # A skipped job reads as passed, so the run page says what was decided
+      # and why: the diff base, reuse, tiers, images, pins.
+      - name: Summary
+        if: always()
+        continue-on-error: true
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || steps.green.outputs.sha }}
+          BASE_REASON: ${{ steps.green.outputs.reason }}
+          REUSED: ${{ steps.reuse.outputs.hit }}
+          TIERS: ${{ toJSON(steps.filter.outputs) }}
+          BUILD: ${{ steps.images.outputs.build }}
+          IMAGES: ${{ steps.images.outputs.images }}
+          PINS: ${{ steps.pins.outputs.pins }}
+        run: python3 ci/plan_summary.py >> "$GITHUB_STEP_SUMMARY"
+
   # Whole-repo checks, deliberately behind no path filter: they lint every file,
   # so gating them on a tier would let a deploy/-only PR land drift that stays
   # invisible until an unrelated PR trips over it. Whoever introduces the drift
@@ -155,6 +175,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.reused != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: read # the no-release-note label, read when the job runs
@@ -163,7 +184,7 @@ jobs:
       # hooks, which never need a credential (hook repos clone anonymously).
       # Full history: reno walks each note back to its commit, the release-note
       # rule diffs against the merge base, and gitleaks reads every commit.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -172,7 +193,7 @@ jobs:
       # when a `rev:` does: ~25s of env building becomes ~0.3s warm. The
       # interpreter path is in the key because pre-commit rebuilds an env whose
       # pyvenv.cfg names another one, and setup-python floats the patch version.
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -189,8 +210,9 @@ jobs:
       # drift; `task agents:audit` is the wrapper that does not.
       - name: Agent-skill lockfile (apm)
         run: task agents:audit
+      # `github` output makes each finding an annotation on the diff.
       - name: Backend lint (ruff)
-        run: task be:lint
+        run: task be:lint -- --output-format=github
       # The notes are published verbatim to piloti.at, so their prose is linted
       # on every run, a push straight to release/** included.
       - name: Release notes (lint)
@@ -232,19 +254,21 @@ jobs:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.sast == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     container:
       # Pinned: an unpinned scanner image changes the rules under a PR that
       # did not change, and nobody can tell which version said what.
       image: semgrep/semgrep:1.177.0
     steps:
       # Full history: diff-aware scanning needs the merge base with the PR's base.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      # p/github-actions includes the mutable-action-tag rule, so an action
+      # referenced by tag instead of commit SHA is a new finding here.
       - name: Semgrep scan
         run: >-
           semgrep ci --json-output=semgrep.json
-          --exclude-rule yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
           --exclude-rule javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
         env:
           SEMGREP_RULES: p/default p/javascript p/typescript p/python p/secrets p/github-actions
@@ -262,11 +286,12 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write # coverage sticky comment
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # ONE interpreter, the one the backend image ships (deploy/Dockerfile).
@@ -283,7 +308,7 @@ jobs:
       - name: Coverage comment (backend)
         if: github.event_name == 'pull_request'
         continue-on-error: true # never fail CI on a comment hiccup
-        uses: MishaKav/pytest-coverage-comment@main
+        uses: MishaKav/pytest-coverage-comment@9ee59af31bd7bcada1cc496f086b407122602dbd # v1.12.3
         with:
           pytest-xml-coverage-path: coverage.xml
           title: Backend coverage (src/aiq_agent)
@@ -304,23 +329,25 @@ jobs:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       # These jobs run PR-controlled code (`bun install` runs lifecycle scripts,
       # the suite runs the app), so no repository credential is left in
       # .git/config for them to find. Nothing here needs authenticated git.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # Node is the RUNTIME (Turbopack's PostCSS step spawns a real `node`);
       # Bun is only the installer and script runner.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
       - run: task fe:install
       - run: task fe:cards:check
-      - run: task fe:lint
+      # Findings become annotations on the pull request's diff.
+      - run: task fe:lint -- --format=github
       - run: task fe:types
       # ubuntu-latest ships PostgreSQL server binaries but runs no cluster; the
       # script builds a throwaway one and tears it down.
@@ -336,6 +363,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       # One shard's failure should not hide the others' results.
       fail-fast: false
@@ -349,10 +377,10 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - uses: ./.github/actions/setup-bun
@@ -362,7 +390,7 @@ jobs:
       # Coverage is collected per shard and merged below: a shard only loads
       # its own slice of the app. Uploaded even when the shard failed, because
       # the merged report is where a reviewer looks.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && github.event_name == 'pull_request'
         with:
           name: vitest-blob-${{ matrix.shard }}
@@ -378,20 +406,21 @@ jobs:
     needs: [changes, frontend-test]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: write # coverage sticky comment
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
       - run: task fe:install
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: vitest-blob-*
           merge-multiple: true
@@ -399,7 +428,7 @@ jobs:
       - run: task fe:test:merge
       - name: Coverage comment (frontend)
         continue-on-error: true
-        uses: davelosert/vitest-coverage-report-action@v2
+        uses: davelosert/vitest-coverage-report-action@c4bbc33a89b7ace0e63d35f1f7d4bcee31155a73 # v2.13.0
         with:
           working-directory: frontends/ui
 
@@ -408,11 +437,12 @@ jobs:
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
@@ -422,7 +452,7 @@ jobs:
       # sources, with `restore-keys` turning a miss into a partial hit. Outside
       # node_modules, where `npm ci` would delete it. The web image build
       # restores the same entry into its build context.
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: frontends/web/.astro-cache
           key: astro-cache-${{ runner.os }}-${{ hashFiles('frontends/web/src/content/blog/_images/**', 'frontends/web/src/assets/**') }}
@@ -435,11 +465,12 @@ jobs:
     needs: changes
     if: needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
@@ -469,18 +500,19 @@ jobs:
     needs: changes
     if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: packages/ifc-spatial/package-lock.json
       # Keyed on the package's OWN uv.lock: the root one would restore an
       # environment this suite never uses (IfcOpenShell + shapely wheels).
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: packages/ifc-spatial-py/uv.lock
@@ -502,16 +534,17 @@ jobs:
     needs: changes
     if: needs.changes.outputs.pins != '[]'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       TRIVY_VERSION: "0.61.1"
       PINS: ${{ needs.changes.outputs.pins }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: python3 -c 'import json, os; print("\n".join(json.loads(os.environ["PINS"])))' | tee pins.txt
       - name: Restore the layer analysis
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .trivy-cache/fanal
           key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
@@ -519,7 +552,7 @@ jobs:
       - name: Save the layer analysis
         if: always() && hashFiles('.trivy-cache/fanal/**') != ''
         continue-on-error: true
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .trivy-cache/fanal
           key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
@@ -532,6 +565,7 @@ jobs:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.build != '[]'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: read # the GHCR layer cache
@@ -540,7 +574,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.build) }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/build-image
@@ -562,6 +596,7 @@ jobs:
     needs: changes
     if: github.event_name == 'push' && needs.changes.outputs.build != '[]'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -570,7 +605,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.build) }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/build-image
@@ -595,14 +630,17 @@ jobs:
       always() && github.event_name == 'push' && needs.changes.result == 'success'
       && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: write
     steps:
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          cleanup: false # the runner is discarded; see build-image/action.yml
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -639,6 +677,7 @@ jobs:
     # ADR-0058 "Update (2026-09-09)" says what restoring the gate would take.
     needs: [changes, repo, semgrep, backend, frontend, frontend-test, web, infra, packages, trivy, image, image-push, publish]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require needed jobs to have passed (skipped is fine)
         env:
@@ -671,7 +710,7 @@ jobs:
       - name: Record this tree as green
         if: github.event_name == 'pull_request' && steps.tree.outputs.tree != ''
         continue-on-error: true
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ci-green-${{ steps.tree.outputs.tree }}
           path: ${{ runner.temp }}/green-run.txt

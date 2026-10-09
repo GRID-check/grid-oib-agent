@@ -37,10 +37,30 @@ updates:
       default-days: 7
     open-pull-requests-limit: 5
 
-  # Keep the Actions in our workflows current (also picked up by Semgrep's
-  # p/github-actions rules).
+  # The Pulumi program and its policy pack. Bumping @pulumi/pulumi here also
+  # moves the CLI the deploy installs (deploy.yml installs the locked SDK's
+  # release), so the two can only move together, in a reviewed pull request.
+  - package-ecosystem: npm
+    directories:
+      - "/deploy/pulumi"
+      - "/deploy/pulumi/policy"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      pulumi:
+        patterns: ["@pulumi/*"]
+
+  # Keep the Actions current. They are pinned by commit SHA with a version
+  # comment (tests/test_ci_workflows.py), and Dependabot bumps both. "/" reads
+  # .github/workflows only; the composite actions need their own directories,
+  # or the actions they use are never updated.
   - package-ecosystem: github-actions
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: weekly
     cooldown:

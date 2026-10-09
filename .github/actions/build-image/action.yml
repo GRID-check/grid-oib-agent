@@ -43,19 +43,24 @@ runs:
     # and the runner stage copies only dist/, so it never reaches the image.
     - name: Restore the Astro asset cache into the build context
       if: inputs.name == 'web'
-      uses: actions/cache/restore@v6
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: frontends/web/.astro-cache
         key: astro-cache-${{ runner.os }}-${{ hashFiles('frontends/web/src/content/blog/_images/**', 'frontends/web/src/assets/**') }}
         restore-keys: |
           astro-cache-${{ runner.os }}-
 
+    # No cleanup: removing the builder deletes its state on a runner that is
+    # discarded right after, and took 52s of the frontend image job (the
+    # longest job in a pull request run) on 2026-10-09.
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      with:
+        cleanup: false
 
     # Also needed to build only: the layer cache is read from GHCR.
     - name: Log in to GHCR
-      uses: docker/login-action@v4
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -63,7 +68,7 @@ runs:
 
     - name: Labels
       id: meta
-      uses: docker/metadata-action@v6
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
       with:
         images: ${{ inputs.registry }}/${{ inputs.repository }}
         tags: type=raw,value=inputs-${{ inputs.hash }}
@@ -84,7 +89,7 @@ runs:
     # not change is not rebuilt, only re-tagged, so a container reports the
     # commit its code came from, which is the one worth reading in a pilot report.
     - name: Build${{ inputs.push == 'true' && ' and push' || '' }}
-      uses: docker/build-push-action@v7
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
       with:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile }}

@@ -28,6 +28,14 @@ a commit CI failed cannot be deployed by accident.
   the newer commit's run covers it (it diffs against the last green commit) and
   deploys instead. A **failed** run deploys nothing, and the next green commit
   deploys everything since.
+- **What GitHub shows**: each deploy job is a deployment to its GitHub
+  environment, with the URL the stack reports (output `appUrl`), so the
+  repository's Deployments page and each deployed commit link to the running
+  app. The run summary lists the commit and the three image refs it pinned.
+- **The Pulumi CLI** is the release of the `@pulumi/pulumi` SDK that
+  `deploy/pulumi/package-lock.json` pins, not `latest`. Dependabot bumps the
+  SDK, and the CLI follows in the same reviewed diff; staging and prod always
+  run the same one.
 - **Reused PR results**: a push whose tree a green pull request run already
   tested, on top of a green parent, skips its checks and still builds and tags
   the images, so it deploys like any other green push. How the reuse is decided:
@@ -71,6 +79,21 @@ Commit the updated `Pulumi.dev.yaml` (plaintext + `environment:` import only).
 Create **`staging`** (and later `production`). On each, add the secret
 `PULUMI_ACCESS_TOKEN` (used for the gate previews and the apply). On **`production`**, add **required reviewers** so a prod deploy
 pauses for manual approval.
+
+Restrict each environment to the branch it deploys (**Deployment branches and
+tags → Selected branches**): `develop` for `staging`, `prod` for `production`.
+An environment secret is then unreadable from any other branch's workflow run,
+including a workflow file someone edits on a feature branch. Delete the
+repository-level `PULUMI_ACCESS_TOKEN` once both environments hold their own:
+a repository secret reaches every workflow on every branch.
+
+Optional, and better than any stored token: exchange the job's GitHub OIDC
+token for a short-lived Pulumi token with
+[`pulumi/auth-actions`](https://www.pulumi.com/docs/pulumi-cloud/access-management/oidc/client/github/).
+It needs the GitHub issuer registered in Pulumi Cloud (Settings → OIDC Issuers,
+with a policy limited to this repository and environment), `id-token: write` on
+the deploy jobs, and one step in place of the secret; after that there is no
+`PULUMI_ACCESS_TOKEN` left to leak or rotate.
 
 ### 4. Branch protection (Settings → Branches)
 For `develop`, require the status checks **`CI OK`** and **`Conventional PR

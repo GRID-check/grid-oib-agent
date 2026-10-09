@@ -37,7 +37,8 @@ name: Deploy (staging)
 #      in ≤2 weeks) — see docs/deployment/kubernetes.md §2b.
 #   4. COMMIT the updated Pulumi.dev.yaml (plaintext + `environment:` import) —
 #      without it every CI deploy fails its preflight.
-#   5. Add repo secret PULUMI_ACCESS_TOKEN (gate previews + the apply).
+#   5. Add PULUMI_ACCESS_TOKEN as a secret of the `staging` environment, and
+#      restrict the environment to `develop` (docs/deployment/cd.md §3).
 # The "Preflight" step below verifies step 2/4 happened and fails with
 # instructions if not.
 #
@@ -48,8 +49,8 @@ name: Deploy (staging)
 #   * GitHub environment `production` exists with REQUIRED REVIEWERS
 #     (Settings → Environments). The environment gate IS the human approval;
 #     until it exists the job runs unreviewed.
-#   * Repo secret PULUMI_ACCESS_TOKEN reachable there (the same secret the
-#     staging job uses; no environment-scoped secret needed).
+#   * PULUMI_ACCESS_TOKEN reachable there: a secret of the `production`
+#     environment, restricted to `prod` (docs/deployment/cd.md §3).
 #   * Images must ALREADY exist in GHCR: prod consumes the imageTag PINNED in
 #     its committed Pulumi.prod.yaml, so unlike staging this job sets NO config,
 #     resolves NO per-service refs and verifies NO rollback tag — the preview
@@ -96,8 +97,8 @@ permissions:
   contents: read
   packages: read # verify an image tag exists for all three images before pinning it
 
-# Concurrency is PER JOB now (`deploy-dev` / `deploy-prod` below): a
-# production apply must not queue behind a staging publish or vice versa.
+# Concurrency is per job (`deploy-dev` / `deploy-prod` below): a production
+# apply must not queue behind a staging deploy or vice versa.
 # Within each stack, updates still run strictly one at a time.
 jobs:
   deploy:
@@ -114,7 +115,16 @@ jobs:
         && github.event.workflow_run.head_repository.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && (inputs.target == 'staging' || inputs.target == 'both'))
     runs-on: ubuntu-latest
-    environment: staging
+    # Generous on purpose. A timeout that kills `pulumi up` mid-apply leaves
+    # the stack with pending operations that someone clears by hand; the
+    # policy pack's progress deadlines fail a stuck rollout long before this.
+    # Measured: a green deploy took 6 minutes on 2026-10-09.
+    timeout-minutes: 60
+    # The URL comes from the stack itself (output `appUrl`), so the
+    # repository's Deployments page and the commit link to what was deployed.
+    environment:
+      name: staging
+      url: ${{ steps.deployed.outputs.url }}
     concurrency:
       group: deploy-dev
       cancel-in-progress: false
@@ -165,7 +175,7 @@ jobs:
       # fork PR code. This is the safe use of workflow_run + checkout, so the
       # generic pwn-request rule is a false positive here.
       # nosemgrep: yaml.github-actions.security.workflow-run-target-code-checkout.workflow-run-target-code-checkout
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Deploy the exact commit whose images were just published.
           ref: ${{ env.DEPLOY_SHA }}
@@ -240,7 +250,7 @@ jobs:
           fi
           echo "stack file preflight OK"
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
@@ -267,13 +277,19 @@ jobs:
       #      readiness soaks, progress deadlines, shutdown budgets), resource
       #      bounds, and image-pull correctness. A `mandatory` violation fails
       #      the preview here, before anything touches the cluster.
+      # The CLI release of the SDK the lockfile pins, not `latest`: Pulumi
+      # releases the two in lockstep, so the CLI moves only in a reviewed
+      # package-lock.json diff (Dependabot's, usually), and staging and prod run
+      # the same one. `latest` changed the CLI under a deploy nobody changed.
       - name: Install Pulumi
+        working-directory: deploy/pulumi
         run: |
+          version="$(node -p "require('@pulumi/pulumi/package.json').version")"
           # Download the installer to a file first, then run it, rather than
           # piping curl straight into a shell (curl|sh): a hijacked endpoint
           # can't execute in one uninspectable stream.
           curl -fsSL https://get.pulumi.com -o "$RUNNER_TEMP/install-pulumi.sh"
-          sh "$RUNNER_TEMP/install-pulumi.sh" --version latest
+          sh "$RUNNER_TEMP/install-pulumi.sh" --version "$version"
 
       # One ref per service, all three the commit's own tag when CI triggered
       # this deploy. A rollback pins all three to the operator's tag, after
@@ -345,6 +361,29 @@ jobs:
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
 
+      # Best effort: a missing output must not turn a finished deploy red.
+      - name: Record what was deployed
+        id: deployed
+        continue-on-error: true
+        working-directory: deploy/pulumi
+        run: |
+          export PATH="$HOME/.pulumi/bin:$PATH"
+          url="$(pulumi stack output appUrl --stack matthiasbigl/grid-oib/dev)"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Staging deployed"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| URL | $url |"
+            echo "| Commit | \`$DEPLOY_SHA\` |"
+            echo "| Backend | \`$BACKEND_IMAGE_REF\` |"
+            echo "| Frontend | \`$FRONTEND_IMAGE_REF\` |"
+            echo "| Web | \`$WEB_IMAGE_REF\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
   # Mirrors the staging job above (same runner, checkout action/version,
   # toolchain setup, working directories, secret mechanism, plan gates and
   # error handling) against the fully-configured prod stack. All staging-only
@@ -359,17 +398,21 @@ jobs:
     # queue a prod apply on every merge to develop.
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.target == 'prod' || inputs.target == 'both')) }}
     runs-on: ubuntu-latest
+    # As generous as staging's, for the same reason.
+    timeout-minutes: 60
     # Required-reviewer protection comes from this GitHub environment.
-    environment: production
+    environment:
+      name: production
+      url: ${{ steps.deployed.outputs.url }}
     concurrency:
       group: deploy-prod
       cancel-in-progress: false
     steps:
       # Pushes land on refs/heads/prod, so the default checkout IS the
       # promoted commit (dispatch checks out whatever ref it ran from).
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
@@ -400,12 +443,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      # The lockfile's SDK version, as staging installs it.
       - name: Install Pulumi
+        working-directory: deploy/pulumi
         run: |
-          # Installer downloaded to a file first, not piped into a shell —
-          # same rationale as the staging job's step above.
+          version="$(node -p "require('@pulumi/pulumi/package.json').version")"
           curl -fsSL https://get.pulumi.com -o "$RUNNER_TEMP/install-pulumi.sh"
-          sh "$RUNNER_TEMP/install-pulumi.sh" --version latest
+          sh "$RUNNER_TEMP/install-pulumi.sh" --version "$version"
 
       # The same two independent plan gates as staging (CRD schema validation +
       # mandatory CrossGuard policies), but against the prod stack and with NO
@@ -435,5 +479,26 @@ jobs:
           export PATH="$HOME/.pulumi/bin:$PATH"
           pulumi stack select matthiasbigl/grid-oib/prod
           pulumi up --yes
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      - name: Record what was deployed
+        id: deployed
+        continue-on-error: true
+        working-directory: deploy/pulumi
+        run: |
+          export PATH="$HOME/.pulumi/bin:$PATH"
+          url="$(pulumi stack output appUrl --stack matthiasbigl/grid-oib/prod)"
+          tag="$(sed -n 's/^  grid-oib:imageTag: *//p' Pulumi.prod.yaml | tr -d '"' | tr -d "'")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Production deployed"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| URL | $url |"
+            echo "| Commit | \`$GITHUB_SHA\` |"
+            echo "| Image tag | \`$tag\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}

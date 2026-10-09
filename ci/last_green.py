@@ -105,6 +105,8 @@ def main() -> int:
             handle.write(f"sha={base}\n")
             handle.write(f"found={'true' if green else 'false'}\n")
             handle.write(f"parent-is-green={'true' if green and parents == [green] else 'false'}\n")
+            # One line: an exception message with a newline would end the value.
+            handle.write("reason=" + " ".join(f"{reason}; {note}".split()) + "\n")
     return 0
 
 
