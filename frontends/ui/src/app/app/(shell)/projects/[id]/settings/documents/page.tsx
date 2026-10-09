@@ -3,6 +3,7 @@ import { type Metadata } from 'next'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
+import { listFoldersWithoutValidRole } from '@/lib/projects/folder-access-settings'
 import { resolveProjectSettingsAccess } from '@/lib/projects/settings-access'
 import { DocumentsSettings } from '@/features/projects/components/settings/documents-settings'
 import { getTranslations } from '@/i18n/server'
@@ -25,6 +26,8 @@ export default async function ProjectDocumentsSettingsPage({
     await requireProjectAccess(session, id, 'project:view')
 
     const access = await resolveProjectSettingsAccess(session, id)
+    // ADR-0088: asked only of a project manager, who can set a role again.
+    const foldersWithoutRole = access.manage ? await listFoldersWithoutValidRole(session, id) : []
 
     return (
       <DocumentsSettings
@@ -32,6 +35,7 @@ export default async function ProjectDocumentsSettingsPage({
         currentUserId={session.userId}
         canReindex={access.writeDocuments}
         showKnowledgeLink={isProjectKnowledgePageEnabled(session)}
+        foldersWithoutRole={foldersWithoutRole}
       />
     )
   })

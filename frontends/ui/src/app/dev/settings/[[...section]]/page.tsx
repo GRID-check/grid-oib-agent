@@ -106,6 +106,11 @@ const ACTIVITY = {
   })),
 }
 
+const FOLDERS_WITHOUT_ROLE = [
+  { id: 'f-honorare', name: 'Honorare' },
+  { id: 'f-personal', name: 'Personal' },
+]
+
 const OVERVIEW_DATA = {
   ...PROFILE_DATA,
   name: 'Wohnbau Mariahilf',
@@ -254,6 +259,8 @@ export default function SettingsDevPage({
             <ProjectOverview
               data={OVERVIEW_DATA}
               activity={ACTIVITY}
+              // ADR-0088: folders whose roles were deleted since; each links to the folder.
+              foldersWithoutRole={admin ? FOLDERS_WITHOUT_ROLE : []}
               usage={admin ? usage(search.get('blocked')) : null}
               access={{ manage: admin, editProfile: admin, manageMembers: admin }}
             />

@@ -30,6 +30,8 @@ from typing import Any
 
 from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.common.source_kinds import parse_shelf
+from aiq_agent.knowledge.restricted_collections import is_restricted_collection
+from aiq_agent.knowledge.restricted_use import current_restricted_use
 from nat.plugin_api import Context
 
 logger = logging.getLogger(__name__)
@@ -201,6 +203,13 @@ def get_scoped_collections_from_context() -> list[ScopedCollection] | None:
     (which is this function's names-only projection): the SIGNED envelope wins,
     the raw header is honored only when no valid envelope is present.
 
+    In an interactive chat turn whose scope carries restricted-folder
+    collections (ADR-0087, ADR-0088), only the ones the turn may draw on stay:
+    the BFF answered which at turn start
+    (:func:`aiq_agent.knowledge.restricted_use.begin_restricted_use`), and every
+    read path takes its scope from here, so a conversation shared since the
+    socket was signed searches only what everyone reading it may read.
+
     Returns:
         Deduplicated, normalized ``(collection, shelf)`` entries (possibly
         empty), or ``None`` when no readable scope is present. ``shelf`` is
@@ -218,7 +227,17 @@ def get_scoped_collections_from_context() -> list[ScopedCollection] | None:
         logger.debug("Verified collection-scope read failed; falling back to raw header", exc_info=True)
         scope = _raw_collection_scope_from_header()
 
-    return _parse_scope_payload(scope)
+    return _drawable_only(_parse_scope_payload(scope))
+
+
+def _drawable_only(entries: list[ScopedCollection] | None) -> list[ScopedCollection] | None:
+    """``entries`` without the restricted collections the bound turn may not draw on; unchanged outside one."""
+    use = current_restricted_use()
+    if entries is None or use is None:
+        return entries
+    return [
+        entry for entry in entries if not is_restricted_collection(entry.collection) or use.allows(entry.collection)
+    ]
 
 
 def get_collection_scope_from_context() -> list[str] | None:

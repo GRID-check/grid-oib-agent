@@ -9,6 +9,7 @@ vi.mock('@/lib/db/tenant-context', () => ({
   withPlatformAccess: vi.fn(async (_reason: string, fn: () => unknown) => await fn()),
 }))
 vi.mock('@/lib/documents/shelf-authz', () => ({ requireShelfWrite: vi.fn() }))
+vi.mock('@/lib/authz/folder-access', () => ({ requireFolderWrite: vi.fn() }))
 vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn() }))
 vi.mock('@/lib/jobs-queue/repository', () => ({ findOpenJobId: vi.fn() }))
 vi.mock('@/lib/jobs-queue/enqueue', () => ({ enqueueJob: vi.fn(async () => ({ jobId: 'job_next' })) }))
@@ -23,6 +24,7 @@ vi.mock('@/lib/auth/pinned-session', () => ({
   })),
 }))
 vi.mock('@/lib/projects/folder-service', () => ({
+  findRootProjectFolderByName: vi.fn(async () => null),
   getOrCreateProjectFolderByName: vi.fn(async () => ({ id: 'folder_root', name: 'E-Mail-Import' })),
 }))
 vi.mock('./staging', () => ({ archiveUrlForBackend: vi.fn(async () => 'http://seaweedfs/presigned') }))
@@ -36,7 +38,7 @@ vi.mock('./filing', async (importOriginal) => {
   return {
     ...actual,
     createFolderWithFreeName: vi.fn(async () => ({ id: 'folder_archive', name: 'Büro 2019' })),
-    filingContext: vi.fn(async (input: object) => ({ ...input, collectionName: 'c', folders: new Map() })),
+    filingContext: vi.fn((input: object) => ({ ...input, folders: new Map() })),
     fileMail: vi.fn(async () => ({ folderName: 'm', filesFiled: 2, filesSkipped: 1, skipped: [{ mail: 'm', file: 'x.exe', reason: 'type' }] })),
   }
 })
@@ -66,14 +68,24 @@ vi.mock('./repository', () => ({
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { MailImport } from '@/lib/db/schema'
 import { emitInboxItems } from '@/lib/inbox/service'
-import { ForbiddenError } from '@/lib/api/errors'
+import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { requireFolderWrite } from '@/lib/authz/folder-access'
+import { folderReadOnlyError } from '@/lib/authz/folder-access-rule'
+import { findRootProjectFolderByName } from '@/lib/projects/folder-service'
 import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import { requireShelfWrite } from '@/lib/documents/shelf-authz'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
 import { findOpenJobId } from '@/lib/jobs-queue/repository'
 import { readArchivePage, UnreadableArchiveError, type ArchivePage } from './archive-client'
 import { openUploadBatch, sealJobUploadBatch } from '@/lib/upload-batches/service'
-import { fileMail, filingContext, ImportMovedOnError, MailImportQuotaError, SliceBudgetSpentError } from './filing'
+import {
+  createFolderWithFreeName,
+  fileMail,
+  filingContext,
+  ImportMovedOnError,
+  MailImportQuotaError,
+  SliceBudgetSpentError,
+} from './filing'
 import { runMailImportSlice, sweepStaleMailImports } from './job'
 import * as repository from './repository'
 import { discardStaging } from './service'
@@ -304,6 +316,42 @@ describe('runMailImportSlice', () => {
     await runMailImportSlice(session, payload, 'org_1')
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued'], { status: 'importing' })
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['importing'], { rootFolderId: 'folder_archive' })
+    // A root that did not exist is judged at the project root, then once more as the folder that now exists.
+    expect(requireFolderWrite).toHaveBeenCalledWith(session, payload.projectId, [null])
+    expect(requireFolderWrite).toHaveBeenCalledWith(session, payload.projectId, ['folder_root'])
+  })
+
+  it('ends the import at once as lost access when the existing E-Mail-Import folder is read-only or hidden for the person', async () => {
+    const queued = row({ status: 'queued', rootFolderId: null, totalItems: null })
+    vi.mocked(findRootProjectFolderByName).mockResolvedValue({ id: 'folder_root_restricted', name: 'E-Mail-Import' } as never)
+
+    for (const refusal of [folderReadOnlyError(), new NotFoundError('Folder not found')]) {
+      vi.mocked(repository.findMailImport).mockResolvedValueOnce(queued)
+      vi.mocked(repository.updateMailImport).mockResolvedValueOnce({ ...queued, status: 'importing' })
+      vi.mocked(requireFolderWrite).mockRejectedValueOnce(refusal)
+
+      expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(true)
+      expect(requireFolderWrite).toHaveBeenLastCalledWith(session, payload.projectId, ['folder_root_restricted'])
+      expect(repository.updateMailImport).toHaveBeenLastCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
+        status: 'failed', errorCode: 'access',
+      }))
+    }
+    expect(createFolderWithFreeName).not.toHaveBeenCalled()
+    expect(enqueueJob).not.toHaveBeenCalled()
+    vi.mocked(findRootProjectFolderByName).mockReset()
+  })
+
+  it('checks write on the archive folder every slice, and ends the import when it turned read-only', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+    vi.mocked(requireFolderWrite).mockRejectedValueOnce(folderReadOnlyError())
+
+    await runMailImportSlice(session, payload, 'org_1')
+    expect(requireFolderWrite).toHaveBeenCalledWith(session, payload.projectId, ['folder_archive'])
+    expect(readArchivePage).not.toHaveBeenCalled()
+    expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
+      status: 'failed', errorCode: 'access',
+    }))
+    expect(enqueueJob).not.toHaveBeenCalled()
   })
 })
 

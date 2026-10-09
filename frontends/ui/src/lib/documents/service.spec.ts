@@ -6,6 +6,11 @@ import { createHash } from 'node:crypto'
  * records a version through the lifecycle; here that reduces to "it was asked
  * for", and the version table's own behaviour is `lifecycle.spec.ts`'s.
  */
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
+// The log's own behaviour is `download-log/service.spec.ts`'s; here it is the
+// seam the byte-serving functions are held to: which of them call it, with
+// what, and only after the request could no longer be refused.
+vi.mock('@/lib/download-log/service', () => ({ recordDocumentAccess: vi.fn(async () => undefined) }))
 vi.mock('./version-repository', () => ({
   DOCUMENT_VERSION_LIST_LIMIT: 200,
   insertDocumentVersion: vi.fn(async (values: Record<string, unknown>) => ({
@@ -111,6 +116,7 @@ vi.mock('./repository', () => ({
   // Default: no collision, so the upload path is the insert path it has always
   // been. The replace path is driven per-test.
   findLiveDocumentByFilename: vi.fn().mockResolvedValue(null),
+  findProjectCollectionsHoldingFilename: vi.fn().mockResolvedValue([]),
   listProjectDocuments: vi.fn(),
   listProjectDocumentPage: vi.fn().mockResolvedValue({ rows: [], nextCursor: null }),
   findProjectDocumentsByFilenames: vi.fn().mockResolvedValue([]),
@@ -166,11 +172,19 @@ import {
   listProjectDocumentPage,
   findProjectDocumentsByFilenames,
   findProjectDocumentsByNames,
+  findProjectCollectionsHoldingFilename,
   deleteProjectDocument,
   setDocumentDisplayName,
   setDocumentReconciledStatus,
   listFailedDocumentPageInOrg,
 } from './repository'
+import {
+  DOCUMENT_WRITE_PERMISSIONS,
+  getHiddenFolderIds,
+  getProjectFolderAccess,
+  requireFolderWrite,
+  type ProjectFolderAccess,
+} from '@/lib/authz/folder-access'
 import {
   listDocuments,
   listDocumentsPage,
@@ -226,6 +240,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildDocumentImageUrl } from '@/lib/images/signed-image-url'
+import { recordDocumentAccess } from '@/lib/download-log/service'
 
 const session: AuthorizedSession = {
   userId: 'user-1',
@@ -281,6 +296,12 @@ beforeEach(() => {
   // unmocked puts every upload path on a shape the application cannot produce,
   // and would have made the guard look breakable when it is not.
   vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument())
+  // The real `requireFolderWrite` checks the project's document-write
+  // permission first (the ceiling, ADR-0088); the open mock keeps that step so
+  // the 403/404 cases below still reach `requireProjectAccess`.
+  vi.mocked(requireFolderWrite).mockImplementation(async (s, projectId) => {
+    await requireProjectAccess(s, projectId, DOCUMENT_WRITE_PERMISSIONS)
+  })
 })
 
 afterEach(() => {
@@ -440,6 +461,66 @@ describe('uploadDocument server-side name screening', () => {
     expect(recordAuditEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: 'document.screening_overridden' })
     )
+  })
+})
+
+/**
+ * Restricted folders do not hold IFC models (ADR-0087): the model's building
+ * data is keyed by project, so a restriction would hide the file and leave the
+ * building open. The upload is refused before anything is stored.
+ */
+describe('uploadDocument refuses an IFC model into a restricted folder', () => {
+  const restricted = (): ProjectFolderAccess => ({
+    hiddenFolderIds: new Set<string>(),
+    isVisible: () => true,
+    collectionFor: (folderId) => (folderId === 'f-restricted' ? 'proj_abc_r0123456789ab' : 'proj_abc'),
+    clearedRestrictedCollections: ['proj_abc_r0123456789ab'],
+    levelOf: () => 'write',
+    sourceFolderOf: () => null,
+    anyRestricted: true,
+  })
+
+  it('answers 409 with the reason, and stores nothing', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(restricted())
+    const error = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'Haus-A.ifc', type: 'application/octet-stream' }), folderId: 'f-restricted' },
+      new Request('http://x')
+    ).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect(error).toMatchObject({
+      status: 409,
+      message: expect.stringContaining('IFC models cannot be filed in a restricted folder yet'),
+      details: { code: 'IFC_IN_RESTRICTED_FOLDER' },
+    })
+    expect(s3Client.send).not.toHaveBeenCalled()
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('refuses an .ifczip the same way', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(restricted())
+    await expect(
+      uploadDocument(
+        session,
+        { ...makeInput({ name: 'Haus-A.IFCZIP', type: 'application/zip' }), folderId: 'f-restricted' },
+        new Request('http://x')
+      )
+    ).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('still files any other document into the restricted folder', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(restricted())
+    vi.mocked(findFolderPathInProject).mockResolvedValueOnce('Leitung')
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-1' }) })
+    const result = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'Bauzeitplan.pdf' }), folderId: 'f-restricted' },
+      new Request('http://x')
+    )
+    expect(result.status).toBe('pending')
+    expect(admitOrDiscard).toHaveBeenCalled()
   })
 })
 
@@ -773,7 +854,9 @@ describe('probeProjectDocumentNames', () => {
 
     expect(await probeProjectDocumentNames(session, 'proj-1', ['EG.pdf'])).toEqual([match])
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
-    expect(findProjectDocumentsByNames).toHaveBeenCalledWith('proj-1', session.organizationId, ['EG.pdf'])
+    expect(findProjectDocumentsByNames).toHaveBeenCalledWith('proj-1', session.organizationId, ['EG.pdf'], {
+      hiddenFolderIds: [],
+    })
   })
 
   it('reads nothing for a reader without the project', async () => {
@@ -789,18 +872,21 @@ describe('joinHitsToFiles', () => {
     createdAt: new Date('2026-01-01T00:00:00Z'),
     id: 'old',
     authoredBy: 'user',
+    collectionName: 'c',
   }
   const newer = {
     filename: 'plan.pdf',
     createdAt: new Date('2026-02-01T00:00:00Z'),
     id: 'new',
     authoredBy: 'user',
+    collectionName: 'c',
   }
   const other = {
     filename: 'permit.pdf',
     createdAt: new Date('2026-01-05T00:00:00Z'),
     id: 'permit',
     authoredBy: 'user',
+    collectionName: 'c',
   }
 
   it('joins by filename and augments each row with snippet/page/score', () => {
@@ -860,6 +946,7 @@ describe('joinHitsToFiles', () => {
       createdAt: new Date('2026-03-01T00:00:00Z'),
       id: 'generated',
       authoredBy: 'agent',
+      collectionName: 'c',
     }
     const hits = [
       { file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: 2, collection: 'c' },
@@ -876,6 +963,7 @@ describe('joinHitsToFiles', () => {
       createdAt: new Date('2026-03-01T00:00:00Z'),
       id: 'generated',
       authoredBy: 'agent',
+      collectionName: 'c',
     }
     const hits = [
       { file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' },
@@ -895,6 +983,7 @@ describe('joinHitsToFiles', () => {
       createdAt: new Date('2026-06-01T00:00:00Z'),
       id: 'imported',
       authoredBy: 'import',
+      collectionName: 'c',
     }
     const hits = [
       { file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' },
@@ -914,12 +1003,68 @@ describe('joinHitsToFiles', () => {
       createdAt: new Date('2026-06-01T00:00:00Z'),
       id: 'generated',
       authoredBy: 'agent',
+      collectionName: 'c',
     }
     const hits = [
       { file_name: 'plan.pdf', score: 0.9, snippet: 'a', page_number: null, collection: 'c' },
       { file_name: 'permit.pdf', score: 0.4, snippet: 'x', page_number: null, collection: 'c' },
     ]
     expect(joinHitsToFiles(hits, [older, generated]).map((r) => r.id)).toEqual(['old'])
+  })
+
+  // Filenames are unique per collection, and a project has several (its own plus
+  // one per restricted folder). The hit names the collection it was found in; a
+  // row of another collection is somebody else's document, however recent.
+  describe('the collection is part of the identity', () => {
+    const open = {
+      filename: 'Protokoll.pdf',
+      createdAt: new Date('2026-09-01T00:00:00Z'),
+      id: 'open-root',
+      authoredBy: 'user',
+      collectionName: 'proj_abc',
+    }
+    const restricted = {
+      filename: 'Protokoll.pdf',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      id: 'gf-intern',
+      authoredBy: 'user',
+      collectionName: 'proj_abc_rabcdef012345',
+    }
+    const hitIn = (collection: string, score = 0.8) => ({
+      file_name: 'Protokoll.pdf',
+      score,
+      snippet: `aus ${collection}`,
+      page_number: 1,
+      collection,
+    })
+
+    it('does not hand a restricted hit to a newer same-named row of another collection', () => {
+      const result = joinHitsToFiles([hitIn('proj_abc_rabcdef012345')], [restricted, open])
+      expect(result.map((r) => r.id)).toEqual(['gf-intern'])
+      expect(result[0].collectionName).toBe('proj_abc_rabcdef012345')
+    })
+
+    it('drops a hit whose own collection has no row, rather than falling back to the name', () => {
+      expect(joinHitsToFiles([hitIn('proj_abc_rabcdef012345')], [open])).toEqual([])
+    })
+
+    it('joins the open hit to the open row when the restricted row is the newer one', () => {
+      const newerRestricted = { ...restricted, createdAt: new Date('2026-10-01T00:00:00Z') }
+      expect(joinHitsToFiles([hitIn('proj_abc')], [open, newerRestricted]).map((r) => r.id)).toEqual(['open-root'])
+    })
+
+    it('gives two hits on one name in two collections two rows, each its own', () => {
+      const result = joinHitsToFiles([hitIn('proj_abc', 0.9), hitIn('proj_abc_rabcdef012345', 0.5)], [open, restricted])
+      expect(result.map((r) => [r.id, r.snippet])).toEqual([
+        ['open-root', 'aus proj_abc'],
+        ['gf-intern', 'aus proj_abc_rabcdef012345'],
+      ])
+    })
+
+    it('still resolves a collision inside one collection to the most-recent row', () => {
+      const reuploaded = { ...open, id: 'open-older', createdAt: new Date('2026-02-01T00:00:00Z') }
+      expect(joinHitsToFiles([hitIn('proj_abc')], [reuploaded, open]).map((r) => r.id)).toEqual(['open-root'])
+    })
   })
 })
 
@@ -961,7 +1106,9 @@ describe('resolveProjectDocumentsByName', () => {
     const documents = await resolveProjectDocumentsByName(session, 'proj-1', ['bestand-1962.pdf'])
 
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
-    expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith('proj-1', 'org-1', ['bestand-1962.pdf'])
+    expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith('proj-1', 'org-1', ['bestand-1962.pdf'], {
+      hiddenFolderIds: [],
+    })
     expect(listProjectDocumentPage).not.toHaveBeenCalled()
     expect(documents).toEqual([expect.objectContaining({ id: 'doc-old', assignees: [] })])
     expect(documents[0]).not.toHaveProperty('metadata')
@@ -1062,10 +1209,12 @@ describe('searchProjectDocuments', () => {
     expect(hits[0]).toMatchObject({ snippet: 'permit snippet', page: 2, score: 0.91 })
     // The rows are looked up by the hit names, not read from the paged
     // listing: a hit on a document past the first page must still resolve.
-    expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith('proj-1', 'org-1', [
-      'permit.pdf',
-      'plan.pdf',
-    ])
+    expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith(
+      'proj-1',
+      'org-1',
+      ['permit.pdf', 'plan.pdf'],
+      { hiddenFolderIds: [] }
+    )
     expect(listProjectDocumentPage).not.toHaveBeenCalled()
   })
 
@@ -1513,6 +1662,21 @@ describe('deleteDocument', () => {
     await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(
       ForbiddenError
     )
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('refuses a delete in a folder the session may only read (ADR-0088), before any side effects', async () => {
+    const { folderReadOnlyError } = await import('@/lib/authz/folder-access-rule')
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, folderId: 'folder-read-only' })
+    vi.mocked(requireFolderWrite).mockRejectedValueOnce(folderReadOnlyError())
+
+    const error = await deleteDocument(session, 'doc-1', new Request('http://x')).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ForbiddenError)
+    expect((error as ForbiddenError).details).toEqual({ reason: 'folder-read-only' })
+    expect(requireFolderWrite).toHaveBeenCalledWith(session, 'proj-1', ['folder-read-only'])
+    expect(isCoveredByActiveHold).not.toHaveBeenCalled()
     expect(deleteProjectDocument).not.toHaveBeenCalled()
     expect(recordAuditEvent).not.toHaveBeenCalled()
   })
@@ -2943,7 +3107,7 @@ describe('thumbnails ignore empty objects', () => {
 
   it('streamDocumentImage 404s an empty thumbnail object', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-secret')
-    const imageUrl = new URL(buildDocumentImageUrl('org-1', 'doc-1', 'thumb')!, 'https://grid.test')
+    const imageUrl = new URL(buildDocumentImageUrl('org-1', 'user-1', 'doc-1', 'thumb')!, 'https://grid.test')
     vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 0, Body: undefined } as never)
 
     await expect(streamDocumentImage('doc-1', imageUrl.searchParams)).rejects.toBeInstanceOf(
@@ -3073,5 +3237,260 @@ describe('an office document is viewed through its PDF rendition', () => {
     })
     await expect(streamDocumentFile(session, 'doc-office')).rejects.toMatchObject({ status: 502 })
     expect(fetchSpy).toHaveBeenCalledTimes(conversions)
+  })
+})
+
+describe('restricted folders (ADR-0087)', () => {
+  const HIDDEN = 'folder-hidden'
+  const RESTRICTED_COLLECTION = 'proj_abc_r1111aaaa2222'
+  const restricted: ProjectFolderAccess = {
+    hiddenFolderIds: new Set([HIDDEN]),
+    isVisible: (folderId) => folderId !== HIDDEN,
+    collectionFor: (folderId) => (folderId === 'folder-cleared' ? RESTRICTED_COLLECTION : 'proj_abc'),
+    clearedRestrictedCollections: [RESTRICTED_COLLECTION],
+    levelOf: () => 'write',
+    sourceFolderOf: () => null,
+    anyRestricted: true,
+  }
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(makeProject({ collectionName: 'proj_abc' }))
+    vi.mocked(getHiddenFolderIds).mockResolvedValue([HIDDEN])
+    vi.mocked(getProjectFolderAccess).mockResolvedValue(restricted)
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-1', hits: [] }) })
+  })
+
+  it('leaves a hidden folder out of the listing, the by-name resolve and the name probe', async () => {
+    await listDocumentsPage(session, 'proj-1')
+    await resolveProjectDocumentsByName(session, 'proj-1', ['Honorar.pdf'])
+    await probeProjectDocumentNames(session, 'proj-1', ['Honorar.pdf'])
+
+    expect(vi.mocked(listProjectDocumentPage).mock.calls[0][2]).toMatchObject({ hiddenFolderIds: [HIDDEN] })
+    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN] })
+    expect(vi.mocked(findProjectDocumentsByNames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN] })
+  })
+
+  it('searches the restricted collections this reader is cleared for, and joins only visible rows', async () => {
+    await searchProjectDocuments(session, 'proj-1', 'Honorar', 10)
+
+    const searched = mockFetch.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.endsWith('/search'))
+      .sort()
+    expect(searched).toEqual([
+      'http://backend:8000/v1/collections/proj_abc/search',
+      `http://backend:8000/v1/collections/${RESTRICTED_COLLECTION}/search`,
+    ])
+  })
+
+  // Filenames are unique per collection. This search reads the project's own
+  // collection and every cleared restricted folder's, so the same name in both
+  // must resolve to two rows, each the row of the collection the hit came from,
+  // whichever is newer. The hits are shaped as the backend answers: `collection`
+  // is a chunk's own metadata, the searched collection only its fallback.
+  describe('a name held by both the open and a restricted collection', () => {
+    const rowIn = (id: string, collectionName: string, createdAt: string) => ({
+      id,
+      filename: 'Protokoll.pdf',
+      createdAt: new Date(createdAt),
+      status: 'completed',
+      collectionName,
+      errorMessage: null,
+      authoredBy: 'user',
+      publishedVersionId: null,
+      metadata: {},
+    })
+
+    function backendAnswers(echoedCollection: (searched: string) => string | undefined) {
+      mockFetch.mockImplementation(async (url: string) => {
+        const searched = decodeURIComponent(String(url).split('/collections/')[1].replace('/search', ''))
+        return {
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              hits: [
+                {
+                  file_name: 'Protokoll.pdf',
+                  score: searched === RESTRICTED_COLLECTION ? 0.9 : 0.5,
+                  snippet: `aus ${searched}`,
+                  page_number: 1,
+                  collection: echoedCollection(searched),
+                },
+              ],
+            }),
+        }
+      })
+      vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([])
+      vi.mocked(reconcileDocumentStatuses).mockResolvedValue([
+        // The open root row is the NEWER one: a join on the name alone takes it for both hits.
+        rowIn('protokoll-gf', RESTRICTED_COLLECTION, '2026-01-01T00:00:00Z'),
+        rowIn('protokoll-root', 'proj_abc', '2026-09-01T00:00:00Z'),
+      ] as unknown as Awaited<ReturnType<typeof reconcileDocumentStatuses>>)
+    }
+
+    it('labels a restricted passage with its restricted document, never the open one', async () => {
+      backendAnswers((searched) => searched)
+
+      const { hits } = await searchProjectDocuments(session, 'proj-1', 'Honorar', 10)
+
+      expect(hits.map((hit) => [hit.id, hit.collectionName, hit.snippet])).toEqual([
+        ['protokoll-gf', RESTRICTED_COLLECTION, `aus ${RESTRICTED_COLLECTION}`],
+        ['protokoll-root', 'proj_abc', 'aus proj_abc'],
+      ])
+    })
+
+    it('trusts the collection that was searched, not the one a chunk’s metadata claims', async () => {
+      // Every hit is stamped with the collection this call was signed for, so a
+      // chunk that says otherwise (or says nothing) cannot move a hit onto
+      // another collection's row.
+      backendAnswers((searched) => (searched === RESTRICTED_COLLECTION ? 'proj_abc' : undefined))
+
+      const { hits } = await searchProjectDocuments(session, 'proj-1', 'Honorar', 10)
+
+      expect(hits.map((hit) => hit.id)).toEqual(['protokoll-gf', 'protokoll-root'])
+    })
+  })
+
+  it('files an upload into the collection its folder puts it in', async () => {
+    vi.mocked(findFolderPathInProject).mockResolvedValue('Verwaltung/Verträge')
+
+    await uploadDocument(session, { ...makeInput(), folderId: 'folder-cleared' }, new Request('http://x'))
+
+    expect(vi.mocked(admitOrDiscard).mock.calls[0][2]).toMatchObject({ collectionName: RESTRICTED_COLLECTION })
+  })
+
+  it('refuses an upload into a folder the uploader may only read, before a byte is stored (ADR-0088)', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValue({
+      ...restricted,
+      levelOf: (folderId) => (folderId === 'folder-read' ? 'read' : 'write'),
+    })
+    vi.mocked(findFolderPathInProject).mockResolvedValue('Verwaltung/Verträge')
+
+    await expect(
+      uploadDocument(session, { ...makeInput(), folderId: 'folder-read' }, new Request('http://x'))
+    ).rejects.toMatchObject({ status: 403, details: { reason: 'folder-read-only' } })
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+  })
+
+  it('refuses a re-upload that would replace a document filed where the uploader may only read', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValue({
+      ...restricted,
+      levelOf: (folderId) => (folderId === 'folder-read' ? 'read' : 'write'),
+    })
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(makeDocument({ folderId: 'folder-read' }))
+
+    await expect(uploadDocument(session, makeInput(), new Request('http://x'))).rejects.toMatchObject({
+      status: 403,
+      details: { reason: 'folder-read-only' },
+    })
+    expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
+  })
+
+  it('refuses an upload into a folder the uploader may not see, as not found', async () => {
+    vi.mocked(findFolderPathInProject).mockResolvedValue('Verwaltung/Honorare')
+
+    await expect(
+      uploadDocument(session, { ...makeInput(), folderId: HIDDEN }, new Request('http://x'))
+    ).rejects.toBeInstanceOf(NotFoundError)
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+  })
+
+  it('refuses a name the project already holds under another restriction, naming no folder', async () => {
+    vi.mocked(findProjectCollectionsHoldingFilename).mockResolvedValueOnce([RESTRICTED_COLLECTION])
+
+    const refusal = uploadDocument(session, makeInput(), new Request('http://x'))
+
+    await expect(refusal).rejects.toBeInstanceOf(ConflictError)
+    await expect(refusal).rejects.not.toThrow(/Honorare|Verwaltung/)
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The download log's seam (ADR-0088). Every function that hands a document's
+ * bytes to a person asks `recordDocumentAccess` once, with the document row the
+ * access check returned and the kind that names the route; `coverage.spec.ts`
+ * holds the list of functions, this holds that the calls are really made, and
+ * only for a request that was served.
+ */
+describe('the download log records what leaves', () => {
+  const pdf = () =>
+    makeDocument({
+      id: 'doc-pdf',
+      filename: 'plan.pdf',
+      contentType: 'application/pdf',
+      storageKey: 'org/org-1/project/proj-1/doc/doc-pdf/plan.pdf',
+    })
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findDocumentInOrg).mockResolvedValue(pdf())
+    vi.mocked(s3Client.send).mockReset()
+  })
+
+  it('records a download, with the row the access check returned', async () => {
+    await getDocumentDownload(session, 'doc-pdf')
+
+    expect(recordDocumentAccess).toHaveBeenCalledTimes(1)
+    expect(recordDocumentAccess).toHaveBeenCalledWith(session, expect.objectContaining({ id: 'doc-pdf' }), 'download')
+  })
+
+  it('records a preview', async () => {
+    await getDocumentPreview(session, 'doc-pdf')
+
+    expect(recordDocumentAccess).toHaveBeenCalledWith(session, expect.objectContaining({ id: 'doc-pdf' }), 'preview')
+  })
+
+  it('records the PDF stream once the object was read', async () => {
+    vi.mocked(s3Client.send).mockResolvedValue({ Body: { transformToWebStream: () => new ReadableStream() } } as never)
+
+    await streamDocumentFile(session, 'doc-pdf')
+
+    expect(recordDocumentAccess).toHaveBeenCalledWith(session, expect.objectContaining({ id: 'doc-pdf' }), 'pdf')
+  })
+
+  it('records a text preview once the bytes were read', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-txt', filename: 'a.csv', contentType: 'text/csv', storageKey: 'org/org-1/a.csv' })
+    )
+    vi.mocked(s3Client.send).mockResolvedValue({
+      Body: { transformToByteArray: async () => new TextEncoder().encode('a;b') },
+    } as never)
+
+    await getDocumentTextPreview(session, 'doc-txt')
+
+    expect(recordDocumentAccess).toHaveBeenCalledWith(session, expect.objectContaining({ id: 'doc-txt' }), 'text')
+  })
+
+  it('records nothing for a request it refused', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ id: 'doc-bin', contentType: 'application/zip', storageKey: 'k' }))
+    await expect(getDocumentPreview(session, 'doc-bin')).rejects.toMatchObject({ status: 415 })
+    await expect(getDocumentTextPreview(session, 'doc-bin')).rejects.toMatchObject({ status: 415 })
+    await expect(streamDocumentFile(session, 'doc-bin')).rejects.toMatchObject({ status: 415 })
+
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ id: 'doc-none', storageKey: '' }))
+    await expect(getDocumentDownload(session, 'doc-none')).rejects.toBeInstanceOf(NotFoundError)
+
+    vi.mocked(requireProjectAccess).mockRejectedValue(new ForbiddenError())
+    await expect(getDocumentDownload(session, 'doc-pdf')).rejects.toBeInstanceOf(ForbiddenError)
+
+    expect(recordDocumentAccess).not.toHaveBeenCalled()
+  })
+
+  it('does not hand the URL over when the log refuses (a folder with its own list)', async () => {
+    vi.mocked(recordDocumentAccess).mockRejectedValueOnce(Object.assign(new Error('not recorded'), { status: 503 }))
+
+    await expect(getDocumentDownload(session, 'doc-pdf')).rejects.toMatchObject({ status: 503 })
+  })
+
+  it('does not record a thumbnail, which is not the file', async () => {
+    vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 48211 } as never)
+
+    await getDocumentThumbnail(session, 'doc-pdf')
+
+    expect(recordDocumentAccess).not.toHaveBeenCalled()
   })
 })

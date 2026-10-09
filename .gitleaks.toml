@@ -26,6 +26,13 @@ paths = [
   # (a URL-safe ClickHouse password) failed the scan on a file whose whole
   # purpose is non-credentials.
   '''(^|/)test-support/''',
+  # The UI's shared spec fixtures (`frontends/ui/src/test-utils/`), the same kind
+  # of directory as `test-support/` above. The answer-feedback export fixture
+  # carries a pseudonymous `voterKey` (12 hex of a sha256), which
+  # `generic-api-key` reads as a credential for its field name alone. A path
+  # rule, because the scan walks full history and the fixture's first version
+  # stays in it.
+  '''(^|/)test-utils/''',
   # The chat wire v2 contract fixtures (docs/design/chat-wire-v2.md): recorded
   # frames validated by both the pydantic and the zod side. Every card carries
   # its `key`, a hash of the card's canonical JSON, which `generic-api-key`

@@ -29,6 +29,12 @@ export const settings: typeof en.settings = {
       usage: 'Nutzung & Budget',
       documents: 'Dokumente & Index',
     },
+    foldersWithoutRole: {
+      title: 'Ordner ohne gültige Rolle',
+      description:
+        'Die Zugriffsliste dieser Ordner nennt nur Rollen, die es nicht mehr gibt. Bis dort eine gültige Rolle eingetragen ist, können nur Organisations-Admins sie lesen.',
+      open: 'Ordner „{name}“ öffnen',
+    },
     overview: {
       createdOn: 'Erstellt am {date}',
       documentsCount: '{count, plural, one {# Dokument} other {# Dokumente}}',

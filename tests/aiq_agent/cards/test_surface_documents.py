@@ -50,6 +50,16 @@ class TestTargetCollections:
     def test_none_scope(self):
         assert _target_collections(None) == []
 
+    def test_a_restricted_folders_collection_is_never_listed(self):
+        """ADR-0088: listing is not use; a card naming its files would skip the admission."""
+        from aiq_agent.common.source_kinds import Shelf
+        from aiq_agent.knowledge.scoping import ScopedCollection
+
+        scope = ["proj_a", "proj_a_r0123456789ab", "archiv_o"]
+        assert _target_collections(scope) == ["proj_a", "archiv_o"]
+        scoped = [ScopedCollection("proj_a", Shelf.PROJECT), ScopedCollection("proj_a_r0123456789ab", Shelf.PROJECT)]
+        assert _target_collections(None, scoped=scoped) == ["proj_a"]
+
     def test_base_only_scope_yields_nothing(self):
         assert _target_collections(["oib_knowledge"]) == []
 

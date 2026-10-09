@@ -24,6 +24,12 @@ import {
   buildThumbnailStorageKey,
 } from '@/lib/s3'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
+import {
+  getHiddenFolderIds,
+  getProjectFolderAccess,
+  isFolderVisibleToMember,
+  requireFolderWrite,
+} from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { ForbiddenError } from '@/lib/api/errors'
@@ -44,7 +50,11 @@ import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
-import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
+import {
+  buildDocumentImageUrl,
+  DOCUMENT_IMAGE_CACHE_CONTROL,
+  verifyDocumentImageUrl,
+} from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import {
   FEATURE_FLAGS,
@@ -107,6 +117,7 @@ import {
   type ReingestFailedPayload,
 } from '@/lib/jobs-queue/types'
 import { getAccessibleDocument } from './access'
+import { recordDocumentAccess } from '@/lib/download-log/service'
 import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
@@ -539,6 +550,7 @@ export async function listDocumentsPage(
   // `limit` is deliberately not passed: the repository's own default is the
   // page size, and a second copy of it here could drift from the real one.
   const page = await listProjectDocumentPage(projectId, session.organizationId, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
     authoredBy: options.authoredBy,
     // Archived documents have LEFT the working set, so they are absent unless
     // the caller says otherwise (ADR-0054).
@@ -564,7 +576,9 @@ export async function resolveProjectDocumentsByName(
   filenames: readonly string[]
 ): Promise<ListedDocument[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames)
+  const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
   return toListedDocuments(session, rows)
 }
 
@@ -596,7 +610,11 @@ export async function probeProjectDocumentNames(
   names: readonly string[]
 ): Promise<DocumentNameMatchRow[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  return findProjectDocumentsByNames(projectId, session.organizationId, names)
+  // A name taken in a hidden folder is not reported: the upload refuses it
+  // without saying where (`assertNameFreeInProject`).
+  return findProjectDocumentsByNames(projectId, session.organizationId, names, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
 }
 
 export type { ListedDocument }
@@ -682,7 +700,12 @@ export async function fetchSemanticHits(
     )
     if (!res.ok) return []
     const body = await res.json().catch(() => ({}))
-    return Array.isArray(body?.hits) ? (body.hits as BackendSearchHit[]) : []
+    if (!Array.isArray(body?.hits)) return []
+    // Stamp the collection that was searched. The backend echoes the chunk's own
+    // `collection` metadata, with the searched collection only as its fallback;
+    // the join keys on this field, so it must be the one collection this call was
+    // signed for and not whatever a chunk's metadata happens to say.
+    return (body.hits as BackendSearchHit[]).map((hit) => ({ ...hit, collection: collectionName }))
   } catch {
     // Includes a TimeoutError abort — a hung/unreachable backend fails open to
     // an empty result set, exactly like any other transport failure.
@@ -690,13 +713,30 @@ export async function fetchSemanticHits(
   }
 }
 
+/** The identity of a document in the backend: its collection and its filename. */
+function collectionFileKey(collectionName: string, filename: string): string {
+  return JSON.stringify([collectionName, filename])
+}
+
 /**
- * Join backend hits to the existing file rows BY FILENAME (`hit.file_name` ===
+ * Join backend hits to the existing file rows BY COLLECTION AND FILENAME
+ * (`hit.collection` === `file.collectionName` and `hit.file_name` ===
  * `file.filename`), returning the matched rows reordered by score (hit order,
  * which the backend guarantees is score-descending), each augmented with its
- * snippet, page, and score. Hits with no matching row are dropped. When a
- * filename collides across rows the most-recent row (latest `createdAt`) wins,
- * so a re-uploaded document resolves to its current entry.
+ * snippet, page, and score. Hits with no matching row are dropped. When the pair
+ * collides across rows the most-recent row (latest `createdAt`) wins, so a
+ * re-uploaded document resolves to its current entry.
+ *
+ * ## The collection is part of the identity, and it is the hit's own
+ *
+ * A filename is unique only within a collection, and a project has several: its
+ * own, plus one per restricted folder (`<collection>_r<12hex>`, ADR-0087), and
+ * `searchProjectDocuments` searches every one the reader is cleared for. The
+ * same name can sit in a restricted folder and, newer, at the root. A join on
+ * the name alone handed the restricted folder's passage to the root row, so the
+ * reader saw a restricted passage under the open document, filed at the root
+ * with no restricted marker. The row a hit becomes must therefore be the row of
+ * the collection the hit came from.
  *
  * ## Machine-authored rows are not candidates, and the collision rule is why
  *
@@ -722,7 +762,7 @@ export async function fetchSemanticHits(
  * name.
  */
 export function joinHitsToFiles<
-  T extends { filename: string; createdAt: Date | string; authoredBy: string },
+  T extends { filename: string; collectionName: string; createdAt: Date | string; authoredBy: string },
 >(hits: BackendSearchHit[], files: T[]): Array<SearchedDocument<T>> {
   const byName = new Map<string, T>()
   for (const file of files) {
@@ -736,16 +776,23 @@ export function joinHitsToFiles<
     // select it (`documentListColumns`); making it optional would
     // mean a future caller that forgets the column fails OPEN at runtime instead
     // of failing to compile.
+    //
+    // `collectionName` is required for the same reason, and the failure it
+    // prevents is worse: a row type without it would key every row under
+    // `undefined`, match no hit, and a "fix" that falls back to the name alone
+    // would reopen the restricted-folder misjoin. Both callers select it too.
     if (file.authoredBy !== 'user') continue
-    const existing = byName.get(file.filename)
+    const key = collectionFileKey(file.collectionName, file.filename)
+    const existing = byName.get(key)
     if (!existing || new Date(file.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
-      byName.set(file.filename, file)
+      byName.set(key, file)
     }
   }
 
   const matched: Array<SearchedDocument<T>> = []
   for (const hit of hits) {
-    const file = byName.get(hit.file_name)
+    // The hit's own collection, never a name match across collections.
+    const file = byName.get(collectionFileKey(hit.collection, hit.file_name))
     if (!file) continue
     matched.push({ ...file, snippet: hit.snippet, page: hit.page_number ?? null, score: hit.score })
   }
@@ -756,7 +803,7 @@ export function joinHitsToFiles<
  * Document-centric semantic search over a project's corpus. Enforces
  * `project:view`, resolves the project's RAG collection, runs the deterministic
  * vector search on the backend, and joins the hits to the project's own file
- * rows by filename. Fail-open: a backend error/timeout yields `{ hits: [] }`,
+ * rows by collection and filename. Fail-open: a backend error/timeout yields `{ hits: [] }`,
  * never a crash.
  *
  * The rows are looked up BY THE HIT NAMES, as `searchArchivDocuments` does,
@@ -774,14 +821,26 @@ export async function searchProjectDocuments(
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
 
-  const hits = await fetchSemanticHits(project.collectionName, query, topK)
+  // The project's own collection and every restricted one this reader is
+  // cleared for (ADR-0087); one ranking across them, cut to `topK`.
+  const access = await getProjectFolderAccess(session, projectId, project.collectionName)
+  const collections = [project.collectionName, ...access.clearedRestrictedCollections]
+  const hits = (await Promise.all(collections.map((collection) => fetchSemanticHits(collection, query, topK))))
+    .flat()
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK)
   if (hits.length === 0) return { hits: [] }
   // The canonical rows, hydrated exactly as the listing hydrates them, so a
   // semantic result is always a real, visible document with its live status.
+  // The lookup is by project and name, so it returns the same-named rows of the
+  // project's own collection and of every cleared restricted folder alike (a
+  // hidden folder's rows are left out); the join then picks, per hit, the row of
+  // the hit's own collection.
   const rows = await findProjectDocumentsByFilenames(
     projectId,
     session.organizationId,
-    hits.map((hit) => hit.file_name)
+    hits.map((hit) => hit.file_name),
+    { hiddenFolderIds: [...access.hiddenFolderIds] }
   )
   return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows)) }
 }
@@ -1730,7 +1789,14 @@ export async function runReindexSlice(
     try {
       const outcome = await redispatchForReindex(session, row)
       counts[outcome] += 1
-    } catch {
+    } catch (error) {
+      // A document in a folder the requester may not read, or may only read
+      // (ADR-0088), is not theirs to re-read: skipped, and never named, since
+      // its name is what a hidden folder hides.
+      if (error instanceof NotFoundError || error instanceof ForbiddenError) {
+        counts.skipped += 1
+        return
+      }
       // One document's failure must not abandon the rest of the project.
       recordFailure(counts, documentDisplayName(row))
     }
@@ -2105,7 +2171,10 @@ export async function deleteDocument(
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
-  await requireProjectAccess(session, doc.projectId, ['project:documents:write', 'project:edit'])
+  // A delete is a write in the document's folder (ADR-0088): the project's
+  // document-write permission, and write on the folder. A folder the session
+  // may not read is not found; one it may only read refuses (403).
+  await requireFolderWrite(session, doc.projectId, [doc.folderId])
   // After the access check (an unauthorized caller learns nothing, not even
   // that a hold exists) and before the first destructive step below.
   await assertNoActiveHold(session.organizationId, 'document', documentId)
@@ -2265,6 +2334,7 @@ export async function getDocumentDownload(
     }),
     { expiresIn: presignTtlSeconds() }
   )
+  await recordDocumentAccess(session, doc, 'download')
 
   return {
     downloadUrl,
@@ -2367,6 +2437,7 @@ export async function getDocumentPreview(
       }),
       { expiresIn: 3600 }
     )
+    await recordDocumentAccess(session, doc, 'preview')
     return {
       url,
       contentType: 'application/pdf',
@@ -2393,13 +2464,14 @@ export async function getDocumentPreview(
     }),
     { expiresIn: 3600 }
   )
+  await recordDocumentAccess(session, doc, 'preview')
 
   // A same-origin, signature-authorized path for the raster image formats the
   // optimizer can actually process — this is what lets `next/image` resize a
   // full-size upload down to the box it is rendered in. Null for PDFs, SVGs and
   // the exotic formats above, whose callers fall back to `url` unoptimized.
   const imageUrl = OPTIMIZABLE_IMAGE_CONTENT_TYPES.includes(contentType)
-    ? buildDocumentImageUrl(session.organizationId, documentId, 'original')
+    ? buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'original')
     : null
 
   return { url, contentType, filename: doc.filename, imageUrl, rendition: false, sourceContentType: null }
@@ -2471,6 +2543,7 @@ export async function streamDocumentFile(
     throw new NotFoundError('File not available')
   }
   if (!body) throw new NotFoundError('File not available')
+  await recordDocumentAccess(session, doc, 'pdf')
 
   // ASCII-safe filename for the header; this route only ever displays inline.
   const asciiName = filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '_')
@@ -2532,6 +2605,7 @@ export async function getDocumentTextPreview(
   } catch {
     throw new NotFoundError('File not available')
   }
+  await recordDocumentAccess(session, doc, 'text')
 
   const truncated = bytes.byteLength > TEXT_PREVIEW_MAX_BYTES
   let { text } = decodeTextBytes(bytes.subarray(0, TEXT_PREVIEW_MAX_BYTES), { truncated })
@@ -2586,7 +2660,7 @@ export async function getDocumentThumbnail(
     return { url: null }
   }
 
-  const signedUrl = buildDocumentImageUrl(session.organizationId, documentId, 'thumb')
+  const signedUrl = buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'thumb')
   if (signedUrl) return { url: signedUrl }
 
   try {
@@ -2612,8 +2686,8 @@ export async function getDocumentThumbnail(
  *
  * The signature is the authorization. It was minted by `getDocumentPreview` /
  * `getDocumentThumbnail` AFTER `getAccessibleDocument` ran the real
- * `project:view` check, and it is bound to the org, the document and the
- * variant, so it cannot be walked onto another tenant's document or onto the
+ * `project:view` check, and it is bound to the org, the person, the document
+ * and the variant, so it cannot be walked onto another tenant's document or onto the
  * full-size original when it was issued for a thumbnail. The org id is taken
  * from the signed claims rather than the caller, so the row lookup stays
  * tenant-scoped exactly as the session path is.
@@ -2632,9 +2706,20 @@ export async function streamDocumentImage(
     throw new ForbiddenError('Invalid or expired image URL')
   }
 
-  const { organizationId, variant } = verified.claims
+  const { organizationId, userId, variant } = verified.claims
   const doc = await findDocumentInOrg(documentId, organizationId)
   if (!doc?.storageKey) throw new NotFoundError()
+  // The URL outlives the moment it was minted, and the optimizer's fetch has no
+  // session, so the person it names is asked again: a folder they can no longer
+  // read does not load its images (ADR-0087, ADR-0088). Not found, like every
+  // other refusal on this path.
+  if (
+    doc.scope === 'project' &&
+    doc.projectId &&
+    !(await isFolderVisibleToMember(organizationId, doc.projectId, doc.folderId, userId))
+  ) {
+    throw new NotFoundError()
+  }
 
   const contentType = variant === 'thumb' ? 'image/jpeg' : doc.contentType || ''
   // Belt and braces over the signing-side check: this route serves images and
@@ -2668,9 +2753,10 @@ export async function streamDocumentImage(
     headers: {
       'Content-Type': contentType,
       'Content-Disposition': 'inline',
-      // Private: the bytes are tenant data, and the optimizer keeps its own
-      // server-side cache regardless. Bounded by the signature's own lifetime.
-      'Cache-Control': 'private, max-age=3600',
+      // One token window. The optimizer keeps no copy (`next.config.ts`) but
+      // forwards this max-age to the browser, so it bounds how long a picture
+      // stays visible without this check running again.
+      'Cache-Control': DOCUMENT_IMAGE_CACHE_CONTROL,
       'X-Content-Type-Options': 'nosniff',
     },
   })

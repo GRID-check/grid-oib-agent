@@ -14,6 +14,7 @@ export const organization = {
     storage: 'Storage',
     screening: 'Sensitive data',
     quarantine: 'Quarantine',
+    downloads: 'Download log',
     compliance: 'Compliance',
     enterprise: 'Enterprise',
   },
@@ -52,6 +53,11 @@ export const organization = {
       title: 'Quarantine',
       subtitle: 'Files the content check held back. No model has read them. Whoever may review them releases or deletes them here.',
     },
+    downloads: {
+      title: 'Download log',
+      subtitle:
+        'Who took which document out, and who opened one in a folder with its own access list. Kept for a limited time, for security and accountability only.',
+    },
     compliance: {
       title: 'Compliance',
       subtitle:
@@ -61,6 +67,70 @@ export const organization = {
       title: 'Enterprise',
       subtitle:
         'SSO, directory sync, domain verification and audit-log streaming — the WorkOS controls only an admin may touch.',
+    },
+  },
+  /**
+   * Organization -> Download log (ADR-0088): who took which document out, and
+   * who opened one in a folder with its own access list. Personal data about
+   * staff, so the page says what it is for, how long it keeps it and that
+   * reading it is recorded.
+   */
+  downloadLog: {
+    purpose:
+      'This log exists for security and accountability: to find out who took a document out or opened one in a folder with its own access list. It is not an activity report and is not used to evaluate anyone.',
+    retention: 'Entries are kept for {days} days and then deleted automatically.',
+    readRecorded: 'Every time this page is read, the audit log records who looked and which filters they used.',
+    filters: {
+      label: 'Filter the download log',
+      person: 'Person',
+      allPeople: 'Everyone',
+      document: 'Document',
+      documentPlaceholder: 'Name, or a document id',
+      from: 'From',
+      to: 'To',
+      kind: 'What happened',
+      allKinds: 'Everything',
+      apply: 'Show',
+      reset: 'Reset',
+    },
+    kinds: {
+      download: 'Download',
+      preview: 'Preview',
+      pdf: 'Opened in the viewer',
+      text: 'Text preview',
+      version: 'Version opened',
+      model: '3D model opened',
+    },
+    access: { download: 'Download', open: 'Opened' },
+    columns: { when: 'When', person: 'Person', action: 'What', document: 'Document', place: 'Where' },
+    place: {
+      archiv: 'Archive',
+      session: 'Chat attachment',
+      project: 'Project',
+      root: 'Project root',
+      ownList: 'Own access list',
+      projectGone: 'Project no longer exists',
+      folderGone: 'Folder no longer exists',
+    },
+    unknownPerson: 'No longer in the organization',
+    version: 'Version {id}',
+    empty: 'Nothing recorded for these filters.',
+    emptyHint: 'Downloads are recorded everywhere; opening a document only in folders with their own access list.',
+    loadError: 'The download log could not be loaded. Nothing was shown, and nothing was recorded as read.',
+    loadMore: 'Show older entries',
+    loading: 'Loading…',
+    retry: 'Try again',
+    retentionCard: {
+      title: 'Download log retention',
+      description:
+        'How long the download log keeps its entries. The default and the maximum are 365 days; an organization may shorten it to 30 days.',
+      label: 'Days',
+      hint: 'Between 30 and 365. A shorter time takes effect at the next daily clean-up.',
+      save: 'Save retention',
+      saving: 'Saving…',
+      saved: 'Retention saved',
+      invalid: 'Enter a whole number of days from 30 to 365.',
+      error: 'The retention could not be saved. Please try again.',
     },
   },
   /** People & access: the member directory, the role catalog, the permission map. */
@@ -110,6 +180,108 @@ export const organization = {
       title: 'You cannot manage people here',
       description:
         'Managing people and roles needs the “Manage people and roles” permission. An organization admin can grant it.',
+    },
+  },
+  /**
+   * Personen & Zugriff → Eigene Rollen (ADR-0087): roles an office builds in
+   * WorkOS, assigned on the People tab, named by restricted folders.
+   */
+  customRoles: {
+    title: 'Custom roles',
+    description:
+      'Roles your office builds itself, beside Piloti’s. A role bundles permissions under a name such as “Management”.',
+    howTo:
+      'You assign roles to people on the People tab. A project folder can be restricted to one or more roles: then only people holding one of them see the folder, its documents and what Piloti answers from them. Organization admins always see everything.',
+    oneRoleTitle: 'One role per person',
+    oneRoleBody:
+      'Unless your organization has multiple roles per person switched on, everyone holds exactly one role. A role you use for folders must then also carry the permissions its holders work with.',
+    create: 'New role',
+    customGroup: 'Your office’s roles',
+    environmentGroup: 'Piloti’s roles',
+    environmentHint: 'Provided by Piloti for every organization. They cannot be changed here.',
+    emptyTitle: 'No custom roles yet',
+    emptyDescription: 'Create a role such as “Management” to restrict folders to the people who hold it.',
+    permissionCount: '{count, plural, one {# permission} other {# permissions}}',
+    editRole: 'Edit role “{name}”',
+    deleteRole: 'Delete role “{name}”',
+    loadError: 'The roles could not be loaded right now.',
+    readOnly: 'Only people with the “Manage people and roles” permission can change custom roles.',
+    editor: {
+      createTitle: 'New role',
+      editTitle: 'Edit role “{name}”',
+      createDescription:
+        'Name the role and choose what it may do. You assign it to people on the People tab afterwards.',
+      editDescription: 'The identifier stays the same, and everyone who holds the role keeps it.',
+      name: 'Name',
+      namePlaceholder: 'e.g. Management',
+      nameHint:
+        'Piloti derives the role’s identifier from its name when you create it. The identifier stays the same afterwards, even if you rename the role.',
+      nameRequired: 'Give the role a name.',
+      description: 'Description (optional)',
+      descriptionPlaceholder: 'Who holds this role, and what for',
+      permissions: 'Permissions',
+      permissionsHint:
+        'These permissions apply across the whole organization. Access to individual projects is granted per project.',
+      notGrantable: 'You do not hold this permission yourself, so you cannot grant it.',
+      create: 'Create role',
+      save: 'Save',
+      saving: 'Saving…',
+      created: 'Role “{name}” created. Assign it on the People tab.',
+      saved: 'Role “{name}” saved.',
+      saveError: 'The role could not be saved. Please try again.',
+      nameTaken: 'A role with this name already exists.',
+      forbidden: 'You can only put permissions you hold yourself into a role.',
+      discardTitle: 'Discard your changes?',
+      discardDescription: 'What you entered for this role has not been saved.',
+      discardConfirm: 'Discard',
+      keepEditing: 'Keep editing',
+    },
+    deleteDialog: {
+      title: 'Delete the role “{name}”?',
+      description:
+        'A role can only be deleted once nobody holds it. A folder restricted to this role alone is then visible to organization admins only.',
+      confirm: 'Delete role',
+      deleted: 'Role “{name}” deleted.',
+      /** Folders whose own access list names the role (ADR-0088): shown before the deletion is confirmed. */
+      foldersCount: '{count, plural, one {# folder names} other {# folders name}} this role in its access list:',
+      foldersEffect:
+        'After the deletion those lists match nobody: only organization admins can read these folders until a valid role is set. The project settings list them under “Folders without a valid role”.',
+      foldersMore: 'and {count} more',
+      foldersNamesHidden: 'Only organization admins see which folders these are.',
+      confirmAnyway: 'Delete anyway',
+      usageError: 'Which folders use this role could not be checked. Please try again.',
+      usedByFoldersNow: 'Folders now use this role. Review the list and confirm again.',
+      stillAssigned: 'Somebody still holds this role. Give them another role on the People tab first.',
+      error: 'The role could not be deleted. Please try again.',
+    },
+    /** One label and one line per organization permission, keyed by the slug after `org:` with `:` as `_`. */
+    permission: {
+      settings_manage: { name: 'Manage organization settings', hint: 'Name, language and defaults of the organization.' },
+      models_manage: { name: 'Manage AI models', hint: 'Which model each part of Piloti works with.' },
+      budgets_manage: { name: 'Manage budgets', hint: 'Spending limits and usage of the whole organization.' },
+      compliance_manage: { name: 'Manage compliance', hint: 'Legal holds and deletions.' },
+      audit_view: { name: 'View the audit log', hint: 'The record of every privileged change.' },
+      downloads_view: {
+        name: 'View the download log',
+        hint: 'Who downloaded which document. Reading it is itself recorded.',
+      },
+      archiv_manage: {
+        name: 'Manage the Archiv',
+        hint: 'Upload, delete and re-read documents in the office Archiv. Everyone can read it.',
+      },
+      skills_manage: {
+        name: 'Manage skills',
+        hint: 'Write, change and delete the office’s skills. Everyone can use them.',
+      },
+      projects_create: { name: 'Create projects', hint: 'Start new projects.' },
+      projects_administer: {
+        name: 'Administer all projects',
+        hint: 'Reach every project without being added to it, and see every restricted folder.',
+      },
+      members_manage: {
+        name: 'Manage people and roles',
+        hint: 'Invite people, change their roles, and build roles here.',
+      },
     },
   },
   overview: {

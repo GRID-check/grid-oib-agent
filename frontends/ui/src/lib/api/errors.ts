@@ -57,6 +57,44 @@ export class OrgMemoryDisabledError extends ApiError {
 }
 
 /**
+ * 403 — a conversation that drew on a folder with restricted access may not
+ * carry its content to where others read it (ADR-0087): a deep-research run, a
+ * task, the project profile, or a folder not restricted at least as narrowly.
+ * The same refusal answers a run's Unterlagen naming a document from such a
+ * folder (`planDocument`): the run's Grundlage is read by the whole project.
+ * Its own code, so a caller (the agent's tools, a card) can tell this refusal
+ * from a missing permission; `details.action` says which door refused. The
+ * message is already the reader's sentence (`lib/conversations/restricted-egress.ts`).
+ */
+export class ConversationConfinedError extends ApiError {
+  constructor(
+    readonly action: 'deepResearch' | 'task' | 'profilePatch' | 'filing' | 'planDocument',
+    message: string
+  ) {
+    super(403, 'CONVERSATION_CONFINED', message, { action })
+  }
+}
+
+/** The machine-readable reason a person no longer has the rights to read a resource's content. */
+export const RIGHTS_LOST_REASON = 'rights-lost'
+
+/**
+ * 403 — the caller is still a party to the resource (a grant, its creator) but
+ * can no longer read what it was drawn from: a conversation that recorded a
+ * folder they may not read now (ADR-0088). Its own code, so the client shows
+ * "you no longer have the rights" instead of "not found", and its message and
+ * details carry nothing of the content: not its title, not the folder.
+ */
+export class ResourceRightsLostError extends ApiError {
+  constructor(readonly resourceType: string) {
+    super(403, 'RESOURCE_RIGHTS_LOST', 'You no longer have the rights to view this content.', {
+      reason: RIGHTS_LOST_REASON,
+      resourceType,
+    })
+  }
+}
+
+/**
  * 404 — resource missing OR the caller may not know it exists.
  * Cross-tenant and no-access lookups throw this (never Forbidden) so
  * responses do not leak resource existence to unauthorized callers.

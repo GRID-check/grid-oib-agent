@@ -162,6 +162,7 @@ const reachable = {
   visibility: 'project' as const,
   container: { organizationId: 'org_1', projectId: 'proj_1' },
   canEscalate: false,
+  contentLocked: false,
 }
 
 beforeEach(() => {

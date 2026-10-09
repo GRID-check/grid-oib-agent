@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
-import { useCardDecision } from '../hooks/use-card-decision'
+import { selectCardConversationId, useCardDecision } from '../hooks/use-card-decision'
+import { useChatStore } from '@/features/chat/store'
 import { invalidateProjectFacts } from '@/features/chat/hooks/use-project-facts'
 import { ProposalShell } from './ProposalShell'
 import { buildPatchPreviewRows } from '@/lib/project-profile/patch-preview'
@@ -48,6 +49,9 @@ export function ProjectProfilePatchCard({
   const { decision, decide, canDecide } = useCardDecision(messageId, cardKey, {
     mustPersist: decisionsMustPersist,
   })
+  // Sent with the patch: the server refuses a proposal from a thread that drew
+  // on a restricted folder, because the brief is read by the whole project.
+  const conversationId = useChatStore((state) => selectCardConversationId(state, messageId))
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   // The before/after rows are DERIVED from the patch + current profile — never
@@ -85,7 +89,7 @@ export function ProjectProfilePatchCard({
       const res = await fetch(`/api/projects/${projectId}/profile/patches`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ patch }),
+        body: JSON.stringify(conversationId ? { patch, conversationId } : { patch }),
       })
       if (!res.ok) {
         // A 409 is NOT success. The server answers 200 with `alreadyApplied` for the

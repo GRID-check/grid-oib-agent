@@ -122,6 +122,15 @@ describe('fileConversationDraft — one normalized path for read, title and ref'
     })
   })
 
+  it('files as the thread it came from, refusing in the reader’s language (ADR-0087)', async () => {
+    await fileConversationDraft(session, 'conv-1', { path: '/entwuerfe/Notiz.md', locale: 'en' })
+
+    expect(vi.mocked(fileAgentDocumentDraft).mock.calls[0][0]).toMatchObject({
+      originConversationId: 'conv-1',
+      locale: 'en',
+    })
+  })
+
   it('falls back to the normalized file name when the card carried no title', async () => {
     await fileConversationDraft(session, 'conv-1', { path: '/entwuerfe/Notiz.md' })
 

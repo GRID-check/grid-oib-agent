@@ -307,8 +307,8 @@ folding.
   asserts the stored copy for every role, the stored HITL answer, and what the
   title model receives, whatever role a turn was given.
 * `lib/projects/memory-service.spec.ts` asserts a new and an edited note are
-  stored and embedded masked. `lib/feedback/service.spec.ts` asserts the stored
-  comment.
+  stored and embedded masked; `memory-restricted.integration.spec.ts` asserts it
+  against Postgres. `lib/feedback/service.spec.ts` asserts the stored comment.
 
 ## More Information
 

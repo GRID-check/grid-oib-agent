@@ -151,6 +151,13 @@ export const ORG_PERMISSION_SPECS: readonly PermissionSpec[] = [
     tier: 'org',
   },
   {
+    slug: 'org:downloads:view',
+    name: 'View the download log',
+    description:
+      'Open the download log: who took which document out, and who opened one in a folder with its own access list. Reading it is itself recorded.',
+    tier: 'org',
+  },
+  {
     slug: 'org:archiv:manage',
     name: 'Manage document Archiv',
     description:

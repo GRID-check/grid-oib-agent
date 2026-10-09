@@ -38,8 +38,13 @@ import { getCached } from '@/lib/cache'
 import { getWorkOS } from '@/lib/workos/client'
 import { permissionsForOrgRole, permissionsForPlatformRole } from './permissions'
 
-/** Matches the membership cache TTL in `./project-membership`. */
-const ROLE_CACHE_TTL_MS = 10 * 60 * 1000
+/**
+ * How stale what a role holds may be. One minute, like the roles a person holds
+ * (`@/lib/auth/membership-roles`): the folder-access bypass is derived from
+ * both, so a longer life here would keep a role that lost
+ * `org:projects:administer` writing everywhere for as long as it lasted.
+ */
+export const ROLE_CACHE_TTL_MS = 60 * 1000
 
 type RolePermissionMap = Record<string, string[]>
 

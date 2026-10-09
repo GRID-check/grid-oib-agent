@@ -287,6 +287,12 @@ export const projects = {
         'Conflicts with “{note}” — Piloti was not allowed to replace that note. Confirm or remove one of the two.',
       titleUnknown: 'Conflicts with a confirmed note that is no longer in this list.',
     },
+    restricted: {
+      badge: 'Restricted',
+      title:
+        'Drawn from restricted folders ({folders}). Only people cleared for all of them see this note, and only their chats are given it.',
+      titleUnknown: 'Drawn from restricted folders. Only people cleared for all of them see this note.',
+    },
     time: {
       justNow: 'just now',
       minutesAgo: '{count}m ago',

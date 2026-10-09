@@ -33,8 +33,9 @@ import { BentoGrid, BentoTile, type BentoSpan } from '@/components/ui/bento'
 import { Button } from '@/components/ui/button'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatBytes, formatDate } from '@/lib/format'
-import type { ProjectOverviewData } from '../../types'
+import type { FolderWithoutRole, ProjectOverviewData } from '../../types'
 import { settingsSectionHref } from '../../lib/settings-sections'
+import { FoldersWithoutRole } from '../folders-without-role'
 import { ProjectDeleteDialog } from '../project-delete-dialog'
 import { ProjectRenameDialog } from '../project-rename-dialog'
 import type { ProjectUsageView } from '../settings/usage-settings'
@@ -58,6 +59,12 @@ export interface ProjectOverviewProps {
   activity: ProjectActivityView
   /** Null for a reader who may not see the project's spend. */
   usage: ProjectUsageView | null
+  /**
+   * Folders whose roles were deleted since (ADR-0088), for a project manager.
+   * Empty shows nothing; otherwise a warning sits above the grid, because a
+   * folder nobody can read is something to fix, not a figure to glance at.
+   */
+  foldersWithoutRole?: readonly FolderWithoutRole[]
   access: ProjectOverviewAccess
 }
 
@@ -65,6 +72,7 @@ export function ProjectOverview({
   data,
   activity,
   usage,
+  foldersWithoutRole = [],
   access,
 }: ProjectOverviewProps): JSX.Element {
   const id = data.id
@@ -75,22 +83,29 @@ export function ProjectOverview({
   const usageSpan: BentoSpan = access.manageMembers ? 'major' : 'wide'
   const membersSpan: BentoSpan = usage ? 'small' : 'wide'
   return (
-    <BentoGrid data-testid="project-overview">
-      <HeroTile data={data} activity={activity} access={access} />
-      <DocumentsTile
-        documentCount={data.documentCount}
-        totalFileSize={data.totalFileSize}
-        recent={data.recentDocuments}
-        href={settingsSectionHref(id, 'documents')}
-      />
-      <MemoryTile projectId={id} href={settingsSectionHref(id, 'memory')} />
-      {usage && (
-        <UsageTile usage={usage} href={settingsSectionHref(id, 'usage')} span={usageSpan} />
-      )}
-      {access.manageMembers && (
-        <MembersTile projectId={id} href={settingsSectionHref(id, 'members')} span={membersSpan} />
-      )}
-    </BentoGrid>
+    <div className="flex flex-col gap-4">
+      <FoldersWithoutRole projectId={id} folders={foldersWithoutRole} />
+      <BentoGrid data-testid="project-overview">
+        <HeroTile data={data} activity={activity} access={access} />
+        <DocumentsTile
+          documentCount={data.documentCount}
+          totalFileSize={data.totalFileSize}
+          recent={data.recentDocuments}
+          href={settingsSectionHref(id, 'documents')}
+        />
+        <MemoryTile projectId={id} href={settingsSectionHref(id, 'memory')} />
+        {usage && (
+          <UsageTile usage={usage} href={settingsSectionHref(id, 'usage')} span={usageSpan} />
+        )}
+        {access.manageMembers && (
+          <MembersTile
+            projectId={id}
+            href={settingsSectionHref(id, 'members')}
+            span={membersSpan}
+          />
+        )}
+      </BentoGrid>
+    </div>
   )
 }
 
