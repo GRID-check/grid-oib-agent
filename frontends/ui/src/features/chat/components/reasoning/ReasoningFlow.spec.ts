@@ -3,7 +3,6 @@
  */
 import { describe, test, expect } from 'vitest'
 import {
-  animateFrontier,
   buildGraph,
   defaultFoldedRounds,
   keepEdgeIdentity,
@@ -429,45 +428,20 @@ describe('buildGraph — the fan splits from one line and merges back into one',
 })
 
 describe('buildGraph — the fan-in shares one centred anchor (P1-5)', () => {
-  test('choice prompt without findings: every column merges into the branches node centre handle', () => {
-    const g = buildGraph(
-      {
-        ...base,
-        choicePrompt: { promptId: 'p', text: 'weiter?', options: ['A', 'B'], isResponded: false },
-      },
-      t,
-      planFan(DESKTOP_W, 2),
-      [card('a'), card('b')]
-    )
-
-    expect(g.nodes.find((n) => n.id === 'findings')).toBeUndefined()
-    // Every column lands on the same centred target handle on the branches node.
-    expect(targetHandles(g, 'branches')).toEqual(['c-top'])
-    expect(g.edges).toContainEqual(
-      expect.objectContaining({ source: 'col-0', target: 'branches', targetHandle: 'c-top' })
-    )
-    expect(g.edges).toContainEqual(
-      expect.objectContaining({ source: 'col-1', target: 'branches', targetHandle: 'c-top' })
-    )
-  })
-
-  test('findings + branches: columns fan into findings, findings feeds branches on a single centre handle', () => {
-    const g = buildGraph(
-      {
-        ...base,
-        answerConfidence: 'medium',
-        choicePrompt: { promptId: 'p', text: 'weiter?', options: ['A'], isResponded: false },
-      },
-      t,
-      planFan(DESKTOP_W, 2),
-      [card('a'), card('b')]
-    )
+  test('every column merges into the assessment on its single centre handle', () => {
+    const g = buildGraph({ ...base, answerConfidence: 'medium' }, t, planFan(DESKTOP_W, 2), [card('a'), card('b')])
 
     expect(targetHandles(g, 'findings')).toEqual(['c-top'])
-    expect(targetHandles(g, 'branches')).toEqual(['c-top'])
-    expect(g.edges).toContainEqual(
-      expect.objectContaining({ source: 'findings', target: 'branches', targetHandle: 'c-top' })
-    )
+    for (const col of ['col-0', 'col-1']) {
+      expect(g.edges).toContainEqual(
+        expect.objectContaining({ source: col, target: 'findings', targetHandle: 'c-top' })
+      )
+    }
+  })
+
+  test('a HITL choice is not drawn in the graph: its one home is the prompt card', () => {
+    const g = buildGraph({ ...base, answerConfidence: 'medium' }, t, planFan(DESKTOP_W, 2), [card('a'), card('b')])
+    expect(g.nodes.map((n) => n.type)).not.toContain('branches')
   })
 })
 
@@ -484,7 +458,7 @@ describe('buildGraph — only the handles a layout needs (P2-8)', () => {
   test('every node declares its full handle set, whatever the turn is missing', () => {
     // REGRESSION: handles used to be conditional — the framing card of a turn
     // with nothing streamed yet had NO source handle, and the assessment grew
-    // its bottom handle only once a branches prompt existed. React Flow measures
+    // its bottom handle only once a node below it existed. React Flow measures
     // handle bounds when the node element is measured and re-measures only on a
     // RESIZE, so a handle added to a node already on screen never gets bounds
     // and `getEdgePosition` drops every edge on it: the connectors vanished
@@ -496,36 +470,12 @@ describe('buildGraph — only the handles a layout needs (P2-8)', () => {
     const streamed = buildGraph({ ...base, live: true }, t, planFan(DESKTOP_W, 1), [card('a')])
     expect(framingHandles(streamed)).toEqual(framingHandles(bare))
 
-    // The assessment keeps its bottom anchor with and without branches, so a
-    // prompt arriving under a settled assessment still draws its connector.
-    const noBranches = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 1), [card('a')])
-    const withBranches = buildGraph(
-      {
-        ...base,
-        answerConfidence: 'high',
-        choicePrompt: { promptId: 'p', text: 'weiter?', options: ['A'], isResponded: false },
-      },
-      t,
-      planFan(DESKTOP_W, 1),
-      [card('a')]
-    )
+    // The assessment always carries its bottom anchor, so a node added under a
+    // settled assessment would still draw its connector.
+    const settled = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 1), [card('a')])
     const bottomHandle = (g: ReturnType<typeof buildGraph>) =>
       (g.nodes.find((n) => n.id === 'findings')!.data as { source: { id: string; left: string } }).source
-    expect(bottomHandle(noBranches)).toEqual({ id: 'out', left: '50%' })
-    expect(bottomHandle(withBranches)).toEqual(bottomHandle(noBranches))
-
-    // Same for the branches node: one centred target, whether it is the fan-in
-    // point itself or merely fed by the assessment.
-    const branchesOnly = buildGraph(
-      {
-        ...base,
-        choicePrompt: { promptId: 'p', text: 'weiter?', options: ['A'], isResponded: false },
-      },
-      t,
-      planFan(DESKTOP_W, 1),
-      [card('a')]
-    )
-    expect(targetHandles(branchesOnly, 'branches')).toEqual(targetHandles(withBranches, 'branches'))
+    expect(bottomHandle(settled)).toEqual({ id: 'out', left: '50%' })
   })
 
   test('every edge lands on a handle its node actually declares', () => {
@@ -550,12 +500,6 @@ describe('buildGraph — only the handles a layout needs (P2-8)', () => {
       { ...base, live: true },
       { ...base, live: true },
       { ...base, answerConfidence: 'high' },
-      { ...base, choicePrompt: { promptId: 'p', text: '?', options: ['A'], isResponded: false } },
-      {
-        ...base,
-        answerConfidence: 'high',
-        choicePrompt: { promptId: 'p', text: '?', options: ['A'], isResponded: false },
-      },
     ]
     for (const props of shapes) {
       for (const n of [0, 1, 5]) {
@@ -570,7 +514,7 @@ describe('buildGraph — only the handles a layout needs (P2-8)', () => {
   })
 })
 
-describe('the only motion: React Flow\'s animated edges into the newest row', () => {
+describe('nothing in the graph loops: no edge is animated, live or settled', () => {
   const liveSpine = (): ReasoningFlowProps => ({
     ...base,
     live: true,
@@ -582,38 +526,18 @@ describe('the only motion: React Flow\'s animated edges into the newest row', ()
     ],
   })
 
-  test('while live, exactly the edges into the newest row are animated', () => {
+  test('a live graph marks no edge animated', () => {
     const cards = [card('a'), card('b')]
     const g = buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards)
-    const newest = g.rows.at(-1)!
-    const edges = animateFrontier(g.edges, newest)
-    const into = edges.filter((e) => newest.includes(e.target))
-    expect(into.length).toBeGreaterThan(0)
-    for (const e of into) expect(e.animated).toBe(true)
-    for (const e of edges.filter((e) => !newest.includes(e.target))) expect(e.animated).toBeUndefined()
-  })
-
-  test('a settled graph has no animated edge', () => {
-    const cards = [card('a'), card('b')]
-    const g = buildGraph({ ...liveSpine(), live: false, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 2), cards)
     expect(g.edges.length).toBeGreaterThan(0)
-    // Settled is an empty newest row, which is what ReasoningFlow passes.
-    expect(animateFrontier(g.edges, []).some((e) => e.animated)).toBe(false)
-    // …and `buildGraph` itself never marks one.
     expect(g.edges.some((e) => e.animated)).toBe(false)
   })
 
   test('an unchanged edge keeps its object across a rebuild', () => {
     const cards = [card('a'), card('b')]
-    const first = animateFrontier(buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards).edges, [])
-    const again = keepEdgeIdentity(first, animateFrontier(buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards).edges, []))
+    const first = buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards).edges
+    const again = keepEdgeIdentity(first, buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards).edges)
     expect(again).toBe(first)
-    const target = first[0]!.target
-    const marked = keepEdgeIdentity(first, animateFrontier(first, [target]))
-    for (const [i, e] of marked.entries()) {
-      if (e.target === target) expect(e).not.toBe(first[i])
-      else expect(e).toBe(first[i])
-    }
   })
 })
 

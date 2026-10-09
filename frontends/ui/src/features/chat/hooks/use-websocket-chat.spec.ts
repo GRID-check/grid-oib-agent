@@ -67,6 +67,7 @@ const client = vi.hoisted(() => ({
   updateMessageProvenance: vi.fn().mockResolvedValue(undefined),
   updateMessageStages: vi.fn().mockResolvedValue(undefined),
   updateMessagePromptState: vi.fn().mockResolvedValue(undefined),
+  cutStoppedAnswer: vi.fn().mockResolvedValue(undefined),
   generateTitle: vi.fn().mockResolvedValue(undefined),
   newestFrameAge: vi.fn().mockResolvedValue(null),
 }))
@@ -181,6 +182,16 @@ describe('a question', () => {
     status('reconnecting')
     status('open')
     expect(sentOf('user_message')).toHaveLength(2)
+  })
+
+  it('records on its turn the Aufwand it was sent with, so the answer keeps it', () => {
+    const { result } = open(conversationOf(CONVERSATION))
+
+    act(() => void result.current.sendMessage('Wie lang darf der Fluchtweg sein?', { reasoningEffort: 'xhigh' }))
+
+    const question = messages().find((message) => message.messageType === 'user')!
+    expect(sentOf('user_message')[0]).toMatchObject({ reasoning_effort: 'xhigh' })
+    expect(useChatStore.getState().turns[question.id]?.effort).toBe('xhigh')
   })
 
   it("does not make a file that is merely open in a peek the turn's focus", () => {
@@ -315,24 +326,86 @@ describe('Stop', () => {
   const TURN = cancelled[0]!.turn_id
   const CANCELLED_CONVERSATION = cancelled[0]!.conversation_id
 
-  it('sends cancel_turn and keeps the partial answer, marked stopped', () => {
+  it('sends cancel_turn and keeps the partial answer that was drawn, marked stopped', () => {
+    vi.useFakeTimers()
     openTurn(cancelled)
-    // The last delta is still waiting for its flush when Stop is pressed.
     deliver(cancelled.filter((event) => event.seq <= 4))
+    act(() => void vi.advanceTimersByTime(DELTA_FLUSH_MS))
+    const drawn = messages().find((message) => message.messageType === 'agent_response')!.content
+    expect(drawn).not.toBe('')
 
     act(() => useChatStore.getState().stopStreaming())
 
-    expect(sentOf('cancel_turn')).toEqual([{ type: 'cancel_turn', conversation_id: CANCELLED_CONVERSATION, turn_id: TURN }])
+    // With where the reader was: the socket leaves `shown` out for a server whose hello does not accept it.
+    expect(sentOf('cancel_turn')).toEqual([
+      {
+        type: 'cancel_turn',
+        conversation_id: CANCELLED_CONVERSATION,
+        turn_id: TURN,
+        shown: { seq: 4, chars: Array.from(drawn).length },
+      },
+    ])
     expect(useChatStore.getState().isStreaming).toBe(false)
+    // Cut by the rule the server cuts its row by, which trims.
     expect(messages().find((message) => message.messageType === 'agent_response')).toMatchObject({
-      content: useChatStore.getState().turns[TURN]!.text,
+      content: drawn.trim(),
       stopped: true,
     })
 
+    // The cancelled terminal carries the server's text; the answer keeps what was drawn.
     deliver(cancelled.filter((event) => event.seq === 5))
     const answer = messages().find((message) => message.messageType === 'agent_response')!
-    expect(answer).toMatchObject({ stopped: true })
-    expect(answer.content).not.toBe('')
+    expect(answer).toMatchObject({ stopped: true, content: drawn.trim() })
+    vi.useRealTimers()
+  })
+
+  // A delta still waiting for its flush was never on screen: a Stop does not
+  // add it, nor does a terminal that comes straight back.
+  it('adds nothing that was not drawn at the press', () => {
+    openTurn(cancelled)
+    deliver(cancelled.filter((event) => event.seq <= 4))
+
+    act(() => useChatStore.getState().stopStreaming())
+    deliver(cancelled.filter((event) => event.seq === 5))
+
+    expect(sentOf('cancel_turn')).toHaveLength(1)
+    // Nothing was on screen, and the server is told so: it stores nothing either.
+    expect(sentOf('cancel_turn')[0]).toMatchObject({ shown: { chars: 0 } })
+    expect(messages().some((message) => message.messageType === 'agent_response')).toBe(false)
+    expect(useChatStore.getState().turns[TURN]).toMatchObject({ outcome: 'cancelled', text: '' })
+  })
+
+  // The server had finished before the Stop reached it, and this page never
+  // folded its terminal: the answer on screen is stored, and the server's
+  // whole row is cut to it.
+  it('keeps the stopped answer when the server answers the Stop with turn_not_found', async () => {
+    vi.useFakeTimers()
+    openTurn(cancelled)
+    deliver(cancelled.filter((event) => event.seq <= 4))
+    act(() => void vi.advanceTimersByTime(DELTA_FLUSH_MS))
+    const answer = messages().find((message) => message.messageType === 'agent_response')!
+    const drawn = answer.content
+    act(() => useChatStore.getState().stopStreaming())
+    vi.useRealTimers()
+
+    deliver([
+      eventOf({
+        v: 2,
+        type: 'CUSTOM',
+        name: 'rejected',
+        conversation_id: CANCELLED_CONVERSATION,
+        turn_id: TURN,
+        seq: 0,
+        ts: 1,
+        value: { of: 'cancel_turn', code: 'turn_not_found' },
+      }),
+    ])
+
+    await vi.waitFor(() =>
+      expect(client.cutStoppedAnswer).toHaveBeenCalledWith(CANCELLED_CONVERSATION, answer.id, { turnId: TURN, shown: drawn })
+    )
+    expect(useChatStore.getState().turns[TURN]).toBeUndefined()
+    expect(messages().find((message) => message.id === answer.id)).toMatchObject({ stopped: true, content: drawn.trim() })
   })
 })
 
@@ -426,7 +499,7 @@ describe('nothing waits on silence', () => {
     // Second miss: the turn ends, visibly.
     act(() => void vi.advanceTimersByTime(ACK_TIMEOUT_MS))
     expect(useChatStore.getState()).toMatchObject({ isLoading: false, isStreaming: false })
-    await vi.waitFor(() => expect(lastError()).toMatchObject({ errorData: { errorCode: 'agent.response_failed' } }))
+    await vi.waitFor(() => expect(lastError()).toMatchObject({ errorData: { errorCode: 'agent.no_response' } }))
 
     // And it is not asked again behind the reader's back.
     status('reconnecting')

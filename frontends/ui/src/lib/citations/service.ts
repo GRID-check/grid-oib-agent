@@ -22,15 +22,13 @@ import {
 import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
 import { getKnowledgeBaseStatus } from '@/lib/knowledge/service'
 import { getNormRegistry } from '@/lib/norms/service'
+import { rangeDays, scopeBounds, type QualityScope } from '@/lib/quality/scope'
 import {
   buildMissingSourceCandidates,
   type MissingSourceCandidate,
   type PlatformInventory,
 } from './missing-sources'
 import * as repository from './repository'
-import { clampWindowDays } from './window'
-
-export { clampWindowDays, DEFAULT_WINDOW_DAYS, parseWindowDaysParam } from './window'
 
 export async function recordCitationEvents(events: NewCitationEvent[]): Promise<number> {
   return repository.insertCitationEvents(events)
@@ -41,10 +39,13 @@ export const CITATION_DEFECT_KINDS = CITATION_EVENT_KINDS.filter(
   (kind) => kind !== CITATION_BASELINE_KIND && kind !== CITATION_PRECISION_KIND
 ) as readonly Exclude<CitationEventKind, 'turn_verified' | 'retrieval_precision'>[]
 
-/** Midnight UTC today — the same day boundary the spend ledger uses. */
-export function utcDayStart(): Date {
-  const now = new Date()
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+/** The repository's filter for a scope: its UTC day bounds plus the id lists. */
+export function citationScopeFilter(scope: QualityScope): repository.CitationScopeFilter {
+  return {
+    ...scopeBounds(scope),
+    organizationIds: scope.organizationIds,
+    projectIds: scope.projectIds,
+  }
 }
 
 export interface CitationKindTotal {
@@ -422,6 +423,9 @@ const MISSING_SOURCES_SHOWN = 25
 const ORGANIZATIONS_SHOWN = 50
 
 export interface CitationHealthSnapshot {
+  /** The scope every figure below was read in, echoed so the client labels what it shows. */
+  scope: QualityScope
+  /** Days in the scope's range, inclusive. */
   windowDays: number
   totals: {
     /** Research turns that reached citation verification in the window. */
@@ -531,8 +535,13 @@ export interface CitationExportBundle {
   /** What this file is, so an agent reading it cold knows the contract. */
   schema: 'grid.citation-health.export/v1'
   generatedAt: string
+  /** The date range and the organizations/projects the export was taken in. */
+  scope: QualityScope
   windowDays: number
+  /** First instant in the range (UTC midnight of `scope.from`). */
   windowStart: string
+  /** First instant AFTER the range (UTC midnight after `scope.to`). */
+  windowEnd: string
   /** True when the row cap was reached — the export is a prefix, not the whole window. */
   truncated: boolean
   /** Plain-language description of every problem kind, for an agent's benefit. */
@@ -552,6 +561,8 @@ export interface CitationExportBundle {
  * reasons from `CappedReason` (`agents/piloti/markers.py`).
  */
 const EXPORT_GLOSSARY: Record<string, string> = {
+  scope:
+    'The filter the export was taken in: UTC days from..to inclusive (windowStart <= occurredAt < windowEnd), and, when non-empty, only those organizationIds and projectIds. A project filter keeps only turns whose conversation belongs to one of those projects; turns with no recorded conversation are left out of it.',
   citations_removed:
     'Citation verification removed one or more citations the model wrote. problems[].reasons counts the removed citations by reason (see reason.*); problems[].failedSources lists each cited target and its reason.',
   quote_unverified:
@@ -672,16 +683,12 @@ function toExportTurn(
  * Group the window's raw events into one record per flagged turn, resolving
  * "what was the source" and "what was the problem" into the same object.
  */
-export async function getCitationExport(
-  options: { days?: number } = {}
-): Promise<CitationExportBundle> {
-  const windowDays = clampWindowDays(options.days)
-  const start = utcDayStart()
-  start.setUTCDate(start.getUTCDate() - (windowDays - 1))
+export async function getCitationExport(scope: QualityScope): Promise<CitationExportBundle> {
+  const filter = citationScopeFilter(scope)
 
   const [rows, snapshot] = await Promise.all([
-    repository.listEventsForExport(start),
-    getCitationHealth({ days: windowDays }),
+    repository.listEventsForExport(filter),
+    getCitationHealth(scope),
   ])
 
   const capped = rows.length > repository.EXPORT_ROW_CAP
@@ -704,8 +711,10 @@ export async function getCitationExport(
   return {
     schema: 'grid.citation-health.export/v1',
     generatedAt: new Date().toISOString(),
-    windowDays,
-    windowStart: start.toISOString(),
+    scope,
+    windowDays: snapshot.windowDays,
+    windowStart: filter.start.toISOString(),
+    windowEnd: filter.endExclusive.toISOString(),
     truncated: capped,
     glossary: EXPORT_GLOSSARY,
     summary: { ...snapshot.totals, findings: snapshot.findings },
@@ -820,18 +829,18 @@ function toOrganizationTotals(
  * the union is a query rather than a sum — see `countTurnsForTargets`.
  */
 async function countMissingSourceTurns(
-  start: Date,
+  filter: repository.CitationScopeFilter,
   candidates: MissingSourceCandidate[]
 ): Promise<{ held: number; addable: number }> {
   const targets = (keep: (candidate: MissingSourceCandidate) => boolean): string[] =>
     candidates.filter(keep).map((candidate) => candidate.target)
   const [held, addable] = await Promise.all([
     repository.countTurnsForTargets(
-      start,
+      filter,
       targets((candidate) => candidate.present === true)
     ),
     repository.countTurnsForTargets(
-      start,
+      filter,
       targets((candidate) => candidate.present === false && isAddable(candidate))
     ),
   ])
@@ -839,17 +848,17 @@ async function countMissingSourceTurns(
 }
 
 /**
- * The full citation-health snapshot for the platform dashboard.
+ * The full citation-health snapshot for the platform dashboard, read in one
+ * scope (date range, and optionally organizations and projects). Every query
+ * takes the same filter, so the totals, the trend and every list describe the
+ * same rows.
  *
  * Every rate is computed against distinct observed turns, so a window with no
  * research traffic reports a 100 % clean rate rather than dividing by zero.
  */
-export async function getCitationHealth(
-  options: { days?: number } = {}
-): Promise<CitationHealthSnapshot> {
-  const windowDays = clampWindowDays(options.days)
-  const start = utcDayStart()
-  start.setUTCDate(start.getUTCDate() - (windowDays - 1))
+export async function getCitationHealth(scope: QualityScope): Promise<CitationHealthSnapshot> {
+  const filter = citationScopeFilter(scope)
+  const windowDays = rangeDays(scope.from, scope.to)
 
   const [
     kindRows,
@@ -865,17 +874,17 @@ export async function getCitationHealth(
     failedTargets,
     inventory,
   ] = await Promise.all([
-    repository.aggregateByKind(start),
-    repository.countObservedTurns(start),
-    repository.countDefectiveTurns(start),
-    repository.aggregateDailyByKind(start),
-    repository.aggregateDailyTurns(start),
-    repository.aggregateReasons(start),
-    repository.aggregateDefectiveSourceMix(start),
-    repository.aggregateUnavailableTools(start),
-    repository.aggregateByOrganization(start),
-    repository.listRecentDefects(start),
-    repository.aggregateFailedTargets(start),
+    repository.aggregateByKind(filter),
+    repository.countObservedTurns(filter),
+    repository.countDefectiveTurns(filter),
+    repository.aggregateDailyByKind(filter),
+    repository.aggregateDailyTurns(filter),
+    repository.aggregateReasons(filter),
+    repository.aggregateDefectiveSourceMix(filter),
+    repository.aggregateUnavailableTools(filter),
+    repository.aggregateByOrganization(filter),
+    repository.listRecentDefects(filter),
+    repository.aggregateFailedTargets(filter),
     platformInventory(),
   ])
 
@@ -888,7 +897,7 @@ export async function getCitationHealth(
   const outlier =
     turns > 0 ? findOrganizationOutlier(organizations, defectTurns / turns) : undefined
   const [missingSourceTurns, names] = await Promise.all([
-    countMissingSourceTurns(start, missingSources),
+    countMissingSourceTurns(filter, missingSources),
     getOrganizationDisplayNames(
       [...shownOrganizations, ...(outlier ? [outlier] : [])].map((org) => org.organizationId)
     ),
@@ -912,6 +921,7 @@ export async function getCitationHealth(
   const reasons = toReasonTotals(reasonRows, new Map(kindRows.map((row) => [row.kind, row.items])))
 
   return {
+    scope,
     windowDays,
     totals: {
       turns,
@@ -935,7 +945,7 @@ export async function getCitationHealth(
       missingSourceTurns,
     }),
     byKind,
-    dailyTrend: buildDailyTrend(dailyKindRows, dailyTurnRows, start, windowDays),
+    dailyTrend: buildDailyTrend(dailyKindRows, dailyTurnRows, filter.start, windowDays),
     reasons,
     sourceMix,
     unavailableTools: tools.rows,

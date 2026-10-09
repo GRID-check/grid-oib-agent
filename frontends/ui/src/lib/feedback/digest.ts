@@ -40,8 +40,10 @@
 import 'server-only'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { getCached, invalidateCached } from '@/lib/cache'
-import type { FeedbackHealth, FeedbackHealthFilters } from './repository'
+import { createHash } from 'node:crypto'
+import type { FeedbackHealth } from './repository'
 import { listFeedbackTurns } from './repository'
+import { writeRatingsFilters, type FeedbackQuery } from './filters'
 import { fillTrendWindow, feedbackTrendDelta, MIN_TREND_VOTES } from './trend'
 
 /**
@@ -69,13 +71,14 @@ const DIGEST_TIMEOUT_MS = 50_000
 
 /**
  * Bump when the prompt, the brief or the turns it samples change, so old
- * entries do not linger. v2: the sampled turns leave out votes on a
+ * entries do not linger. v2: the prompt and brief were reworked for the
+ * filtered ratings tab. v3: the sampled turns leave out votes on a
  * conversation that drew on a restricted folder (`OUTSIDE_RESTRICTED_USE`), and
- * a v1 digest may restate one for up to six hours. v3: they leave out votes on
+ * a v2 digest may restate one for up to six hours. v4: they leave out votes on
  * a MESSAGE the server marked (migration 0124), which reaches votes the
  * conversation match missed.
  */
-const CACHE_VERSION = 'v3'
+const CACHE_VERSION = 'v4'
 
 export interface FeedbackDigest {
   headline: string
@@ -118,29 +121,29 @@ export interface FeedbackDigestOptions {
 }
 
 /**
- * The cache key. Every input that changes the sentences is in it — window,
- * organization, topic, locale — and nothing that does not.
+ * The cache key. Every input that changes the sentences is in it — the range,
+ * the organizations, the projects and every ratings filter, and the locale — and
+ * nothing that does not.
  *
- * `verdict`, `reason` and `query` are deliberately absent: they narrow the
- * drill-in, not the window, and the digest describes the window. Keying on them
- * would buy four copies of the same paragraph.
- *
- * The window comes in as `windowDays` rather than off `filters`, because that is
- * the value the payload is labelled with (`health.windowDays`). Re-deriving it
- * from the filters would put a second default in the code, and a cached digest
- * keyed on a different window than it describes is a mislabelled digest.
+ * The filters apply to the figures since the page-wide filters (a reason or a
+ * search changes the headline the digest summarises), so they are in the key.
+ * They ride as a short hash of their canonical query string rather than verbatim:
+ * a free-text search has no business in a cache key's length budget.
  *
  * Written as one template rather than a `parts.join(':')` so the organization
  * segment is visible where the key is — to a reader, and to
  * `grid/require-tenant-cache-key`, which can only read what the key expression
  * says. The `*` is the platform-wide digest, which is what this surface asks for
- * when it is not narrowed to one organization; it is a real partition, not an
+ * when it is not narrowed to organizations; it is a real partition, not an
  * absent one.
  */
-function digestKey(windowDays: number, filters: FeedbackHealthFilters, locale: string): string {
-  const organizationId = filters.organizationId ?? '*'
-  const topic = filters.topic ?? '*'
-  return `feedback:digest:${CACHE_VERSION}:${windowDays}:${organizationId}:${topic}:${locale.slice(0, 5)}`
+function digestKey(query: FeedbackQuery, locale: string): string {
+  const { scope } = query
+  const organizationIds = scope.organizationIds.length ? [...scope.organizationIds].sort().join(',') : '*'
+  const narrowed = writeRatingsFilters(new URLSearchParams(), query.ratings)
+  for (const project of [...scope.projectIds].sort()) narrowed.append('project', project)
+  const filters = createHash('sha256').update(narrowed.toString()).digest('hex').slice(0, 16)
+  return `feedback:digest:${CACHE_VERSION}:${scope.from}:${scope.to}:${organizationIds}:${filters}:${locale.slice(0, 5)}`
 }
 
 /**
@@ -176,12 +179,12 @@ interface BackendDigestResponse {
  */
 export async function getFeedbackDigest(
   health: FeedbackHealth,
-  filters: FeedbackHealthFilters,
+  query: FeedbackQuery,
   options: FeedbackDigestOptions = {},
 ): Promise<FeedbackDigestResult> {
   const locale = options.locale?.toLowerCase().startsWith('en') ? 'en' : 'de'
   const votes = health.totals.up + health.totals.down
-  const key = digestKey(health.windowDays, filters, locale)
+  const key = digestKey(query, locale)
 
   if (votes === 0) return { digest: null, error: 'no_feedback' }
   if (votes < FEEDBACK_DIGEST_MIN_VOTES) {
@@ -200,7 +203,7 @@ export async function getFeedbackDigest(
     key,
     FEEDBACK_DIGEST_TTL_MS,
     async () => {
-      const result = await generateDigest(health, filters, locale)
+      const result = await generateDigest(health, query, locale)
       outcome.error = result.error
       return result.digest
     },
@@ -221,17 +224,17 @@ export async function getFeedbackDigest(
  */
 async function generateDigest(
   health: FeedbackHealth,
-  filters: FeedbackHealthFilters,
+  query: FeedbackQuery,
   locale: string,
 ): Promise<FeedbackDigestResult> {
-  // The praised turns. `health.turns` holds whichever direction the reader is
-  // looking at, so the other one is fetched here — a digest that sampled only
-  // what the drill-in happened to be showing would write a different story
-  // depending on which tab was open.
-  const sampleFilters = { ...filters, reason: null, query: null, limit: SAMPLES_PER_DIRECTION }
+  // Both directions, sampled separately so the newest twenty-five of one cannot
+  // crowd out the other. Under the same filters as the figures: a digest of
+  // "these two organizations, Brandschutz" samples those votes. A filter that
+  // names one direction leaves the other sample empty (`listFeedbackTurns`
+  // only narrows).
   const [helpful, unhelpful] = await Promise.all([
-    listFeedbackTurns({ ...sampleFilters, verdict: 'up' }),
-    listFeedbackTurns({ ...sampleFilters, verdict: 'down' }),
+    listFeedbackTurns(query, { verdict: 'up', limit: SAMPLES_PER_DIRECTION }),
+    listFeedbackTurns(query, { verdict: 'down', limit: SAMPLES_PER_DIRECTION }),
   ])
 
   const samples = [...helpful, ...unhelpful].flatMap((turn) => {
@@ -243,7 +246,7 @@ async function generateDigest(
   })
 
   const delta = feedbackTrendDelta(
-    fillTrendWindow(health.daily, health.windowDays, MIN_TREND_VOTES),
+    fillTrendWindow(health.daily, health.windowDays, MIN_TREND_VOTES, new Date(`${health.to}T12:00:00Z`)),
   )
 
   const body = {

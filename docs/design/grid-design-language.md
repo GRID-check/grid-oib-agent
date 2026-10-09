@@ -12,7 +12,7 @@ The visual language is **warm paper monochrome + provenance signal colors** (ado
 2. **Provenance is (almost) the only color.** The one place chroma exists BY MEANING is the source signal system (`--source-law` blue, `--source-project` green, `--source-office` gold, `--source-auto` gray, `--signal-error` red). It runs through composer, citations, history filters, and insights — it is the product's trust affordance. **Color never travels alone: every signal is always icon + label + color together** (a11y and legibility). Green doubles as status "Aktiv"; red is for errors only. There is no general accent: `--accent-pop` was carved out for one in 2026-08 and withdrawn in 2026-09 (§"Accent pop" below has the reasoning, and it is worth reading before proposing another one).
 3. **Authority through precision.** This tool cites Austrian building law. Citations, legal-basis, and document provenance must look verifiable and exact — monospace for identifiers, clear source attribution, never decorative.
 4. **Hierarchy over density.** Dense is fine (architects handle complex data), but every screen has ONE clear focal point and a legible reading order. Whitespace does the separating, not boxes-within-boxes.
-5. **Motion with a reason.** Movement here is an argument, not an ornament: it says where something came from, that a press landed, or that a change took. Entrance fades with a slight rise for arriving content; smooth height for accordions and thinking steps; skeleton→content. **Springs are allowed where the motion's trajectory carries information the endpoint does not** — a panel arriving from an edge, a toggle thumb clicking into its detent, a dropped file landing, a row gliding to its new group. They are physics, not personality: the overshoot budget is **1–2 pixels of visible travel**, so the spring is chosen by distance, never by taste. Everything else — colour, opacity, hover, system-initiated entrance — is a tween, 120–240ms. Never a spring on colour, on legal content, on errors, or on anything repeating more than about five times per screen. Respect `prefers-reduced-motion` absolutely: motion must be droppable with no loss of information.
+5. **Motion with a reason.** Movement here is an argument, not an ornament: it says where something came from, that a press landed, or that a change took. Entrance fades with a slight rise for arriving content; smooth height only for a block arriving or folding at or below the reading point (see Motion vocabulary → Height); skeleton→content. **Springs are allowed where the motion's trajectory carries information the endpoint does not** — a panel arriving from an edge, a toggle thumb clicking into its detent, a dropped file landing, a row gliding to its new group. They are physics, not personality: the overshoot budget is **1–2 pixels of visible travel**, so the spring is chosen by distance, never by taste. Everything else — colour, opacity, hover, system-initiated entrance — is a tween, 120–240ms. Never a spring on colour, on legal content, on errors, or on anything repeating more than about five times per screen. Respect `prefers-reduced-motion` absolutely: motion must be droppable with no loss of information.
 6. **Every state is designed.** Loading, empty, error, partial, success. Empty states especially are craft opportunities, not afterthoughts — they orient and invite the next action.
 
 ## Tokens (already defined in src/styles/tokens.css)
@@ -55,6 +55,24 @@ defined as a `color-mix()` of an **already transparent** token (that is how
 invisible), and a scrim built from `--background` at near-full opacity (which
 erased the page behind a modal instead of dimming it, so the dialog lost any
 sense of sitting *on* something).
+
+**The first paint is already in the theme.** The theme is a client-only fact
+(a stored choice, or the OS), so the server renders without `.dark`. An inline
+script in `<head>` (`app/theme-boot.ts`) sets it before the first paint, and
+`providers.tsx` keeps it in step afterwards; applied from a React effect, a
+dark load painted about 700 ms of light paper first. `color-scheme` follows
+the theme (`light` on `:root`, `dark` on `.dark`), so scrollbars, form
+controls and the overscroll canvas match it.
+
+**Increased contrast is two steps harder, nothing else.** Under
+`prefers-contrast: more` secondary text (`--muted-foreground`,
+`--text-color-subtle`) takes the next ink step up, the placeholder takes the
+old muted step, and every hairline (`--border`, `--input`,
+`--border-color-base`) roughly triples. The hierarchy stays; it is only drawn
+harder. Both themes are restated in full inside the query, `.dark` second,
+because `:root` and `.dark` have equal specificity there. Decorative overlays
+that paint the card's colour over content (the streaming caret's veil) are
+hidden under `contrast-more:` and `forced-colors:`.
 
 **Ink ramp (light):** #1f2023 (foreground/action) → #55565a secondary → #6f706c muted → #8a8a86 placeholder → #b3b3af ghost. Borders are **alpha ink hairlines** (`rgba(28,30,33,…)` equivalents at .08 base / .12 input / .16 strong / .22–.32 selected), so they composite on any surface. Focus ring is ink-based (`--ring`), never blue.
 
@@ -128,6 +146,16 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 | Caption / meta | `text-xs text-muted-foreground` |
 | Identifiers (job id, § refs, collection names) | `font-mono text-xs` |
 | Numeric stat | `text-2xl font-semibold tracking-tight tabular-nums` |
+
+**Answer prose** (`MarkdownRenderer`). Paragraphs and lists hold a
+`max-w-[72ch]` measure. The body hyphenates (`hyphens-auto`, words of ten
+letters or more, four on each side, `[hyphenate-limit-chars:10_4_4]`) by the
+document's `lang`: German compounds („Brandabschnittsfläche") left a ragged
+edge and, in a narrow table column, a line of their own. Section headings are
+`hyphens-manual`; they read as one phrase. **No `text-wrap: pretty` on prose
+that can stream:** Chromium re-breaks the lines above the last as words are
+appended, so lines the reader has already read jitter. A heading may balance
+only if it arrives whole.
 
 ## Spacing & layout rhythm
 
@@ -429,9 +457,12 @@ thing they just dismissed.
 | `--ease-exit` / `ease-exit` | `0.4, 0, 1, 1` | Anything **leaving** — departure accelerates away |
 | `--ease-cycle` / `ease-cycle` | `0.65, 0, 0.35, 1` | **Only** looping / indeterminate motion |
 
-No `linear`, no `ease-in-out` on a one-shot, no bare `ease`. An eslint rule
-(`grid/motion-vocabulary`) flags `transition-all`, `ease-linear` and
-transitions on layout-triggering properties.
+No `linear`, no `ease-in-out`, no `ease-in`, no bare `ease`. An eslint rule
+(`grid/motion-vocabulary`) flags `transition-all`, `ease-linear`, `ease-in`,
+`ease-in-out`, `animate-pulse`, literal durations, hand-written
+`[animation-delay:…]` / `[animation-duration:…]`, transitions on
+layout-triggering properties, and `height`/`width`/`top`/`left` in a motion
+`initial`/`animate`/`exit` object (see *Height* below for the sanctioned case).
 
 ### Springs
 
@@ -507,22 +538,88 @@ times stops being a physical cue and becomes texture.
 
 - Content entrance: `animate-in fade-in-0` (+ `slide-in-from-bottom-1` for
   cards) via tw-animate-css.
-- **Chat turn entrance** — every block arriving in the transcript uses the same
-  fade-and-rise: `animate-in fade-in-0 slide-in-from-bottom-1 duration-base
-  ease-entrance motion-reduce:animate-none`. That includes `AgentPrompt` and the
-  `ErrorBanner` / `NoSourcesBanner` notices — a banner
-  that pops in unanimated reads as a different class of object than the answer
-  beside it.
+- **Chat turn entrance: the thread row owns it.** Every block arriving in the
+  transcript (a question, an answer, `AgentPrompt`, the `ErrorBanner` /
+  `NoSourcesBanner` notices) enters with its row in `ChatArea`: a fade and a
+  4px rise on `motionEntrance`, for genuinely new messages only. **Component
+  roots carry no CSS entrance of their own.** A root's `animate-in` plays on
+  every mount, so a restored thread replayed every bubble's entrance and a new
+  message stacked two. A row leaving gives up its height with its opacity.
 - **State changes inside an arrived turn are transitions, not entrances**:
   `AgentPrompt` dims to `opacity-75`; the answer's meta row is reserved at chip
-  height (`min-h-6`) so late chips cannot grow the footer, then fades in on a
-  short delay with `[animation-fill-mode:backwards]`, and the source chips
-  cascade on a 40ms per-chip stagger.
+  height (`min-h-6`) so late chips cannot grow the footer.
 - **Staggers are always capped** — `Stagger` ships a ceiling
   (`staggerMaxSteps`), because an uncapped stagger delayed one screen's seventh
   row by 350ms. Never on a list the reader opened to reach one specific row.
-- Height changes (accordions, thinking steps): CSS grid-rows or Radix
-  Collapsible, `--motion-base`.
+- **Height.** A height may animate in two cases: a block **arriving or
+  folding at or below the reading point**, and a frame whose content was
+  **swapped in place** where the reader is looking. Each has a sanctioned
+  primitive, on `motionDeliberateEntrance` unless named otherwise, clipped
+  only while it moves, and **instant under reduced motion** (`useMotionToken`,
+  because `<MotionConfig reducedMotion="user">` does not cover height or
+  opacity):
+  - `HeightArrival` (`components/motion`): a block that mounts below the
+    prose (takeaways, an unplaced card, a late Projektbezug), height 0 to
+    `auto` while it fades in; inside `AnimatePresence initial={false}` so a
+    stored block stands at once.
+  - `HeightExpand`: a block that stays mounted and opens or closes (the answer
+    footer); `instant` where nobody can see it.
+  - `useHeightGlide(frameRef, swapKey)`: one content replaced by another in
+    the same frame, on `motionBase`. A proposal card's decision becoming its
+    one-line receipt (the decision fades out, the height glides while it is
+    invisible, the receipt fades in), a tab strip switching panels, a diagram
+    fence that fails to draw and shows its source. Keyed: any other size
+    change lands at once.
+  - `DrawingReveal` / `DrawingCaption` (`features/diagrams`): a drawing grows
+    from its skeleton to its laid-out height, measured by a `ResizeObserver`
+    once it stands still, and its caption arrives on the same step.
+  - `CardSlot` (`CardSlotArrival.tsx`): a card slot growing into its card, or
+    a held place folding away when the card never comes.
+  - Radix Collapsible, for an accordion the reader opened.
+
+  Never in the same frame as a large commit (the settle of a streamed answer,
+  a new turn mounting). A block above the reading point never animates its
+  height: it moves the text the reader is on. Anything else that must change
+  size while visible **fades first, then changes height in one frame while
+  invisible** (a masthead gated out, the Herleitung's fold). Any other
+  `height` in a motion target carries an
+  `eslint-disable-next-line grid/motion-vocabulary -- <why>` above the element.
+- **One press.** A `Button` or `TabsTrigger` dips on its own. Every other
+  pressable (a citation chip, a copy link, a card row) composes `PRESSABLE`
+  (`components/ui/press.ts`): colour, background, border, filter on
+  `--motion-quick`, `active:scale-[0.98]` on `--motion-snap`, flat under
+  reduced motion. Its keyboard ring is `FOCUS_RING`
+  (`components/ui/focus-ring`) with `outline-none`. The hand-rolled controls
+  around an answer had drifted to four scales on two durations.
+- **Busy is not disabled.** A control that is working keeps its focus and its
+  width: `aria-disabled` plus a guard in its handler, never `disabled`
+  (Chrome blurs a focused button the moment it becomes disabled). Its labels
+  sit stacked in one cell (`StackedLabel`), so „Ablegen" turning into „Wird
+  abgelegt …" nudges nothing. The busy look appears only once the wait has
+  lasted 150 ms (`useDelayedFlag`); below that the press is the feedback. A
+  proposal card shows each row's verdict first and takes its decided state one
+  `motionDeliberate` beat later, so the reader sees which file moved.
+- **An icon swap springs its scale, never its opacity.** `iconSwapTransition`
+  puts scale on `springSnap` and opacity on `motionQuick`; the leaving glyph
+  goes on `motionQuickExit` (`iconSwapExitTransition`). Take the pair through
+  `useIconSwapTransition()`, which makes both instant under reduced motion. A
+  bare `transition={springSnap}` on an element that animates opacity springs
+  the fade: about 500 ms, run by WAAPI as a `linear()` curve, and still played
+  under reduced motion.
+- **Send ↔ Stop is one button that morphs.** The composer's send control
+  never swaps elements: the same `<button>` changes its job, label and glyph
+  (arrow → square → arrow), so the press target and keyboard focus stay put.
+  The glyph cross-fades under `AnimatePresence mode="popLayout"` on
+  `useIconSwapTransition`; the press is the Button's own `active:scale` dip on
+  `--motion-snap`. The square appears when the turn exists in the store and
+  the arrow returns on the press, not on the server's acknowledgement. Escape
+  stops the turn (`aria-keyshortcuts="Escape"`).
+- **The streaming caret breathes, it does not blink.** It stands solid while
+  words advance and breathes only once the reveal has stood still for 600 ms
+  (`animate-caret-breathe`: opacity 1 → 0.35 → 1 on `--motion-ambient` and
+  `--ease-cycle`, `motion-reduce:animate-none`, resting at full ink). It sits
+  inside the text and takes no width
+  ([streaming-chat-answer.md](streaming-chat-answer.md#the-reveal-is-paced-not-typed)).
 - **The live Herleitung moves only its frontier edges.** While a turn is
   live, the connectors into the newest row are React Flow's built-in
   `animated` edges (the library's marching `dashdraw` dash); nothing else in the
@@ -534,17 +631,31 @@ times stops being a physical cue and becomes texture.
 - Hover: `transition-colors` on interactive rows and links; never transform on
   hover for dense UI. The raised card's lift is the documented exception, and it
   is a tween.
-- Skeleton pulse is the only ambient motion at rest, and never more than one
-  ambient loop per viewport.
+- **One ambient loop per phase.** Every loop (skeleton shimmer, typing dots,
+  progress sweep, text shimmer, the caret breath) runs on `--motion-ambient`
+  (or `-slow`) and `--ease-cycle`, and at most one of them is on screen at a
+  time. A chat turn has one per phase: before the answer, the Herleitung
+  header's shimmering label (its icon slot is a static glyph, not a spinner);
+  while the answer streams, the caret, with pending citation pills muted and
+  still; after the settle, none. At rest, only a skeleton. A stagger inside a loop belongs to its `@utility` and derives from
+  the token (`animate-typing-dot` staggers its own siblings), never to an
+  `[animation-delay:…]` at the call site.
 
 ### Binding constraints
 
-- **Transform and opacity only.** Never animate `width`, `height`, `margin`,
-  `padding`, `top/left/right/bottom`, `gap` or `grid-template-*`. A panel that
-  changes size sets its size in one pass and **translates** its content.
+- **Transform and opacity only.** Never animate `width`, `margin`,
+  `padding`, `top/left/right/bottom`, `gap` or `grid-template-*`, and
+  `height` only as the arrival/fold described under *Height* above. A panel
+  that changes size sets its size in one pass and **translates** its content.
 - **`prefers-reduced-motion` flattens everything.** `<MotionConfig
-  reducedMotion="user">` covers motion/react; the global rule in `globals.css`
-  clamps `animation-duration`, `transition-duration` **and the delays**. The
+  reducedMotion="user">` covers only motion/react's transform and layout
+  animations: opacity, colour and height still tween, and delays still hold.
+  A motion transition with a delay, a height or a choreography step therefore
+  goes through `useMotionToken(token)`, which returns `motionInstant` under
+  reduced motion, and an icon swap through `useIconSwapTransition()`. The
+  hook reads the media query synchronously, so the first client render is
+  already right; `@/hooks/use-reduced-motion` is false until its mount effect. The global rule in `globals.css` clamps
+  `animation-duration`, `transition-duration` **and the delays**. The
   delay is not optional: a staggered element that keeps its delay is simply
   invisible for that long, which is the opposite of what the reader asked for.
   Every animation still carries `motion-reduce:animate-none` and every non-hover

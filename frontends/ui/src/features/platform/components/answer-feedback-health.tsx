@@ -6,18 +6,22 @@
  *
  * **The form follows the job.** The job is *what should I do about answer
  * quality?*, which needs both halves of the answer. So the headline is the
- * helpful rate, the trend rises when things improve, the drill-in switches
- * between the answers that landed and the ones that missed, and a topic rollup
- * says what the product is good AT rather than only who is unhappy with it.
+ * helpful rate, the trend rises when things improve, the list holds the answers
+ * that landed and the ones that missed, and a topic rollup says what the product
+ * is good AT rather than only who is unhappy with it.
  *
- * **Reading order**, top to bottom: four figures (helpful rate, coverage, down
- * votes, voters), the digest that says the same window in sentences, the
- * direction, why it missed and by topic side by side, by organization, and the
- * drill-in. Every breakdown is also the filter for the drill-in, and every
- * filter round-trips to the server (see `search`).
+ * **Reading order**, top to bottom: the ratings filters, four figures (helpful
+ * rate, coverage, down votes, voters), the digest that says the same set in
+ * sentences, the direction, why it missed and by topic side by side, by
+ * organization, and the list.
  *
- * **The window belongs to the page.** The quality workspace owns the 7/30/90
- * control and passes `days`; this organism has no window control of its own.
+ * **One set of votes for the whole tab.** The page-wide scope (range,
+ * organizations, projects) and the ratings filters (verdict, reason, topic,
+ * mode, confidence, notes, search) are one query string, sent with every read
+ * on the tab — figures, digest, list, per-value counts — and with the export
+ * link. A breakdown row is also the filter for it: pressing a reason, a topic
+ * or an organization toggles that filter, in the URL, for everything at once.
+ * The workspace owns the URL; this organism is controlled.
  *
  * **States.** Skeletons only on the first load. A refetch after a filter
  * change keeps the figures on screen, dims them, and spins the refresh glyph;
@@ -31,7 +35,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   ChevronRight,
-  Download,
   ExternalLink,
   Filter,
   Gauge,
@@ -48,7 +51,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Chip } from '@/components/ui/chip'
 import { CountPill } from '@/components/ui/count-pill'
-import { DataToolbar } from '@/components/ui/data-toolbar'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Item, ItemContent, ItemList, ItemTitle } from '@/components/ui/item'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -63,16 +65,29 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { TimeAgo } from '@/components/ui/time-ago'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { SeriesPaletteStyle } from '@/components/charts/palette'
 import { useLocale, useTranslations } from '@/i18n'
 import { CONVERSATION_TAG_KEYS, type ConversationTagKey } from '@/lib/conversations/tags'
+import {
+  feedbackQueryString,
+  NO_RATINGS_FILTERS,
+  ratingsFiltered,
+  toggleValue,
+  type RatingsFilters,
+} from '@/lib/feedback/filters'
+import type { FeedbackFilterOptions } from '@/lib/feedback/export-service'
+import type { QualityScope } from '@/lib/quality/scope'
+import type { QualityScopeOptions } from '@/lib/quality/scope-options'
 import { cn } from '@/lib/utils'
 import { SectionCard } from './section-card'
 import { FeedbackDigest } from './feedback-digest'
 import { FeedbackTrend, FeedbackTrendDirection } from './feedback-trend'
 import { FeedbackBarList, FeedbackBarRow } from './feedback-bar-list'
 import { FeedbackTurnSheet, FeedbackVerdictBadge } from './feedback-turn-sheet'
+import { FeedbackExportDialog } from './feedback-export-dialog'
+import { FeedbackFilterRow } from './feedback-filter-row'
+import { withOrganizations } from './quality-scope-bar'
+import { useQualityScopeLabel } from './quality-scope-label'
 import {
   excerpt,
   FEEDBACK_REASONS,
@@ -82,7 +97,6 @@ import {
   type FeedbackHealthResponse,
   type FeedbackHealthTurn,
   type FeedbackReason,
-  type FeedbackVerdict,
 } from './answer-feedback-types'
 
 export type { FeedbackHealthResponse } from './answer-feedback-types'
@@ -94,62 +108,46 @@ const TURN_LIMIT = 50
 const BUSY_CLASS = 'transition-opacity duration-base ease-out motion-reduce:transition-none'
 
 export interface AnswerFeedbackHealthProps {
-  /** The window in days. Owned by the page (7 / 30 / 90); the server coerces anything else. */
-  days: number
+  /** The page-wide scope (range, organizations, projects). Owned by the workspace. */
+  scope: QualityScope
+  /** The ratings tab's own filters. Owned by the workspace, in the URL. */
+  filters: RatingsFilters
+  onFiltersChange: (next: RatingsFilters) => void
+  /** An organization row toggles that organization in the page scope. */
+  onScopeChange: (next: QualityScope) => void
+  /** The scope bar's options, for the names in the export summary. */
+  scopeOptions?: QualityScopeOptions | null
 }
 
-export function AnswerFeedbackHealth({ days }: AnswerFeedbackHealthProps): JSX.Element {
+export function AnswerFeedbackHealth({
+  scope,
+  filters,
+  onFiltersChange,
+  onScopeChange,
+  scopeOptions = null,
+}: AnswerFeedbackHealthProps): JSX.Element {
   const t = useTranslations('platform')
   const { locale } = useLocale()
+  const scopeLabel = useQualityScopeLabel()
   const [data, setData] = useState<FeedbackHealthResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
-
-  const [verdict, setVerdict] = useState<FeedbackVerdict>('down')
-  const [reason, setReason] = useState<FeedbackReason | null>(null)
-  const [org, setOrg] = useState<string | null>(null)
-  const [topic, setTopic] = useState<ConversationTagKey | null>(null)
-  const [query, setQuery] = useState('')
-  /** The value actually sent: debounced, so typing does not fire a query per keystroke. */
-  const [committedQuery, setCommittedQuery] = useState('')
+  const [options, setOptions] = useState<FeedbackFilterOptions | null>(null)
   /** The opened turn, kept while the sheet animates out. */
   const [openTurn, setOpenTurn] = useState<FeedbackHealthTurn | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
 
-  useEffect(() => {
-    const timer = setTimeout(() => setCommittedQuery(query.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [query])
-
+  const query = useMemo(() => ({ scope, ratings: filters }), [scope, filters])
   /**
-   * Filters live in the URL the component fetches, NOT in a `.filter()` over the
-   * response. The drill-in is capped server-side, so filtering the arrived rows
+   * The filters live in the URL the component fetches, NOT in a `.filter()` over
+   * the response. The list is capped server-side, so filtering the arrived rows
    * would search the last 50 and confidently report nothing beyond them.
    */
-  const search = useMemo(() => {
-    const params = new URLSearchParams({ days: String(days), verdict })
-    if (reason && verdict === 'down') params.set('reason', reason)
-    if (org) params.set('org', org)
-    if (topic) params.set('topic', topic)
-    if (committedQuery) params.set('q', committedQuery)
-    return params.toString()
-  }, [days, verdict, reason, org, topic, committedQuery])
+  const search = feedbackQueryString(query)
 
-  /** What the digest describes: the window and the aggregate filters only. */
-  const digestSearch = useMemo(() => {
-    const params = new URLSearchParams({ days: String(days) })
-    if (org) params.set('org', org)
-    if (topic) params.set('topic', topic)
-    return params.toString()
-  }, [days, org, topic])
-
-  const filtered = Boolean(reason || org || topic || committedQuery)
-  /**
-   * Only org and topic narrow the AGGREGATES; reason and free text narrow the
-   * drill-in alone. The "describes your selection" warning follows the
-   * aggregates, because that is what it warns about.
-   */
-  const narrowed = Boolean(org || topic)
+  const filtered = ratingsFiltered(filters)
+  /** Anything narrower than "every vote in the range": the figures describe a selection. */
+  const narrowed = filtered || scope.organizationIds.length > 0 || scope.projectIds.length > 0
 
   const inFlight = useRef<AbortController | null>(null)
 
@@ -186,26 +184,42 @@ export function AnswerFeedbackHealth({ days }: AnswerFeedbackHealthProps): JSX.E
 
   useEffect(() => () => inFlight.current?.abort(), [])
 
-  const clearFilters = (): void => {
-    setReason(null)
-    setOrg(null)
-    setTopic(null)
-    setQuery('')
-    setCommittedQuery('')
-  }
+  // The pickers' per-value counts. Over the scope, so they change with the
+  // range and the organizations, not with each pick; a failure leaves the
+  // pickers without counts rather than without options.
+  const scopeSearch = feedbackQueryString({ scope, ratings: NO_RATINGS_FILTERS })
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch(`/api/platform/answer-feedback/options?${scopeSearch}`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(String(res.status))
+        const body = (await res.json()) as FeedbackFilterOptions
+        if (!controller.signal.aborted) setOptions(body)
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setOptions(null)
+      })
+    return () => controller.abort()
+  }, [scopeSearch])
 
-  const selectVerdict = (value: string): void => {
-    if (value !== 'down' && value !== 'up') return
-    // A reason only exists on a down-vote; carrying it across would empty the list.
-    if (value === 'up') setReason(null)
-    setVerdict(value)
-  }
+  const clearFilters = (): void => onFiltersChange({ ...NO_RATINGS_FILTERS })
 
-  const selectReason = (key: FeedbackReason): void => {
-    // Picking a reason also takes the list to the down-votes, where reasons live.
-    setVerdict('down')
-    setReason((current) => (current === key ? null : key))
-  }
+  const toggleReason = (key: FeedbackReason): void =>
+    // A reason only exists on a down-vote: picking one under "helpful" widens
+    // the verdict rather than emptying the tab.
+    onFiltersChange({
+      ...filters,
+      verdict: filters.verdict === 'up' ? null : filters.verdict,
+      reasons: toggleValue(filters.reasons, key),
+    })
+  const toggleTopic = (key: ConversationTagKey): void =>
+    onFiltersChange({ ...filters, topics: toggleValue(filters.topics, key) })
+  const projectOwners = useMemo(
+    () => new Map((scopeOptions?.projects ?? []).map((project) => [project.id, project.organizationId])),
+    [scopeOptions]
+  )
+  const toggleOrganization = (id: string): void =>
+    onScopeChange(withOrganizations(scope, toggleValue(scope.organizationIds, id), projectOwners))
 
   const openRow = (turn: FeedbackHealthTurn): void => {
     setOpenTurn(turn)
@@ -214,9 +228,19 @@ export function AnswerFeedbackHealth({ days }: AnswerFeedbackHealthProps): JSX.E
 
   const busy = loading && data !== null
 
+  const organizationName = (id: string): string => {
+    const fromScope = scopeOptions?.organizations.find((org) => org.id === id)?.name
+    if (fromScope) return fromScope
+    const row = data?.organizations.find((org) => org.organizationId === id)
+    return row ? orgLabel(row) : id
+  }
+  const projectName = (id: string): string => scopeOptions?.projects.find((project) => project.id === id)?.name ?? id
+
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-      <p className="text-muted-foreground text-sm">{t('answerFeedback.lead', { days })}</p>
+      <p className="text-muted-foreground text-sm">
+        {t('answerFeedback.lead', { scope: scopeLabel(scope) })}
+      </p>
       <div className="flex flex-wrap items-center gap-1.5">
         <Button
           variant="ghost"
@@ -245,14 +269,8 @@ export function AnswerFeedbackHealth({ days }: AnswerFeedbackHealthProps): JSX.E
             </a>
           </Button>
         ) : null}
-        {/* A plain link, not a fetch: the route sets Content-Disposition. It
-            carries the SAME query string, so the file matches the screen. */}
-        <Button asChild variant="outline" size="sm">
-          <a href={`/api/platform/answer-feedback/export?${search}`} download>
-            <Download className="size-3.5" aria-hidden />
-            {t('answerFeedback.export')}
-          </a>
-        </Button>
+        {/* Exactly what the tab shows: the same query string as every read above. */}
+        <FeedbackExportDialog query={query} organizationName={organizationName} projectName={projectName} />
       </div>
     </div>
   )
@@ -276,7 +294,7 @@ export function AnswerFeedbackHealth({ days }: AnswerFeedbackHealthProps): JSX.E
               {filtered ? (
                 <Button variant="ghost" size="sm" onClick={clearFilters}>
                   <X className="size-3.5" aria-hidden />
-                  {t('answerFeedback.clearFilters')}
+                  {t('answerFeedback.filters.clearAll')}
                 </Button>
               ) : null}
             </div>
@@ -288,16 +306,18 @@ export function AnswerFeedbackHealth({ days }: AnswerFeedbackHealthProps): JSX.E
 
     const total = data.totals.up + data.totals.down
     if (total === 0) {
-      // Under an org/topic filter a zero is "nothing matches", not "nothing yet".
+      // Under a filter a zero is "nothing matches", not "nothing yet".
       return narrowed ? (
         <EmptyState
           icon={Filter}
           title={t('answerFeedback.noMatch')}
           action={
-            <Button variant="outline" size="sm" onClick={clearFilters} data-testid="clear-filters">
-              <X className="size-3.5" aria-hidden />
-              {t('answerFeedback.clearFilters')}
-            </Button>
+            filtered ? (
+              <Button variant="outline" size="sm" onClick={clearFilters} data-testid="clear-filters-empty">
+                <X className="size-3.5" aria-hidden />
+                {t('answerFeedback.filters.clearAll')}
+              </Button>
+            ) : undefined
           }
         />
       ) : (
@@ -313,20 +333,15 @@ export function AnswerFeedbackHealth({ days }: AnswerFeedbackHealthProps): JSX.E
       <HealthContent
         data={data}
         busy={busy}
-        digestSearch={digestSearch}
+        digestSearch={search}
         narrowed={narrowed}
         filtered={filtered}
-        verdict={verdict}
-        reason={reason}
-        org={org}
-        topic={topic}
-        query={query}
+        filters={filters}
+        organizationIds={scope.organizationIds}
         locale={locale}
-        onQuery={setQuery}
-        onVerdict={selectVerdict}
-        onReason={selectReason}
-        onOrg={(id) => setOrg((current) => (current === id ? null : id))}
-        onTopic={(key) => setTopic((current) => (current === key ? null : key))}
+        onReason={toggleReason}
+        onOrg={toggleOrganization}
+        onTopic={toggleTopic}
         onClearFilters={clearFilters}
         onOpenTurn={openRow}
       />
@@ -337,6 +352,11 @@ export function AnswerFeedbackHealth({ days }: AnswerFeedbackHealthProps): JSX.E
     <div className="grid-usage-viz flex flex-col gap-6" data-testid="answer-feedback-health">
       <SeriesPaletteStyle />
       {header}
+      <Card>
+        <CardContent>
+          <FeedbackFilterRow filters={filters} onFiltersChange={onFiltersChange} options={options} />
+        </CardContent>
+      </Card>
       {body()}
       <FeedbackTurnSheet turn={openTurn} open={sheetOpen} onOpenChange={setSheetOpen} />
     </div>
@@ -353,14 +373,9 @@ interface HealthContentProps {
   digestSearch: string
   narrowed: boolean
   filtered: boolean
-  verdict: FeedbackVerdict
-  reason: FeedbackReason | null
-  org: string | null
-  topic: ConversationTagKey | null
-  query: string
+  filters: RatingsFilters
+  organizationIds: readonly string[]
   locale: string
-  onQuery: (value: string) => void
-  onVerdict: (value: string) => void
   onReason: (key: FeedbackReason) => void
   onOrg: (id: string) => void
   onTopic: (key: ConversationTagKey) => void
@@ -391,6 +406,7 @@ function HealthContent(props: HealthContentProps): JSX.Element {
           <FeedbackTrendDirection
             points={data.daily}
             windowDays={data.windowDays}
+            endDay={data.to}
             minVotes={MIN_RATE_VOTES}
           />
         }
@@ -400,6 +416,7 @@ function HealthContent(props: HealthContentProps): JSX.Element {
           <FeedbackTrend
             points={data.daily}
             windowDays={data.windowDays}
+            endDay={data.to}
             minVotes={MIN_RATE_VOTES}
           />
         </div>
@@ -523,7 +540,7 @@ function KpiRow({
 /** Why it missed: the four reasons in fixed order, each a filter for the drill-in. */
 function ReasonsCard({
   data,
-  reason,
+  filters,
   onReason,
   className,
 }: HealthContentProps & { className?: string }): JSX.Element {
@@ -562,7 +579,7 @@ function ReasonsCard({
                 pct={pct}
                 value={count}
                 valueLabel={String(count)}
-                selected={reason === key}
+                selected={filters.reasons.includes(key)}
                 onSelect={() => onReason(key)}
               />
             ))}
@@ -582,7 +599,7 @@ function ReasonsCard({
  */
 function TopicsCard({
   data,
-  topic,
+  filters,
   onTopic,
   locale,
   className,
@@ -638,7 +655,7 @@ function TopicsCard({
                   title={
                     readable ? undefined : t('answerFeedback.tooFewVotes', { min: MIN_RATE_VOTES })
                   }
-                  selected={topic === key}
+                  selected={filters.topics.includes(key)}
                   onSelect={() => onTopic(key)}
                 />
               )
@@ -666,7 +683,7 @@ function TopicsCard({
  */
 function OrganizationsCard({
   data,
-  org,
+  organizationIds,
   onOrg,
   locale,
   className,
@@ -700,7 +717,7 @@ function OrganizationsCard({
           <TableBody>
             {data.organizations.map((o) => {
               const votes = o.up + o.down
-              const selected = org === o.organizationId
+              const selected = organizationIds.includes(o.organizationId)
               const named = Boolean(o.organizationName?.trim())
               return (
                 <TableRow
@@ -770,64 +787,27 @@ function OrganizationsCard({
 }
 
 /**
- * The drill-in: what the surface is for. Missed and landed are peers in one
- * switch. Every row opens the whole case in a sheet.
+ * The list: what the surface is for. The newest matching votes, both directions
+ * unless the verdict filter names one; every row opens the whole case in a
+ * sheet. Its filters are the tab's (above), so it has none of its own.
  */
-function TurnsCard({
-  data,
-  busy,
-  filtered,
-  verdict,
-  reason,
-  org,
-  topic,
-  query,
-  locale,
-  onQuery,
-  onVerdict,
-  onReason,
-  onOrg,
-  onTopic,
-  onClearFilters,
-  onOpenTurn,
-}: HealthContentProps): JSX.Element {
+function TurnsCard({ data, busy, filters, locale, onClearFilters, onOpenTurn }: HealthContentProps): JSX.Element {
   const t = useTranslations('platform')
-  const orgName = (id: string): string => {
-    const row = data.organizations.find((o) => o.organizationId === id)
-    return row ? orgLabel(row) : id
-  }
-
-  const chips: { key: string; label: string; onRemove: () => void }[] = []
-  if (reason) {
-    chips.push({
-      key: 'reason',
-      label: t('answerFeedback.chip.reason', { value: t(`answerFeedback.reasons.${reason}`) }),
-      onRemove: () => onReason(reason),
-    })
-  }
-  if (org) {
-    chips.push({
-      key: 'org',
-      label: t('answerFeedback.chip.organization', { value: orgName(org) }),
-      onRemove: () => onOrg(org),
-    })
-  }
-  if (topic) {
-    chips.push({
-      key: 'topic',
-      label: t('answerFeedback.chip.topic', { value: t(`answerFeedback.topics.${topic}`) }),
-      onRemove: () => onTopic(topic),
-    })
-  }
-
+  // The verdict alone picks a direction; an empty direction is "nothing that
+  // way in this range", which is a different sentence from "nothing matches".
+  const filtered = ratingsFiltered({ ...filters, verdict: null })
   const capped = data.turns.length >= TURN_LIMIT
+  const heading =
+    filters.verdict === 'down'
+      ? 'answerFeedback.missedHeading'
+      : filters.verdict === 'up'
+        ? 'answerFeedback.landedHeading'
+        : 'answerFeedback.turnsHeading'
 
   return (
     <Card data-testid="feedback-turns-card">
       <CardHeader className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold">
-          {t(verdict === 'down' ? 'answerFeedback.missedHeading' : 'answerFeedback.landedHeading')}
-        </h3>
+        <h3 className="text-sm font-semibold">{t(heading)}</h3>
         <CountPill>{formatCount(data.turns.length, locale)}</CountPill>
         {capped ? (
           <span className="text-muted-foreground text-xs">
@@ -837,63 +817,6 @@ function TurnsCard({
         {busy ? <Spinner size="xs" className="text-muted-foreground" aria-hidden /> : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <DataToolbar
-          searchValue={query}
-          onSearchChange={onQuery}
-          searchPlaceholder={t('answerFeedback.searchPlaceholder')}
-          searchLabel={t('answerFeedback.searchPlaceholder')}
-          clearLabel={t('answerFeedback.clearSearch')}
-          actions={
-            <ToggleGroup
-              type="single"
-              size="sm"
-              value={verdict}
-              onValueChange={onVerdict}
-              aria-label={t('answerFeedback.verdictLabel')}
-              data-testid="feedback-verdict-switch"
-            >
-              <ToggleGroupItem value="down">
-                <ThumbsDown className="size-3.5" aria-hidden />
-                {t('answerFeedback.showMissed')}
-              </ToggleGroupItem>
-              <ToggleGroupItem value="up">
-                <ThumbsUp className="size-3.5" aria-hidden />
-                {t('answerFeedback.showLanded')}
-              </ToggleGroupItem>
-            </ToggleGroup>
-          }
-        />
-
-        {chips.length > 0 || filtered ? (
-          <div
-            className="-mt-1 flex flex-wrap items-center gap-1.5"
-            data-testid="feedback-filter-chips"
-          >
-            {chips.map((chip) => (
-              <Chip key={chip.key} asChild variant="secondary" interactive>
-                <button
-                  type="button"
-                  onClick={chip.onRemove}
-                  aria-label={t('answerFeedback.chip.remove', { label: chip.label })}
-                >
-                  {chip.label}
-                  <X aria-hidden />
-                </button>
-              </Chip>
-            ))}
-            {filtered ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onClearFilters}
-                data-testid="clear-filters"
-              >
-                {t('answerFeedback.clearFilters')}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-
         <div className={cn(BUSY_CLASS, busy && 'opacity-60')}>
           {data.turns.length === 0 ? (
             filtered ? (
@@ -904,16 +827,20 @@ function TurnsCard({
                 action={
                   <Button variant="outline" size="sm" onClick={onClearFilters}>
                     <X className="size-3.5" aria-hidden />
-                    {t('answerFeedback.clearFilters')}
+                    {t('answerFeedback.filters.clearAll')}
                   </Button>
                 }
               />
             ) : (
               <EmptyState
-                icon={verdict === 'down' ? ThumbsDown : ThumbsUp}
+                icon={filters.verdict === 'down' ? ThumbsDown : ThumbsUp}
                 size="sm"
                 title={t(
-                  verdict === 'down' ? 'answerFeedback.noMissed' : 'answerFeedback.noLanded'
+                  filters.verdict === 'down'
+                    ? 'answerFeedback.noMissed'
+                    : filters.verdict === 'up'
+                      ? 'answerFeedback.noLanded'
+                      : 'answerFeedback.emptyTitle'
                 )}
               />
             )

@@ -790,6 +790,44 @@ export async function writeMessageContent(
   })
 }
 
+/** A message's new content and whole metadata, or null to leave the row as it is. */
+export type MessageRevision = (existing: Message) => { content: string; metadata: Record<string, unknown> } | null
+
+/**
+ * Rewrite one message from what is stored: `revise` reads the row under its
+ * lock and returns the content and metadata to write, or null to write
+ * nothing (the stored row is returned).
+ *
+ * For a writer whose new content is a function of the stored one: the cut of
+ * a stopped answer (`cutStoppedAnswer`), which may only ever shorten the text
+ * the row holds, so it must read that text inside the transaction that writes
+ * it. Same lock, same conversation scope and the same NUL stripping as
+ * `writeMessageContent`. Returns null when the message is not in that
+ * conversation; an error `revise` throws rolls the transaction back.
+ */
+export async function reviseMessage(
+  conversationId: string,
+  messageId: string,
+  revise: MessageRevision,
+): Promise<Message | null> {
+  const db = getDb()
+  const scope = and(eq(messages.id, messageId), eq(messages.conversationId, conversationId))
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(messages).where(scope).limit(1).for('update')
+    if (!existing) return null
+
+    const revision = revise(existing)
+    if (!revision) return existing
+    const [row] = await tx
+      .update(messages)
+      .set({ content: revision.content, metadata: stripJsonNullBytes(revision.metadata) })
+      .where(scope)
+      .returning()
+    return row ?? null
+  })
+}
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
