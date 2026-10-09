@@ -22,9 +22,9 @@
  * appears without motion for a reader who asked for less.
  *
  * The slider is a native `<input type="range">`, as in `viewer-slider.tsx`:
- * keyboard- and screen-reader-operable for free, drawn as a wide track with a
- * flat fill up to the thumb. The dial writes on every step because the write
- * is a synchronous store update, never a round trip.
+ * keyboard- and screen-reader-operable for free, drawn as a recessed track
+ * whose dot ramp shows up to a raised thumb. The dial writes on every step
+ * because the write is a synchronous store update, never a round trip.
  */
 
 import {
@@ -39,7 +39,13 @@ import {
   useState,
 } from 'react'
 import { AlertTriangle, ChevronDown, HelpCircle } from 'lucide-react'
-import { animate, useMotionValue, useReducedMotionConfig, useTransform } from 'motion/react'
+import {
+  animate,
+  type MotionValue,
+  useMotionValue,
+  useReducedMotionConfig,
+  useTransform,
+} from 'motion/react'
 
 import {
   AnimatePresence,
@@ -338,13 +344,70 @@ const RAIL: CSSProperties = { left: INSET + THUMB / 2, right: INSET + THUMB / 2 
 /** A box as wide as the thumb's travel, starting at the thumb's left edge in the left stop. */
 const TRAVEL: CSSProperties = { left: INSET, width: `calc(100% - ${2 * INSET + THUMB}px)` }
 
-/** Inside the fill's clip, the same travel: the clip is already inset. */
-const FILL_TRAVEL: CSSProperties = { left: 0, width: `calc(100% - ${THUMB}px)` }
+/**
+ * The ramp: dots painted onto the TRACK, faint at Minimal and dense toward
+ * High, warming to the warning ink over the last stretch, the one that buys
+ * Maximum. It never moves. Only how much of it shows does (see `revealTo`), so
+ * turning the dial up reads as filling with more, never as a background sliding.
+ * The dots are a mask over the gradient, so the gradient colours them.
+ */
+const RAMP_DOTS: CSSProperties = {
+  backgroundImage: [
+    'linear-gradient(to right,',
+    'color-mix(in oklch, var(--foreground) 18%, transparent),',
+    'color-mix(in oklch, var(--foreground) 78%, transparent) 70%,',
+    'var(--text-color-feedback-warning))',
+  ].join(' '),
+  maskImage: 'radial-gradient(circle, black 1.1px, transparent 1.6px)',
+  maskSize: '6px 6px',
+  maskPosition: 'left center',
+}
 
-/** The fill ends under the thumb's centre and is long enough to reach the left edge from the right stop. */
-const FILL: CSSProperties = {
-  right: `calc(100% - ${THUMB / 2}px)`,
-  width: `calc(100% + ${THUMB}px)`,
+/**
+ * The clip that shows the ramp up to the thumb's centre. The reveal box is the
+ * track inside its inset, where the thumb's centre runs from THUMB / 2 to
+ * 100% - THUMB / 2, so at `share` the right inset is what is left beyond it.
+ */
+function revealTo(share: number): string {
+  return `inset(0 calc(${1 - share} * (100% - ${THUMB}px) + ${THUMB / 2}px) 0 0 round 8px)`
+}
+
+/**
+ * The thumb as a raised key: lit from above (a lighter top, a one-pixel
+ * highlight on its upper edge) and casting a short shadow onto the recessed
+ * track. Mixed toward white and black rather than toward the theme, so the
+ * light falls the same way on the dark thumb of the light theme and the light
+ * thumb of the dark one.
+ */
+const THUMB_FACE: CSSProperties = {
+  backgroundImage:
+    'linear-gradient(to bottom, color-mix(in oklch, var(--foreground), white 14%), color-mix(in oklch, var(--foreground), black 6%))',
+  boxShadow: [
+    'inset 0 1px 0 color-mix(in oklch, white 22%, transparent)',
+    '0 1px 1px color-mix(in oklch, black 18%, transparent)',
+    '0 3px 8px -2px color-mix(in oklch, black 30%, transparent)',
+  ].join(', '),
+}
+
+/** The track sits a little below the popover surface, so the thumb has something to stand on. */
+const TRACK_RECESS: CSSProperties = {
+  boxShadow: 'inset 0 1px 2px color-mix(in oklch, black 8%, transparent)',
+}
+
+/**
+ * One level's mark on the bare track. It goes out the moment the ramp's edge
+ * reaches it, read from the same motion value as the thumb, so it always
+ * happens under the thumb and a stop never sits on top of the dots.
+ */
+const Stop: FC<{ position: MotionValue<number>; at: number }> = ({ position, at }) => {
+  const opacity = useTransform(position, (value) => (value >= at - 0.001 ? 0 : 1))
+  return (
+    <motion.span
+      data-testid="effort-dial-stop"
+      className="bg-muted-foreground/40 absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+      style={{ left: `${at * 100}%`, opacity }}
+    />
+  )
 }
 
 /**
@@ -353,15 +416,15 @@ const FILL: CSSProperties = {
  * thumb keeps the drawn thumb's width, which is what makes the browser's stop
  * positions and the drawn ones the same.
  *
- * Light stops mark the five levels, and a flat, translucent fill runs from the
- * left edge to the thumb, so a stop reads the same on either side of it. The
- * fill rides with the thumb inside a clip and is one flat colour, so nothing in
- * it can be seen to move but its end, which the thumb covers. (It used to be a
- * dotted trail under a fade, and the fade travelling with the thumb read as the
- * background sliding.)
+ * Light stops mark the five levels on the bare track. Behind the thumb the
+ * track shows its ramp (`RAMP_DOTS`), which is painted on the track and never
+ * moves: the thumb only uncovers more of it, through a clip whose edge is the
+ * thumb's centre, so the edge is always under the thumb. (The ramp used to be
+ * a fade that travelled WITH the thumb, which read as the background sliding.)
+ * A stop goes out as the edge reaches it (`Stop`), likewise under the thumb.
  *
- * Fill and thumb follow ONE spring: a single motion value, animated on
- * `springGlide` and read by both, so they cannot drift apart however a drag
+ * Reveal, stops and thumb follow ONE spring: a single motion value, animated on
+ * `springGlide` and read by all three, so they cannot drift apart however a drag
  * retargets it. Each step of a drag retargets the spring from where it is,
  * velocity and all. The value starts at the chosen stop, so opening the dial
  * does not glide. `animate()` on a bare motion value does not consult
@@ -374,6 +437,7 @@ const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose
   const share = index / (CHAT_EFFORTS.length - 1)
   const position = useMotionValue(share)
   const x = useTransform(position, (value) => `${value * 100}%`)
+  const reveal = useTransform(position, revealTo)
 
   useEffect(() => {
     if (reducedMotion) {
@@ -385,30 +449,25 @@ const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose
   }, [position, share, reducedMotion])
 
   return (
-    <div className="bg-muted pointer-coarse:h-11 group relative mt-2 h-10 overflow-hidden rounded-xl">
+    <div
+      className="bg-muted pointer-coarse:h-11 group relative mt-2 h-10 overflow-hidden rounded-xl"
+      style={TRACK_RECESS}
+    >
       <div className="pointer-events-none absolute inset-y-0" style={RAIL} aria-hidden="true">
         {CHAT_EFFORTS.map((level, stop) => (
-          <span
-            key={level}
-            data-testid="effort-dial-stop"
-            className="bg-muted-foreground/40 absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
-            style={{ left: `${(stop / (CHAT_EFFORTS.length - 1)) * 100}%` }}
-          />
+          <Stop key={level} position={position} at={stop / (CHAT_EFFORTS.length - 1)} />
         ))}
       </div>
-      <div
-        className="pointer-events-none absolute inset-1 overflow-hidden rounded-lg"
+      <motion.div
+        className="pointer-events-none absolute inset-1"
+        style={{ clipPath: reveal }}
         aria-hidden="true"
+        data-testid="effort-dial-fill"
+        data-share={share}
       >
-        <motion.div
-          className="absolute inset-y-0"
-          style={{ ...FILL_TRAVEL, x }}
-          data-testid="effort-dial-fill"
-          data-share={share}
-        >
-          <span className="bg-foreground/10 absolute inset-y-0" style={FILL} />
-        </motion.div>
-      </div>
+        <span className="bg-foreground/5 absolute inset-0 rounded-lg" />
+        <span className="absolute inset-0" style={RAMP_DOTS} />
+      </motion.div>
       <motion.div
         className="pointer-events-none absolute inset-y-1"
         style={{ ...TRAVEL, x }}
@@ -416,7 +475,18 @@ const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose
         data-testid="effort-dial-thumb"
         data-share={share}
       >
-        <span className="bg-foreground group-has-[input:focus-visible]:ring-ring/60 group-has-[input:focus-visible]:ring-offset-muted absolute inset-y-0 left-0 w-7 rounded-lg shadow-sm group-has-[input:focus-visible]:ring-2 group-has-[input:focus-visible]:ring-offset-2" />
+        <span
+          className={cn(
+            'absolute inset-y-0 left-0 flex w-7 items-center justify-center gap-[3px] rounded-lg',
+            'duration-quick transition-transform ease-out motion-reduce:transition-none',
+            'group-has-[input:active]:scale-[0.94]',
+            'group-has-[input:focus-visible]:ring-ring/60 group-has-[input:focus-visible]:ring-offset-muted group-has-[input:focus-visible]:ring-2 group-has-[input:focus-visible]:ring-offset-2'
+          )}
+          style={THUMB_FACE}
+        >
+          <span className="bg-background/35 h-3 w-px rounded-full" />
+          <span className="bg-background/35 h-3 w-px rounded-full" />
+        </span>
       </motion.div>
       <label htmlFor={sliderId} className="sr-only">
         {label}

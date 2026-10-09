@@ -6,5 +6,5 @@ features:
     costs far more tokens, and is rarely smarter than High.
 fixes:
   - >
-    The effort slider no longer has a dotted background that seemed to slide
-    along with the handle. It now has a plain fill up to the handle.
+    The dots in the effort slider no longer seem to slide along with the
+    handle. They now stay in place and grow denser as you turn the effort up.
