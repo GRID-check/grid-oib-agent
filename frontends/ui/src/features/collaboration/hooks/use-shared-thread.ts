@@ -757,9 +757,18 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
           lastTurnActivityRef.current = 0
           setTurnInFlight({ actorUserId: event.actorUserId })
         } else {
-          setTurnInFlight(null)
-          // The answer is persisted by the time the turn ends, so go and read it.
-          void loadMessages(conversationId, seq.current, false)
+          // The answer is persisted by the time the turn ends, so go and read
+          // it, and let THAT read end the turn: the newest message being the
+          // agent's clears it in the same batch that draws the answer
+          // (`applyMessages`). Cleared here first, everything the observer was
+          // watching (gated on the turn) unmounted a round trip before the
+          // persisted answer arrived, and the thread stood blank in between.
+          // A read that brings no answer (a turn cancelled, a failed persist)
+          // ends it once it is back, unless another turn has started since.
+          const startedAt = turnStartedAtRef.current
+          void loadMessages(conversationId, seq.current, false).then(() => {
+            if (turnStartedAtRef.current === startedAt) setTurnInFlight(null)
+          })
         }
         return
       }

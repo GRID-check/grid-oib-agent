@@ -35,6 +35,7 @@
 
 import 'server-only'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { filterUsersWhoMayReadFolder } from '@/lib/authz/folder-access'
 import { filterUsersWithProjectPermission } from '@/lib/authz/project-membership'
 import { listAssignmentsForResources } from '@/lib/assignments/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
@@ -55,6 +56,8 @@ export interface ReviewCandidate {
  * filters on: being able to open a project does not make somebody able to
  * approve a Brandschutzkonzept, and offering them in a reviewer picker would
  * put a round in front of somebody whose decision the transition then refuses.
+ * And only people who may read the folder the document is filed in: being able
+ * to edit the project does not open a folder restricted to other roles.
  *
  * A document with no project — the org-wide Archiv, a chat attachment — has no
  * project roster to ask, so the answer is empty and the chain above falls
@@ -74,8 +77,17 @@ export async function listReviewCandidates(
     others.map((person) => person.userId),
     'project:edit',
   )
+  // Nor somebody who may not open the folder the document is filed in
+  // (ADR-0088): a round in front of someone who cannot read the version is a
+  // round nobody can answer, and it names a document they were never to know.
+  const mayOpen = await filterUsersWhoMayReadFolder(
+    session.organizationId,
+    document.projectId,
+    document.folderId,
+    others.filter((person) => allowed.has(person.userId)).map((person) => person.userId),
+  )
   return others
-    .filter((person) => allowed.has(person.userId))
+    .filter((person) => allowed.has(person.userId) && mayOpen.has(person.userId))
     .map((person) => ({ userId: person.userId, name: person.name, email: person.email }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }

@@ -17,6 +17,7 @@ vi.mock('@/lib/collection-scope-request', () => ({
 
 vi.mock('@/lib/project-profile/prompt-view', () => ({
   loadProjectPromptView: vi.fn(),
+  loadProjectBundesland: vi.fn().mockResolvedValue(null),
 }))
 
 // Keep the test hermetic: the real digest builder requires a database.
@@ -82,6 +83,7 @@ describe('/api/auth/websocket-scope', () => {
     expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(null, {
       projectId: 'proj-1',
       conversationId: 'conv-1',
+      interactiveChat: true,
     })
   })
 
@@ -131,6 +133,8 @@ describe('/api/auth/websocket-scope', () => {
     expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(session, {
       projectId: 'proj-1',
       conversationId: undefined,
+      // The upgrade is the one interactive chat scope (ADR-0087).
+      interactiveChat: true,
     })
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()
   })

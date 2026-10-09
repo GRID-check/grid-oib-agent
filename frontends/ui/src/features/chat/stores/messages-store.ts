@@ -10,12 +10,13 @@ import type {
   PendingInteraction,
 } from '../types'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
-import type { WireEvent } from '@/adapters/api/wire-v2'
+import type { ShownAnswer, WireEvent } from '@/adapters/api/wire-v2'
 import { deferChatStorageWrites } from './chat-storage'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import { errorConcernsTheThread, getErrorMeta } from '../lib/error-registry'
-import { foldTurnEvents, initialTurnView, type TurnView } from '../lib/turn-fold'
+import { foldTurnEvents, initialTurnView, stopTurnView, type TurnView } from '../lib/turn-fold'
 import { projectTurn } from '../lib/turn-projection'
+import { shownTextOf } from './answer-reveal-store'
 import { useLayoutStore } from '@/features/layout/store'
 import type { ChatEffort } from '@/lib/reasoning-settings/catalog'
 
@@ -81,9 +82,11 @@ export type MessagesSlice = {
   applyTurnEvents: (events: readonly WireEvent[]) => void
   /**
    * Start folding a turn: a question just sent, or one a reload interrupted
-   * and the socket is about to `attach` from its first event.
+   * and the socket is about to `attach` from its first event. `effort` is the
+   * Aufwand the question was sent with, recorded on the answer; a resumed turn
+   * does not know it and passes none.
    */
-  beginTurn: (conversationId: string, turnId: string) => void
+  beginTurn: (conversationId: string, turnId: string, effort?: ChatEffort) => void
   /**
    * Forget a turn this tab cannot continue (the stream no longer holds it),
    * taking its unfinished answer with it: a fragment with a caret is worse
@@ -91,12 +94,27 @@ export type MessagesSlice = {
    */
   dropTurn: (turnId: string) => void
   /**
+   * Forget a turn that FAILED (`RUN_ERROR`, or a question the server never
+   * acknowledged). Unlike `dropTurn` its answer stays: the words the reader
+   * was on are kept, marked `failed` (drawn dimmed above the error card that
+   * follows), rather than deleted under them. A retry removes them.
+   */
+  failTurn: (turnId: string) => void
+  /**
    * Stop the open conversation's running turn: `cancel_turn` goes to the
    * server (the handler the socket hook registers), and the answer so far
    * stays on screen, marked stopped. The server's `RUN_FINISHED` (outcome
    * `cancelled`) then settles and persists it.
    */
   stopStreaming: () => void
+  /**
+   * The server answered this page's Stop with `turn_not_found` and this page
+   * never folded the turn's terminal: the turn had finished, and the server
+   * stored the whole answer. The answer as it stands here (cut at the Stop)
+   * is stored, and the BFF is asked to cut the server's row to it. A turn
+   * whose terminal did fold was handled then (`stoppedLate`).
+   */
+  keepStoppedAnswer: (turnId: string) => void
   respondToPrompt: (messageId: string, response: string) => void
   addUserMessage: (
     content: string,
@@ -112,8 +130,9 @@ export type MessagesSlice = {
    * Its id is the SERVER's, not a fresh one: the run's message already exists —
    * the BFF minted it when the run was commissioned — so this adopts a row
    * rather than creating one, and a second copy with a local id would be a
-   * second block for one run. Idempotent by that id: a reload that raced this
-   * changes nothing.
+   * second block for one run. Keyed by that id: a row already under it (the
+   * projection's provisional run message, or a reload that raced this) is
+   * replaced where it stands, never appended beside.
    *
    * Into `conversationId`, the thread that commissioned the run: the fetch is
    * async, and the reader may have opened another thread by the time it lands.
@@ -184,13 +203,15 @@ export type MessagesSlice = {
 }
 
 /**
- * Sends `cancel_turn` for a turn. Registered by `use-websocket-chat`, which
- * owns the socket, so `stopStreaming` reaches it without importing the hook.
+ * Sends `cancel_turn` for a turn, with what the asker had on screen.
+ * Registered by `use-websocket-chat`, which owns the socket, so
+ * `stopStreaming` reaches it without importing the hook.
  */
-let stopTurnHandler: ((turnId: string) => void) | null = null
+type StopTurnHandler = (turnId: string, shown: ShownAnswer) => void
+let stopTurnHandler: StopTurnHandler | null = null
 
 /** Register (or clear, with `null`) the socket's `cancel_turn` sender. */
-export const registerStopStreamingHandler = (fn: ((turnId: string) => void) | null): void => {
+export const registerStopStreamingHandler = (fn: StopTurnHandler | null): void => {
   stopTurnHandler = fn
 }
 
@@ -399,11 +420,24 @@ export const createMessagesSlice: StateCreator<
     }
   }
 
-  /** The answer the terminal just settled, mirrored to the server with the turn's provenance. */
-  const persistSettled = (conversationId: string, answer: ChatMessage): void => {
+  /**
+   * The answer the terminal just settled, mirrored to the server with the
+   * turn's provenance. A Stop that crossed the finished answer (`stoppedLate`)
+   * also asks the BFF to cut the server's whole row to what was on screen:
+   * after this browser's insert, so the row exists either way, and before the
+   * provenance mirror, whose stopped mark would otherwise reach the whole row
+   * first (the cut decides by the text, not the mark, but a reload between the
+   * two would show the whole answer marked stopped).
+   */
+  const persistSettled = (conversationId: string, answer: ChatMessage, view: TurnView): void => {
     if (get().currentConversation?.id !== conversationId) return
-    void get()._appendMessage(answer)
-    void get()._persistTurnProvenance()
+    const appended = Promise.resolve(get()._appendMessage(answer))
+    const shown = view.shownAtStop
+    const cut =
+      view.stoppedLate && shown !== undefined
+        ? appended.then(() => get()._cutStoppedAnswer(conversationId, answer.id, view.turnId, shown))
+        : undefined
+    void get()._persistTurnProvenance(cut)
     get().maybeGenerateConversationName(conversationId)
   }
 
@@ -425,7 +459,9 @@ export const createMessagesSlice: StateCreator<
         answerDurationMs,
         draft: state.composerDrafts[conversation.id] ?? '',
       })
-      if (projection.messages === conversation.messages) continue
+      // A terminal can settle an answer without changing what it shows (a
+      // Stop keeps the text on screen, `turn-fold.ts`): it is still persisted.
+      if (projection.messages === conversation.messages && !projection.settled) continue
       // No `updatedAt` bump while the turn grows: stamping every flush re-sorted
       // and re-rendered the whole sessions list ten times a second. The
       // settle is the turn's one activity stamp.
@@ -437,7 +473,7 @@ export const createMessagesSlice: StateCreator<
       const { settled: answer, prompt, stageWrites } = projection
       if (answer) {
         settled = true
-        effects.push(() => persistSettled(conversation.id, answer))
+        effects.push(() => persistSettled(conversation.id, answer, view))
       }
       if (prompt) effects.push(() => void get()._appendMessage(prompt))
       const answerId = view.messageId
@@ -478,8 +514,9 @@ export const createMessagesSlice: StateCreator<
       if (moved.length > 0) commit(turns, moved)
     },
 
-    beginTurn: (conversationId, turnId) => {
-      const turns = { ...get().turns, [turnId]: initialTurnView(turnId, conversationId) }
+    beginTurn: (conversationId, turnId, effort) => {
+      const view = initialTurnView(turnId, conversationId)
+      const turns = { ...get().turns, [turnId]: effort ? { ...view, effort } : view }
       set(
         {
           turns,
@@ -514,18 +551,82 @@ export const createMessagesSlice: StateCreator<
       )
     },
 
+    failTurn: (turnId) => {
+      const marked = get().turns[turnId]
+      if (!marked) return
+      // A turn ended from outside the fold (a missed acknowledgement) passes
+      // through `failed` first, the step `RUN_ERROR` takes in the fold. The
+      // thread notes failed turns as they are marked; without it the turn read
+      // as lost („Antwort wird geholt") until the server had been asked.
+      if (marked.phase !== 'failed') {
+        set({ turns: { ...get().turns, [turnId]: { ...marked, phase: 'failed' } } }, false, 'failTurn:mark')
+      }
+      const { turns, currentConversation, conversations } = get()
+      const view = turns[turnId]
+      if (!view) return
+      const { [turnId]: _failed, ...rest } = turns
+      const owner =
+        currentConversation?.id === view.conversationId
+          ? currentConversation
+          : conversations.find((c) => c.id === view.conversationId)
+      // The projection marked it already when the fail came through the fold;
+      // a turn ended from outside it (a missed acknowledgement) is marked here.
+      const fragment = owner?.messages.find((m) => m.id === view.messageId && !m.failed)
+      const kept: ChatMessage | undefined = fragment && { ...fragment, isStreaming: undefined, failed: true }
+      set(
+        {
+          turns: rest,
+          ...(owner &&
+            kept &&
+            withConversation({ ...owner, messages: owner.messages.map((m) => (m === fragment ? kept : m)) })),
+          ...turnStateFor(rest, currentConversation?.id),
+        },
+        false,
+        'failTurn'
+      )
+    },
+
     stopStreaming: () => {
-      const running = runningTurnIn(get().turns, get().currentConversation?.id)
-      if (!running) return
-      // The handler folds what the socket still holds before it sends the cancel.
-      stopTurnHandler?.(running.turnId)
-      const view = get().turns[running.turnId] ?? running
-      if (view.phase !== 'running') return
+      const view = runningTurnIn(get().turns, get().currentConversation?.id)
+      if (!view) return
       // Stopped here and now, whatever the socket is doing: the answer so far
-      // stays, its caret goes, the composer is free. The server's cancelled
-      // terminal settles it when it arrives.
-      const stopped: TurnView = { ...view, phase: 'finished', outcome: 'cancelled', streaming: false, interaction: undefined }
+      // stays, its caret goes, the composer is free. The text is what the
+      // reveal had on screen, not what had arrived ahead of it: that is what
+      // the reader saw, and what a thread switch or the stored message should
+      // show again.
+      //
+      // Marked BEFORE the cancel goes out: the server's cancelled terminal
+      // then finds the turn stopped here and keeps this text, masthead and
+      // cards (`turn-fold.ts`, `stoppedHere`). Sent first, a terminal that
+      // came back at once (the dev harness's server does) was folded as an
+      // ordinary end: its text replaced the shown one and its missing
+      // masthead took the masthead away, 140 px above the reader's line.
+      //
+      // The answer is cut by the rule the server cuts its own row by
+      // (`stopTurnView`, `stopped-answer.ts`): a marker cut in half, a
+      // streamed `[N]` and a card whose place was not shown go, so this
+      // browser's write of the row and the server's are the same bytes.
+      const { view: stopped, shown } = stopTurnView(view, view.messageId ? shownTextOf(view.messageId) : undefined)
       commit({ ...get().turns, [view.turnId]: stopped }, [[stopped, view]])
+      // The handler folds what the socket still holds (ignored now) and sends
+      // `cancel_turn`, saying where the reader was: the first `chars` of the
+      // text this view had folded through `seq`. The server cuts its own
+      // stored row to that, so the answer a reload shows is this one, whichever
+      // of the two writes of it lands first. Code points, as Python counts.
+      stopTurnHandler?.(view.turnId, shown)
+    },
+
+    keepStoppedAnswer: (turnId) => {
+      const view = get().turns[turnId]
+      const conversation = get().currentConversation
+      if (!view || view.result || view.outcome !== 'cancelled' || view.shownAtStop === undefined) return
+      if (!view.messageId || conversation?.id !== view.conversationId) return
+      const answer = conversation.messages.find((message) => message.id === view.messageId)
+      if (!answer) return
+      const shown = view.shownAtStop
+      void Promise.resolve(get()._appendMessage(answer)).then(() =>
+        get()._cutStoppedAnswer(conversation.id, answer.id, turnId, shown)
+      )
     },
 
     respondToPrompt: (messageId: string, response: string) => {
@@ -636,11 +737,19 @@ export const createMessagesSlice: StateCreator<
         conversations.find((c) => c.id === conversationId) ??
         (currentConversation?.id === conversationId ? currentConversation : undefined)
       if (!target) return
-      if (target.messages.some((existing) => existing.id === message.id)) return
+      // The projection already drew a provisional run message under this id
+      // in the answer's place (`turn-projection.ts`): the stored one replaces
+      // it in that row, so the block is the same element, not a second one.
+      const at = target.messages.findIndex((existing) => existing.id === message.id)
+      if (at >= 0 && target.messages[at] === message) return
+      const messages =
+        at < 0
+          ? [...target.messages, message]
+          : target.messages.map((existing, index) => (index === at ? message : existing))
 
       const updatedConversation: Conversation = {
         ...target,
-        messages: [...target.messages, message],
+        messages,
         updatedAt: new Date(),
       }
 
@@ -910,6 +1019,18 @@ export const createMessagesSlice: StateCreator<
         .find((msg) => msg.messageType === 'user' || msg.role === 'user')
       const text = lastUser?.content?.trim()
       if (!text) return
+      // The failed attempt's words make way for the new one: kept so the
+      // reader was not robbed of them, they are not an answer, and the retry
+      // is the reader saying so. Local only, so nothing on the server to undo.
+      const after = lastUser ? messages.indexOf(lastUser) : -1
+      const failed = messages.filter((msg, index) => index > after && msg.failed)
+      if (currentConversation && failed.length > 0) {
+        set(
+          withConversation({ ...currentConversation, messages: messages.filter((msg) => !failed.includes(msg)) }),
+          false,
+          'retryLastUserMessage'
+        )
+      }
       // Prefer the live send path (a real resend, new user turn); degrade to
       // prefilling the composer so the question is never silently lost.
       if (chatSendFn) {

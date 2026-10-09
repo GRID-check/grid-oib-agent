@@ -73,6 +73,14 @@ vi.mock('@/lib/session-documents/repository', () => ({
   SESSION_DOCUMENT_LIST_LIMIT: 100,
 }))
 
+// Which people may read what a conversation recorded is `restricted-use.spec.ts`'s
+// subject (ADR-0088); here nothing it recorded restricts anybody.
+vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/conversations/restricted-use')>()),
+  peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
+  lockedConversationIds: vi.fn(async () => new Set<string>()),
+}))
+
 vi.mock('@/lib/conversations/repository', () => ({
   deleteConversationInOrg: vi.fn().mockResolvedValue(undefined),
   findConversationInOrg: vi.fn(),
@@ -234,6 +242,9 @@ const session = {
   userId: 'user_me',
   organizationId: 'org_1',
   email: 'me@grid.test',
+  role: 'member',
+  roles: ['member'],
+  permissions: [],
 } as unknown as AuthorizedSession
 
 /** The registry's one probe: existence, tenancy, container, visibility, creator. */
@@ -531,7 +542,7 @@ describe('changing visibility (matrix B8–B10, spec SH-2, SH-13, SH-14)', () =>
 
     const state = await setResourceVisibility(session, 'conversation', CONVERSATION_ID, 'private')
 
-    expect(updateConversationVisibilityInOrg).toHaveBeenCalledWith(CONVERSATION_ID, 'org_1', 'private')
+    expect(updateConversationVisibilityInOrg).toHaveBeenCalledWith(CONVERSATION_ID, 'org_1', 'private', undefined)
     expect(deleteGrant).not.toHaveBeenCalled()
     expect(deleteAllGrantsForResource).not.toHaveBeenCalled()
     expect(state.entries.map((entry) => entry.person.userId)).toContain(ANNA)

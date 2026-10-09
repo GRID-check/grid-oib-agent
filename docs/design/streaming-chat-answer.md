@@ -16,6 +16,8 @@ the turn fold (`frontends/ui/src/features/chat/lib/turn-fold.ts`) and the chat
 store. Live prose: `common/answer_prose_stream.py` and
 `agents/piloti/answer_pipeline.py` (`LiveAnswer`, `settle_streamed_citations`).
 The events themselves: [`websocket-protocol.md`](../api/websocket-protocol.md).
+What the reader sees at every phase and edge of a turn, with the fixture and
+check for each: [`lifecycles/chat-turn.md`](lifecycles/chat-turn.md).
 
 ## Why this is cross-stack, not backend-only
 
@@ -146,8 +148,19 @@ prose streams.
   store's `settleTurn`.
 - Diagrams: only the fence the text still ends inside is streaming
   (`isOpenFence` in `MarkdownRenderer.tsx`), and it holds its place with a
-  skeleton (`DrawingSkeleton`). Every closed fence is drawn while the answer
-  streams.
+  skeleton (`DrawingSkeleton`) in the frame the drawing will be drawn in,
+  guessed from the fence's first keyword until the parse says. Every closed
+  fence is drawn while the answer streams. The skeleton grows into the drawing
+  (`DrawingReveal`): to the drawing's laid-out height as a `ResizeObserver`
+  reports it once it has stood still (a view lays its nodes out after its first
+  paint, so a mindmap measures 184 px on the frame it mounts and 222 px on the
+  next; it waits up to about six frames), on `motionDeliberateEntrance`, while
+  the skeleton fades out over it. The line under the drawing arrives on the
+  same step (`DrawingCaption`). A fence that cannot be drawn shows its source
+  instead, inside the figure's own frame: the figure fades out, the source fades
+  in, and the frame glides between the two heights (`useHeightGlide`,
+  `motionBase`). Under reduced motion each of these lands at once, without a
+  one-frame flash of the state it leaves.
 
 **What a delta may cost.** Deltas are buffered and applied to the store every
 `DELTA_FLUSH_MS` (100 ms): a `TEXT_MESSAGE_CONTENT` waits for the next flush,
@@ -236,12 +249,21 @@ every prefix of the recorded answers, the blocks render the same HTML as the
 whole text rendered at once, at the default size and with a cut at every
 permitted place. A cut, once made, stays where it is while the text grows.
 
-Why a minimum size: every parse has a fixed cost, and when the turn ends
-every block is parsed again, because the chat's plugins stop drawing pending
-markers. A block per paragraph made that settle cost nearly twice what the
-whole text does. At 1200 characters it is back near the whole-text cost: 28
-against 24 ms for 11k characters under vitest. In the browser it is 10 to 25
-ms heavier for a 2.6k-character answer, and no heavier for a 10k one.
+Why a minimum size: every parse has a fixed cost. When the minimum was set,
+every block was parsed again at the end of the turn, because the chat's
+plugins stopped drawing pending markers, and a block per paragraph made that
+settle cost nearly twice what the whole text does. At 1200 characters it is
+back near the whole-text cost: 28 against 24 ms for 11k characters under
+vitest. In the browser it is 10 to 25 ms heavier for a 2.6k-character answer,
+and no heavier for a 10k one.
+
+The settle now re-parses only the last block. The plugin list is the same from
+the first word through the settle (every unresolved `[N]` is marked pending,
+and the marker decides at render time whether that is a pill), and whether the
+whole text is still arriving reaches the blocks through context
+(`MarkdownStreamStateContext`) rather than as a prop of each. Only what draws
+differently once the text is complete (a table's tally and status marks)
+reads it and re-renders; a finished block is not parsed again.
 
 **A reload mid-answer.** Nothing streams in a page that is only now loading,
 so the storage drops a stored answer that still says `isStreaming` when it
@@ -299,6 +321,18 @@ on the terminal) now holds that write for one task (`deferChatStorageWrites`), t
 held, so it is still written at once when the page hides or a later update
 writes anyway.
 
+A turn that commissions a run (`RUN_FINISHED{outcome: "handed_off"}`) does not
+end with an answer. The projection swaps the answer, in the same frame, for a
+provisional run message under the id the server wrote the run's message with
+(`result.run.run_message_id`, `provisionalRunMessage` in `turn-projection.ts`),
+whose ledger is stamped older than any the server writes. `adoptRunMessage`
+replaces it in place when the stored row arrives. A fetch that fails leaves the
+provisional block standing; it follows the run's own stream from its id, so it
+still shows the run. Before this the answer was dropped and the turn had no
+response for a round trip, which the Herleitung read as an interrupted turn.
+The thread keys a turn's answer row by its question, not by the message's own
+id, so the swap keeps the row's node ([The turn on screen](#the-turn-on-screen)).
+
 ### Card arrival
 
 A placed card's place is one element from marker to card (`CardSlot`,
@@ -307,15 +341,45 @@ replaced by another. Pending, it is a card-shaped placeholder
 (`CardPlaceholder`, the framed register) 96 px tall. When the card exists it
 is mounted invisibly under the placeholder; when it reports itself drawn (the
 catalog's `DrawnProvider`, which `A2uiCard` passes on) the card fades in over
-the placeholder while the frame grows to the card's height, both in motion
-(`height: 'auto'`, `AnimatePresence` for the placeholder's exit). A card
-arrives once per page (`messageId:index`): a remounted slot (the Markdown
-renderer keys blocks by position) shows it at once, as do a reload, a finished
-answer and reduced motion. Whether the answer is live reaches the slot through
-context, so the settle does not hand every slot a new renderer; a card re-sent
-unchanged on a later frame keeps its object (TanStack Query's
-`replaceEqualDeep`), so nothing under it re-renders. `/dev/stream-socket`
-plays the recorded cards as their own `card` events and in the terminal.
+the placeholder while the frame grows to the card's height on
+`motionDeliberateEntrance` (`height: 'auto'`, `AnimatePresence` for the
+placeholder's exit). A card arrives once per page (`messageId:index`): a
+remounted slot (the Markdown renderer keys blocks by position) shows it at
+once, as do a reload, a finished answer and reduced motion. Whether the answer
+is live reaches the slot through context (`CardSlotLiveProvider`), so the
+settle does not hand every slot a new renderer; a card re-sent unchanged on a
+later frame keeps its object (TanStack Query's `replaceEqualDeep`), so nothing
+under it re-renders. `/dev/stream-socket` plays the recorded cards as their
+own `card` events and in the terminal.
+
+A place held for a card that never comes (`card_refused`, a card this reader
+may not see, or an answer that settled without it) folds away on the exit
+curve, its paragraph margin with it, instead of vanishing: a 120 px
+placeholder that left in one frame pulled everything under it up by as much.
+Only a slot the reader saw hold a place animates; one that never showed
+renders nothing.
+
+The cards no `[[card:N]]` claimed are drawn only once "unplaced" is final, which
+is the moment the shown prose is the whole arrived text and the frame carries
+cards (`unplacedIsFinal`), or the settle. Read off the body so far, a card
+whose marker had not been revealed yet rendered below the prose and then
+jumped up into it. They arrive the way a placed card does (`CardSlot`), inside
+a `HeightArrival` like the answer's other late blocks
+([below](#the-turn-on-screen)).
+
+A `[N]` resolves against the numbered wire sources as well as the written
+„## Quellen" list. A stopped answer keeps its resolved markers and its sources
+but is cut before its list, and with the list alone its markers settled to
+plain „[1][2]…", wider than the pills: on a phone the line re-wrapped 26 px
+under the reader just after Stop, and a reload showed bare brackets.
+
+The `[N]` markers are pending pills while the answer is live: in their place
+and shape, muted and still. They do not pulse: an answer holds dozens, and a
+pulse on each was dozens of ambient loops beside the one a turn allows. The
+remark plugins mark every unresolved `[N]` pending whether or not the answer is
+live, so the plugin list keeps its identity through the settle and the settle
+frame re-parses nothing; `CitationMarker` reads `useAnswerLive` and draws the
+pill while live and the plain „[N]" once settled.
 
 ### Single-consumer fold (`--input` CLI, single-shot HTTP)
 
@@ -366,8 +430,9 @@ check outlived the switch writes no card.
 turn from its `TurnResult` (`persist_turn_result`), whether or not a socket
 took `RUN_FINISHED`. The reader's connection decides only how soon the answer
 appears, never whether it exists. A turn the asker stopped is persisted too:
-its text is the prose streamed so far, and `metadata.stopped = true` (kept by
-the BFF as `provenance.stopped`) marks it as stopped on reload.
+its text is what was on screen at the press, not what had arrived ahead of the
+reveal (`cancel_turn.shown`, chat wire v2 §b Cancel), and `metadata.stopped =
+true` (kept by the BFF as `provenance.stopped`) marks it as stopped on reload.
 
 **One answer, not two.** The browser still writes the answer it received.
 Both use `uuid5(grid:assistant:<conversation>:<turn>)`
@@ -410,10 +475,32 @@ in `features/chat/lib/stream-pace.ts`):
   as often as the 50 ms tick it replaced. The rate's carried-over credit
   always reaches the next word: capped at 200 ms of a slow rate, it could not
   reach „erforderlich, " and the reveal stalled until the ceiling dumped it.
+- The caret is a node inside the Markdown, not a sibling after it
+  (`rehypeStreamingCaret`, `streaming-caret.tsx`): it is appended to the
+  deepest last paragraph, list item, heading or table cell of the block being
+  written, so every block keeps its own display. To trail the last glyph from
+  outside, the renderer once forced the last block `display: inline`: the
+  paragraph being written ignored its `72ch` measure (930 px on a desktop,
+  rewrapped the moment the next block began), a list lost its indent, a
+  heading dropped 16 px when the paragraph after it began (stream audit,
+  2026-10). Where the text ends in a figure, a card slot or a code block there
+  is no caret; that block shows its own progress. The caret takes no width: a
+  zero-width box at the baseline with the bar and the veil drawn out of it,
+  because a caret with a width pushed a last word that just fitted onto the
+  next line and pulled it back when the caret moved on.
+- The caret stands solid while words advance and breathes
+  (`animate-caret-breathe`) only once the reveal has stood still for
+  `IDLE_AFTER_MS` (600 ms), as an editor's caret does. `usePacedText` reports
+  `idle` as the length it stood still at, so it flips once per pause and the
+  next word ends it without a second render. A caret pulsing under arriving
+  words read as a blink.
 - The newest words come out of a short gradient that trails the caret, drawn
-  in the card's colour (`StreamingCaret`'s `veil`): each word starts faint and
-  darkens as the next ones push it out. It moves with the caret and animates
-  nothing. A fade per word (a span per word, each playing an opacity and 2 px
+  in the card's colour (`StreamingCaret`'s `veil`) on eased stops, so its
+  faint end does not read as an edge: each word starts faint and darkens as
+  the next ones push it out. It moves with the caret and animates nothing. It
+  is hidden after markup with a ground of its own (a code span, a citation
+  pill), which the card's colour would paint over, and under
+  `prefers-contrast: more` and forced colours. A fade per word (a span per word, each playing an opacity and 2 px
   lift entrance once, keyed so a shown word kept its DOM node) was built and
   measured first: on the prose-heavy recorded answer at 390 px with a 4×
   throttle it took fps from 57 to 45–49, long tasks from 4 to 7–10 and main
@@ -423,12 +510,54 @@ in `features/chat/lib/stream-pace.ts`):
   fade it painted every frame (330/s). The veil keeps fps at 57–58, long
   tasks at 2–4 and main thread at 550 ms/s (2026-09).
 - It cuts only at a word gap outside an open `**`, link, code span, fence or
-  table row; a table row appears whole. A store flush boundary is not a clean
+  table row; a table row appears whole. The search for the next clean cut is
+  one forward walk that keeps running counts of what `isCleanCut` reads
+  (`cleanCutsAfter`): asked position by position, it re-read the whole prefix
+  per character inside an open fence, 6.9 ms a frame on a desktop for 3.5k of
+  prose ahead of an open 4k mermaid fence (review, 2026-10). `isCleanCut` stays
+  the definition, and the spec holds the walk to it position by position. A store flush boundary is not a clean
   cut: a recorded first delta was `**Die Außentreppe ist in GK 4 in A2`, and
   cutting there flashed a raw `**`. Only the `MAX_LAG_MS` ceiling may show
   text whose end is not clean.
+- A table appears with its first body row, not before: a header line without
+  its delimiter row renders as a paragraph of pipes, and a header alone is
+  drawn as a table for a frame and, on a phone, restacked into rows as soon as
+  the first row comes. A row with no cell written yet (`| `) is not a clean
+  cut either: it drew as a blank row whose cells then grew one by one, each
+  step pushing everything below it down (64 → 84 → 87 → 90 px on a phone,
+  stream audit 2026-10). A check table reserves its status tally's line from
+  its header on and draws no tally while rows arrive, so the chips fade into
+  that line when the table closes. One that closes with no tally keeps the
+  empty line where it streamed; dropping it pulled the rows up the moment the
+  table finished.
 - The first clean cut is shown at once. The target lag smooths text that is
   already moving; it does not hold back the first words.
+- An answer that mounts with text the reader already had starts where they
+  were, at the furthest clean cut of what has arrived, and paces only what
+  comes next (`startingLength`). That is an answer still on screen in this
+  page when it remounted (a thread switch and back), or one born with more
+  than `ARRIVED_AT_MOUNT_CHARS` (400) beyond its head, which is a turn joined
+  mid-way: a reload's replay, a spectator, a thread opened again. A live
+  answer is otherwise born with its first flush (35 and 63 characters on the
+  recorded turns). Typing the arrived text out again read as the answer being
+  written a second time.
+- The masthead's summary, which arrives whole before the prose, is paced as
+  the head of the prose when it leads an answer the reader is watching begin:
+  one reveal writes the summary, then the body, with one caret, in reading
+  order (`leadChars`, `SUMMARY_GAP`). A two-to-five-line paragraph appearing
+  in one frame read as the answer's first words popping in finished. Decided
+  once, at the first summary: one that arrives after prose is on screen fades
+  in whole, since writing it in above the text the reader is on would move
+  that text line by line. A summary that restates the body's opening is
+  dropped before it is shown, judged on everything that has arrived; once
+  shown, it stays.
+- The lede (the first paragraph set at 17 px) is decided once, at the answer's
+  first words, from what is known then: the kind (a note is never a lede),
+  whether it opens with prose, and whether the masthead carries a summary or a
+  topic. It used to be decided on the paced body behind a 600-character gate,
+  so the paragraph the reader was on restyled from 16 to 17 px mid-stream. A
+  settled answer runs the same predicate, so a stored answer looks as it did
+  live. Only a retraction decides it again.
 - A rewrite of text already shown (the settled snapshot dropping or
   renumbering a marker) keeps the length that was shown, moved on to the next
   clean cut, and paces only what lies beyond it (`keepThroughRewrite`). It
@@ -450,14 +579,19 @@ streaming rate after the reasoning had collapsed made the end jump twice
    ms (`finishCut`, `finishDuration`: longer for more text, fast at first and
    easing into the end, at clean word gaps). The caret fades out meanwhile.
    A terminal that does not continue what is shown (a rewrite, a shorter
-   text) is shown whole at once, never typed again.
+   text) is shown whole at once, never typed again; how the body changes
+   then is under [The turn on screen](#the-turn-on-screen). A turn the reader
+   stopped, or that failed under the answer, settles at once at what is
+   shown and keeps it (`stopped`), so nothing types on after the press.
 2. Only when all of it is on screen is the answer `settled`, and everything
    that belongs to a finished answer follows that, not `isStreaming`: the
-   caret goes, the footer and the unplaced cards come, the citation chips
-   turn real, and the Herleitung collapses. The Herleitung lives in
-   `ChatArea`, outside the answer, so the answer publishes that it is still
-   revealing (`stores/answer-reveal-store.ts`) and `ChatArea` keeps the turn
-   live until it stops.
+   caret goes, the footer fades in and becomes operable, the citation pills
+   turn real, the role tab's dot becomes a check, and the Herleitung's header
+   (folded since the answer's first word) swaps its glyph and freezes its
+   timer. The Herleitung lives in `ChatArea`, outside the answer, so the
+   answer publishes that it is still revealing
+   (`stores/answer-reveal-store.ts`) and `ChatArea` keeps the turn live until
+   it stops.
 3. A hidden page gets no animation frames, so a turn that ends while the page
    is hidden, or is hidden during the finish, settles at once; a timer
    settles it if the frames stop for any other reason (`SETTLE_GRACE_MS`).
@@ -471,12 +605,17 @@ stays live until the answer has settled), and
 `streaming-markdown-equivalence.spec.tsx` (what is already shown keeps its DOM
 nodes through a reveal step).
 
-Measured on both recorded answers (production build, 390×844, 4× throttle,
-against the block-parsing renderer before this change): the answer settles
-70–100 ms after the terminal; CLS after completion is unchanged (0.18–0.20 on
-`varianten`, 0.59–0.69 on `oib2`, where it comes from the card placeholder
-leaving and the Herleitung's height animation, both at the settle); fps,
-long tasks and main-thread time are within run-to-run noise of before.
+Measured on both recorded answers when the paced reveal landed (production
+build, 390×844, 4× throttle, against the block-parsing renderer before it):
+the answer settled 70–100 ms after the terminal; CLS after completion was
+unchanged (0.18–0.20 on `varianten`, 0.59–0.69 on `oib2`), and fps, long tasks
+and main-thread time were within run-to-run noise. That CLS came from the card
+placeholder leaving and the Herleitung's height animation, both at the settle.
+Neither happens there any more: the Herleitung folds at the first word, and a
+place is held or folded away while the reader watches
+([The turn on screen](#the-turn-on-screen)). `measure-stream-socket.mjs` now
+splits CLS at the settle (`clsBeforeSettle`, `clsAfterSettle`) and observes
+2.5 s past it.
 
 This is not the typewriter below. That one simulated a latency the system
 did not have, over text that was already finished; this one smooths a
@@ -507,6 +646,335 @@ Pacing on the backend remains the wrong option for the same reasons it always
 was: an `asyncio.sleep` between chunks holds a worker for the length of the
 answer, and the network re-clumps whatever the sleep spaced out.
 
+## The turn on screen
+
+Six components draw into one region while a turn's frames arrive: the
+question row, the Herleitung (`ChatThinking`), the answer card
+(`AgentResponse`), its cards, the composer and the thread's scroll
+(`ChatArea`). Most of what went wrong on screen (stream and motion audits,
+2026-10) was one component's correct move shoving another's content. The rules
+below are what each of them does instead. Every phase and edge, with its
+fixture and its check: [`lifecycles/chat-turn.md`](lifecycles/chat-turn.md).
+Three rules hold across all of them:
+
+- **The working turn looks alive; the settled one is still.** While the turn
+  works, the Herleitung header's icon spins beside its shimmering label, the
+  graph's connectors into its newest row march, and a running step's chip
+  pulses: people watch this panel to see the agent at work, and a static dot
+  with solid connectors read as a stalled turn (2026-10). During the prose the
+  label stops shimmering and the caret is the text's one motion; the header
+  icon spins until the settle. After the settle, nothing moves.
+- **Fade, then resize.** A block that must change size while visible fades
+  first, then changes height in one frame while it is invisible. Only a block
+  arriving below the reading point, a card slot growing and a panel the
+  reader opened animate their height
+  ([design language, Height](grid-design-language.md#motion-vocabulary)).
+- **What you saw is kept.** A stop, an error, a remount or a replay never takes
+  away text the reader has seen, and never types it out again.
+
+### From the send to the settle
+
+**One object from the send.** The question's Herleitung header mounts with the
+question row and is the working cue from the first frame: „Denkt nach…" with
+the label's shimmer, a timer from the question's timestamp once it passes two
+seconds (`useElapsedSeconds`, in a reserved `3.5ch` with tabular digits), and
+no typing bubble that a panel later replaces. The steps grow into the same
+object. The header's icon slot holds a spinner while the turn works; the
+screen reader hears the phase, never the per-step phrase, at most once every 3 s.
+
+**No live cap.** The panel shows its whole graph from the framing card down,
+with the executed-step chips under it. A cap at `min(50svh, 420px)`, pinned to
+the newest row, was tried (2026-10): it cut the graph's first steps off at the
+top and read as broken. The fold at the answer's first content is what keeps
+the answer in view, not a cap.
+
+**The fold.** The answer has begun the moment it has anything to draw: a
+masthead or a card counts as well as the first word. At that moment a panel
+the turn opened, and the reader never touched, folds: its content fades on
+`motionQuickExit` (180 ms) with its height held, then the height drops in one
+frame (`AnimatePresence` custom reason `fold`). The answer row is withheld
+until the fold is done (`FOLD_HOLD_MS`, the fade plus two frames) and mounts
+directly under the folded bar. Mounted at once, its first line painted below
+the open panel and was yanked up by the panel's height, 400 px, as the reader
+started reading. The hold applies only to an answer this view watched begin
+under a Herleitung that had steps to fold, and only to one not on screen yet:
+an answer row a snapshot mounted before its first word already stands where it
+stays. The hold runs from the fold's start to its end whatever the turn does
+meanwhile, so a Stop or an end inside the fold does not mount the answer under
+the fading panel. A panel the reader opened or closed
+by hand is never overruled.
+
+**The header through the settle.** From the first word the label stops
+shimmering and becomes the panel's summary („Herleitung · n Quellen"); the
+caret is the turn's one moving thing from then on. The header stays live
+until the answer settles. At the settle the label does not change: the spinner
+in the icon slot becomes a check on `iconSwapTransition` (scale 0.7 → 1 on
+`springSnap`, opacity on a tween), and the timer freezes on the answer's own
+duration, never below the last live figure. There is no „Fertig": swapping
+the label for it at the settle moved the summary across the row. A label
+change never blanks the line: at the first word the activity phrase rolls up
+out of a one-line clip as the summary rolls in beneath it, both travelling on
+the entrance easing so they stay one line apart; when only the count changes
+(9 → 11 sources at the settle) the words stay and just the digits roll, and
+the count's box glides to its new width so „Quellen" slides rather than jumps. A turn that
+did not simply finish says how it ended in a word on the right, with a neutral
+glyph: „Gestoppt", „Fehlgeschlagen", „Auftrag angelegt" (a run was
+commissioned, `handed_off`) or „Nicht bearbeitet" (refused). A turn that took
+no step keeps its bar after the settle, so the answer is not pulled up by its
+height in the frame the turn ends.
+
+**The settle is said once.** One polite region in `ChatArea`, mounted for the
+thread's life, speaks when this client's turn ends. An answer gets „Antwort
+fertig: {gist}": the verdict, else the first sentence, at most 120
+characters. A turn that ended without an answer of its own is announced with
+the Herleitung's word for it („Gestoppt", „Fehlgeschlagen", „Auftrag
+angelegt", „Nicht bearbeitet"); „Antwort fertig" over a failed answer or a
+commissioned run said the opposite of what happened. The thread is not a
+`role="log"`, which would announce every word.
+
+**The footer.** While the answer arrives its footer (sources row, actions,
+details) is hidden, and fades in at the settle. Shown, it moved down a line
+with every line the prose grew: 0.18 of the turn's 0.20 CLS on the desktop
+harness. Its room is reserved, invisibly, only once the body reaches below the
+viewport, where nobody sees it (`footerReserved`, `HeightExpand`); reserved
+from the first frame, it drew the card's first words over a 116 px empty band.
+An answer shorter than the viewport opens its footer at the settle, below the
+last line. The copy actions are in the row from the first frame, invisible and
+inert (`pending`), so the settle does not widen the row or wrap it onto a
+second line on a phone.
+
+**Late blocks.** What arrives below the prose after it began (a Projektbezug
+strip, the takeaways and an unplaced callout, the unplaced cards) takes its
+height on `HeightArrival` while it fades in, inside `AnimatePresence
+initial={false}`, so a stored answer's blocks simply stand. A Projektbezug that
+binds its first fact while the reader is reading goes below the prose; the next
+view puts it back above. A masthead that arrives after the prose fades in
+alone; one gated out by a snapshot or the terminal fades out first and loses
+its height in one frame once invisible. The turn's self-assessment, which
+arrives with the terminal, lives in the answer details, not above the prose.
+The role tab carries a quiet dot while the answer arrives and its check from
+the settle.
+
+**A terminal that does not continue what was shown.** A settled snapshot or a
+terminal that rewrites or shortens the text replaces the body in one frame;
+tables and diagrams vanished with it. The new body now fades in on the same
+element, so the Markdown tree is not rebuilt, and the body's frame keeps its
+old height as a minimum and lets go of it on a glide (`glideFrameDown`). The
+verified text is often much shorter (the recorded `oib2` terminal is 541
+characters against 1,724 streamed), and everything below used to jump up by
+the difference. The glide eases the minimum, not the height, so words that
+keep arriving are never clipped.
+
+### Stop
+
+Stop keeps what was on screen at the press. The rule of what that is has one
+copy per language and three writers (the agent tier, the asker's browser and
+the BFF), held to the same cases by `shared/wire/v2/stopped-cases.jsonl`:
+[chat wire v2, Cancel](chat-wire-v2.md#c-the-route-and-the-handler) and
+`features/chat/lib/stopped-answer.ts`. In short: the shown code points, a
+marker cut in half dropped, a streamed `[N]` dropped and a settled one kept
+with its source, and only the cards whose place was shown.
+
+On the page, `stopStreaming` marks the turn stopped before the `cancel_turn`
+goes out, with the position the reader had (`shown{seq, chars}`). The fold
+then takes nothing more for that turn (`stoppedHere`): deltas still in flight
+and the cancelled terminal, which carries everything the model had written,
+are recorded but do not replace the text, sources, masthead or cards. Sent
+first, a terminal that came back at once was folded as an ordinary end, and
+its missing masthead took the masthead away 140 px above the reader's line.
+The reveal settles at once at the shown length; the caret fades and „Gestoppt"
+fades in under the last word. The body does not fade: the frozen text drops a
+citation still pending at the press, so it is rarely a prefix of the last body,
+and treated as a rewrite the whole answer blinked out and back. The masthead
+stays, and so does its summary as far as it had been written: read as a blank
+answer, the settle after the press dropped both in one frame, and the stored
+row (a masthead, no text) drew nothing after a reload. Nothing the stream had
+not shown arrives afterwards: no takeaways, no „Ohne Quellenbeleg" row, no
+unplaced card that was not already drawn. An error the run raises after the
+Stop (a cancelled tool call, a stream cut on the way out) is not news to the
+reader: the answer stays stopped, not dimmed under an error card. The header
+reads „Gestoppt" with the glyph a cancelled run carries, never the green
+check, and a panel the reader was watching is left as it was. A reload shows
+the stored row, which is the same cut while the server accepts
+`cancel_turn.shown` (below).
+
+A Stop that crosses the finished answer (the reveal runs up to about a second
+behind the wire) finds no turn on the server, which has stored the whole
+answer. The browser then cuts its copy where the text on screen and the
+terminal's part (`stoppedLate`) and asks the BFF to cut the stored row:
+`POST /api/conversations/{id}/messages/{messageId}/stopped`
+([BFF routes](../api/bff-routes.md)). The BFF applies the same rule to the
+text it holds, so it can only shorten it, for the asker only and within ten
+minutes (`STOP_CUT_WINDOW_MS`).
+
+Accepted residuals:
+
+- Between the terminal and the settle (the 300 to 500 ms finish) the composer
+  already shows Send, so Stop is not offered there.
+- The server names `cancel_turn.shown` in its hello's `accepts` only while
+  `GRID_WIRE_V2_ADDITIVE_FIELDS` is on, and it is off in this release so that
+  tabs of the previous bundle keep parsing frames
+  ([chat wire v2, Compatibility](chat-wire-v2.md#compatibility-additive-changes-are-safe)).
+  Without it the page sends no `shown`, and the agent stores everything
+  streamed so far; the same holds for a socket on an older agent during a
+  rolling deploy. The browser stores its cut under the same id, and whichever
+  write reaches the BFF first wins the row, so a reload may show more than the
+  reader saw. A Stop that crossed the finished answer is still cut by the BFF,
+  which needs neither field. The next release turns the flag on by default.
+
+### When a turn fails
+
+`RUN_ERROR` under a written answer keeps the words: frozen at what was shown,
+as for Stop, and dimmed on a transition, with the error card under them. The
+role tab gets no check and the footer stays inert, because a cut-off fragment
+is not an answer to copy or rate. The header reads „Fehlgeschlagen", never
+„Unterbrochen": `ChatArea` notes a failed turn as the fold marks it, because
+the store drops the view before the error card is added, and with neither on
+screen the turn read as lost, with a recovery spinner in front of a failure.
+„Erneut versuchen" removes the card and the fragment at once, without their
+exit, and resends the question; a re-sent question already within a viewport
+of where it would land is not glided to.
+
+A question the server never acknowledges fails the same way: no `RUN_STARTED`
+within `ACK_TIMEOUT_MS` (15 s) reopens the socket and resends it, and a second
+miss fails the turn: the Herleitung goes from live to „Fehlgeschlagen", and
+an `agent.no_response` warning card („Keine Rückmeldung") offers „Erneut
+versuchen" (`use-websocket-chat.ts`).
+
+### A retraction
+
+`answer_retracted` empties the answer mid-stream. The card used to return
+nothing for it: it vanished in one frame, and the next round's first word drew
+it again with a second entrance. Now the frame stays. The words fade out on
+`motionQuickExit`, the body holds the height it had with one quiet line in it
+(„Antwort wird erstellt …"), and the next round's first word on screen, or the
+settle, lets go of the height on a glide. The answer's card arrivals are
+forgotten (`CardSlotArrival`): the next round writes its cards at the same
+indices, and remembered as arrived they appeared without their entrance. The lede and the kept summary are
+decided again from the next round's first words, once the old ones have
+faded. The Herleitung stays folded: reopening it pushed the held frame down by
+248 px, only to fold again at the next first word.
+
+### Joining a turn that is already running
+
+A reload, a thread switch back, or an observer arriving mid-turn sees the text
+that had arrived at once, and the reveal paces only what comes next (see the
+reveal rules above). An observer's Herleitung timer counts from the question,
+as the asker's does, and their view keeps one ambient loop; an observer who joined mid-answer waits for
+the whole text rather than starting mid-sentence. When a colleague's answer,
+watched live, is swapped for its persisted row, the row is placed, not
+entered: the swap is like for like.
+
+### Opening a thread
+
+`selectThreadPhase` (`features/layout/lib/thread-phase.ts`) decides once what
+the open thread is: `hydrating`, `loading`, `empty` or `thread`. `MainLayout`
+lifts the composer onto the empty canvas and `ChatArea` draws the greeting from
+the same selector. Deciding "empty" separately, from different inputs, flashed
+the greeting and sprang the composer to the middle and back while a thread's
+messages were on their way. While they load the thread shows a skeleton, never
+the greeting, and the messages that replace it are placed, not entered.
+
+Where a thread opens, once its messages are here, in this order:
+
+1. the message a deep link names (`useMessageAnchor`), which then owns the
+   position: neither the bottom jump nor following moves the reader off it.
+   A target that never resolves (a message that is not displayable, deleted,
+   or in a thread that was refused) stops holding the thread once all its
+   messages are here without it, and leaving that thread for one the link does
+   not name drops the target. It is not dropped at the first miss: a shared
+   thread's newest message, which an inbox link is usually about, can land
+   with its history a moment after a stale local copy rendered. A target
+   pending for good once left every later thread unplaced and unfollowed;
+2. in a shared thread, the unread divider;
+3. where the reader was when they left it this session
+   (`thread-positions.ts`: the first visible row and its offset, in memory
+   only, or "at the end");
+4. else its end, or the last turn's question when that turn is taller than the
+   viewport, so a long answer is read from its start.
+
+The position is set directly in a layout effect, so a switch never paints a
+frame at the old thread's scroll position. A thread switched back to mid-turn
+is anchored again as it was. Opened at its end and following, it scrolled with
+every flush: 25 programmatic scrolls in one switch and back (motion audit,
+2026-10).
+
+### The status dock and the composer
+
+**The status dock** is one quiet line just above the composer, positioned out
+of the thread's flow: a dropped connection („Verbindung unterbrochen · Piloti
+verbindet sich neu …", then „Wieder verbunden" for 2.4 s), or in a shared thread a colleague typing. Both used to
+live in the thread: the connection error as a card that collapsed out on
+reconnect, the typing line at the list's end, which bobbed the thread every
+time someone started or stopped typing. A transient connection error is not a
+displayable message any more (`isTransientConnectionError`). A polite live
+region beside the dock says each change once. The jump-to-latest button lifts
+above the dock while it speaks.
+
+**Typing ahead.** During the reader's own turn the composer's field stays live
+(`canDraft`) and keeps its focus, so the follow-up can be written while the
+answer arrives. Only the send waits: Enter is swallowed, no newline lands and
+nothing is queued, since a queued send would fire on a settle the reader may
+not have read. The placeholder says so while the field is empty. A held Enter
+sends once; its repeats are dropped.
+
+Send and Stop are one button whose glyph morphs (`useIconSwapTransition`);
+Stop shows the moment the turn exists, and Send returns on the press, not on
+the server's acknowledgement. For 400 ms after the button changes job it
+ignores presses (`SEND_CONTROL_SWAP_GUARD_MS`), and a held Enter on it
+activates it once: the second click of a double click, or a bounce on a touch
+screen, landed on the other job, so a Stop pressed twice sent the follow-up
+typed ahead and a Send pressed twice cancelled the turn it had just started.
+
+Escape stops the answer from the composer, or from the page body while the
+composer was the last thing used; a click elsewhere gives that up, so an
+Escape meant for a dialog, a menu, another field or a text selection in the
+thread never cancels the answer. An open picker takes the first Escape. An
+IME's Escape is the IME's, including Safari's, which arrives after
+`compositionend` and is marked only by keyCode 229. Escape never touches the
+draft.
+
+The send closes the on-screen keyboard only when one is up
+(`softKeyboardIsUp`): the visual viewport has lost more than 100 px of the
+layout viewport, or, where Chromium resizes both together and leaves nothing
+to measure, the engine has `navigator.virtualKeyboard`. A coarse pointer alone
+is not the test: an iPad on a hardware keyboard is coarse, has no soft
+keyboard, and its reader types the follow-up next, so the field keeps focus,
+as it does on a desk.
+
+### Scroll
+
+- **The send anchors the question.** The question glides to the top of the
+  viewport (`glideScrollTo`, `springGlide`, started a frame after layout so
+  the question is measured where it landed and without its entrance rise). A
+  travel over 1.5 viewports first jumps to half a viewport short and glides
+  the rest. The reader's wheel, touch, pointer or key stops it where it is.
+  Reduced motion sets the position directly. `scrollIntoView({behavior:
+  'smooth'})` it replaced could not be interrupted and crossed thousands of
+  pixels at a speed nobody could read.
+- **Following is the reader's choice.** Growth below is followed only after a
+  scroll the reader drove to the end of the content, or a press on
+  jump-to-latest. A scroll the page caused (a clamp as a panel shrinks the
+  list, a glide) never starts it: reading a clamp as "the reader is at the
+  bottom" chased a reader at the settle with seven programmatic scrolls in a
+  row (motion audit, 2026-10). While a question is anchored, reaching the end
+  does not start following on its own. A follow waits while a finger is down
+  or a fling is still moving.
+- **Unseen below is measured from the content's end**, the anchor spacer's
+  top, against what the reader can see above the composer. Measured against
+  the scroll height, every live turn read as "not at the bottom" and showed
+  the button.
+- **The anchor spacer counts the composer.** The list's bottom padding (the
+  composer's height plus 1.5rem) is scroll room too, so a composer that shrinks
+  after a send gives back what the spacer takes and nothing is clamped. The
+  spacer is fitted and kept until the next question or a thread swap
+  ([gotchas](../contributing/gotchas.md)).
+- **An observer at the end of the thread anchors every colleague's turn**,
+  its question at the top, as the asker's is. At the end means following, or
+  watching the last anchored turn with its end in view: anchoring stops
+  following, so asking for following alone anchored the first colleague's turn
+  and none after it. One reading further up is not moved.
+
 ## Tests
 
 - Contract: every recorded turn in `shared/wire/v2/` is valid and is byte for
@@ -524,3 +992,14 @@ answer, and the network re-clumps whatever the sleep spaced out.
   `isStreaming` to clear (`AgentResponse.spec.tsx`, "a streaming answer");
   `stable-overrides.spec.tsx` (a drawn diagram and an arrived card survive the
   next token). ADR-0066's Confirmation lists the rest.
+- The turn on screen: `AgentResponse.settle.spec.tsx` (the caret's idle
+  breath, the footer handed over at the settle, Stop, a mid-turn mount, the
+  paced summary, a retraction), `use-paced-text.spec.ts` ("after Stop",
+  "mounting mid-turn"), `turn-fold.spec.ts` ("after a Stop pressed on this
+  page"), `stopped-answer.spec.ts` and `stopped-cut.spec.ts` (the stop rule),
+  `ChatThinking.spec.tsx` ("the header from the send to the settle"),
+  `ChatArea.spec.tsx` ("the live Herleitung", "opening a thread, its endings
+  and its dock", "the jump-to-latest button"), `thread-phase.spec.ts`. The
+  scenarios to watch them in: `/dev/stream-socket?scenario=…` and
+  `/dev/turn-outcomes?scenario=…`
+  ([lifecycle matrix](lifecycles/chat-turn.md)).

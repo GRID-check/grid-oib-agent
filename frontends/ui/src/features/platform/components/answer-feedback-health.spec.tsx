@@ -1,8 +1,61 @@
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { render, screen, waitFor, within } from '@/test-utils'
 
+import { NO_RATINGS_FILTERS, type RatingsFilters } from '@/lib/feedback/filters'
+import type { QualityScope } from '@/lib/quality/scope'
 import { AnswerFeedbackHealth } from './answer-feedback-health'
+
+const MONTH: QualityScope = { from: '2026-09-10', to: '2026-10-09', organizationIds: [], projectIds: [] }
+const WEEK: QualityScope = { ...MONTH, from: '2026-10-03' }
+
+/**
+ * The workspace's part, in miniature: it owns the scope and the filters (in the
+ * URL there, in state here) and hands them down. `scope` given from outside is
+ * the page changing the range under the organism.
+ */
+function Harness({
+  scope: outerScope,
+  initialFilters = NO_RATINGS_FILTERS,
+}: {
+  scope?: QualityScope
+  initialFilters?: RatingsFilters
+}) {
+  const [innerScope, setScope] = useState<QualityScope>(MONTH)
+  const [filters, setFilters] = useState<RatingsFilters>(initialFilters)
+  return (
+    <AnswerFeedbackHealth
+      scope={outerScope ?? innerScope}
+      filters={filters}
+      onFiltersChange={setFilters}
+      onScopeChange={setScope}
+    />
+  )
+}
+
+const OPTIONS = {
+  total: 10,
+  scopeTotal: 10,
+  cap: 5000,
+  overCap: false,
+  verdicts: { up: 8, down: 2 },
+  reasons: [{ key: 'inaccurate', votes: 2 }],
+  topics: [{ key: 'brandschutz', votes: 42 }],
+  modes: [{ key: 'deep', votes: 3 }],
+  confidences: [{ key: 'low', votes: 1 }],
+  withComment: 4,
+  withExpectedAnswer: 1,
+}
+
+/** The two side reads every test stubs the same way; null for the health read itself. */
+const sideRead = (url: string): Response | null => {
+  if (url.includes('/answer-feedback/digest')) {
+    return new Response(JSON.stringify({ digest: null, error: 'no_feedback' }), { status: 200 })
+  }
+  if (url.includes('/answer-feedback/options')) return new Response(JSON.stringify(OPTIONS), { status: 200 })
+  return null
+}
 
 const health = (overrides: Record<string, unknown> = {}) => ({
   windowDays: 30,
@@ -41,17 +94,14 @@ const stubFetch = (body: unknown, ok = true): void => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
-      if (String(input).includes('/answer-feedback/digest')) {
-        return new Response(JSON.stringify({ digest: null, error: 'no_feedback' }), { status: 200 })
-      }
-      return new Response(JSON.stringify(body), { status: ok ? 200 : 403 })
+      return sideRead(String(input)) ?? new Response(JSON.stringify(body), { status: ok ? 200 : 403 })
     })
   )
 }
 
 const urls = (): string[] => vi.mocked(globalThis.fetch).mock.calls.map((call) => String(call[0]))
-/** URLs of the health reads only — the digest fetch is a different question. */
-const healthUrls = (): string[] => urls().filter((url) => !url.includes('/digest'))
+/** URLs of the health reads only — the digest and the options are different questions. */
+const healthUrls = (): string[] => urls().filter((url) => !url.includes('/digest') && !url.includes('/options'))
 const digestUrls = (): string[] => urls().filter((url) => url.includes('/digest'))
 
 afterEach(() => {
@@ -65,7 +115,7 @@ describe('AnswerFeedbackHealth — the figures', () => {
    */
   it('leads with the helpful rate, not the failure rate', async () => {
     stubFetch(health())
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const tile = await screen.findByTestId('feedback-kpi-helpful')
     // 8 of 10 votes were helpful.
@@ -77,7 +127,7 @@ describe('AnswerFeedbackHealth — the figures', () => {
   it('withholds the headline rate below the vote floor', async () => {
     // 1 of 2 is 50%, and 50% on two votes is a coin, not a rate.
     stubFetch(health({ totals: { up: 1, down: 1, voters: 2, downVoters: 1 } }))
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const tile = await screen.findByTestId('feedback-kpi-helpful')
     expect(within(tile).getByText('—')).toBeInTheDocument()
@@ -88,7 +138,7 @@ describe('AnswerFeedbackHealth — the figures', () => {
   it('publishes coverage, so the rate cannot be read as being about the product', async () => {
     // 10 votes over 100 answers: the headline describes 10% of turns.
     stubFetch(health())
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const tile = await screen.findByTestId('feedback-kpi-coverage')
     expect(within(tile).getByText('10.0%')).toBeInTheDocument()
@@ -101,7 +151,7 @@ describe('AnswerFeedbackHealth — the figures', () => {
    */
   it('clamps coverage at 100% when votes outnumber stored answers', async () => {
     stubFetch(health({ answers: 7 }))
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const tile = await screen.findByTestId('feedback-kpi-coverage')
     expect(within(tile).getByText('100.0%')).toBeInTheDocument()
@@ -111,7 +161,7 @@ describe('AnswerFeedbackHealth — the figures', () => {
   /** Bug: with no stored answers the coverage printed a confident "0.0%". */
   it('says coverage is unknown, not zero, when no answers were counted', async () => {
     stubFetch(health({ answers: 0 }))
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const tile = await screen.findByTestId('feedback-kpi-coverage')
     expect(within(tile).getByText('—')).toBeInTheDocument()
@@ -121,7 +171,7 @@ describe('AnswerFeedbackHealth — the figures', () => {
 
   it('names how many PEOPLE the down-votes came from', async () => {
     stubFetch(health())
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const tile = await screen.findByTestId('feedback-kpi-down')
     expect(within(tile).getByText('2')).toBeInTheDocument()
@@ -130,7 +180,7 @@ describe('AnswerFeedbackHealth — the figures', () => {
 
   it('keeps every reason on screen, including the ones nobody picked', async () => {
     stubFetch(health())
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const bars = await screen.findByTestId('feedback-reason-bars')
     for (const label of ['Inaccurate', 'Wrong source', 'Too slow', 'Other']) {
@@ -156,7 +206,7 @@ describe('AnswerFeedbackHealth — the figures', () => {
         ],
       })
     )
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const bars = await screen.findByTestId('feedback-reason-bars')
     expect(within(bars).getByRole('button', { name: 'Other, 3' })).toBeInTheDocument()
@@ -164,7 +214,7 @@ describe('AnswerFeedbackHealth — the figures', () => {
 
   it('says nothing has been collected rather than rendering an empty chart', async () => {
     stubFetch(health({ totals: { up: 0, down: 0, voters: 0, downVoters: 0 }, reasons: [] }))
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     await waitFor(() => expect(screen.getByText('No feedback yet')).toBeInTheDocument())
     expect(screen.queryByTestId('feedback-reason-bars')).toBeNull()
@@ -177,17 +227,14 @@ describe('AnswerFeedbackHealth — states', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
-        if (String(input).includes('/digest')) {
-          return Promise.resolve(
-            new Response(JSON.stringify({ digest: null, error: 'no_feedback' }))
-          )
-        }
+        const side = sideRead(String(input))
+        if (side) return Promise.resolve(side)
         return new Promise<Response>((resolve) => {
           release = resolve
         })
       })
     )
-    const { rerender } = render(<AnswerFeedbackHealth days={30} />)
+    const { rerender } = render(<Harness scope={MONTH} />)
     expect(screen.getByTestId('answer-feedback-loading')).toBeInTheDocument()
 
     release(new Response(JSON.stringify(health())))
@@ -195,8 +242,8 @@ describe('AnswerFeedbackHealth — states', () => {
 
     // A refetch keeps the figures on screen, marked busy, instead of
     // collapsing the whole surface back into skeletons.
-    rerender(<AnswerFeedbackHealth days={7} />)
-    await waitFor(() => expect(healthUrls().at(-1)).toContain('days=7'))
+    rerender(<Harness scope={WEEK} />)
+    await waitFor(() => expect(healthUrls().at(-1)).toContain('from=2026-10-03'))
     expect(screen.queryByTestId('answer-feedback-loading')).toBeNull()
     expect(screen.getByTestId('feedback-kpis')).toBeInTheDocument()
     expect(screen.getByText('Updating…')).toBeInTheDocument()
@@ -214,11 +261,8 @@ describe('AnswerFeedbackHealth — states', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        if (String(input).includes('/digest')) {
-          return Promise.resolve(
-            new Response(JSON.stringify({ digest: null, error: 'no_feedback' }))
-          )
-        }
+        const side = sideRead(String(input))
+        if (side) return Promise.resolve(side)
         return new Promise<Response>((resolve, reject) => {
           init?.signal?.addEventListener('abort', () =>
             reject(new DOMException('aborted', 'AbortError'))
@@ -227,9 +271,9 @@ describe('AnswerFeedbackHealth — states', () => {
         })
       })
     )
-    const { rerender } = render(<AnswerFeedbackHealth days={30} />)
+    const { rerender } = render(<Harness scope={MONTH} />)
     await waitFor(() => expect(pending).toHaveLength(1))
-    rerender(<AnswerFeedbackHealth days={7} />)
+    rerender(<Harness scope={WEEK} />)
     await waitFor(() => expect(pending).toHaveLength(2))
 
     expect(pending[0].signal?.aborted).toBe(true)
@@ -244,7 +288,7 @@ describe('AnswerFeedbackHealth — states', () => {
   it('surfaces a refusal as an alert with a retry', async () => {
     stubFetch({ error: 'Forbidden' }, false)
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const alert = await screen.findByTestId('answer-feedback-error')
     expect(within(alert).getByText('Answer feedback could not be loaded')).toBeInTheDocument()
@@ -262,8 +306,8 @@ describe('AnswerFeedbackHealth — states', () => {
   it('says the filters match nothing, and offers to clear them', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
-      if (url.includes('/digest'))
-        return new Response(JSON.stringify({ digest: null, error: 'no_feedback' }))
+      const side = sideRead(url)
+      if (side) return side
       const empty = url.includes('topic=')
       return new Response(
         JSON.stringify(
@@ -278,13 +322,13 @@ describe('AnswerFeedbackHealth — states', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     await user.click(await screen.findByRole('button', { name: /^Fire safety,/ }))
     expect(await screen.findByText('No ratings match these filters.')).toBeInTheDocument()
     expect(screen.queryByText('No feedback yet')).toBeNull()
 
-    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+    await user.click(screen.getByTestId('clear-filters-empty'))
     await waitFor(() => expect(healthUrls().at(-1)).not.toContain('topic='))
   })
 })
@@ -296,7 +340,7 @@ describe('AnswerFeedbackHealth — the drill-in', () => {
    */
   it('lists a rated turn that was never stored, and says so', async () => {
     stubFetch(health({ turns: [turn({ messageId: 'm-unpersisted' })] }))
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const row = await screen.findByTestId('feedback-turn')
     expect(within(row).getByText(/was not stored/i)).toBeInTheDocument()
@@ -307,7 +351,7 @@ describe('AnswerFeedbackHealth — the drill-in', () => {
 
   it('names the organization instead of printing its id', async () => {
     stubFetch(health({ turns: [turn({ organizationName: 'Architekturbüro Hofer' })] }))
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const row = await screen.findByTestId('feedback-turn')
     expect(within(row).getByText('Architekturbüro Hofer')).toBeInTheDocument()
@@ -335,7 +379,7 @@ describe('AnswerFeedbackHealth — the drill-in', () => {
       })
     )
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const row = await screen.findByTestId('feedback-turn')
     expect(
@@ -361,22 +405,24 @@ describe('AnswerFeedbackHealth — the drill-in', () => {
   it('draws no Langfuse button for a turn without a trace', async () => {
     stubFetch(health({ turns: [turn({ question: 'Frage?', langfuseTraceUrl: null })] }))
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     await user.click(within(await screen.findByTestId('feedback-turn')).getByRole('button'))
     const sheet = await screen.findByTestId('feedback-turn-sheet')
     expect(within(sheet).queryByRole('link', { name: /Langfuse/ })).toBeNull()
   })
 
-  it('offers the praised answers as a peer of the failed ones', async () => {
+  it('lists both directions by default, and either one on request', async () => {
     stubFetch(health())
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
-    const missed = await screen.findByRole('radio', { name: 'Missed' })
-    expect(missed).toHaveAttribute('aria-checked', 'true')
+    const all = await screen.findByRole('radio', { name: 'All' })
+    expect(all).toHaveAttribute('aria-checked', 'true')
+    expect(healthUrls().at(-1)).not.toContain('verdict=')
+    expect(screen.getByText('Rated answers')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('radio', { name: 'Landed' }))
+    await user.click(screen.getByRole('radio', { name: 'Helpful' }))
     await waitFor(() => expect(healthUrls().at(-1)).toContain('verdict=up'))
     expect(await screen.findByText('Answers that landed')).toBeInTheDocument()
   })
@@ -385,7 +431,7 @@ describe('AnswerFeedbackHealth — the drill-in', () => {
     stubFetch(
       health({ turns: [turn({ id: 'g1', verdict: 'up', reason: null, question: 'Aufzug?' })] })
     )
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const row = await screen.findByTestId('feedback-turn')
     expect(within(row).getByText('Helpful')).toBeInTheDocument()
@@ -395,12 +441,12 @@ describe('AnswerFeedbackHealth — the drill-in', () => {
   it('drops the reason filter when switching to the praised list', async () => {
     stubFetch(health())
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     await user.click(await screen.findByRole('button', { name: /^Inaccurate,/ }))
     await waitFor(() => expect(healthUrls().at(-1)).toContain('reason=inaccurate'))
 
-    await user.click(screen.getByRole('radio', { name: 'Landed' }))
+    await user.click(screen.getByRole('radio', { name: 'Helpful' }))
     await waitFor(() => {
       const url = healthUrls().at(-1) ?? ''
       expect(url).toContain('verdict=up')
@@ -411,7 +457,7 @@ describe('AnswerFeedbackHealth — the drill-in', () => {
   it('says the list is empty under filters differently from an empty window', async () => {
     stubFetch(health())
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness initialFilters={{ ...NO_RATINGS_FILTERS, verdict: 'down' }} />)
 
     expect(await screen.findByText('No negative feedback in this window.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Inaccurate,/ }))
@@ -430,7 +476,7 @@ describe('AnswerFeedbackHealth — breakdowns', () => {
         ],
       })
     )
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const rows = await screen.findAllByTestId('feedback-topic')
     expect(within(rows[0]).getByText('Fire safety')).toBeInTheDocument()
@@ -442,7 +488,7 @@ describe('AnswerFeedbackHealth — breakdowns', () => {
 
   it('says the topic list is not a second denominator', async () => {
     stubFetch(health({ topics: [{ topic: 'brandschutz', up: 18, down: 2, voters: 9 }] }))
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     await waitFor(() =>
       expect(screen.getByText(/do not add up to the totals above/)).toBeInTheDocument()
@@ -465,7 +511,7 @@ describe('AnswerFeedbackHealth — breakdowns', () => {
         ],
       })
     )
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const rows = await screen.findAllByTestId('feedback-org')
     expect(within(rows[0]).getByRole('button', { name: 'Planwerk Graz' })).toBeInTheDocument()
@@ -482,7 +528,7 @@ describe('AnswerFeedbackHealth — breakdowns', () => {
         ],
       })
     )
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     const rows = await screen.findAllByTestId('feedback-org')
     expect(within(rows[0]).getByText('80%')).toBeInTheDocument()
@@ -491,59 +537,51 @@ describe('AnswerFeedbackHealth — breakdowns', () => {
     expect(within(rows[1]).getByText('2 votes')).toBeInTheDocument()
   })
 
-  it('filters by organization from a table row, and shows it as a removable chip', async () => {
+  /** An organization row toggles that organization in the PAGE scope, so every tab follows. */
+  it('narrows the page to an organization from its row, and back', async () => {
     stubFetch(
       health({
-        organizations: [
-          {
-            organizationId: 'org_big',
-            organizationName: 'Planwerk Graz',
-            up: 20,
-            down: 5,
-            voters: 9,
-          },
-        ],
+        organizations: [{ organizationId: 'org_big', organizationName: 'Planwerk Graz', up: 20, down: 5, voters: 9 }],
       })
     )
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     await user.click(await screen.findByRole('button', { name: 'Planwerk Graz' }))
     await waitFor(() => expect(healthUrls().at(-1)).toContain('org=org_big'))
+    expect(screen.getByRole('button', { name: 'Planwerk Graz' })).toHaveAttribute('aria-pressed', 'true')
 
-    const chip = await screen.findByRole('button', {
-      name: 'Remove filter Organization: Planwerk Graz',
-    })
-    await user.click(chip)
+    await user.click(screen.getByRole('button', { name: 'Planwerk Graz' }))
     await waitFor(() => expect(healthUrls().at(-1)).not.toContain('org='))
   })
 })
 
 /**
- * Filters go to the SERVER. The drill-in is capped server-side, so a client-side
- * `.filter()` would search the 50 rows that happened to arrive.
+ * Filters go to the SERVER, for every read on the tab. The list is capped
+ * server-side, so a client-side `.filter()` would search the 50 rows that
+ * happened to arrive; and the figures used to ignore the reason and the search,
+ * so the headline described different votes than the list under it.
  */
 describe('AnswerFeedbackHealth — filtering and export', () => {
-  it('takes the window from the page and has no window control of its own', async () => {
+  it('reads the scope it is handed and has no range control of its own', async () => {
     stubFetch(health())
-    const { rerender } = render(<AnswerFeedbackHealth days={30} />)
+    const { rerender } = render(<Harness scope={MONTH} />)
 
-    await waitFor(() => expect(healthUrls().at(-1)).toContain('days=30'))
-    expect(screen.queryByRole('radio', { name: /Last 7 days/ })).toBeNull()
-    rerender(<AnswerFeedbackHealth days={90} />)
-    await waitFor(() => expect(healthUrls().at(-1)).toContain('days=90'))
+    await waitFor(() => expect(healthUrls().at(-1)).toBe('/api/platform/answer-feedback?from=2026-09-10&to=2026-10-09'))
+    expect(screen.queryByRole('radio', { name: /7 days/ })).toBeNull()
+    rerender(<Harness scope={WEEK} />)
+    await waitFor(() => expect(healthUrls().at(-1)).toContain('from=2026-10-03'))
   })
 
-  it('turns the reason breakdown into the filter for it', async () => {
+  it('turns the reason breakdown into the filter for it, shown in the filter row', async () => {
     stubFetch(health())
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     await user.click(await screen.findByRole('button', { name: /^Inaccurate,/ }))
     await waitFor(() => expect(healthUrls().at(-1)).toContain('reason=inaccurate'))
-    expect(
-      screen.getByRole('button', { name: 'Remove filter Reason: Inaccurate' })
-    ).toBeInTheDocument()
+    const reasons = screen.getByTestId('feedback-filter-reasons')
+    expect(within(reasons).getByRole('button', { name: 'Remove Inaccurate' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /^Inaccurate,/ }))
     await waitFor(() => expect(healthUrls().at(-1)).not.toContain('reason='))
@@ -552,77 +590,102 @@ describe('AnswerFeedbackHealth — filtering and export', () => {
   it('sends the topic filter to the server when a topic row is pressed', async () => {
     stubFetch(health({ topics: [{ topic: 'brandschutz', up: 18, down: 2, voters: 9 }] }))
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
     await user.click(await screen.findByRole('button', { name: /^Fire safety,/ }))
     await waitFor(() => expect(healthUrls().at(-1)).toContain('topic=brandschutz'))
   })
 
-  /**
-   * The warning follows the AGGREGATES, not any filter. Reason and free text
-   * narrow the drill-in only.
-   */
-  it('warns the headline is about a selection only when the aggregates narrow', async () => {
-    stubFetch(health({ topics: [{ topic: 'brandschutz', up: 18, down: 2, voters: 9 }] }))
+  it('sends the answer, note and search filters from the filter row', async () => {
+    stubFetch(health())
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
 
-    await user.click(await screen.findByRole('button', { name: /^Inaccurate,/ }))
-    await waitFor(() => expect(healthUrls().at(-1)).toContain('reason='))
-    expect(screen.queryByText(/describe the current selection/)).toBeNull()
+    await user.click(await screen.findByRole('combobox', { name: 'Answer mode' }))
+    await user.click(await screen.findByRole('option', { name: /Deep research/ }))
+    await user.keyboard('{Escape}')
+    await user.click(screen.getByRole('checkbox', { name: 'With a comment' }))
+    await user.type(screen.getByRole('textbox', { name: 'Search questions and answers…' }), 'GK 4')
 
-    await user.click(screen.getByRole('button', { name: /^Fire safety,/ }))
-    await waitFor(() =>
-      expect(screen.getByText(/describe the current selection/)).toBeInTheDocument()
+    await waitFor(() => {
+      const url = healthUrls().at(-1) ?? ''
+      expect(url).toContain('mode=deep')
+      expect(url).toContain('has_comment=1')
+      expect(url).toContain('q=GK+4')
+    })
+  })
+
+  it('shows how many votes are behind each value, counted over the scope', async () => {
+    stubFetch(health())
+    const user = userEvent.setup()
+    render(<Harness />)
+
+    await user.click(await screen.findByRole('combobox', { name: 'Topics' }))
+    expect(await screen.findByRole('option', { name: /Fire safety\s*42/ })).toBeInTheDocument()
+    expect(urls().find((url) => url.includes('/options'))).toBe(
+      '/api/platform/answer-feedback/options?from=2026-09-10&to=2026-10-09'
     )
   })
 
-  /** Bug: every Missed/Landed switch re-asked the model for the same digest. */
-  it('re-asks the digest for the window and aggregate filters only', async () => {
+  it('clears the rating filters, and only those', async () => {
     stubFetch(health())
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness initialFilters={{ ...NO_RATINGS_FILTERS, topics: ['statik'], hasComment: true }} />)
+
+    await user.click(await screen.findByTestId('clear-filters'))
+    await waitFor(() => expect(healthUrls().at(-1)).toBe('/api/platform/answer-feedback?from=2026-09-10&to=2026-10-09'))
+  })
+
+  /** Any filter makes the headline a claim about a selection, and it says so. */
+  it('warns the headline is about a selection once anything narrows it', async () => {
+    stubFetch(health())
+    const user = userEvent.setup()
+    render(<Harness />)
 
     await screen.findByTestId('feedback-kpis')
-    await waitFor(() => expect(digestUrls()).toHaveLength(1))
-    await user.click(screen.getByRole('radio', { name: 'Landed' }))
-    await waitFor(() => expect(healthUrls().at(-1)).toContain('verdict=up'))
-    expect(digestUrls()).toHaveLength(1)
-    expect(digestUrls()[0]).not.toContain('verdict=')
+    expect(screen.queryByText(/describe the current selection/)).toBeNull()
+    await user.click(screen.getByRole('button', { name: /^Inaccurate,/ }))
+    await waitFor(() => expect(screen.getByText(/describe the current selection/)).toBeInTheDocument())
   })
 
-  it('exports exactly what is on screen, filters and direction alike', async () => {
+  /** The sentences describe the same votes as the figures beside them. */
+  it('asks the digest about the same votes as the figures', async () => {
     stubFetch(health())
     const user = userEvent.setup()
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
+
+    await screen.findByTestId('feedback-kpis')
+    await user.click(screen.getByRole('button', { name: /^Inaccurate,/ }))
+    await waitFor(() => expect(digestUrls().at(-1)).toContain('reason=inaccurate'))
+    const health_ = new URL(healthUrls().at(-1) ?? '', 'http://x').searchParams
+    const digest = new URL(digestUrls().at(-1) ?? '', 'http://x').searchParams
+    digest.delete('locale')
+    expect(digest.toString()).toBe(health_.toString())
+  })
+
+  it('exports exactly what the page shows', async () => {
+    stubFetch(health())
+    const user = userEvent.setup()
+    render(<Harness />)
 
     await user.click(await screen.findByRole('button', { name: /^Inaccurate,/ }))
-
-    const link = screen.getByRole('link', { name: /Export CSV/ })
-    await waitFor(() =>
-      expect(link).toHaveAttribute('href', expect.stringContaining('reason=inaccurate'))
-    )
-    expect(link).toHaveAttribute('href', expect.stringContaining('/export?'))
-    expect(link).toHaveAttribute('download')
-
-    await user.click(screen.getByRole('radio', { name: 'Landed' }))
-    await waitFor(() =>
-      expect(screen.getByRole('link', { name: /Export CSV/ })).toHaveAttribute(
-        'href',
-        expect.stringContaining('verdict=up')
-      )
+    await user.click(screen.getByRole('button', { name: 'Export…' }))
+    const download = await screen.findByTestId('feedback-export-download')
+    expect(download).toHaveAttribute(
+      'href',
+      '/api/platform/answer-feedback/export?from=2026-09-10&to=2026-10-09&reason=inaccurate&format=xlsx'
     )
   })
 
   it('links the Langfuse project only when the server knows it', async () => {
     stubFetch(health({ langfuse: { projectUrl: 'https://langfuse.example/project/p' } }))
-    const { unmount } = render(<AnswerFeedbackHealth days={30} />)
+    const { unmount } = render(<Harness />)
     const link = await screen.findByTestId('feedback-langfuse')
     expect(link).toHaveAttribute('href', 'https://langfuse.example/project/p')
     unmount()
 
     stubFetch(health())
-    render(<AnswerFeedbackHealth days={30} />)
+    render(<Harness />)
     await screen.findByTestId('feedback-kpis')
     expect(screen.queryByTestId('feedback-langfuse')).toBeNull()
   })

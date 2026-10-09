@@ -104,6 +104,7 @@ export function updateFolderHandler<P extends { folderId: string }>(
     params: P,
     session: AuthorizedSession,
     patch: { name?: string; parentId?: string | null },
+    request: Request,
   ) => Promise<Outcome<{ folder: FolderRow }>>,
   gate?: FolderRouteGate,
 ) {
@@ -113,7 +114,7 @@ export function updateFolderHandler<P extends { folderId: string }>(
       await update(params, session, {
         ...(body.name !== undefined ? { name: body.name } : {}),
         ...(body.parentId !== undefined ? { parentId: body.parentId } : {}),
-      }),
+      }, request),
     )
     return { folder }
   })
@@ -128,10 +129,10 @@ export function updateFolderHandler<P extends { folderId: string }>(
  * work that was filed under it.
  */
 export function deleteFolderHandler<P extends { folderId: string }>(
-  remove: (params: P, session: AuthorizedSession) => Promise<Outcome<{ result: DeleteFolderResult }>>,
+  remove: (params: P, session: AuthorizedSession, request: Request) => Promise<Outcome<{ result: DeleteFolderResult }>>,
   gate?: FolderRouteGate,
 ) {
-  return gated<P>(gate, async ({ session, params }) => unwrap(await remove(params, session)).result)
+  return gated<P>(gate, async ({ session, params, request }) => unwrap(await remove(params, session, request)).result)
 }
 
 /**

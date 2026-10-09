@@ -44,6 +44,7 @@ import {
   HardDrive,
   Megaphone,
   MessageSquare,
+  ShieldAlert,
   UserPlus,
   type LucideIcon,
   AlertTriangle,
@@ -97,6 +98,7 @@ const ICONS: Record<(typeof INBOX_TYPE_PRESENTATION)[keyof typeof INBOX_TYPE_PRE
     'alert-triangle': AlertTriangle,
     clock: Clock,
     megaphone: Megaphone,
+    'shield-alert': ShieldAlert,
   }
 
 /** Dictionary root for the item-type entries. */
@@ -208,7 +210,9 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
     ) ??
     'title'
   const title = t(`inbox.types.${presentation.i18nKey}.${titleLeaf}`, vars)
-  const bodyLeaf = pickKey(dictionary, presentation.i18nKey, ['body'])
+  // A row whose payload names no subject (an upload to the Büroablage or a
+  // chat) reads the sentence written without one, where its type has it.
+  const bodyLeaf = pickKey(dictionary, presentation.i18nKey, item.subject === null ? ['bodyNoSubject', 'body'] : ['body'])
   /*
     A REDACTED row gets a complete sentence of its own rather than the templated
     "in {subject}".

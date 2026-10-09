@@ -1,10 +1,10 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
-import { APP_DEFAULTS, KEDA_SCALER_ROLE, PORT } from "../constants";
+import { APP_DEFAULTS, KEDA_SCALER_ROLE, LANGFUSE, PORT } from "../constants";
 import type { Postgres } from "../data/postgres";
 import { FRONTEND_DRAIN_SECONDS, secretChecksum } from "../platform/rollout";
-import { frontendLangfuseEnv } from "../platform/langfuse";
+import { frontendLangfuseEnv, LANGFUSE_SECRETS_NAME, LANGFUSE_SECRET_KEYS } from "../platform/langfuse";
 
 type EnvVar = k8s.types.input.core.v1.EnvVar;
 
@@ -319,6 +319,11 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     ...(cfg.langfuse.enabled
       ? [{ name: "GRID_TRACE_IDENTITY_ATTRIBUTES", value: "true" }]
       : []),
+    // The agent writes its answer checks as Langfuse scores (ADR-0089) through
+    // the public API, on the in-cluster Service: `allow-backend-to-langfuse`
+    // opens it to the chat, api and agent-worker pods. The keys are a
+    // capability only: the prompt store stays off until LANGFUSE_PROMPTS_ENABLED.
+    ...langfuseApiEnv(cfg),
     // Admission control (bounds concurrent heavy work — §4.2).
     { name: "GRID_MAX_ACTIVE_JOBS_PER_ORG", value: String(cfg.backend.maxActiveJobsPerOrg) },
     { name: "GRID_MAX_QUEUED_JOBS_PER_ORG", value: String(cfg.backend.maxQueuedJobsPerOrg) },
@@ -408,6 +413,14 @@ export function workerEnv(w: AppWiring): EnvVar[] {
 }
 
 /**
+ * What the ingest worker does not get of the backend env: the Langfuse API
+ * keys. Ingestion writes no scores and serves no prompt, and no NetworkPolicy
+ * lets it reach the Langfuse web tier, so the keys would be a credential with
+ * nothing to do but leak.
+ */
+const INGEST_WITHHELD_ENV = new Set(["LANGFUSE_HOST", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"]);
+
+/**
  * Ingest worker (ADR-0076) environment: the full backend env (it builds the same
  * ingestor: summary model, shared Chroma, object store, DSNs) plus the role, its
  * per-process concurrency.
@@ -415,7 +428,9 @@ export function workerEnv(w: AppWiring): EnvVar[] {
 export function ingestWorkerEnv(w: AppWiring, livenessFile: string): EnvVar[] {
   const overridden = new Set(["AIQ_INGEST_MAX_WORKERS"]);
   return [
-    ...backendEnv(w, "grid-ingest-worker").filter((e) => !(typeof e.name === "string" && overridden.has(e.name))),
+    ...backendEnv(w, "grid-ingest-worker").filter(
+      (e) => !(typeof e.name === "string" && (overridden.has(e.name) || INGEST_WITHHELD_ENV.has(e.name))),
+    ),
     { name: "GRID_ROLE", value: "ingest-worker" },
     { name: "AIQ_INGEST_MAX_WORKERS", value: String(w.cfg.ingestWorker.concurrency) },
     { name: "GRID_INGEST_WORKER_DRAIN_SECONDS", value: String(w.cfg.ingestWorker.drainSeconds) },
@@ -584,6 +599,35 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
 }
 
 /**
+ * How a worker reaches Langfuse's public API (`workers/langfuse-traces.js`):
+ * the in-cluster web Service and the project key pair that the Langfuse Secret
+ * already holds for the collector and for headless init. Present exactly when
+ * the Langfuse tier is deployed; without it the worker's step is a logged
+ * no-op, which is also what a deployment without Langfuse has to do.
+ *
+ * The Secret is Langfuse's own rather than a copy in `grid-secrets`, so a key
+ * rotation has one place to happen. A pod reads it at start, so every pod that
+ * carries this env folds the keys into its rollout checksum
+ * (`withLangfuseKeysChecksum`) and a rotation rolls it.
+ *
+ * Also on the backend tiers (`backendEnv`), which write the answer pipeline's
+ * checks as scores (ADR-0089, `aiq_agent/observability/langfuse_scores.py`)
+ * and, once `LANGFUSE_PROMPTS_ENABLED` is set, read the platform prompt.
+ */
+export function langfuseApiEnv(cfg: GridConfig): EnvVar[] {
+  if (!cfg.langfuse.enabled) return [];
+  const fromLangfuseSecret = (name: string, key: string): EnvVar => ({
+    name,
+    valueFrom: { secretKeyRef: { name: LANGFUSE_SECRETS_NAME, key } },
+  });
+  return [
+    { name: "LANGFUSE_HOST", value: `http://${LANGFUSE.web}:${PORT.langfuseWeb}` },
+    fromLangfuseSecret("LANGFUSE_PUBLIC_KEY", LANGFUSE_SECRET_KEYS.publicKey),
+    fromLangfuseSecret("LANGFUSE_SECRET_KEY", LANGFUSE_SECRET_KEYS.secretKey),
+  ];
+}
+
+/**
  * Names the bff-jobs pod sets differently from the frontend it is built from.
  * The BFF in that pod is not the gateway: it logs as its own service, and the
  * runner stops it only after the jobs in hand are given back, so it needs no
@@ -638,6 +682,8 @@ export function purgerEnv(w: AppWiring): EnvVar[] {
     // feature flag, nor the bucket-admin credential — and an unattended queue
     // worker is the last process that should be able to drop a bucket.
     sref("WORKOS_API_KEY"),
+    // An erased chat's Langfuse traces are deleted by the purger (ADR-0044).
+    ...langfuseApiEnv(cfg),
     { name: "PURGER_POLL_INTERVAL_MS", value: String(APP_DEFAULTS.purgerPollMs) },
     // OTLP logs via the cluster collector (see frontendEnv for the gating
     // rationale). Base URL - the JS exporter derives /v1/logs.
@@ -669,6 +715,16 @@ export function schedulerEnv(w: AppWiring): EnvVar[] {
     { name: "GRID_SKILL_SCHEDULER_POLL_MS", value: String(APP_DEFAULTS.schedulerPollMs) },
     { name: "GRID_SKILL_SCHEDULER_BATCH", value: String(APP_DEFAULTS.schedulerBatch) },
     { name: "GRID_SKILL_RUNS_RETENTION_DAYS", value: String(APP_DEFAULTS.skillRunsRetentionDays) },
+    // The daily Langfuse trace retention sweep (ADR-0044); a no-op without the keys.
+    ...(cfg.langfuse.enabled
+      ? [
+          ...langfuseApiEnv(cfg),
+          {
+            name: "GRID_LANGFUSE_TRACE_RETENTION_DAYS",
+            value: String(APP_DEFAULTS.langfuseTraceRetentionDays),
+          },
+        ]
+      : []),
     // OTLP logs via the cluster collector (see frontendEnv for the gating
     // rationale). Base URL - the JS exporter derives /v1/logs.
     ...(cfg.observability.enabled

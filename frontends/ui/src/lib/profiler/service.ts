@@ -7,6 +7,7 @@
 import 'server-only'
 import type { AgentProfilerSpan, NewAgentProfilerSpan, SpanKind, SpanStatus } from '@/lib/db/schema'
 import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
+import { scopeBounds, type QualityScope } from '@/lib/quality/scope'
 import * as repository from './repository'
 
 export async function recordProfilerSpans(spans: NewAgentProfilerSpan[]): Promise<number> {
@@ -19,28 +20,61 @@ export interface ProfiledConversationSummary {
   /** Display name for `organizationId`; null when unknown or unresolvable. */
   organizationName: string | null
   title: string | null
+  /** Turns in the scope's range, not in the conversation's whole life. */
   turnCount: number
+  /** Summed turn time in the scope's range. */
   totalDurationMs: number
+  /** The newest turn in the scope's range. */
   lastActiveAt: string
 }
 
-export async function listProfiledConversations(query?: string): Promise<{
+export interface ProfiledConversationList {
   conversations: ProfiledConversationSummary[]
   capped: boolean
-}> {
-  const { rows, capped } = await repository.listProfiledConversations(query)
-  const names = await getOrganizationDisplayNames(rows.map((row) => row.organizationId))
+  /**
+   * Only when a conversation was asked about: its row within the scope, or
+   * null when it has no turn in the scope. Independent of the search and of
+   * the list's cap, so a client can deselect exactly what fell out of scope.
+   */
+  selected?: ProfiledConversationSummary | null
+}
+
+/**
+ * The conversation directory in one Answer-quality scope: conversations with a
+ * turn in the date range, in the named organizations and projects when any
+ * are named, narrowed by `query` within that.
+ */
+export async function listProfiledConversations(
+  scope: QualityScope,
+  options: { query?: string; conversationId?: string } = {}
+): Promise<ProfiledConversationList> {
+  const filter = {
+    ...scopeBounds(scope),
+    organizationIds: scope.organizationIds,
+    projectIds: scope.projectIds,
+  }
+  const [{ rows, capped }, selectedRow] = await Promise.all([
+    repository.listProfiledConversations(filter, options.query),
+    options.conversationId
+      ? repository.findProfiledConversation(filter, options.conversationId)
+      : Promise.resolve(undefined),
+  ])
+  const names = await getOrganizationDisplayNames(
+    [...rows, ...(selectedRow ? [selectedRow] : [])].map((row) => row.organizationId)
+  )
+  const toSummary = (row: repository.ProfiledConversationRow): ProfiledConversationSummary => ({
+    conversationId: row.conversationId,
+    organizationId: row.organizationId,
+    organizationName: row.organizationId ? (names.get(row.organizationId) ?? null) : null,
+    title: row.title,
+    turnCount: row.turnCount,
+    totalDurationMs: row.totalDurationMs,
+    lastActiveAt: row.lastActiveAt.toISOString(),
+  })
   return {
     capped,
-    conversations: rows.map((row) => ({
-      conversationId: row.conversationId,
-      organizationId: row.organizationId,
-      organizationName: row.organizationId ? (names.get(row.organizationId) ?? null) : null,
-      title: row.title,
-      turnCount: row.turnCount,
-      totalDurationMs: row.totalDurationMs,
-      lastActiveAt: row.lastActiveAt.toISOString(),
-    })),
+    conversations: rows.map(toSummary),
+    ...(selectedRow === undefined ? {} : { selected: selectedRow ? toSummary(selectedRow) : null }),
   }
 }
 

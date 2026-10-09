@@ -9,6 +9,8 @@ export const chat = {
     faster: 'Faster',
     smarter: 'Smarter',
     help: 'How long Piloti thinks before it answers. More effort helps with tricky questions but costs time and tokens. Applies to this chat.',
+    maximumWarning:
+      'Rarely smarter than High. Piloti thinks far longer, costs far more tokens and tends to overthink.',
     levels: {
       minimal: 'Minimal',
       low: 'Low',
@@ -697,13 +699,22 @@ export const chat = {
     responseApproved: 'Research started',
     responseShallow: 'Quick answer requested',
     responseCancelled: 'Research cancelled',
+    // An answered plan folds to one line; the plan as approved is behind it.
+    planRecord: 'Plan approved · {count, plural, one {# section} other {# sections}}',
+    showPlan: 'Show plan',
+    hidePlan: 'Hide plan',
   },
   // The single disclosure in the answer footer that holds everything past the
   // sources row and the copy actions (confidence, memory note, skills used,
   // verification notes, feedback, timestamp).
+  // Under an answer the reader stopped, where the writing ended.
+  answerStoppedMarker: 'Stopped',
   answerDetails: {
     trigger: 'Answer details',
     triggerAria: 'Show details for this answer',
+    // The trigger when the details hold a warning (cut-off, salvaged run,
+    // stripped citations, low confidence): the dot beside it says so visually.
+    triggerAriaAttention: 'Show details for this answer, including notes on it',
     // How long the turn took, question sent to answer final.
     duration: 'Answered in {duration}',
     costCredits: '{value} credits',
@@ -763,6 +774,17 @@ export const chat = {
     recovering: 'Fetching the answer',
     recoveringNotice: 'Piloti is still working — the answer appears here as soon as it is ready …',
     done: 'Done',
+    // The reader stopped the answer: no green check, no „Done“ — the same
+    // word a cancelled run carries.
+    stopped: 'Stopped',
+    // The turn commissioned a run: its work has only begun, in the run block
+    // below. No green check, no „Done“.
+    // The turn failed; the error card below says how.
+    failed: 'Failed',
+    handedOff: 'Run commissioned',
+    // Piloti did not take the question on (refused, or not admitted): the
+    // banner below says why. Neutral, never „Done“.
+    refused: 'Not handled',
     elapsedAria: 'Elapsed: {seconds, plural, one {# second} other {# seconds}}',
     // ── Turn events: the words for what the backend REPORTED ──────────────
     //
@@ -859,7 +881,8 @@ export const chat = {
         // A quotation no passage holds verbatim is corrected in place to the
         // cited passage's own wording (ADR-0067). No search, no rewrite; a quote
         // it cannot correct keeps its marker.
-        repair: 'A quotation differs from the source’s wording — correcting it against the original …',
+        repair:
+          'A quotation differs from the source’s wording — correcting it against the original …',
         escalation: 'A quick lookup is not enough — starting deep research',
       },
     },
@@ -1047,7 +1070,6 @@ export const chat = {
         },
       },
       branchesTab: 'Next steps',
-      branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },
   },
   error: {
@@ -1101,6 +1123,10 @@ export const chat = {
       title: 'Response Interrupted',
       message: 'Your previous request was not completed. Please resend your message.',
     },
+    noResponse: {
+      title: 'No response',
+      message: 'Piloti did not respond to your question, not even to a second attempt. Send it again.',
+    },
     zdrRefused: {
       title: 'Model not available under zero data retention',
       message:
@@ -1119,6 +1145,7 @@ export const chat = {
     // `job_admission_rejected`). Warning, not error: resending resolves it.
     researchQueueFull: {
       title: 'Research is busy',
+      full: 'The research queue is currently full.',
       message: 'The research queue is currently full. Please resend your request in a moment.',
       retryHint: 'Please try again in about {seconds, plural, one {# second} other {# seconds}}.',
     },
@@ -1223,5 +1250,21 @@ export const chat = {
     copy: 'Copy message',
     copied: 'Copied',
     failed: 'Message could not be copied',
+  },
+  /**
+   * Sensitive data in chat (ADR-0086): what the composer reports before sending.
+   * The placeholders themselves are domain data and come from `content-screen.ts`.
+   */
+  screening: {
+    title: 'Contains {items} (Sensitive data).',
+    body: 'Piloti does not send this to the answering model.',
+    preview: 'The model sees: “{text}”',
+    iban: '{count, plural, one {an IBAN} other {# IBANs}}',
+    at_svnr: '{count, plural, one {a social security number} other {# social security numbers}}',
+    credit_card: '{count, plural, one {a card number} other {# card numbers}}',
+    term: 'the term “{term}”',
+    withSample: '{item} {sample}',
+    sendMasked: 'Send masked',
+    edit: 'Edit',
   },
 }

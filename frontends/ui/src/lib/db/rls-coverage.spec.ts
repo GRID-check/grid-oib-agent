@@ -95,6 +95,21 @@ const BOUNDARY_MIGRATIONS = [
   // whose predicate compares `lane` (not an `organization_id` column) to the
   // active tenant; the runner reads across lanes under the platform role.
   '0104_bff_job_queue.sql',
+  // Adds upload_batches — one upload gesture and when it was all read
+  // (ADR-0086). Keyed directly by its organization.
+  '0110_upload_batches.sql',
+  // Adds project_folder_grants — a folder's own access list, one row per role
+  // and level (ADR-0088). Keyed directly by its organization.
+  '0111_project_folder_grants.sql',
+  // Adds conversation_restricted_folders — the source folders not every member
+  // may read that a conversation actually drew on, one row per folder id,
+  // judged against the current grants when read (ADR-0087, ADR-0088). Keyed
+  // directly by its organization: the conversation row may not exist yet.
+  '0112_conversation_restricted_folders.sql',
+  // Adds document_access_log — the download log: who took a document's bytes,
+  // and who opened one under a folder with its own list. Keyed directly by its
+  // organization; no foreign keys, so the row outlives what it names.
+  '0114_document_access_log.sql',
   // Adds mail_imports (ADR-0085), an Outlook archive a member is filing into a
   // project. Keyed by the organization, secured like product_feedback; the
   // stale-upload sweep reads across tenants under the platform role.

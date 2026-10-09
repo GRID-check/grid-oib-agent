@@ -35,7 +35,8 @@ def test_agent_skills_are_valid():
     """Assert every skill bundle under skills/ passes structural validation."""
     validator = _load_validator()
     report = validator.validate_roots([SKILLS_ROOT])
-    assert report.skills_checked >= 1, f"no skills found under {SKILLS_ROOT}"
+    # Zero is a valid count: a skill of our own exists only for agent-specific
+    # procedure (docs/contributing/agent-skills.md), and today there is none.
     assert report.errors == [], "skill validation errors:\n" + "\n".join(report.errors)
 
 

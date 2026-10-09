@@ -59,6 +59,10 @@
  * `renderPaperDiagram` when a view is shown).
  */
 
+import { useRef, type ReactNode } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
+import { motionBase, motionInstant, useMotionToken } from '@/components/motion'
+import { useHeightGlide } from '@/components/motion/height-glide'
 import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import { useTranslations } from '@/i18n'
@@ -68,7 +72,7 @@ import { useDiagramModel } from '../use-diagram-model'
 import { DiagramView } from '../views/diagram-views'
 import { titleFromSource, useDiagramFiling } from '../use-diagram-filing'
 import { DiagramFilingControls } from './diagram-filing-controls'
-import { DrawingSkeleton } from './drawing-skeleton'
+import { DrawingCaption, DrawingReveal } from './drawing-skeleton'
 
 export interface MermaidDiagramProps {
   source: string
@@ -91,93 +95,185 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
   const { svg, fileSvg, failed } = useRenderedDiagram(source, !isStreaming && model === null)
   // And one WRITE, shared with the card for the same reason. `fileSvg` and not
   // `svg`: the bytes that go into the project are always the paper ones.
-  const filing = useDiagramFiling({ source, fileSvg, renderFileSvg: model ? () => renderPaperDiagram(source, model) : undefined })
+  const filing = useDiagramFiling({
+    source,
+    fileSvg,
+    renderFileSvg: model ? () => renderPaperDiagram(source, model) : undefined,
+  })
 
-  // Still being written: the drawing's place, not its source. A code block that
-  // turned into a picture when its fence closed was the largest jump a
-  // streamed answer made; a placeholder growing into the figure is the small
-  // one the drawing state below already makes (ADR-0066). Still being parsed
-  // (`model === undefined`) holds the same placeholder: which of the two
-  // pictures it becomes is not known yet, and mermaid's frame with its
-  // „Schematisch" line flashed before this product's view replaced it.
-  if (isStreaming || model === undefined) {
-    return (
-      <figure data-testid="mermaid-diagram" data-state={isStreaming ? 'streaming' : 'drawing'} className="my-4" aria-busy="true">
-        <div className="border-border rounded-lg border p-3">
-          <DrawingSkeleton />
-        </div>
-      </figure>
-    )
-  }
+  // Still being written (or parsed, `model === undefined`): the drawing's
+  // place, not its source. A code block that turned into a picture when its
+  // fence closed was the largest jump a streamed answer made (ADR-0066). The
+  // place is held in the frame the drawing will be drawn in, guessed from the
+  // fence's first keyword until the parse says, so the skeleton grows into
+  // the drawing in one frame and one material (`DrawingReveal`). It used to
+  // sit in mermaid's hairline frame whatever came, and a flowchart then
+  // swapped it for this product's plane in the same paint as its height.
+  const settledForm = isStreaming
+    ? undefined
+    : model === undefined
+      ? undefined
+      : model
+        ? 'view'
+        : 'svg'
+  const form = settledForm ?? likelyForm(source)
+  const state = isStreaming
+    ? 'streaming'
+    : model === undefined || (!model && !svg)
+      ? 'drawing'
+      : 'drawn'
 
-  if (!model && failed) {
+  // A fence that cannot be drawn shows its source instead. The skeleton held
+  // a drawing's place until the render said so, and the source is a
+  // different height, so the swap goes through the same frame: the frame
+  // glides from the height it had to the fallback's (`useHeightGlide`, the
+  // product's step for content swapped in place) while the figure fades out
+  // over it and the fallback fades in. It used to replace the figure in one
+  // paint, and everything below moved by the difference.
+  const fellBack = settledForm === 'svg' && failed
+  const frameRef = useRef<HTMLDivElement>(null)
+  useHeightGlide(frameRef, fellBack)
+  const crossfade = useMotionToken(motionBase)
+
+  let body: ReactNode
+  if (fellBack) {
     const lineCount = source.split('\n').length
-    return (
-      <div data-testid="mermaid-diagram" data-state="failed">
+    body = (
+      // The code block's own margin is the frame's now, so the fallback stands
+      // where the figure stood rather than 12px further down.
+      <div data-testid="mermaid-diagram" data-state="failed" className="[&>div:first-child]:my-0">
         <CodeBlock value={source} language="mermaid" collapsible={lineCount > 15} maxLines={15} />
         <p className="text-muted-foreground mt-1 text-xs">{t('fallback')}</p>
       </div>
     )
-  }
-
-  if (model) {
-    return (
-      <figure data-testid="mermaid-diagram" data-state="drawn" data-view={model.kind} className="my-4">
+  } else if (form === 'view') {
+    body = (
+      <figure
+        data-testid="mermaid-diagram"
+        data-state={state}
+        data-view={model ? model.kind : undefined}
+        aria-busy={model ? undefined : true}
+      >
         {/* A soft plane, not a frame: the nodes are cards and read on it
             without a box around a box. */}
-        <div className="bg-muted/40 rounded-xl p-3 @container">
-          <DiagramView model={model} label={titleFromSource(source) ?? t(`kind.${model.kind}`)} />
+        <div className="bg-muted/40 @container rounded-xl p-3">
+          <DrawingReveal drawn={Boolean(model)}>
+            {model && (
+              <DiagramView
+                model={model}
+                label={titleFromSource(source) ?? t(`kind.${model.kind}`)}
+              />
+            )}
+          </DrawingReveal>
         </div>
         {/* No „Schematisch — ohne Maßangabe." here: that line tells a reader a
             DRAWING claims no measurement, and these views have no geometry
             to claim one with. What is left is the filing action, and only
             inside a project (`DiagramFilingControls` renders nothing without
             a target). A filed copy carries the disclaimer in its own text. */}
-        {filing.target ? (
-          <figcaption className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 text-xs">
-            <DiagramFilingControls filing={filing} />
-          </figcaption>
-        ) : null}
+        <AnimatePresence initial={false}>
+          {model && filing.target ? (
+            <DrawingCaption
+              key="caption"
+              className="text-muted-foreground flex flex-wrap items-center gap-x-3 pt-1 text-xs"
+            >
+              <DiagramFilingControls filing={filing} />
+            </DrawingCaption>
+          ) : null}
+        </AnimatePresence>
+      </figure>
+    )
+  } else {
+    body = (
+      <figure data-testid="mermaid-diagram" data-state={state} aria-busy={svg ? undefined : true}>
+        {/* No background. The drawing is line and text; the paper under it is
+          whatever surface it is lying on, which is the card — in both themes.
+          A hairline frame is all it needs to read as a figure rather than as
+          loose marks in the prose. */}
+        <HorizontalScroll
+          className="border-border rounded-lg border p-3 [&_svg]:h-auto [&_svg]:max-w-full"
+          aria-label={tCommon('markdown.scrollDiagram')}
+        >
+          <DrawingReveal drawn={Boolean(svg)}>
+            {svg && (
+              <div
+                // Safe because of what produced the string, not because of where it is
+                // used: mermaid runs `securityLevel: 'strict'`, and `renderMermaid`
+                // re-serialises its output through `lib/diagrams/svg.ts`, so only
+                // allow-listed elements and attributes survive — no script, no
+                // foreignObject, no external reference. That provenance lives in the
+                // producer, which the scanner cannot see — a false positive, argued
+                // out the same way as `scripts/release_notes.py`.
+                // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
+                // Its own width, not the column's: see `diagram-size.ts`.
+                style={diagramFrameStyle(svg)}
+                dangerouslySetInnerHTML={{ __html: svg }}
+              />
+            )}
+          </DrawingReveal>
+        </HorizontalScroll>
+        <AnimatePresence initial={false}>
+          {settledForm === 'svg' && (
+            <DrawingCaption
+              key="caption"
+              className="text-muted-foreground flex flex-wrap items-center gap-x-3 pt-1 text-xs"
+            >
+              {/* The doctrine, where the reader is. Fifteen schematic cards in this
+                product compute their geometry so they cannot disagree with their
+                own numbers; a model-authored diagram has no such guarantee, so it
+                says out loud that it is not claiming a measurement. */}
+              <span>{t('schematicOnly')}</span>
+              <DiagramFilingControls filing={filing} />
+            </DrawingCaption>
+          )}
+        </AnimatePresence>
       </figure>
     )
   }
 
   return (
-    <figure data-testid="mermaid-diagram" data-state={svg ? 'drawn' : 'drawing'} className="my-4">
-      {/* No background. The drawing is line and text; the paper under it is
-          whatever surface it is lying on, which is the card — in both themes.
-          A hairline frame is all it needs to read as a figure rather than as
-          loose marks in the prose. */}
-      <HorizontalScroll
-        className="border-border rounded-lg border p-3 [&_svg]:h-auto [&_svg]:max-w-full"
-        aria-label={tCommon('markdown.scrollDiagram')}
-      >
-        {svg ? (
-          <div
-            // Safe because of what produced the string, not because of where it is
-            // used: mermaid runs `securityLevel: 'strict'`, and `renderMermaid`
-            // re-serialises its output through `lib/diagrams/svg.ts`, so only
-            // allow-listed elements and attributes survive — no script, no
-            // foreignObject, no external reference. That provenance lives in the
-            // producer, which the scanner cannot see — a false positive, argued
-            // out the same way as `scripts/release_notes.py`.
-            // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
-            // Its own width, not the column's: see `diagram-size.ts`.
-            style={diagramFrameStyle(svg)}
-            dangerouslySetInnerHTML={{ __html: svg }}
-          />
-        ) : (
-          <DrawingSkeleton />
-        )}
-      </HorizontalScroll>
-      <figcaption className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 text-xs">
-        {/* The doctrine, where the reader is. Fifteen schematic cards in this
-            product compute their geometry so they cannot disagree with their
-            own numbers; a model-authored diagram has no such guarantee, so it
-            says out loud that it is not claiming a measurement. */}
-        <span>{t('schematicOnly')}</span>
-        <DiagramFilingControls filing={filing} />
-      </figcaption>
-    </figure>
+    // One frame for every state, so the swap to the fallback has a frame to
+    // glide. A block formatting context (`flow-root`), so the clip the glide
+    // puts on it does not change how a margin inside collapses; `relative`
+    // for the figure fading out, which `popLayout` lifts out of the flow.
+    <div ref={frameRef} className="relative my-4 flow-root">
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.div
+          key={fellBack ? 'fallback' : 'figure'}
+          initial={crossfade === motionInstant ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={crossfade}
+        >
+          {body}
+        </motion.div>
+      </AnimatePresence>
+    </div>
   )
+}
+
+/**
+ * The diagram types this product draws in its own views (`modelFromParsed`):
+ * a fence that opens with one of them is held on the view's plane while it is
+ * written. A guess, not the parse: a flowchart too large for the view, or one
+ * that does not parse, still turns out mermaid's.
+ */
+const VIEW_KEYWORDS =
+  /^(?:flowchart|graph|stateDiagram(?:-v2)?|mindmap|sequenceDiagram|gantt|pie)\b/
+
+/** The frame a fence is most likely drawn in, read off its first keyword. */
+export function likelyForm(source: string): 'view' | 'svg' {
+  // Front matter (`---` … `---`) and `%%` comments come before the keyword.
+  const lines = source.split('\n').map((line) => line.trim())
+  let at = 0
+  if (lines[0] === '---') {
+    const close = lines.indexOf('---', 1)
+    at = close < 0 ? lines.length : close + 1
+  }
+  for (; at < lines.length; at++) {
+    const line = lines[at]
+    if (!line || line.startsWith('%%')) continue
+    return VIEW_KEYWORDS.test(line) ? 'view' : 'svg'
+  }
+  return 'svg'
 }

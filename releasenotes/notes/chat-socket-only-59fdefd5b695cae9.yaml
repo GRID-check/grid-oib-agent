@@ -10,6 +10,6 @@ operators:
   - >
     The chat tier no longer serves /generate, /chat, /v1/chat, /v1/chat/completions,
     /v1/workflow or /evaluate. Anything that asked questions through them has to
-    use the chat WebSocket instead; the loop eval and the aiq-research skill's
-    chat command already do. A front-end configuration that sets one of those
-    paths now stops the backend at start.
+    use the chat WebSocket instead, as the loop eval already does. A
+    front-end configuration that sets one of those paths now stops the
+    backend at start.

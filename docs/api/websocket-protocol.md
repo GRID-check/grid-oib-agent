@@ -35,8 +35,15 @@ ws://<host>/websocket?v=2&projectId=<uuid>&conversationId=<session_id>
   is said to it in its own dialect.
 - **The server speaks first: `hello`.** Once the version and the caller have
   passed, the first frame on every socket is
-  `{"v":2,"type":"CUSTOM","name":"hello","ts":…,"value":{"build":"<sha>"}}`
-  (`build` is `GRID_GIT_SHA`, or `unknown`, as `/health` has it). It is the
+  `{"v":2,"type":"CUSTOM","name":"hello","ts":…,"value":{"build":"<sha>","accepts":["cancel_turn.shown"]}}`
+  (`build` is `GRID_GIT_SHA`, or `unknown`, as `/health` has it). `accepts`
+  names the optional client fields this server reads, as `<type>.<field>`; the
+  client sends such a field only to a server whose hello names it (see
+  "Client → server" below). Free strings: a hello naming one this
+  page does not know is still a hello. `accepts`, like
+  `RUN_FINISHED.result.reasoning_effort`, is sent only while
+  `GRID_WIRE_V2_ADDITIVE_FIELDS` is on, off in this release
+  ([chat-wire-v2.md](../design/chat-wire-v2.md#compatibility-additive-changes-are-safe)). It is the
   other half of the version gate: `4426` tells an old page it is old, `hello`
   tells a current page the server is current. A server that predates this wire
   (NAT's stock socket) accepts the upgrade, ignores `?v=2` and never closes
@@ -48,6 +55,13 @@ ws://<host>/websocket?v=2&projectId=<uuid>&conversationId=<session_id>
   signed into the context envelope. A client message naming another
   conversation is refused with `rejected{conversation_mismatch}`; the socket
   stays open. To talk in another conversation, open a socket for it.
+- **A restricted scope is narrowed per turn, not per socket (ADR-0088).** When
+  the signed scope carries a restricted folder's collection, the agent asks
+  the BFF at the start of every turn which of them the asker and everyone the
+  conversation is shared with may read now
+  (`POST /api/internal/conversations/[id]/restricted-use`), and searches only
+  those. A thread shared since the upgrade keeps its socket; the server no
+  longer closes it (the `4412` close of ADR-0087 is retired).
 - **Auth** is read at the handshake and every client message re-checks the
   token's `exp`; an expired one is refused with `rejected{auth_expired}`, and
   the client reconnects with a fresh token.
@@ -240,6 +254,7 @@ narration.
 | `research_truncated` | `boolean` (default `false`) | The turn's research was cut off at its budget ceiling. The answer says so, and the mark is persisted so a reopened thread keeps saying it. |
 | `retrieval_ledger` | `RetrievalLedgerEntry[]` | The backend's own account of this turn's retrieval rounds: per announced round what it was asked (query, tools), what it returned, and which documents it did work on (`new_docs`); `hits`/`documents` are tallies over `docs`. Absent when no round was announced. One `docs` entry is one PASSAGE — a document (`name`, `title`, `shelf`) at a page or Punkt (`detail`) — carrying `repeat: boolean`: true when an earlier round already returned that exact (document, `detail`) pair, or when an earlier round OPENED that document with a locator tool (`read_passage`). A search that merely ranked a document does not make the later open of it a repeat. `new_docs` is the document-level derivation of the same marks: a document is listed when at least one of its passages here is not a repeat. `repeat` is absent on turns stored before the backend stamped it, and the renderer then falls back to `new_docs`. The Herleitung spine draws each round's fan from it, one card per document: the pages or Punkte that round reached, listed under the card, „bereits abgerufen" on the passages it fetched a second time, and an „Öffnen" step kind for a round that only opened passages. Persisted into message metadata/provenance so reloads read the same account. Nothing retrieves outside it: the answer repair corrects a quote against a passage already in this turn's registry and retrieves nothing (ADR-0067). |
 | `quote_stamps` | `Array<{ text, status: "verbatim" \| "not_found" \| "unchecked", number?, title?, file_name?, page?, punkt?, url? }>` | The server's check of each quote line `> „…“ [N]` of the answer, one entry per line in document order (`common/quote_stamps.py`), against the passages the prose's own quote check reads. `verbatim` names the passage that holds the wording and its `[N]` (absent when the passage was read, not cited); `not_found` means no retrieved passage holds it; `unchecked` means nothing to check against, or a span under 20 characters. `text` is the wording between the quote marks as the final text writes it. The excerpt renders „Wortlaut belegt [N]" and „Stelle öffnen" from it, never from the model. Absent when the answer quotes nothing. Persisted into message metadata under the same key. |
+| `reasoning_effort` | `"none" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh"` | The thinking level the answering call ran at, resolved server-side (`reasoning_settings.effort_of` on the turn's model: the asker's `user_message.reasoning_effort`, else the platform's level for the group, else the configured one). On a Stopped turn it is the level the asker stated. Not on the frame while `GRID_WIRE_V2_ADDITIVE_FIELDS` is off (the row keeps it). Absent when no answering call ran or the model sends no level. The client prefers it over the level it recorded when it asked, so an observer and a turn the asker never saw finish carry it too; "Gründlicher neu beantworten" steps up from it. Persisted into message metadata under the same key, restored as `provenance.reasoningEffort` (a `none` is not a dial level and is dropped there). |
 
 ```typescript
 /** One announced retrieval round, as the backend recorded it. */
@@ -269,11 +284,15 @@ interface RetrievalLedgerEntry {
 ```
 
 **Stop.** A `cancel_turn` from the asker ends the turn with
-`RUN_FINISHED{outcome: "cancelled"}`, whose `result.text` is the prose streamed
-so far, with any pending `[N]` removed. The server persists it with
+`RUN_FINISHED{outcome: "cancelled"}`. With `shown`, its `result` is what the
+asker had on screen: the text cut to `shown.chars` code points of what they had
+folded through `shown.seq`, with the masthead and the placed cards they had by
+then. Without it, `result.text` is the prose streamed so far. Either way a
+streamed text loses its pending `[N]`. The server persists it with
 `metadata.stopped = true`, which the BFF bounds into
 `metadata.provenance.stopped`, so a reload shows what the reader saw, marked as
-stopped.
+stopped. The asker's own client stores the same cut under the same id, so it
+does not matter which write lands first.
 
 ### Every turn ends
 
@@ -302,18 +321,40 @@ ends, each pinned by a test in `frontends/aiq_api/tests/test_chat_socket.py`:
 
 Four messages, each with `v: 2` and `conversation_id`. Unknown fields are
 refused (`rejected{invalid_message}`), and so is an unknown `type`
-(`rejected{of: unknown, code: invalid_message}`).
+(`rejected{of: unknown, code: invalid_message}`). The other direction is
+lenient: the client strips a field it does not know from a server frame, so a
+field added to a server-to-client body is safe for tabs still running the
+previous bundle. Because this direction is strict, a field added to a client
+message is optional and sent only to a server whose `hello` lists it in
+`accepts`: a tab may reach a pod one release older mid-deploy, which would
+refuse the whole message.
 
 | `type` | Fields | Notes |
 |---|---|---|
 | `user_message` | `message_id` (becomes `turn_id`), `text`, `data_sources[]`, `context_only?`, `author_name?`, `focus_file_name?`, `focus_shelf?`, `source_preset?`, `focus_document_id?`, `focus_version_id?`, `focus_version_state?` | A question. The type name is what the gateway's turn limiter (`lib/limits/ws-frames.js`) counts. A second `user_message` for a turn already running or run, on any replica, is `rejected{duplicate_turn}` (the turn id is claimed on the bus for as long as the stream keeps it); a new one supersedes and cancels a stale turn, on whichever replica runs it, and starts only once the stale turn has stopped: the conversation's running marker (`conv:<id>:running`, ADR-0080) is held by the turn that runs, so two turns of one conversation never run at once. If the stale turn has not stopped within `GRID_CHAT_SUPERSEDE_WAIT_SECONDS`, the new question ends with a refused `RUN_FINISHED` ("still finishing the previous answer", with a retry hint) and nothing runs. With `GRID_CHAT_AFFINITY` off, a turn that can no longer renew its marker (Dragonfly unreachable from its replica for most of `GRID_CHAT_RUNNING_TTL_SECONDS`, or the marker gone) stops itself before a newer turn could take the marker and ends with a `cancelled` `RUN_FINISHED`; the partial answer is not persisted. |
 | `interaction_response` | `turn_id`, `interaction_id`, `answer: {text} \| {option_id}` | Exactly one answer, structurally. Only the person the prompt addressed may answer; anyone else gets `rejected{not_asker}`, and an answer with no prompt waiting `rejected{no_pending_interaction}`. |
-| `cancel_turn` | `turn_id` | Stop. Only the asker's verified subject (or an internal caller) may cancel; anyone else gets `rejected{not_asker}`. The server cancels the graph run, not just the socket. |
+| `cancel_turn` | `turn_id`, `shown?: {seq, chars}` | Stop. Only the asker's verified subject (or an internal caller) may cancel; anyone else gets `rejected{not_asker}`. The server cancels the graph run, not just the socket. `shown` says how much was on screen (the first `chars` code points of the answer as folded through `seq`), and the stopped answer is cut to it; sent only when the hello accepts `cancel_turn.shown`. |
 | `attach` | `turn_id`, `after_seq` | Replay the turn from `after_seq + 1`, then continue live. Sent for every open turn after a reconnect, and with `after_seq: 0` after a reload. `rejected{turn_not_found}` when the stream holds nothing for the turn: ask for the persisted answer instead. |
 
 ```json
 {"v":2,"type":"user_message","conversation_id":"s_1","message_id":"msg_1759000000000_3","text":"Wie lang darf der Fluchtweg in GK 4 sein?","data_sources":["knowledge_layer"]}
 ```
+
+### Sensitive data is masked, never refused (ADR-0086)
+
+The free text of a `user_message` (`context_only` lines included) and of an
+`interaction_response` `{text}` answer is masked against the office's
+„Sensible Daten" policy before the agent, its history or another replica sees
+it: each content-term or detector match (IBAN, Austrian social-security number,
+card number; checksum-valid only) becomes a placeholder such as
+`[IBAN entfernt]`. The wire does not change and the turn is never refused for a
+match. The composer masks first and asks the person; this is the backstop for a
+client that did not. The socket reads the policy once per connection from
+`GET /api/internal/chat-screening`, so a policy change applies from the next
+connection; until it can be read (no signed organization, an older BFF, an
+error) every detector applies and no term. A chosen `{option_id}` is not free
+text and passes as it is. `aiq_api.chat_socket.ChatSocket._masked`;
+the matcher is `aiq_agent.common.content_screen`.
 
 ### Invoking a skill (no wire field)
 
@@ -476,10 +517,11 @@ clock, and ends visibly:
 | The server… | The client | The reader sees |
 |---|---|---|
 | opens and says nothing for 5 s (`HELLO_TIMEOUT_MS`), or opens with anything but a v2 `hello` | drops the socket and tries again on the ladder; when it is spent the status is `incompatible` | `connection.server_incompatible` („Piloti ist gerade nicht erreichbar"), not "check your network". The health poll does not clear it, since an old agent is healthy; the next question tries a new socket, and its hello clears it |
-| sends, after the hello, a frame this bundle cannot parse | closes the socket: `outdated`, as for `4426` | „Piloti wurde aktualisiert", reload. A turn whose next `seq` cannot be read could never fold its terminal |
-| does not answer a `user_message` within 15 s (`ACK_TIMEOUT_MS`): no `RUN_STARTED`, no `rejected`, no frame of the turn | reopens the socket, which sends the question again; a second miss ends the turn | an `agent.response_failed` card with „Erneut versuchen", after the server was asked once for a finished answer |
+| sends, after the hello, a frame this bundle cannot parse | closes the socket: `outdated`, as for `4426` | „Piloti wurde aktualisiert", reload. A turn whose next `seq` cannot be read could never fold its terminal. Additive drift is not this: an unknown key in a server-to-client frame is stripped, and a v2 turn event of an unknown `type`, step `kind` or `CUSTOM` name is folded as a no-op that keeps `seq` continuous (`parseWireEvent`, [chat-wire-v2 §a Compatibility](../design/chat-wire-v2.md#compatibility-additive-changes-are-safe)). A renamed, retyped or newly required field still lands here |
+| does not answer a `user_message` within 15 s (`ACK_TIMEOUT_MS`): no `RUN_STARTED`, no `rejected`, no frame of the turn | reopens the socket, which sends the question again; a second miss ends the turn | an `agent.no_response` warning card („Keine Rückmeldung": Piloti did not react to the question, nor to a second try) with „Erneut versuchen", after the server was asked once for a finished answer; the Herleitung goes from live to „Fehlgeschlagen" |
 | lets a running turn go silent for three beats | drops and reopens the socket, re-attaching the turn; a second silent socket in a row with nothing of the turn folded ends it | the answer, if the server finished it; otherwise `agent.response_interrupted` |
 | refuses an `attach` or a `cancel_turn` as `invalid_message` or `conversation_mismatch` | treats it as `turn_not_found`: nothing is following the turn any more | as for `turn_not_found` |
+| answers a `cancel_turn` with `turn_not_found` because the answer finished before the Stop reached it | stores the answer as it stood at the press and asks the BFF to cut the server's whole row to it (`keepStoppedAnswer`, or `stoppedLate` when the terminal crossed the Stop; `POST …/messages/{id}/stopped`, [`design/chat-wire-v2.md`](../design/chat-wire-v2.md) §c) | the answer they stopped on, after a reload too |
 
 A question stopped before its `RUN_STARTED` is not sent again on a reopen, and a
 question asked while the socket has given up opens a new one with a fresh ladder.

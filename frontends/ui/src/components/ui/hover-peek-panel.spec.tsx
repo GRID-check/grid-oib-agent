@@ -142,6 +142,23 @@ describe('HoverPeekPanel', () => {
     expect(screen.getByText('Anna body')).toBeInTheDocument()
   })
 
+  test('clicking a trigger whose peek the hover already opened pins it', async () => {
+    const user = userEvent.setup()
+    render(<Page />)
+    const anna = trigger('Anna')
+
+    // The ordinary reader: rest on the chip, read, then click to keep it.
+    // The pointerdown before that click used to count as a press OUTSIDE the
+    // panel (the trigger is an anchor, not a Radix trigger) and closed it
+    // underneath the pin.
+    await user.hover(anna)
+    expect(await screen.findByText('Anna body')).toBeInTheDocument()
+    await user.click(anna)
+    await user.unhover(anna)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(screen.getByText('Anna body')).toBeInTheDocument()
+  })
+
   test('Escape closes a pinned peek', async () => {
     const user = userEvent.setup()
     render(<Page />)
@@ -174,5 +191,109 @@ describe('HoverPeekPanel', () => {
     // Radix names the anchored content by its wrapper; one open panel, Ben's.
     expect(body.closest('[data-radix-popper-content-wrapper]')).not.toBeNull()
     expect(screen.queryByText('Anna body')).toBeNull()
+  })
+
+  /**
+   * Put each named trigger on a line of text: jsdom lays nothing out, and
+   * whether a hop is along the line or across lines decides the warm path.
+   */
+  const onLines = (lines: Record<string, number>) => {
+    for (const [name, line] of Object.entries(lines)) {
+      vi.spyOn(trigger(name), 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ x: 0, y: line * 24, width: 40, height: 20 })
+      )
+    }
+  }
+
+  test('moving from one open peek to the next swaps them at once, with no overlap', async () => {
+    const user = userEvent.setup()
+    render(<Page />)
+    onLines({ Anna: 0, Ben: 0 })
+
+    await user.hover(trigger('Anna'))
+    expect(await screen.findByText('Anna body')).toBeInTheDocument()
+
+    // The hop: Ben opens on the pointer's arrival rather than after the open
+    // delay, and Anna is gone in the same commit instead of lingering through
+    // her close grace underneath him.
+    await user.hover(trigger('Ben'))
+    expect(screen.getByText('Ben body')).toBeInTheDocument()
+    expect(screen.queryByText('Anna body')).toBeNull()
+    expect(trigger('Anna')).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  test('crossing a marker on the next line while a peek is open does not swap at once', async () => {
+    // On the way from Anna to her panel below, the pointer passes over Ben.
+    // An instant swap there took the panel the reader was reaching for.
+    const user = userEvent.setup()
+    render(<Page />)
+    onLines({ Anna: 0, Ben: 1 })
+
+    await user.hover(trigger('Anna'))
+    expect(await screen.findByText('Anna body')).toBeInTheDocument()
+    await user.hover(trigger('Ben'))
+    expect(screen.queryByText('Ben body')).toBeNull()
+    expect(screen.getByText('Anna body')).toBeInTheDocument()
+
+    // Staying on Ben is a choice, and he opens on the ordinary delay.
+    expect(await screen.findByText('Ben body')).toBeInTheDocument()
+    expect(screen.queryByText('Anna body')).toBeNull()
+  })
+
+  test('after leaving the open panel, a marker on another line opens at once', async () => {
+    const user = userEvent.setup()
+    render(<Page />)
+    onLines({ Anna: 0, Ben: 1 })
+
+    await user.hover(trigger('Anna'))
+    await user.hover(await screen.findByText('Anna body'))
+    await user.hover(trigger('Ben'))
+    expect(screen.getByText('Ben body')).toBeInTheDocument()
+  })
+
+  test("a pinned peek's close starts the warm window, even after a hovered one took the slot", async () => {
+    let clock = 10_000
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    try {
+      const user = userEvent.setup()
+      render(<Page />)
+      onLines({ Anna: 0, Ben: 1 })
+
+      await user.click(trigger('Anna'))
+      // Ben opens beside the pinned Anna and takes the page's slot, then closes.
+      await user.hover(trigger('Ben'))
+      expect(await screen.findByText('Ben body')).toBeInTheDocument()
+      await user.hover(screen.getByRole('button', { name: 'Elsewhere' }))
+      await waitFor(() => expect(screen.queryByText('Ben body')).toBeNull())
+
+      // Long after, the reader closes the pinned Anna and moves to Ben.
+      clock += 5_000
+      await user.click(trigger('Anna'))
+      await waitFor(() => expect(trigger('Anna')).toHaveAttribute('aria-expanded', 'false'))
+      await user.hover(trigger('Ben'))
+      expect(screen.getByText('Ben body')).toBeInTheDocument()
+    } finally {
+      now.mockRestore()
+    }
+  })
+
+  test('a pinned peek is not closed by hovering another trigger', async () => {
+    const user = userEvent.setup()
+    render(<Page />)
+
+    await user.click(trigger('Anna'))
+    expect(await screen.findByText('Anna body')).toBeInTheDocument()
+    await user.hover(trigger('Ben'))
+    expect(await screen.findByText('Ben body')).toBeInTheDocument()
+    expect(screen.getByText('Anna body')).toBeInTheDocument()
+  })
+
+  test('keeps a gutter from the viewport edge and never outgrows a phone', async () => {
+    const user = userEvent.setup()
+    render(<Page />)
+
+    await user.click(trigger('Anna'))
+    const panel = (await screen.findByText('Anna body')).closest('[data-slot="popover-content"]')
+    expect(panel).toHaveClass('max-w-[calc(100vw-24px)]')
   })
 })

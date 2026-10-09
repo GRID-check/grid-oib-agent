@@ -36,6 +36,8 @@ export const ORG_PERMISSIONS = {
   complianceManage: 'org:compliance:manage',
   /** View the org's audit trail (native WorkOS Audit Logs viewer/exports). */
   auditView: 'org:audit:view',
+  /** Read the download log: who took which document out (ADR-0088). Reading it is audited. */
+  downloadLogView: 'org:downloads:view',
   /** Manage the org-wide document Archiv (upload/delete/reingest/retag). */
   archivManage: 'org:archiv:manage',
   /** Author/edit/delete skills in the org toolbox (Agent Skills). */
@@ -66,6 +68,14 @@ export const PLATFORM_PERMISSIONS = {
   /** Read platform configuration. The read half of {@link settingsManage}. */
   settingsView: 'platform:settings:view',
   settingsManage: 'platform:settings:manage',
+  /**
+   * Read the platform's LLM observability (Langfuse) and nothing else. Checked
+   * at the edge, not in the app: the Envoy SecurityPolicy in front of Langfuse
+   * admits it beside `organizationsView` (deploy/pulumi/src/platform/platform-oidc.ts,
+   * `OBSERVABILITY_VIEW_PERMISSION`), and Langfuse's own roles take it from
+   * there. The Aspire dashboard does not accept it.
+   */
+  observabilityView: 'platform:observability:view',
 } as const
 
 /** Project-tier permissions, checked per project via WorkOS FGA. */

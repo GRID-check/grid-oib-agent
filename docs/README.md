@@ -18,6 +18,10 @@ with. See the [root README](../README.md) for what Grid is, and
    house rules that already cost somebody an afternoon, and
    [`adr/README.md`](adr/README.md) for the decisions and why they went that way.
 
+A word you do not know: the domain language is in
+[`../CONTEXT.md`](../CONTEXT.md), the engineering vocabulary in
+[`glossary.md`](glossary.md).
+
 ## Where things live
 
 | Directory | What lives there | Go there when |
@@ -34,6 +38,7 @@ with. See the [root README](../README.md) for what Grid is, and
 | [`ux/`](ux/) | UX playbooks: visual evidence, file explorer, motion on the public site ([`ux/motion.md`](ux/motion.md)) | You are adding a user-visible component, or animating anything on the site |
 | [`product/`](product/) | Vision, positioning, long-form writing, the public site's audiences and keyword map ([`website-conversion-and-seo.md`](product/website-conversion-and-seo.md), the SEO/GEO audit [`seo-geo-audit-2026-09.md`](product/seo-geo-audit-2026-09.md)) | You want the why behind the roadmap, or you are writing for piloti.at |
 | [`roadmap/`](roadmap/) | Where this is going: the agentic workspace review, the artifact design of record, its product-perspective review, IFC, spatial reasoning, cross-project RAG; the continuous-improvement ledger ([`continuous-improvement-ledger.md`](roadmap/continuous-improvement-ledger.md)) is the loop's running state | You are scoping something that is not built yet |
+| [`observability/`](observability/) | **Langfuse is our observability platform and everything is observable in it** ([ADR-0089](adr/0089-langfuse-is-the-observability-platform-and-everything-is-observable.md)): the trace and score contract, the guide for analysts and the Fachbereich, the audit | You add a model call, a quality check or a surface, or you want to read how the product behaves |
 | [`audit/`](audit/) | Frozen run logs from past audit and feedback-triage loops | You are tracing where a finding or a spec's evidence came from |
 | [`compliance/`](compliance/) | Audits and external dependency review | You are answering a compliance question |
 | [`superpowers/`](superpowers/) | Plans and specs from individual pieces of work. A spec here can be the design of record — [agent-authored documents](superpowers/specs/2026-08-20-agent-authored-documents-design.md) is marked **built** and is current | You need the design behind a shipped change, or you are reconstructing its history |
@@ -53,11 +58,11 @@ Start with [`system-overview.md`](architecture/system-overview.md), then
 | Knowledge and retrieval | [`agent-document-provenance.md`](architecture/agent-document-provenance.md), [`rag-system-audit-2026-08.md`](architecture/rag-system-audit-2026-08.md), [`visual-ingestion.md`](architecture/visual-ingestion.md), [`visual-extraction-schema.md`](architecture/visual-extraction-schema.md), [`citation-system-audit-2026-07.md`](architecture/citation-system-audit-2026-07.md), [`quote-verification-calibration-2026-07.md`](architecture/quote-verification-calibration-2026-07.md). Why there is no meta-vs-research split any more: [ADR-0052](adr/0052-one-answering-agent-no-intent-router.md) |
 | Memory | [`project-memory-design.md`](architecture/project-memory-design.md), [`memory-system-audit-2026-07.md`](architecture/memory-system-audit-2026-07.md), [`memory-reflection-audit.md`](architecture/memory-reflection-audit.md), [`post-answer-stages.md`](architecture/post-answer-stages.md) |
 | Failure learning | [`platform-failure-learning.md`](architecture/platform-failure-learning.md), [`semantic-notes.md`](architecture/semantic-notes.md) |
-| Agent surface | [`cards.md`](architecture/cards.md), [`agent-skills.md`](architecture/agent-skills.md), [`llm-providers.md`](architecture/llm-providers.md), [`org-model-configuration.md`](architecture/org-model-configuration.md). What a turn's instructions may and may not do, and which constraint sits in which layer: [`hobble-register-2026-09.md`](architecture/hobble-register-2026-09.md), [ADR-0060](adr/0060-three-instruction-layers-and-tools-that-answer.md). Where a turn spends its LLM calls, and what takes them out — cards in the envelope, speculative retrieval, a decision model (Jev) where it adds and never withholds: [`turns-per-answer-audit-2026-09.md`](architecture/turns-per-answer-audit-2026-09.md). Whether the verification repair should rewrite a whole answer the reader has already read: [`repair-pass-alternatives-2026-09.md`](architecture/repair-pass-alternatives-2026-09.md). Whether the answering prompt defines a good answer, and what current guidance says: [`prompt-audit-2026-09.md`](architecture/prompt-audit-2026-09.md). What a deep research report carries and the reader's lever over a run: [`deep-research-report.md`](architecture/deep-research-report.md) |
+| Agent surface | [`cards.md`](architecture/cards.md), how to add a tool or a data source: [`adding-a-tool.md`](architecture/adding-a-tool.md), [`agent-skills.md`](architecture/agent-skills.md), [`llm-providers.md`](architecture/llm-providers.md), [`org-model-configuration.md`](architecture/org-model-configuration.md). What a turn's instructions may and may not do, and which constraint sits in which layer: [`hobble-register-2026-09.md`](architecture/hobble-register-2026-09.md), [ADR-0060](adr/0060-three-instruction-layers-and-tools-that-answer.md). Where a turn spends its LLM calls, and what takes them out — cards in the envelope, speculative retrieval, a decision model (Jev) where it adds and never withholds: [`turns-per-answer-audit-2026-09.md`](architecture/turns-per-answer-audit-2026-09.md). Whether the verification repair should rewrite a whole answer the reader has already read: [`repair-pass-alternatives-2026-09.md`](architecture/repair-pass-alternatives-2026-09.md). Whether the answering prompt defines a good answer, and what current guidance says: [`prompt-audit-2026-09.md`](architecture/prompt-audit-2026-09.md). What a deep research report carries and the reader's lever over a run: [`deep-research-report.md`](architecture/deep-research-report.md) |
 | Collaboration and lifecycle | [`collaboration-lifecycle.md`](architecture/collaboration-lifecycle.md), [`adding-a-shareable-resource-type.md`](architecture/adding-a-shareable-resource-type.md), [`deletion-pipeline.md`](architecture/deletion-pipeline.md) |
 | Scale and cost | [`latency-and-caching-audit-2026-09.md`](architecture/latency-and-caching-audit-2026-09.md), where a chat turn's seconds measurably go and what effort, search rounds and startup cost: [`turn-latency-measured-2026-09.md`](architecture/turn-latency-measured-2026-09.md), [`scaling-review-2026-07.md`](architecture/scaling-review-2026-07.md), [`scaling-review-2026-07-phase2.md`](architecture/scaling-review-2026-07-phase2.md), [`rate-limiting-and-load-protection.md`](architecture/rate-limiting-and-load-protection.md), [`usage-budgets.md`](architecture/usage-budgets.md) |
 | Reach | [`country-extensibility.md`](architecture/country-extensibility.md), [`backend-message-localization.md`](architecture/backend-message-localization.md) |
-| Surfaces | [`design/grid-design-language.md`](design/grid-design-language.md), [`design/run-block.md`](design/run-block.md) (what a run looks like in the thread, and how its moves are ordered), [`design/streaming-chat-answer.md`](design/streaming-chat-answer.md), the chat wire being rebuilt on typed events: [`design/chat-wire-v2.md`](design/chat-wire-v2.md), which drawing an answer carries and when: [`design/answer-visuals.md`](design/answer-visuals.md), how rich an answer gets and the block dialect behind it: [`design/answer-richness.md`](design/answer-richness.md), how a diagram is read and drawn: [`architecture/diagrams.md`](architecture/diagrams.md), [`design/project-surfaces.md`](design/project-surfaces.md), [`design/grid-card-charter.md`](design/grid-card-charter.md) |
+| Surfaces | [`design/grid-design-language.md`](design/grid-design-language.md), [`design/run-block.md`](design/run-block.md) (what a run looks like in the thread, and how its moves are ordered), [`design/streaming-chat-answer.md`](design/streaming-chat-answer.md) and every phase and edge of a turn with its fixture and check: [`design/lifecycles/chat-turn.md`](design/lifecycles/chat-turn.md), the chat wire being rebuilt on typed events: [`design/chat-wire-v2.md`](design/chat-wire-v2.md), which drawing an answer carries and when: [`design/answer-visuals.md`](design/answer-visuals.md), how rich an answer gets and the block dialect behind it: [`design/answer-richness.md`](design/answer-richness.md), how a diagram is read and drawn: [`architecture/diagrams.md`](architecture/diagrams.md), [`design/project-surfaces.md`](design/project-surfaces.md), [`design/grid-card-charter.md`](design/grid-card-charter.md) |
 
 ## Working practices
 
@@ -66,14 +71,17 @@ Index: [`contributing/README.md`](contributing/README.md).
 | File | Description |
 |---|---|
 | [Working style](contributing/working-style.md) | The cases behind each working-style rule in `AGENTS.md` |
+| [Definition of done](contributing/definition-of-done.md) | The evidence a change needs before anyone calls it done, and the closing checklist |
 | [Testing and verification](contributing/testing-and-verification.md) | `task verify` as the merge gate, CI's sharding, the security stack, visual evidence |
 | [Code conventions](contributing/code-conventions.md) | The `any` ban, coercing raw `sql<T>`, where shared helpers belong, capability doctrine |
 | [Release notes](contributing/release-notes.md) | reno, what makes a note customer copy, publishing |
 | [Gotchas](contributing/gotchas.md) | Known failures by symptom. Read before debugging a surprise |
 | [Agent onboarding files](contributing/agent-onboarding-files.md) | What `AGENTS.md` and its `CLAUDE.md` bridge are for, and which rules belong where |
-| [Agent skills](contributing/agent-skills.md) | How `.claude/` is generated and which skills are installed |
+| [Agent skills](contributing/agent-skills.md) | When a procedure is a skill rather than a document, how `.claude/` is generated, which skills are installed |
+| [Lifecycle matrix](contributing/lifecycle-matrix.md) | Every phase and edge of a very heavy surface with its fixture and check; instances in [`design/lifecycles/`](design/lifecycles/README.md) |
 | [Correction ratchet](contributing/correction-ratchet.md) | Closing the layer that allowed an error |
 | [Documentation obligations](contributing/documentation.md) | Which doc to update for which change |
+| [Lint evaluation](contributing/lint-evaluation.md) | Why the UI lints with oxlint, not ESLint or Biome, and what that cost |
 
 ## User guides
 
@@ -82,6 +90,8 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Chat](user-guides/chat.md) | Chat interface, conversation workflows, data source toggles |
 | [Projects](user-guides/projects.md) | Organizing documents and chats into projects with access control |
 | [Documents](user-guides/documents.md) | Uploading, tracking, and downloading documents through the UI |
+| [The download log](user-guides/download-log.md) | Who downloaded which document and who opened one in a folder with its own access list: what is recorded and why, 12 months at most, who sees it, and the works-council note for Austria and Germany |
+| [Sensitive data, quarantine and folder access](user-guides/sensitive-data-and-access.md) | The office's sensitive-data list, the quarantine, the upload summary, the office's own roles, and restricting a folder to them |
 | [Reports Piloti Writes](user-guides/agent-authored-reports.md) | Where a deep-research report is filed, how it is marked as machine-written, why it stays out of the knowledge base, and who is responsible for it |
 | [Knowledge Search](user-guides/knowledge-search.md) | How the AI searches OIB knowledge base and uploaded documents |
 | [Keyboard Shortcuts](user-guides/keyboard-shortcuts.md) | The command palette, `g …` section jumps, composer keys, and the two gates that enable them |
@@ -101,6 +111,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Document Ingestion](technical-reference/document-ingestion.md) | SeaweedFS upload, `/v1/ingest`, chunking, embedding, ChromaDB |
 | [OIB Sync](technical-reference/oib-sync.md) | Incremental OIB PDF ingestion with a SHA-256 hash registry |
 | [WebSocket Gateway](technical-reference/websocket-gateway.md) | Gateway proxy, scope resolution, auth forwarding |
+| [Answer-feedback export](technical-reference/answer-feedback-export.md) | The votes workbook and CSV: scope, sheets, every column and where it comes from |
 | [BFF Proxy Pattern](technical-reference/bff-proxy-pattern.md) | Auth, scope injection, error handling, SSE passthrough |
 | [Projects Access Control](technical-reference/projects-access-control.md) | WorkOS FGA project permissions |
 | [UI Layout & Providers](technical-reference/ui-layout-providers.md) | App Router structure, providers, panel system, store |
