@@ -32,7 +32,6 @@ dependencies:
     - ./skills/aiq-customize-prompts-models
     - ./skills/aiq-deploy
     - ./skills/aiq-piloti-riso
-    - ./skills/aiq-maintain-ci
     - ./skills/aiq-research
 
     # Writing documents an agent consumes: skills, AGENTS.md, CLAUDE.md.

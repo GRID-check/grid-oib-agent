@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-10-09T10:01:00.347626+00:00'
+generated_at: '2026-10-09T10:02:06.729689+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -150,24 +150,6 @@ dependencies:
     .claude/skills/aiq-deploy/skill.oms.sig: sha256:b64a14efd045e703d643d31473464ba051244df1134c553f90a7195598dfcc72
   source: local
   local_path: ./skills/aiq-deploy
-- repo_url: _local/aiq-maintain-ci
-  name: aiq-maintain-ci
-  version: 0.0.0
-  package_type: claude_skill
-  deployed_files:
-  - .agents/skills/aiq-maintain-ci
-  - .agents/skills/aiq-maintain-ci/SKILL.md
-  - .agents/skills/aiq-maintain-ci/references/workflows-and-hooks.md
-  - .claude/skills/aiq-maintain-ci
-  - .claude/skills/aiq-maintain-ci/SKILL.md
-  - .claude/skills/aiq-maintain-ci/references/workflows-and-hooks.md
-  deployed_file_hashes:
-    .agents/skills/aiq-maintain-ci/SKILL.md: sha256:672a80dfb106bdc6e6cd54660c993c24ef98d490af974c146ca7a4926c9cf9fb
-    .agents/skills/aiq-maintain-ci/references/workflows-and-hooks.md: sha256:b2a53ca755b7ca18655ae89bc8829d71f72ddddfdda467936de1bbbe8e819bb4
-    .claude/skills/aiq-maintain-ci/SKILL.md: sha256:672a80dfb106bdc6e6cd54660c993c24ef98d490af974c146ca7a4926c9cf9fb
-    .claude/skills/aiq-maintain-ci/references/workflows-and-hooks.md: sha256:b2a53ca755b7ca18655ae89bc8829d71f72ddddfdda467936de1bbbe8e819bb4
-  source: local
-  local_path: ./skills/aiq-maintain-ci
 - repo_url: _local/aiq-piloti-riso
   name: aiq-piloti-riso
   version: 0.0.0
@@ -920,33 +902,6 @@ deployments:
   - ./skills/aiq-deploy
   active_owner: ./skills/aiq-deploy
   content_hash: sha256:b64a14efd045e703d643d31473464ba051244df1134c553f90a7195598dfcc72
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-maintain-ci
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-maintain-ci
-  active_owner: ./skills/aiq-maintain-ci
-  content_hash: null
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-maintain-ci/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-maintain-ci
-  active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:672a80dfb106bdc6e6cd54660c993c24ef98d490af974c146ca7a4926c9cf9fb
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-maintain-ci/references/workflows-and-hooks.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-maintain-ci
-  active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:b2a53ca755b7ca18655ae89bc8829d71f72ddddfdda467936de1bbbe8e819bb4
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-piloti-riso
@@ -1883,33 +1838,6 @@ deployments:
   - ./skills/aiq-deploy
   active_owner: ./skills/aiq-deploy
   content_hash: sha256:b64a14efd045e703d643d31473464ba051244df1134c553f90a7195598dfcc72
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-maintain-ci
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-maintain-ci
-  active_owner: ./skills/aiq-maintain-ci
-  content_hash: null
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-maintain-ci/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-maintain-ci
-  active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:672a80dfb106bdc6e6cd54660c993c24ef98d490af974c146ca7a4926c9cf9fb
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-maintain-ci/references/workflows-and-hooks.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-maintain-ci
-  active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:b2a53ca755b7ca18655ae89bc8829d71f72ddddfdda467936de1bbbe8e819bb4
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-piloti-riso
