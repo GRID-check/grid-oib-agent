@@ -1272,6 +1272,10 @@
     "de": "Ladeansichten springen nicht mehr, wenn die tatsächlichen Inhalte geladen werden, Fehlermeldungen sind klar als solche erkennbar, und Status-Chips, Suchfelder und Viewer-Panels werden im hellen und dunklen Modus konsistent dargestellt."
   },
   {
+    "en": "Long answers and long tables stream without slowing down. Reading them used to take more time with every line written, which could hold up other chats on the same server while one long reply was being written.",
+    "de": "Lange Antworten und Tabellen werden ohne Verzögerung gestreamt. Bisher dauerte das Lesen mit jeder geschriebenen Zeile länger, wodurch andere Chats auf demselben Server aufgehalten werden konnten, während eine lange Antwort erstellt wurde."
+  },
+  {
     "en": "Long deep research reports can be downloaded as PDF again. If an export still fails, the message gives the reason.",
     "de": "Lange Berichte der Tiefenrecherche lassen sich wieder als PDF herunterladen. Scheitert ein Export doch, nennt die Meldung den Grund."
   },
