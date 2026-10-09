@@ -27,8 +27,9 @@
 import Link from 'next/link'
 import { BarChart3, BookOpenCheck } from 'lucide-react'
 import { useMemo } from 'react'
-import type { ProjectOverviewData } from '../types'
+import type { FolderWithoutRole, ProjectOverviewData } from '../types'
 import { ApplicableStandards } from './applicable-standards'
+import { FoldersWithoutRole } from './folders-without-role'
 import { ProjectBrief } from './project-brief'
 import { ProjectDangerZone } from './project-danger-zone'
 import { ProjectInboundMailCard } from './project-inbound-mail-card'
@@ -36,6 +37,7 @@ import { ProjectMemoryPanel } from './project-memory-panel'
 import { ProjectReindexCard } from './project-reindex-card'
 import { ProjectRenameButton } from './project-rename-button'
 import { ProjectMembersForm } from '@/components/projects/project-members-form'
+import { UploadHistory } from '@/features/uploads/components/upload-history'
 import { ProjectSectionActions } from '@/components/shell/project-section-frame'
 import { Stagger, StaggerItem } from '@/components/motion'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -45,6 +47,11 @@ import { useLocale, useTranslations } from '@/i18n'
 
 interface ProjectSettingsProps {
   data: ProjectOverviewData
+  /**
+   * Folders whose roles were deleted since (ADR-0088), for a project manager;
+   * empty or omitted shows nothing.
+   */
+  foldersWithoutRole?: readonly FolderWithoutRole[]
   /**
    * Whether the current user manages the project (project:manage). Gates the
    * rename affordance, member management, the danger zone and the brief's
@@ -66,16 +73,24 @@ interface ProjectSettingsProps {
    * roster and guard against self-lockout. `null`/omitted when unknown.
    */
   currentMembershipId?: string | null
+  /**
+   * The signed-in user's id, so the upload history can link the reader's own
+   * uploads to their summaries (the summary is its uploader's only).
+   */
+  currentUserId?: string | null
 }
 
 export function ProjectSettings({
   data,
+  foldersWithoutRole = [],
   canManageProject = false,
   canWriteDocuments = false,
   showKnowledgeLink = false,
   currentMembershipId = null,
+  currentUserId = null,
 }: ProjectSettingsProps) {
   const t = useTranslations('settings')
+  const tUploads = useTranslations('uploadBatches')
   const { locale } = useLocale()
   const dateFormatter = useMemo(
     () => new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }),
@@ -122,6 +137,13 @@ export function ProjectSettings({
           )}
         </div>
       </StaggerItem>
+
+      {/* Folders left without a valid role: only here, only when there are any. */}
+      {foldersWithoutRole.length > 0 && (
+        <StaggerItem>
+          <FoldersWithoutRole projectId={data.id} folders={foldersWithoutRole} />
+        </StaggerItem>
+      )}
 
       {/* Top grid, the dummy's card chrome: the single project-profile card
           (left) beside the honest Insights card (right). The profile is the
@@ -199,6 +221,21 @@ export function ProjectSettings({
           <ProjectInboundMailCard projectId={data.id} />
         </StaggerItem>
       )}
+
+      {/* Uploads — who brought how many files in when, and how they ended
+          (ADR-0086, ticket „Verlauf/Protokoll"). Read-only reference beside
+          the roster; each uploader's own rows open their summary. */}
+      <StaggerItem>
+        <section aria-label={tUploads('history.title')} className="space-y-4">
+          <div className="space-y-1">
+            <h2 className="text-foreground text-sm font-semibold">{tUploads('history.title')}</h2>
+            <p className="text-muted-foreground max-w-2xl text-sm leading-relaxed">
+              {tUploads('history.description')}
+            </p>
+          </div>
+          <UploadHistory projectId={data.id} currentUserId={currentUserId} />
+        </section>
+      </StaggerItem>
 
       {/* Project memory — what Piloti has learned about this project, user-curated. */}
       <StaggerItem>

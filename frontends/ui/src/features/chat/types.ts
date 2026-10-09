@@ -25,6 +25,7 @@ import type { InteractionSlice } from './stores/interaction-store'
 
 import type { Shelf, SourceKind } from './lib/source-kinds'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
+import type { ChatEffort } from '@/lib/reasoning-settings/catalog'
 
 /** Message role types */
 export type MessageRole = 'user' | 'assistant' | 'system'
@@ -102,6 +103,8 @@ export type ErrorCode =
   // Agent errors
   | 'agent.response_failed'
   | 'agent.response_interrupted'
+  // The server never acknowledged the question, not even on a second socket.
+  | 'agent.no_response'
   | 'agent.workflow_error'
   // The provider refused under the org's zero-data-retention policy: the model
   // has no ZDR endpoint. Not retryable until an admin picks a ZDR model.
@@ -301,6 +304,15 @@ export interface ChatMessage {
    */
   answerDurationMs?: number
   /**
+   * The Aufwand this answer's turn ran at: the level the asker's browser put on
+   * the `user_message`, per-turn override included. Recorded because the dial
+   * moves after the answer, and "Gründlicher neu beantworten" must step up
+   * from what THIS answer ran at, not from what the dial says now. Absent on
+   * turns the asking browser did not open (a colleague's, a resumed one) and
+   * on rows stored before it was recorded.
+   */
+  reasoningEffort?: ChatEffort
+  /**
    * Citation-verification result: how many citations were removed as
    * unverifiable, with de-duplicated reasons. Renders a muted note under the
    * sources row when present.
@@ -385,6 +397,13 @@ export interface ChatMessage {
    */
   stopped?: true
   /**
+   * The turn failed (`RUN_ERROR`) after this much of the answer was written.
+   * Kept on screen, dimmed, above the error card, so the words the reader was
+   * on are not deleted under them. Local only: nothing persisted it, so a
+   * reload shows the error card alone, and a retry removes it.
+   */
+  failed?: true
+  /**
    * What a POST-ANSWER STAGE computed for this turn, arriving after the answer
    * (`docs/architecture/post-answer-stages.md` §4.3).
    *
@@ -427,6 +446,13 @@ export interface Conversation {
   messages: ChatMessage[]
   createdAt: Date
   updatedAt: Date
+  /**
+   * The person may no longer read what this chat drew on (ADR-0088). The server
+   * sent no title and the store holds no messages for it; the UI shows a neutral
+   * title and "you no longer have the rights". Set by the list and by a 403
+   * `RESOURCE_RIGHTS_LOST`, cleared by the next list that says otherwise.
+   */
+  contentLocked?: boolean
   /** Per-session enabled data source IDs (persisted across refresh) */
   enabledDataSourceIds?: string[]
 }

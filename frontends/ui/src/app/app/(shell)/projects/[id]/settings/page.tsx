@@ -6,6 +6,8 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { can } from '@/lib/authz/decide'
 import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
+import { getHiddenFolderIds } from '@/lib/authz/folder-access'
+import { listFoldersWithoutValidRole } from '@/lib/projects/folder-access-settings'
 import { ProjectSettings } from '@/features/projects/components/project-settings'
 import { getTranslations } from '@/i18n/server'
 
@@ -40,7 +42,9 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
     // `project:memory:write`", and that caller may not see the mail address.
     const project = { type: 'project', id } as const
     const [data, writesDocuments, editsProject] = await Promise.all([
-      getProjectOverviewData(id, session.organizationId),
+      getHiddenFolderIds(session, id).then((hiddenFolderIds) =>
+        getProjectOverviewData(id, session.organizationId, { hiddenFolderIds })
+      ),
       can(session, 'project:documents:write', project),
       can(session, 'project:edit', project),
     ])
@@ -48,10 +52,16 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
       notFound()
     }
 
+    const canManageProject = role === 'project-admin'
+    // Folders whose roles were deleted since (ADR-0088). Asked only of a
+    // project manager, who is the one who can set a role again.
+    const foldersWithoutRole = canManageProject ? await listFoldersWithoutValidRole(session, id) : []
+
     return (
       <ProjectSettings
         data={data}
-        canManageProject={role === 'project-admin'}
+        foldersWithoutRole={foldersWithoutRole}
+        canManageProject={canManageProject}
         canWriteDocuments={writesDocuments || editsProject}
         // Knowledge left the top-level nav (spec §5) but stays reachable from
         // Settings while its feature flag is on.
@@ -60,6 +70,8 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
         // GridSession/AuthorizedSession) — lets the members form recognize the
         // signed-in user's own row and guard against self-lockout.
         currentMembershipId={session.organizationMembershipId}
+        // The upload history links the reader's own uploads to their summaries.
+        currentUserId={session.userId}
       />
     )
   })

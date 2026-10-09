@@ -26,6 +26,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from dataclasses import field
+from typing import Any
 
 from aiq_agent.common.cost_tracking import USAGE_ROLE_INGEST_TRANSCRIPTION
 
@@ -305,6 +306,10 @@ def _merge_transcriptions(
     return kept
 
 
+#: ``route_pdf_pages`` measures the PDF itself unless handed a triage.
+_UNMEASURED: Any = object()
+
+
 def route_pdf_pages(
     pdf_path: str,
     text_pages: list[dict],
@@ -318,6 +323,7 @@ def route_pdf_pages(
     max_ocr_pages: int,
     max_dim: int,
     workers: int | None = None,
+    triage: Any = _UNMEASURED,
 ) -> PageRoutes:
     """Triage every page, transcribe the scanned and garbled ones, merge them into ``text_pages``.
 
@@ -326,11 +332,16 @@ def route_pdf_pages(
     an untranscribed garbled page keeps its salvageable text
     (``garbled_kept``). Without a vision key nothing is transcribed and the pages are
     counted in ``not_transcribed``; the caller decides whether the file stands.
+    ``triage`` is the caller's ``page_triage.triage_pdf`` result for these
+    same ``page_texts`` when it measured the PDF already (the upload screen
+    does, to know which pages it could not read); ``None`` there means
+    unmeasurable, as it does from ``triage_pdf``.
     """
     from knowledge_layer.llamaindex import page_triage
     from knowledge_layer.llamaindex import processing as _processing
 
-    triage = page_triage.triage_pdf(pdf_path, page_texts, min_text_chars=min_text_chars, min_paths=min_paths)
+    if triage is _UNMEASURED:
+        triage = page_triage.triage_pdf(pdf_path, page_texts, min_text_chars=min_text_chars, min_paths=min_paths)
     garbled = {n for n, text in page_texts.items() if page_triage.text_quality(text).garbled}
     if triage is None:
         # pdfium cannot open the file, so nothing can be rendered: the glyph

@@ -31,6 +31,7 @@ const REASON_KEYS: Record<SkipReason, string> = {
   limit: 'limit',
   type: 'type',
   size: 'size',
+  screened: 'screened',
   quota: 'quota',
 }
 

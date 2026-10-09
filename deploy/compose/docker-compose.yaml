@@ -601,7 +601,7 @@ services:
     environment: &frontend-environment
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
       # The commit this deployment is running. Stamped into the image as a
-      # build arg by publish-images.yml, so it is normally already set inside
+      # build arg by CI's image build, so it is normally already set inside
       # the container and this line only matters for a locally built or
       # hand-tagged image. It appears in the `[boot]` log line and on the health
       # endpoints, and it is what makes a pilot report nameable.
@@ -706,7 +706,7 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
       - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
       # The commit this deployment is running. Stamped into the image as a
-      # build arg by publish-images.yml, so it is normally already set inside
+      # build arg by CI's image build, so it is normally already set inside
       # the container and this line only matters for a locally built or
       # hand-tagged image. It appears in the `[boot]` log line and on the health
       # endpoints, and it is what makes a pilot report nameable.
@@ -1223,7 +1223,9 @@ services:
     # v4 with its default write mode, events_only: a local volume left from v3
     # is cut over on first start. Local traces are disposable; the cluster
     # migrates in stages (kubernetes.md §9b, "Upgrading to Langfuse v4").
-    image: ghcr.io/langfuse/langfuse:4
+    # Pinned to the version the Pulumi digests carry (deploy/pulumi/src/config.ts);
+    # web and worker must stay on the same one, so bump the two lines together.
+    image: ghcr.io/langfuse/langfuse:4.56.0
     container_name: aiq-langfuse-web
     profiles: [langfuse]
     ports:
@@ -1291,7 +1293,7 @@ services:
     restart: unless-stopped
 
   langfuse-worker:
-    image: ghcr.io/langfuse/langfuse-worker:4
+    image: ghcr.io/langfuse/langfuse-worker:4.56.0
     container_name: aiq-langfuse-worker
     profiles: [langfuse]
     environment:

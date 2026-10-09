@@ -35,18 +35,19 @@
  *
  * ## What skips a file and what fails the attempt
  *
- * Only `type`, `size` (the organization's upload limit) and `quota` are
- * verdicts about the FILE and skip it, as they do for an imported mail.
- * Everything else, a 403 or 404 included (a folder deleted mid-run, an FGA
- * blip read as a denial), fails the attempt. A rate-limit refusal is a backoff
- * too, never a skip.
+ * Only `type`, `size` (the organization's upload limit), `screened` (the
+ * office's name screening, ADR-0086) and `quota` are verdicts about the FILE
+ * and skip it, as they do for an imported mail. Everything else, a 403 or 404
+ * included (a folder deleted or turned read-only mid-run, an FGA blip read as
+ * a denial), fails the attempt. A rate-limit refusal is a backoff too, never a
+ * skip.
  */
 
 import 'server-only'
 import { createHash } from 'node:crypto'
 import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { InboundMailMessageRow, SkippedAttachment, StagedAttachment } from '@/lib/db/schema'
+import type { InboundMailMessageRow, MailImportSkipReason, SkippedAttachment, StagedAttachment } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { resolveShelfFolderPath } from '@/lib/documents/folder-path'
 import { projectShelf } from '@/lib/documents/shelf'
@@ -59,7 +60,7 @@ import {
   createFolderWithFreeName,
   fileBytes,
   MailImportQuotaError,
-  projectCollectionName,
+  type AttachmentOutcome,
   type MailFilingTarget,
   type MailFolder,
 } from '@/lib/mail-import/filing'
@@ -245,7 +246,6 @@ async function fileDelivery(row: InboundMailMessageRow): Promise<Filing> {
   const target: MailFilingTarget = {
     session,
     projectId: row.projectId,
-    collectionName: await projectCollectionName(session, row.projectId),
     request: new Request(JOB_REQUEST_URL, { headers: { 'user-agent': 'piloti-inbound-mail' } }),
     priority: 'interactive',
     audit: { channel: 'inbound-mail', ref: row.id },
@@ -311,13 +311,24 @@ async function fileOne(
     throw new AttemptFailure('staged-digest-mismatch')
   }
   const desired = attachmentFilename(folder.name, object.filename)
+  let outcome: AttachmentOutcome
   try {
-    const outcome = await fileBytes(target, folder.id, desired, bytes, object.contentType, claimed)
-    return outcome.filed ? null : outcome.reason === 'size' ? 'size' : 'type'
+    outcome = await fileBytes(target, folder.id, desired, bytes, object.contentType, claimed)
   } catch (error) {
     if (error instanceof MailImportQuotaError) return 'quota'
     throw error
   }
+  return outcome.filed ? null : skipReasonOf(outcome.reason)
+}
+
+/**
+ * A refusal of the upload path as the sender's skip reason. A read-only folder
+ * (ADR-0088) and a name taken between the probe and the upload (ADR-0087) are
+ * not about the file: they fail the attempt, and the retry decides again.
+ */
+function skipReasonOf(reason: MailImportSkipReason): SkipReason {
+  if (reason === 'type' || reason === 'size' || reason === 'screened') return reason
+  throw new AttemptFailure(`upload-refused-${reason}`)
 }
 
 // ---------------------------------------------------------------------------

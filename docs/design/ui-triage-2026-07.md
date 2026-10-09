@@ -94,9 +94,11 @@ documented `text-xl` title-size question becomes a single knob.
   add an `onRetry` wired to a last-user-message resend.
 - **[backlog] P1 · Empty state has a greeting but no example questions**;
   **ungrounded answers hide their lack of sources** (render an honest
-  `--source-auto` gap row); **composer fully disabled while busy** (allow
-  drafting, gate only send); **`AgentPrompt` still uses old bubble anatomy**;
+  `--source-auto` gap row); **`AgentPrompt` still uses old bubble anatomy**;
   two source-chip vocabularies; `SIGNAL_ICON` defined 3×.
+- **[done] P1 · Composer fully disabled while busy** — during the reader's own
+  turn the field stays live for the follow-up and only the send waits
+  (`canDraft` in `composer-capabilities.ts`, 2026-10).
 - **[backlog] componentization** · `AgentResponse` inline/default variants
   duplicate ~130 lines → `AnswerBody`/`ViewReportButton`/`AnswerProvenanceFooter`;
   `ChatArea` per-turn derivation → `useTurnState`.

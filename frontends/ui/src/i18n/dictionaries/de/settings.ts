@@ -39,6 +39,12 @@ export const settings: typeof en.settings = {
       notProvided: 'Nicht angegeben',
       edit: 'Angaben bearbeiten',
     },
+    foldersWithoutRole: {
+      title: 'Ordner ohne gültige Rolle',
+      description:
+        'Die Zugriffsliste dieser Ordner nennt nur Rollen, die es nicht mehr gibt. Bis dort eine gültige Rolle eingetragen ist, können nur Organisations-Admins sie lesen.',
+      open: 'Ordner „{name}“ öffnen',
+    },
     sections: {
       parameters: 'Projektparameter',
       members: 'Mitglieder',

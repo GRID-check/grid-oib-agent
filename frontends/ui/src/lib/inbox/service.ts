@@ -77,6 +77,24 @@ interface InboxEmissionOf<T extends InboxItemType> {
   payload?: InboxPayload<T>
 }
 
+/** Split rows into waves in which no (recipient, group key) repeats, keeping their order. */
+export function upsertWaves<T extends { recipientUserId: string; groupKey: string }>(rows: readonly T[]): T[][] {
+  const waves: T[][] = []
+  const seenByWave: Array<Set<string>> = []
+  for (const row of rows) {
+    const key = `${row.recipientUserId}\u0000${row.groupKey}`
+    let index = seenByWave.findIndex((seen) => !seen.has(key))
+    if (index < 0) {
+      index = waves.length
+      waves.push([])
+      seenByWave.push(new Set())
+    }
+    waves[index].push(row)
+    seenByWave[index].add(key)
+  }
+  return waves
+}
+
 /**
  * One notification to create. `groupKey` decides grouping/dedup/idempotency —
  * build it with the registry's helper rather than by hand. A union over the
@@ -116,7 +134,13 @@ export async function emitInboxItems(emissions: InboxEmission[]): Promise<number
 
   if (rows.length === 0) return 0
 
-  const inserted = await upsertInboxItems(rows)
+  // One upsert per wave of distinct (recipient, group) keys. Postgres refuses
+  // an INSERT … ON CONFLICT DO UPDATE that touches the same row twice, so two
+  // emissions that fold into one row — two files quarantined in one settle —
+  // used to fail the whole call. Successive waves fold them one at a time, so
+  // the row's count still says two.
+  const inserted = []
+  for (const wave of upsertWaves(rows)) inserted.push(...(await upsertInboxItems(wave)))
 
   // Badge nudge per recipient. Publishing is fail-open by construction, and the
   // badge is re-read from Postgres anyway, so a miss costs latency only.

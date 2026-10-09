@@ -28,7 +28,6 @@ vi.mock('@/lib/mail-import/filing', () => ({
   MailImportQuotaError: class MailImportQuotaError extends Error {},
   createFolderWithFreeName: vi.fn(),
   fileBytes: vi.fn(),
-  projectCollectionName: vi.fn(async () => 'coll_a'),
 }))
 vi.mock('@/lib/documents/shelf', () => ({ projectShelf: (projectId: string) => ({ kind: 'project', projectId }) }))
 vi.mock('@/lib/documents/shelf-authz', () => ({ requireShelfWrite: vi.fn() }))
@@ -156,7 +155,11 @@ beforeEach(() => {
   vi.mocked(readStagedObject).mockImplementation(async (_bucket, key) =>
     bytesOf(key.endsWith('/1') ? 'Plan.pdf' : 'Statik.pdf')
   )
-  vi.mocked(fileBytes).mockImplementation(async (_target, _folder, desired) => ({ filed: true, filename: desired }))
+  vi.mocked(fileBytes).mockImplementation(async (_target, _folder, desired) => ({
+    filed: true,
+    filename: desired,
+    unchanged: false,
+  }))
   vi.mocked(deleteStagedObjects).mockResolvedValue([])
   for (const fenced of [touchDelivery, recordDeliveryFolder, recordFailedAttempt, markDeliveryFiled, markDeliveryFailed]) {
     vi.mocked(fenced).mockResolvedValue(true)
@@ -179,7 +182,6 @@ describe('filing one delivery', () => {
       expect(target).toMatchObject({
         session: anna,
         projectId: PROJECT,
-        collectionName: 'coll_a',
         priority: 'interactive',
         audit: { channel: 'inbound-mail', ref: ROW_ID },
       })
@@ -247,7 +249,7 @@ describe('filing one delivery', () => {
     expect(notifyFiled).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ filed: 0 }))
   })
 
-  it('skips a file only for its type, its size over the organization limit, and a full quota', async () => {
+  it('skips a file only for its type, its size over the organization limit, the name screening and a full quota', async () => {
     vi.mocked(fileBytes)
       .mockResolvedValueOnce({ filed: false, reason: 'size' })
       .mockRejectedValueOnce(new MailImportQuotaError())
@@ -263,6 +265,9 @@ describe('filing one delivery', () => {
     vi.mocked(fileBytes).mockResolvedValueOnce({ filed: false, reason: 'type' })
     await run()
     expect(vi.mocked(markDeliveryFiled).mock.calls[1][2].skipped[1]).toEqual({ filename: 'Plan.pdf', reason: 'type' })
+    vi.mocked(fileBytes).mockResolvedValueOnce({ filed: false, reason: 'screened' })
+    await run()
+    expect(vi.mocked(markDeliveryFiled).mock.calls[2][2].skipped[1]).toEqual({ filename: 'Plan.pdf', reason: 'screened' })
   })
 
   it('does nothing for a delivery that is no longer queued', async () => {
@@ -286,6 +291,15 @@ describe('a failed attempt', () => {
     expect(markDeliveryFiled).not.toHaveBeenCalled()
     expect(deleteStagedObjects).not.toHaveBeenCalled()
     expect(notifyFiled).not.toHaveBeenCalled()
+  })
+
+  it('retries a folder turned read-only and a name taken after the probe: neither is about the file', async () => {
+    for (const reason of ['access', 'name_taken'] as const) {
+      vi.mocked(fileBytes).mockResolvedValueOnce({ filed: false, reason })
+      expect(await run()).toBe('retried')
+      expect(recordFailedAttempt).toHaveBeenLastCalledWith('org_A', ROW_ID, 1, `upload-refused-${reason}`)
+    }
+    expect(markDeliveryFiled).not.toHaveBeenCalled()
   })
 
   it('retries a 403 and a transient authz error too', async () => {

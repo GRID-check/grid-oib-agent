@@ -10,7 +10,10 @@
  * Everything goes through the ordinary upload path as the person who started
  * the import, so the same type, size, quota and permission gates apply as when
  * they drop a file, and the audit trail names them. What a person could not
- * upload is skipped and named, never forced in.
+ * upload is skipped and named, never forced in. That includes the office's
+ * name screening (ADR-0086): the import never passes `screeningRelease`,
+ * because releasing a screened file is a person's decision about that file and
+ * a job cannot make it on their behalf.
  *
  * **Retry-safe by construction.** The job may die anywhere in here and run the
  * same mail again. The mail's folder is recorded (`markInflight`) the moment it
@@ -20,16 +23,24 @@
  * identical and it has finished indexing. Never a second document. Names are
  * chosen in attachment order with the names this mail already claimed set
  * aside, so a retry arrives at the same name for the same file.
+ *
+ * **Free across the whole project.** A project keeps one document per name
+ * across all its collections, and a folder with its own access list files into
+ * its own collection (ADR-0087). So a name is probed project-wide: one held
+ * anywhere but this mail's folder is passed over for ` (2)`, never superseded
+ * (which would re-file someone else's document into the mail) and never sent
+ * into the upload's cross-collection refusal.
  */
 
 import 'server-only'
-import { BadRequestError, FileTooLargeError, InsufficientStorageError, NotFoundError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, FileTooLargeError, ForbiddenError, InsufficientStorageError } from '@/lib/api/errors'
+import { FOLDER_READ_ONLY_REASON } from '@/lib/authz/folder-access-rule'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { MailImport, MailImportSkippedSample, MailImportSkipReason } from '@/lib/db/schema'
-import type { UploadAuditChannel } from '@/lib/documents/shelf-upload'
 import { resolveShelfFolderPath } from '@/lib/documents/folder-path'
+import type { UploadAuditChannel } from '@/lib/documents/shelf-upload'
 import { documentNameKey } from '@/lib/documents/name-match'
-import { findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { findLiveDocumentByFilename, findProjectCollectionsHoldingFilename } from '@/lib/documents/repository'
 import {
   assertFileSizeAllowed,
   assertUploadTypeAllowed,
@@ -37,9 +48,9 @@ import {
   type IngestPriority,
 } from '@/lib/documents/service'
 import { projectShelf } from '@/lib/documents/shelf'
-import { shelfCollectionName } from '@/lib/documents/shelf-collection'
 import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
 import { createProjectFolder, ensureProjectFolderPaths } from '@/lib/projects/folder-service'
+import { ScreenedUploadError } from '@/lib/upload-screening/service'
 import {
   AttachmentTooLargeError,
   AttachmentUnreadableError,
@@ -58,6 +69,7 @@ import {
   outlookFolderPath,
 } from './naming'
 import { markInflight } from './repository'
+import { importBatchWithRoom, type ImportBatch } from './upload-batch'
 
 /** Candidates tried for a taken name before the mail is given up on. */
 const MAX_NAME_ATTEMPTS = 50
@@ -90,7 +102,6 @@ export class MailImportQuotaError extends Error {
 export interface MailFilingTarget {
   session: AuthorizedSession
   projectId: string
-  collectionName: string
   /** For the audit trail's IP and user agent; a job has neither, so it names itself. */
   request: Request
   /** The ingest queue's priority for the files (see `ShelfUploadInput.priority`). */
@@ -108,6 +119,8 @@ export interface FilingContext extends MailFilingTarget {
   folders: Map<string, string>
   /** `Date.now()` past which no new attachment is started. */
   deadline: number
+  /** The upload batch every file is stamped with (`./upload-batch`); moves on when full. */
+  uploadBatch: ImportBatch
 }
 
 export interface FiledMail {
@@ -117,22 +130,17 @@ export interface FiledMail {
   skipped: MailImportSkippedSample[]
 }
 
-/** Build the context a slice files with; throws when the project has no collection. */
-export async function filingContext(
-  input: Omit<FilingContext, 'collectionName' | 'folders' | 'deadline' | 'projectId' | 'priority'> & {
-    deadline?: number
-  },
-): Promise<FilingContext> {
-  const { projectId } = input.mailImport
-  const collectionName = await projectCollectionName(input.session, projectId)
-  return { deadline: Number.POSITIVE_INFINITY, ...input, projectId, priority: 'bulk', collectionName, folders: new Map() }
-}
-
-/** The collection a project's documents are ingested into; throws when the project has none. */
-export async function projectCollectionName(session: AuthorizedSession, projectId: string): Promise<string> {
-  const collectionName = await shelfCollectionName(projectShelf(projectId), session.organizationId)
-  if (!collectionName) throw new NotFoundError('Project not found')
-  return collectionName
+/** Build the context a slice files with. */
+export function filingContext(
+  input: Omit<FilingContext, 'folders' | 'deadline' | 'projectId' | 'priority'> & { deadline?: number },
+): FilingContext {
+  return {
+    deadline: Number.POSITIVE_INFINITY,
+    ...input,
+    projectId: input.mailImport.projectId,
+    priority: 'bulk',
+    folders: new Map(),
+  }
 }
 
 /**
@@ -175,7 +183,7 @@ export async function fileMail(context: FilingContext, mail: ArchiveMail): Promi
     filedNames,
   )
   const noteName = noteFilename(folder.name)
-  const filedNote = await fileBytes(context, folder.id, noteName, new TextEncoder().encode(note), 'text/markdown', claimed)
+  const filedNote = await fileImported(context, folder.id, noteName, new TextEncoder().encode(note), 'text/markdown', claimed)
   if (!filedNote.filed) {
     result.filesSkipped += 1
     result.skipped.push({ mail: folder.name, file: noteName, reason: filedNote.reason })
@@ -200,11 +208,7 @@ async function mailFolder(context: FilingContext, mail: ArchiveMail): Promise<Ma
     if (path !== null) return { id: mailImport.inflightFolderId, name: path.split('/').pop() ?? path }
   }
   const parentId = await outlookFolder(context, mail.folder_path)
-  const folder = await createFolderWithFreeName(
-    context,
-    parentId,
-    mailFolderName(mail.sent_at ?? mail.received_at, mail.sender),
-  )
+  const folder = await createFolderWithFreeName(context, parentId, mailFolderName(mail.sent_at ?? mail.received_at, mail.sender))
   // Fenced: a slice that is no longer the import's (cancelled, or another
   // slice moved the cursor) must not file into the folder it just made.
   if (!(await markInflight(session.organizationId, mailImport.id, mail.position, folder.id))) {
@@ -245,7 +249,9 @@ export async function createFolderWithFreeName(
   throw new Error(`no free folder name for ${name} after ${MAX_NAME_ATTEMPTS} attempts`)
 }
 
-type AttachmentOutcome = { filed: true; filename: string } | { filed: false; reason: MailImportSkipReason }
+export type AttachmentOutcome =
+  | { filed: true; filename: string; unchanged: boolean }
+  | { filed: false; reason: MailImportSkipReason }
 
 async function fileAttachment(
   context: FilingContext,
@@ -267,7 +273,7 @@ async function fileAttachment(
     if (error instanceof AttachmentUnreadableError) return { filed: false, reason: 'unreadable' }
     throw error
   }
-  return fileBytes(context, folder.id, desired, bytes, attachment.content_type ?? '', claimed)
+  return fileImported(context, folder.id, desired, bytes, attachment.content_type ?? '', claimed)
 }
 
 /** What the upload gates would refuse, asked before the bytes are fetched from the archive. */
@@ -292,19 +298,50 @@ async function refusalBeforeReading(
   return null
 }
 
-/** The skip a refusal of the upload path stands for, or null when `error` is not one. */
+/**
+ * The skip a refusal of the upload path stands for, or null when `error` is not
+ * one. Every refusal a retry would repeat belongs here: one left out is
+ * rethrown, the job retries the same mail until the import ends `stopped`.
+ */
 function refusalReason(error: unknown): MailImportSkipReason | null {
   if (error instanceof FileTooLargeError) return 'size'
   if (error instanceof BadRequestError) return 'type'
+  if (error instanceof ScreenedUploadError) return 'screened'
+  // A folder of the import's tree turned read-only for the person under it (ADR-0088).
+  if (error instanceof ForbiddenError && isFolderReadOnly(error.details)) return 'access'
+  // Another document took the name elsewhere in the project after the probe (ADR-0087).
+  if (error instanceof ConflictError) return 'name_taken'
   return null
+}
+
+function isFolderReadOnly(details: unknown): boolean {
+  return typeof details === 'object' && details !== null && 'reason' in details && details.reason === FOLDER_READ_ONLY_REASON
+}
+
+/**
+ * {@link fileBytes} for an import: stamped with the import's open upload batch
+ * (`./upload-batch`), which moves on to the next generation when full.
+ */
+async function fileImported(
+  context: FilingContext,
+  folderId: string,
+  desired: string,
+  bytes: Uint8Array,
+  contentType: string,
+  claimed: Set<string>,
+): Promise<AttachmentOutcome> {
+  context.uploadBatch = await importBatchWithRoom(context.session, context.mailImport, context.uploadBatch)
+  const outcome = await fileBytes(context, folderId, desired, bytes, contentType, claimed, context.uploadBatch.id)
+  // Unchanged bytes write nothing, so the document does not join the batch.
+  if (outcome.filed && !outcome.unchanged) context.uploadBatch.documents += 1
+  return outcome
 }
 
 /**
  * Upload `bytes` into the mail's folder under the first name free in the
- * project: the name used, or why the upload path refused the file (its type,
- * or its size against the organization's upload limit). A refusal is one a
- * retry would repeat, so it is a skip, not a failed slice. A full quota throws
- * {@link MailImportQuotaError}: no later file fits either.
+ * project: the name used, or why the upload path refused the file. A refusal
+ * is one a retry would repeat, so it is a skip, not a failed slice. A full
+ * quota throws {@link MailImportQuotaError}: no later file fits either.
  */
 export async function fileBytes(
   context: MailFilingTarget,
@@ -313,29 +350,32 @@ export async function fileBytes(
   bytes: Uint8Array,
   contentType: string,
   claimed: Set<string>,
+  uploadBatchId: string | null = null,
 ): Promise<AttachmentOutcome> {
   const filename = await freeFilename(context, folderId, desired, claimed)
   claimed.add(filename)
   const file = new File([bytes as Uint8Array<ArrayBuffer>], filename, { type: contentType })
+  let unchanged: boolean
   try {
-    await uploadDocument(
+    const uploaded = await uploadDocument(
       context.session,
-      { projectId: context.projectId, folderId, file, priority: context.priority, audit: context.audit },
+      { projectId: context.projectId, folderId, file, priority: context.priority, audit: context.audit, uploadBatchId },
       context.request,
     )
+    unchanged = uploaded.unchanged === true
   } catch (error) {
     if (error instanceof InsufficientStorageError) throw new MailImportQuotaError()
     const reason = refusalReason(error)
     if (reason) return { filed: false, reason }
     throw error
   }
-  return { filed: true, filename }
+  return { filed: true, filename, unchanged }
 }
 
 /**
  * The first of `desired`, `desired (2)`… that this mail has not taken already
- * and that no document in the project has, or that the one in this very
- * folder has (a retry of this mail).
+ * and that no document in the project has, in any of its collections, or that
+ * only the one in this very folder has (a retry of this mail).
  */
 async function freeFilename(
   context: MailFilingTarget,
@@ -346,8 +386,17 @@ async function freeFilename(
   for (let n = 1; n <= MAX_NAME_ATTEMPTS; n += 1) {
     const candidate = documentNameKey(numberedFilename(desired, n))
     if (claimed.has(candidate)) continue
-    const existing = await findLiveDocumentByFilename(context.session.organizationId, context.collectionName, candidate)
-    if (!existing || existing.folderId === folderId) return candidate
+    if (await nameIsFreeFor(context, folderId, candidate)) return candidate
   }
   throw new Error(`no free filename for ${desired} after ${MAX_NAME_ATTEMPTS} attempts`)
+}
+
+/** No document of the project holds `filename`, or only the one already in `folderId`. */
+async function nameIsFreeFor(context: MailFilingTarget, folderId: string, filename: string): Promise<boolean> {
+  const { organizationId } = context.session
+  const holders = await findProjectCollectionsHoldingFilename(organizationId, context.projectId, filename)
+  if (holders.length === 0) return true
+  if (holders.length > 1) return false
+  const existing = await findLiveDocumentByFilename(organizationId, holders[0], filename)
+  return existing?.folderId === folderId
 }

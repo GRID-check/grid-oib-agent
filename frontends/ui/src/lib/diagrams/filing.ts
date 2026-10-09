@@ -82,6 +82,7 @@ import {
   generatedDocumentMarking,
   type FiledGeneratedDocument,
 } from '@/lib/documents/generated'
+import type { ConversationOrigin } from '@/lib/conversations/restricted-egress'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { acceptDiagram, censusSvg, type DiagramSubmission } from './svg'
 import { renderDiagramPdf } from './svg-to-pdf'
@@ -127,6 +128,13 @@ export interface FileDiagramInput extends DiagramSubmission {
    */
   marking: string
   request?: Request
+  /**
+   * The conversation the diagram was drawn in, when the surface knows it. A
+   * thread that drew on a restricted folder files only into a folder restricted
+   * at least as narrowly (ADR-0087); both halves are judged by the one check in
+   * `fileGeneratedDocument`.
+   */
+  origin?: ConversationOrigin
 }
 
 export interface FiledDiagram {
@@ -177,6 +185,7 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
     ref: input.answerRef,
     title: input.title,
     request: input.request,
+    origin: input.origin,
     // The bytes this renderer returns are the bytes `svg.ts` wrote out of its
     // own allow-list — never the request's. That is the whole reason the
     // validator returns a string instead of a boolean. The marking is in them:
@@ -194,6 +203,7 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
       ref: input.answerRef,
       title: input.title,
       request: input.request,
+    origin: input.origin,
       render: async (context) => ({
         bytes: await renderDiagramPdf({
           root: accepted.root,

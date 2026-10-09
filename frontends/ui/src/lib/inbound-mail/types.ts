@@ -20,7 +20,8 @@ export type SenderVerdict =
 
 /**
  * Why a part of the mail was not filed. The first eight come from selection
- * (`./mime`); `type`, `size` and `quota` from filing (`uploadDocument`).
+ * (`./mime`); `type`, `size`, `screened` (the office's name screening,
+ * ADR-0086) and `quota` from filing (`uploadDocument`).
  */
 export type SkipReason =
   | 'embedded'
@@ -33,6 +34,7 @@ export type SkipReason =
   | 'limit'
   | 'type'
   | 'size'
+  | 'screened'
   | 'quota'
 
 export interface SelectedAttachment {

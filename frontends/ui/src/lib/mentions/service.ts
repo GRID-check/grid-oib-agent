@@ -40,7 +40,7 @@ import { loadOrganizationDirectory, unknownPerson } from '@/lib/sharing/director
 import { describeResource, roleSatisfies } from '@/lib/sharing/registry'
 import { consumeLimit, MAX_MENTIONS_PER_MESSAGE, memberSubject, MENTION_LIMIT } from '@/lib/limits'
 import { grantResourceAccess, resolveParticipants } from '@/lib/sharing/service'
-import type { DirectoryPerson, ShareCandidate } from '@/lib/sharing/types'
+import { SHARING_ERROR_REASONS, type DirectoryPerson, type ShareCandidate } from '@/lib/sharing/types'
 import {
   findRequestById,
   insertMentionRequests,
@@ -393,8 +393,17 @@ async function inviteMentionTarget(
     if (reason === MENTION_ERROR_REASONS.containerAccessRequired) {
       throw containerAccessRefusal(targetId)
     }
+    // Not cleared for a restricted folder the thread drew on (ADR-0087): the
+    // same refusal, told about the person it names, as the container one is.
+    if (reason === SHARING_ERROR_REASONS.restrictedContent && error instanceof ApiError) {
+      throw new ApiError(error.status, error.code, error.message, { ...asRecord(error.details), targetId })
+    }
     throw error
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
 }
 
 /** The machine-readable `reason` an `ApiError` carries, when it carries one. */
@@ -720,12 +729,38 @@ export async function listShareCandidates(
   const roster = await loadCandidateRoster(session, resourceType, resourceId, 'owner', {
     includeUnreachable: true,
   })
+  const lacking = await lackingContentAccess(session, resourceType, resourceId, roster)
 
   return roster.people.map((person) => ({
     person,
     alreadyHasAccess: roster.participants.has(person.userId),
     needsProjectAccess: !roster.reachable.has(person.userId),
+    ...(lacking ? { lacksFolderAccess: lacking.has(person.userId) } : {}),
   }))
+}
+
+/**
+ * Who among the people an owner could invite cannot read what the resource was
+ * drawn from (ADR-0088): for a conversation that recorded a folder, the people
+ * whose roles do not reach every one of them now. Only the people the grant
+ * could otherwise succeed for are asked about: reachable ones not yet in the
+ * room, so the question is as small as the answer is useful. Null for a type
+ * whose content the role alone decides. The server refuses the grant on its own
+ * check either way; this is what lets the dialog not offer it.
+ */
+async function lackingContentAccess(
+  session: AuthorizedSession,
+  resourceType: ShareableResourceType,
+  resourceId: string,
+  roster: CandidateRoster,
+): Promise<ReadonlySet<string> | null> {
+  const readersAmong = describeResource(resourceType).readersAmong
+  if (!readersAmong) return null
+  const inviteable = roster.people
+    .map((person) => person.userId)
+    .filter((userId) => roster.reachable.has(userId) && !roster.participants.has(userId))
+  const readers = await readersAmong(session.organizationId, resourceId, inviteable, session)
+  return new Set(inviteable.filter((userId) => !readers.has(userId)))
 }
 
 interface CandidateRoster {

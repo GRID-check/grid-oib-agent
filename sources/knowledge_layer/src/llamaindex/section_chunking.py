@@ -66,6 +66,7 @@ SECTION_EMBED_EXCLUDED_METADATA_KEYS = (
     "line_end",
     "source_encoding",
     "rows_over_cap",
+    "content_cut",
 )
 
 BREADCRUMB_SEP = " › "

@@ -59,6 +59,16 @@ export const TAG_GROUPS = [
 
 export type TagGroupId = (typeof TAG_GROUPS)[number]['id']
 
+/**
+ * The document type ingestion detected: the first of its tags that is a
+ * {@link DOCUMENT_TYPE_TAGS} entry, or `undefined`. Membership, not position:
+ * a user-edited tag list need not lead with the type. The Files preview's Type
+ * row and the upload summary both ask this, so they name a file the same way.
+ */
+export function documentTypeOf(tags: readonly string[] | null | undefined): DocumentTypeTag | undefined {
+  return (tags ?? []).find((tag): tag is DocumentTypeTag => (DOCUMENT_TYPE_TAGS as readonly string[]).includes(tag))
+}
+
 /** Whether every tag in the list is part of the controlled vocabulary. */
 export function areTagsValid(tags: readonly string[]): boolean {
   return tags.every((tag) => ALLOWED_TAGS.has(tag))

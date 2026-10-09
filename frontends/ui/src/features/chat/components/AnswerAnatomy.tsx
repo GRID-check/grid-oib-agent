@@ -12,12 +12,11 @@
  * answer's anatomy can never drift apart; this file only dispatches.
  */
 
-import { type FC } from 'react'
+import { type FC, type ReactNode } from 'react'
 import type { AnatomyShape, AnatomyVerdict } from '../lib/answer-meta-cards'
 import { CalloutCard } from '@/features/grid-cards/components/CalloutCard'
 import { KeyTakeawaysCard } from '@/features/grid-cards/components/KeyTakeawaysCard'
 import { VerdictHeaderCard } from '@/features/grid-cards/components/VerdictHeaderCard'
-import { FadeIn } from '@/components/motion'
 import type { AnswerKind } from '@/lib/conversations/message-answer-meta'
 
 /**
@@ -50,11 +49,20 @@ function showsVerdictMasthead(
  * context rides in muted ink under the title, or over the summary when no
  * title survived (a ruling whose verdict the gate refused still names its
  * Richtlinie and Ausgabe); with nothing else in the masthead it renders no
- * line. The confidence is the answer's own, threaded in from the turn: the
+ * line. The confidence is the VERDICT's own, from the masthead event: the
  * verdict figure is where the reader looks, so the gauge sits beside it as it
- * did on the retired card. No eyebrow on the topic path: the one value
+ * did on the retired card. The turn's self-assessment is not threaded in: it
+ * arrives with the terminal frame, and inserting its gauge and reason above
+ * the prose then moved the first paragraph the reader was on (it is in the
+ * answer details instead). No eyebrow on the topic path: the one value
  * the contract carries would print the same words twice stacked, and a kicker
  * that repeats its headline is decoration, not orientation.
+ *
+ * No entrance of its own: mounted with the answer it is part of the answer's
+ * entrance, and arriving later its caller fades it (`AgentResponse`).
+ *
+ * `caret`: the streaming caret, after the summary's last word while the
+ * caller is still writing the summary in (`AgentResponse`'s `writingSummary`).
  */
 export const AnatomyMasthead: FC<{
   verdict?: AnatomyVerdict
@@ -62,63 +70,72 @@ export const AnatomyMasthead: FC<{
   topic?: string
   context?: string
   kind?: AnswerKind
-  confidence?: 'low' | 'medium' | 'high'
-  confidenceReason?: string
-}> = ({ verdict, summary, topic, context, kind, confidence, confidenceReason }) => {
+  caret?: ReactNode
+}> = ({ verdict, summary, topic, context, kind, caret }) => {
+  if (!mastheadShows({ verdict, summary, topic, kind })) return null
   const showVerdict = showsVerdictMasthead(kind, verdict)
   // A verdict masthead already headlines the answer; the topic must not
   // headline it twice.
   const showTopic = !showVerdict && Boolean(topic)
-  if (!showVerdict && !showTopic && !summary) return null
   return (
-    <FadeIn distance={4}>
-      <header className="border-border/70 flex flex-col gap-3 border-b pb-4">
-        {showVerdict && verdict && verdict.type === 'verdict_header' && (
-          <VerdictHeaderCard
-            flat
-            verdict={verdict.verdict}
-            subject={verdict.subject}
-            reference={verdict.reference}
-            confidence={confidence ?? verdict.confidence}
-            confidence_reason={confidenceReason ?? verdict.confidence_reason}
-          />
-        )}
-        {showTopic && topic && (
-          <p className="card-headline text-foreground text-balance">{topic}</p>
-        )}
-        {context && (showVerdict || showTopic || summary) && (
-          <p className="text-muted-foreground text-sm leading-relaxed">{context}</p>
-        )}
-        {summary && <p className="text-foreground text-[1.0625rem] leading-[1.65]">{summary}</p>}
-      </header>
-    </FadeIn>
+    <header className="border-border/70 flex flex-col gap-3 border-b pb-4">
+      {showVerdict && verdict && verdict.type === 'verdict_header' && (
+        <VerdictHeaderCard
+          flat
+          verdict={verdict.verdict}
+          subject={verdict.subject}
+          reference={verdict.reference}
+          confidence={verdict.confidence}
+          confidence_reason={verdict.confidence_reason}
+        />
+      )}
+      {showTopic && topic && <p className="card-headline text-foreground text-balance">{topic}</p>}
+      {context && (showVerdict || showTopic || summary) && (
+        <p className="text-muted-foreground text-sm leading-relaxed">{context}</p>
+      )}
+      {summary && (
+        <p className="text-foreground text-[1.0625rem] leading-[1.65]">
+          {summary}
+          {caret}
+        </p>
+      )}
+    </header>
   )
 }
 
 /**
+ * Whether the masthead draws anything: a verdict it may show, a topic, or a
+ * summary. The caller reads it to decide whether a masthead is there at all,
+ * so it can animate one arriving and leaving without an empty wrapper.
+ */
+export function mastheadShows({
+  verdict,
+  summary,
+  topic,
+  kind,
+}: {
+  verdict?: AnatomyVerdict
+  summary?: string
+  topic?: string
+  kind?: AnswerKind
+}): boolean {
+  return showsVerdictMasthead(kind, verdict) || Boolean(topic) || Boolean(summary)
+}
+
+/**
  * One after-prose anatomy shape (from `answerMetaToAnatomy`), drawn flat.
- * The verdict never comes through here — it is the masthead's, above.
+ * The verdict never comes through here — it is the masthead's, above. No
+ * entrance of its own: the block it sits in arrives as one
+ * (`HeightArrival`), and a fade inside that fade played the entrance twice.
  */
 export const AnatomyBlock: FC<{ card: AnatomyShape }> = ({ card }) => {
   if (card.type === 'callout') {
     return (
-      <FadeIn distance={4}>
-        <CalloutCard
-          flat
-          kind={card.kind}
-          text={card.text}
-          title={card.title}
-          detail={card.detail}
-        />
-      </FadeIn>
+      <CalloutCard flat kind={card.kind} text={card.text} title={card.title} detail={card.detail} />
     )
   }
   if (card.type === 'key_takeaways') {
-    return (
-      <FadeIn distance={4}>
-        <KeyTakeawaysCard flat title={card.title} items={card.items ?? []} />
-      </FadeIn>
-    )
+    return <KeyTakeawaysCard flat title={card.title} items={card.items ?? []} />
   }
   return null
 }

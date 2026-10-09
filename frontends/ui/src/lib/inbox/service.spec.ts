@@ -50,6 +50,7 @@ import { resolvePeople } from '@/lib/sharing/directory'
 import { describeResource } from '@/lib/sharing/registry'
 import * as repository from './repository'
 import {
+  upsertWaves,
   archiveItem,
   emitInboxItems,
   type InboxEmission,
@@ -101,6 +102,8 @@ const ALL_TYPES = [
   'job.failed',
   'job.waiting',
   'document.review_requested',
+  'upload.completed',
+  'document.quarantined',
   'mail_import.completed',
   'mail_import.failed',
   'inbound_mail.filed',
@@ -119,6 +122,10 @@ const OPERATIONAL_TYPES = [
   // collaboration still has documents to approve, and gating the one review
   // queue in the product would make it invisible for exactly them.
   'document.review_requested',
+  // ADR-0086: an upload being read and a file held back by the content check
+  // are about the office's own files, not about working together.
+  'upload.completed',
+  'document.quarantined',
   // An Outlook archive import ended (ADR-0085): an office without
   // collaboration imports mail too.
   'mail_import.completed',
@@ -163,6 +170,7 @@ const reachable = {
   visibility: 'project' as const,
   container: { organizationId: 'org_1', projectId: 'proj_1' },
   canEscalate: false,
+  contentLocked: false,
 }
 
 beforeEach(() => {
@@ -930,5 +938,33 @@ describe('the platform lane', () => {
     expect(vi.mocked(repository.countPendingInboxItems).mock.calls.map((call) => call[0])).toEqual([
       'org_1',
     ])
+  })
+})
+
+/**
+ * Two emissions that fold into one row in the same call (two files of one
+ * settle quarantined for the same reviewer) used to reach one INSERT … ON
+ * CONFLICT DO UPDATE, which Postgres refuses. They go in successive waves.
+ */
+describe('emitInboxItems — repeated keys in one call', () => {
+  it('splits rows so no wave repeats a (recipient, group) key, keeping order', () => {
+    const row = (recipientUserId: string, groupKey: string, n: number) => ({ recipientUserId, groupKey, n })
+    const waves = upsertWaves([row('a', 'g', 1), row('b', 'g', 2), row('a', 'g', 3), row('a', 'g', 4), row('a', 'h', 5)])
+    expect(waves.map((wave) => wave.map((r) => r.n))).toEqual([[1, 2, 5], [3], [4]])
+  })
+
+  it('upserts each wave on its own', async () => {
+    vi.mocked(repository.upsertInboxItems).mockResolvedValue([])
+    const emission = {
+      organizationId: 'org-1',
+      recipientUserId: 'reviewer',
+      type: 'document.quarantined' as const,
+      resourceType: 'organization' as const,
+      resourceId: 'org-1',
+      actorUserId: 'uploader',
+      groupKey: 'document.quarantined:organization:org-1',
+    }
+    await emitInboxItems([emission, emission])
+    expect(repository.upsertInboxItems).toHaveBeenCalledTimes(2)
   })
 })

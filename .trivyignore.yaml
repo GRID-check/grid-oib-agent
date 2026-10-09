@@ -55,43 +55,57 @@ vulnerabilities:
   # langfuse-worker, not a package this repo references. Langfuse 4.54.0
   # cleared the rest of this block (fast-uri, js-yaml, nanoid, sharp, undici,
   # next, nodemailer, and the Go standard library in `usr/bin/migrate`); the
-  # entry below is the one it did not.
+  # entry below is the one it did not, and 4.56.0 (the current pin) does not
+  # either.
+  #
+  # 4.56.0 also moved both images from node:24-alpine to UBI 9 micro. Every
+  # Alpine package finding is gone with that base, and any UBI 9 (RHEL)
+  # finding is new to this file: scan the 4.56.0 digests with the Langfuse
+  # entries removed before boxing anything against the new base.
   #
   # Shared context: the Langfuse UI is reachable only through the Envoy
-  # Gateway behind an OIDC flow gated on `platform:organizations:view`, and its
-  # OTLP receiver is cluster-internal with a NetworkPolicy admitting only
-  # otel-collector. There is no unauthenticated surface.
+  # Gateway behind an OIDC flow gated on `platform:organizations:view` or
+  # `platform:observability:view`, and its in-cluster API (OTLP receiver and
+  # public API) is reachable only from the pods a NetworkPolicy names: the
+  # collector, the BFF, the backend tiers, the purger and the scheduler. There
+  # is no unauthenticated surface.
 
   - id: CVE-2026-40345
-    expired_at: 2026-10-09
+    expired_at: 2026-11-09
     statement: |
-      deepmerge-ts 7.1.5 — stack exhaustion when merging recursive object
-      graphs. A denial of service that requires the attacker to control the
-      objects being merged.
+      deepmerge-ts 7.1.5 (GHSA-ggr8-5vv4-36mx) — stack exhaustion when BOTH
+      merged objects reference themselves at the same key path. A denial of
+      service that needs the attacker to supply a cyclic object graph, which
+      plain JSON cannot express.
 
-      Reached by exactly ONE dependent in langfuse's lockfile: `@prisma/config`
-      6.19.3, which merges `prisma.config.ts` with the CLI's defaults when the
-      Prisma CLI and migration engine start. Confirmed by reading the lockfile
-      at the revision each image is labelled with, not inferred from the
-      package name — deepmerge-ts appears nowhere else in the tree.
+      Three copies, every one pulled in by `@prisma/config` 6.19.3, which pins
+      `"deepmerge-ts": "7.1.5"` exactly: `usr/local/lib/node_modules/prisma` and
+      `app/node_modules/.pnpm` in langfuse, `app/worker/node_modules/.pnpm` in
+      langfuse-worker (scan of PR #855, 2026-10-09, against 4.54.0). The 8.0.2
+      copy beside them in both images scans clean. Still present in 4.56.0:
+      its pnpm-lock.yaml resolves `@prisma/config@6.19.3` and
+      `deepmerge-ts@7.1.5`, and its web Dockerfile still installs the CLI as
+      `prisma@6.19.3` under `/usr/local` (read from the v4.56.0 tag, not from a
+      scan of the new digests).
 
-      Not exploitable here, and this one is structural: the object graph fed to
-      `@prisma/config` is the config file baked into the Langfuse image,
-      resolved against the environment `deploy/pulumi/src/platform/langfuse.ts`
-      sets. It is assembled at container start, before any request is served.
-      Nothing on the trace-ingestion or UI path calls deepmerge-ts at all, so no
-      caller — authenticated or not — can supply the recursive graph the defect
-      needs.
+      Not exploitable here, and this one is structural: the Prisma CLI runs only
+      from the web image's entrypoint (`prisma db execute`, `prisma migrate
+      deploy`) before `server.js` starts, merging the config baked into the
+      image with the environment `deploy/pulumi/src/platform/langfuse.ts` sets.
+      The worker runs `node worker/dist/index.js`, and `@prisma/client` has no
+      runtime dependency on `@prisma/config`. No request path reaches
+      deepmerge-ts, authenticated or not.
 
-      This entry is boxed to the same date as the rest of the block even though
-      it waits on a longer chain than they do: the fix is deepmerge-ts 8.0.0
-      (2026-08-16), a MAJOR bump, so Prisma has to take it into
-      `@prisma/config` before Langfuse can pick it up. 7.1.6 (2026-08-11) is
-      not the fix. As of 2026-08-18 langfuse `main` — and the `latest` 4.12.0
-      image built that morning — still resolve deepmerge-ts 7.1.5, so this is
-      not a case of the pin lagging behind an available fix.
+      Re-argued on 2026-10-09 rather than extended. The first box (to
+      2026-10-09) waited on a Langfuse release; none can clear it yet. Every
+      stable `@prisma/config` through 7.10.0 (2026-08-25, `latest` on npm) pins
+      7.1.5, the first to take 8.x is 8.1.0-dev.5 (2026-09-01), and Langfuse
+      4.55.0 (2026-10-08) still shipped Prisma 6.19.3, read from its layers, as
+      does 4.56.0 (2026-10-09, the current pin), read from its lockfile. Boxed a
+      month because the exit is a Prisma major, then Langfuse adopting it.
 
-      Drop as soon as a Langfuse image ships deepmerge-ts >= 8.0.0.
+      Drop as soon as a Langfuse image ships `@prisma/config` >= 8 (deepmerge-ts
+      >= 8.0.0).
 
   # ── Findings published after the 2026-10-07 bump (scan of PR #853) ────────
   #
@@ -116,7 +130,33 @@ vulnerabilities:
       authorization server it should not trust. The defect lives in the
       client-side OAuth discovery flow; Langfuse here makes no outbound MCP
       OAuth connections, and its UI sits behind the Envoy Gateway's OIDC flow.
-      Fixed in 1.31.0; drop when a Langfuse image ships it.
+      Fixed in 1.31.0; drop when a Langfuse image ships it. Langfuse 4.56.0 (the
+      current pin) does not: its pnpm-lock.yaml still resolves 1.29.0.
+
+  # OpenTelemetry Collector contrib 0.161.0 (the pin), Go 1.26.8 standard
+  # library, published after the 2026-10-08 scans (first red on PR #932).
+  # Both name Go 1.26.9 as the fix, and no contrib release carries it yet:
+  # 0.162.0 (2026-10-05, `sha256:39923a8e…`, amd64 binary read with
+  # `go version`) is still go1.26.8, and 0.163.0 exists only as a nightly.
+  # Shared context: the collector's OTLP receivers listen in plaintext inside
+  # the cluster, reachable from pods in the namespace and from no route, and
+  # its exporters speak plain HTTP to the Aspire dashboard and Langfuse.
+  # Bump the pin to the first contrib release built with go >= 1.26.9 and drop
+  # both.
+  - id: CVE-2026-78667
+    expired_at: 2026-10-23
+    statement: |
+      net/http denial of service through crafted Range headers. Range is
+      honoured by http.ServeContent / FileServer; the collector's OTLP/HTTP
+      receiver accepts POSTed telemetry and serves no ranged content, and no
+      route exposes it outside the namespace. See the block note.
+  - id: CVE-2026-97031
+    expired_at: 2026-10-23
+    statement: |
+      crypto/tls denial of service through repeated ECH outer-extension
+      references in a ClientHello. No TLS listener or TLS client is configured
+      on this collector (plaintext in-cluster receivers and exporters), so no
+      ClientHello reaches crypto/tls. See the block note.
 
   # err2issue (debian 12.15 base). Perl and PCRE2 come from the Debian base
   # image; the Python service never shells out to perl and takes no

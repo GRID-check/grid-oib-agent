@@ -165,6 +165,29 @@ describe('fileAgentDocumentDraft', () => {
     expect(result).toMatchObject({ documentId: 'doc_1', alreadyFiled: false })
   })
 
+  it('hands the filing its origin, so a confined thread files only where it may (ADR-0087)', async () => {
+    vi.mocked(fileGeneratedDocument).mockResolvedValue({
+      documentId: 'doc_1',
+      filename: 'honorar-2026-09-10.md',
+      folderId: 'fold_1',
+      alreadyFiled: false,
+    })
+
+    await fileAgentDocumentDraft({
+      session,
+      projectId: 'proj_1',
+      ref: 's_conv_1-honorar',
+      title: 'Honorar',
+      content: '# Honorar',
+      originConversationId: 's_conv_1',
+    })
+    expect(vi.mocked(fileGeneratedDocument).mock.calls[0][0].origin).toEqual({
+      conversationId: 's_conv_1',
+      // The agent's route says nothing about a language; the refusal is German.
+      locale: 'de',
+    })
+  })
+
   it('does not fork a second draft when the reference was already filed', async () => {
     // A retried turn must get the draft it wrote, not another one. Revising is a
     // different gesture with a different route.

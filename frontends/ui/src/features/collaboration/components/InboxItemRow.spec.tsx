@@ -69,6 +69,17 @@ describe('InboxItemRow — registry-driven rendering (IB-6)', () => {
     expect(document.querySelector('time')).toHaveAttribute('datetime', '2026-07-29T09:00:00Z')
   })
 
+  test('an upload with no place to name reads its own sentence, never a stand-in subject', () => {
+    const upload = { type: 'upload.completed' as const, resourceType: 'upload_batch' as const, actorName: null, actorUserId: null, excerpt: null, href: '/app/uploads/b1' }
+    const { unmount } = render(<InboxItemRow item={item({ ...upload, subject: 'Wohnbau Nord' })} />)
+    expect(screen.getByText('Wohnbau Nord: open the summary to see what arrived.')).toBeInTheDocument()
+    unmount()
+
+    render(<InboxItemRow item={item({ ...upload, subject: null })} />)
+    expect(screen.getByText('Open the summary to see what arrived.')).toBeInTheDocument()
+    expect(screen.queryByText(/Untitled/)).not.toBeInTheDocument()
+  })
+
   test('renders a neutral row for a type this build does not know', () => {
     // `type` is a text column and the presentation map is exhaustive only at
     // compile time: a row from a newer deploy used to throw and take the whole

@@ -5,9 +5,9 @@
  */
 import { render, screen, waitFor } from '@/test-utils'
 import { useLayoutEffect, useState, type ReactNode } from 'react'
-import { vi, describe, test, expect, beforeEach } from 'vitest'
+import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
-import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
+import { CardSlot, CardSlotLiveProvider, forgetArrivals, resetArrivalsForTests } from './CardSlotArrival'
 import { useDrawnReporter } from '@/features/a2ui/catalog'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { ChatStoreWithHydration } from '../store'
@@ -83,6 +83,7 @@ describe('CardSlot', () => {
   beforeEach(() => {
     reducedMotion = false
   })
+  afterEach(() => resetArrivalsForTests())
 
   const live = (node: ReactNode) => <CardSlotLiveProvider value>{node}</CardSlotLiveProvider>
   const placeholder = () => document.querySelector('[data-slot="card-placeholder"]')
@@ -159,6 +160,52 @@ describe('CardSlot', () => {
     expect(cardShown()).toBe(true)
   })
 
+  // A retraction withdraws a round, and the next one writes its cards at the
+  // same indices: remembered as arrived, they appeared without an entrance.
+  test('after its answer is retracted, the next card at the same place arrives again', async () => {
+    const slot = live(
+      <CardSlot arrivalKey="m-retracted:0">
+        <Card drawn={false} />
+      </CardSlot>
+    )
+    const first = render(
+      live(
+        <CardSlot arrivalKey="m-retracted:0">
+          <Card />
+        </CardSlot>
+      )
+    )
+    await waitFor(() => expect(placeholder()).toBeNull())
+    first.unmount()
+
+    forgetArrivals('m-retracted')
+    render(slot)
+    expect(placeholder()).not.toBeNull()
+    expect(cardShown()).toBe(false)
+  })
+
+  test('forgets only the retracted answer’s arrivals', async () => {
+    const first = render(
+      live(
+        <CardSlot arrivalKey="m-kept:0">
+          <Card />
+        </CardSlot>
+      )
+    )
+    await waitFor(() => expect(placeholder()).toBeNull())
+    first.unmount()
+
+    forgetArrivals('m-kept-not')
+    render(
+      live(
+        <CardSlot arrivalKey="m-kept:0">
+          <Card drawn={false} />
+        </CardSlot>
+      )
+    )
+    expect(placeholder()).toBeNull()
+  })
+
   test('a card that was already there is shown at once', () => {
     render(
       <CardSlot arrivalKey={nextKey()}>
@@ -185,5 +232,45 @@ describe('CardSlot', () => {
   test('a finished answer holds no place for a card that never came', () => {
     const { container } = render(<CardSlot arrivalKey={nextKey()} />)
     expect(container.firstElementChild).toBeNull()
+  })
+
+  test('a place held for a card that never came folds away at the settle, then is gone', async () => {
+    const arrivalKey = nextKey()
+    const { container, rerender } = render(live(<CardSlot arrivalKey={arrivalKey} />))
+    const frame = container.firstElementChild
+    expect(frame).not.toBeNull()
+    rerender(
+      <CardSlotLiveProvider value={false}>
+        <CardSlot arrivalKey={arrivalKey} />
+      </CardSlotLiveProvider>
+    )
+    // Not dropped in one frame: the same element folds first.
+    expect(container.firstElementChild).toBe(frame)
+    expect(frame).not.toHaveAttribute('aria-busy')
+    await waitFor(() => expect(container.firstElementChild).toBeNull())
+  })
+
+  test('a card refused while the answer still arrives folds its place away too', async () => {
+    const arrivalKey = nextKey()
+    const { container, rerender } = render(live(<CardSlot arrivalKey={arrivalKey} />))
+    rerender(live(<CardSlot arrivalKey={arrivalKey} refused />))
+    expect(container.firstElementChild).not.toBeNull()
+    await waitFor(() => expect(container.firstElementChild).toBeNull())
+  })
+
+  test('a refused card that never held a place renders nothing at all', () => {
+    const { container } = render(live(<CardSlot arrivalKey={nextKey()} refused />))
+    expect(container.firstElementChild).toBeNull()
+  })
+
+  test('an unplaced card the reader watches arrive comes in like a placed one', () => {
+    // Mounted outside the live provider (the settle frame), told it arrives.
+    render(
+      <CardSlot arrivalKey={nextKey()} arriving>
+        <Card drawn={false} />
+      </CardSlot>
+    )
+    expect(placeholder()).not.toBeNull()
+    expect(cardShown()).toBe(false)
   })
 })

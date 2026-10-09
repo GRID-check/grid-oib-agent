@@ -14,6 +14,12 @@
  *   3. the object key's owner prefix (`uploadStorageKey`),
  *   4. the audit action and what it records (`uploadAuditEvent`).
  *
+ * Two gates run on both shelves: the organization's name screening (ADR-0086)
+ * and the upload batch the browser opened. One runs on the project shelf only:
+ * the folder's access per role (`projectFolderGate`, ADR-0088), which also picks
+ * the collection a restricted folder's documents live in. The Archiv has no
+ * per-role folder access; `requireShelfWrite` is its whole gate.
+ *
  * `@/lib/documents/service#uploadDocument` and
  * `@/lib/archiv/service#uploadArchivDocument` are the names the two shelves'
  * routes call; both are one line over this.
@@ -23,7 +29,11 @@ import 'server-only'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { s3Client, bucketAdminS3Client, buildArchivStorageKey, buildStorageKey } from '@/lib/s3'
 import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
-import { NotFoundError } from '@/lib/api/errors'
+import { ConflictError, NotFoundError } from '@/lib/api/errors'
+import { folderReadOnlyError, getProjectFolderAccess } from '@/lib/authz/folder-access'
+import { assertIfcMayBeFiledIn } from '@/lib/projects/ifc-folder-guard'
+import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
+import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -34,7 +44,7 @@ import { nextVersionNumber, recordUploadedVersionOrDiscard } from './lifecycle'
 import { documentNameKey } from './name-match'
 import { sanitizeOriginPath } from './origin-path'
 import { resolveShelfFolderPath } from './folder-path'
-import { findLiveDocumentByFilename } from './repository'
+import { findLiveDocumentByFilename, findProjectCollectionsHoldingFilename } from './repository'
 import { retryRacedUpload } from './unique-conflicts'
 import { newVersionWriteId, versionWriteKey } from './version-content'
 import { shelfOwner, type DocumentShelf } from './shelf'
@@ -48,6 +58,19 @@ export interface ShelfUploadInput {
   file: File
   folderId: string | null
   originPath?: string | null
+  /**
+   * The uploader released this file in the upload dialog although the
+   * organization's name screening excludes it (ADR-0086) — the Bauvertrag in a
+   * folder called „Verträge". Honoured and audited; absent means "do not
+   * override", so a client that never asks is screened.
+   */
+  screeningRelease?: boolean
+  /**
+   * The upload gesture this file belongs to (migration 0110), as the browser
+   * opened it. Recorded on the row when it is the uploader's own open batch
+   * for this shelf; anything else is ignored rather than refused.
+   */
+  uploadBatchId?: string | null
   /**
    * The ingest queue's priority for these bytes. A person's upload is
    * `interactive` (the default); a machine filing thousands of files on their
@@ -153,6 +176,11 @@ interface PlaceUploadInput {
   bytes: Buffer
   contentHash: string
   storageBucket: string
+  uploadBatchId: string | null
+  /** Whether the session may write into a folder of this shelf (a superseded document's). */
+  mayWriteFolder: (folderId: string | null) => boolean
+  /** The screening matches the uploader released (ADR-0086), audited once stored. */
+  screeningOverridden: Awaited<ReturnType<typeof assertUploadNameAllowed>>['overridden']
 }
 
 type Placed =
@@ -169,6 +197,9 @@ function placeUpload(session: AuthorizedSession, input: PlaceUploadInput): Promi
   const { shelf, collectionName, filename, folderId, file, contentHash, storageBucket } = input
   return retryRacedUpload(async (): Promise<Placed> => {
     const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
+    // A re-upload is a new version of the document it supersedes, and files it
+    // where this upload goes: a write on the folder it is in now, too (ADR-0088).
+    if (superseded && !input.mayWriteFolder(superseded.folderId ?? null)) throw folderReadOnlyError()
     const documentId = superseded?.id ?? crypto.randomUUID()
     /*
      * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
@@ -270,6 +301,7 @@ async function admitRow(
       contentHash,
       folderId: folderId ?? null,
       createdBy: session.userId,
+      uploadBatchId: input.uploadBatchId,
     })
     return
   }
@@ -291,6 +323,7 @@ async function admitRow(
     contentType: file.type || null,
     contentHash,
     originPath: input.originPath,
+    uploadBatchId: input.uploadBatchId,
     status: 'uploaded',
   })
 }
@@ -319,6 +352,14 @@ async function prepareUpload(
   // leaves no orphan object behind (ADR-0042).
   await assertWithinStorageQuota(session.organizationId, file.size)
 
+  const shelfCollection = await shelfCollectionName(shelf, session.organizationId)
+  if (!shelfCollection) throw new NotFoundError('Project not found')
+  // Before anything reads the folder's path: a folder this uploader may not
+  // read does not exist for them, and the name gate below would otherwise
+  // answer with the hidden folder's name.
+  const gate = await projectFolderGate(session, shelf, folderId, file.name, shelfCollection)
+  const collectionName = gate.collectionName
+
   // Scoped to the shelf, so a folder id from another project, shelf or tenant
   // can never redirect an upload.
   let folderPath: string | null = null
@@ -328,9 +369,18 @@ async function prepareUpload(
       throw new NotFoundError(`Folder not found in ${shelf.kind === 'project' ? 'project' : 'Archiv'}`)
     }
   }
-
-  const collectionName = await shelfCollectionName(shelf, session.organizationId)
-  if (!collectionName) throw new NotFoundError('Project not found')
+  const originPath = sanitizeOriginPath(input.originPath)
+  // The name gate's server-side repeat (ADR-0086), before a byte is stored.
+  const nameGate = await assertUploadNameAllowed(
+    session.organizationId,
+    { filename: file.name, originPath, folderPath },
+    input.screeningRelease === true,
+  )
+  const uploadBatchId = await acceptedUploadBatchId(session, input.uploadBatchId, shelfOwner(shelf, session.organizationId))
+  const filename = documentNameKey(file.name)
+  if (shelf.kind === 'project') {
+    await assertNameFreeElsewhereInProject(session.organizationId, shelf.projectId, collectionName, filename)
+  }
 
   // Create the organization's bucket if this is its first upload (ADR-0043). A
   // no-op when per-org buckets are off. Done before the PUT so a provisioning
@@ -350,16 +400,68 @@ async function prepareUpload(
      * apart from the first. `findLiveDocumentByFilename` still looks for both
      * forms, because rows written before this line exist. See `./name-match`.
      */
-    filename: documentNameKey(file.name),
+    filename,
     folderId,
     folderPath,
-    originPath: sanitizeOriginPath(input.originPath),
+    originPath,
     file,
     bytes,
     // The digest of the bytes this tier actually wrote — what makes a folder
     // RE-upload cheap. Its shape lives in `./content-digest`.
     contentHash: contentDigest(bytes),
     storageBucket,
+    uploadBatchId,
+    mayWriteFolder: gate.mayWriteFolder,
+    screeningOverridden: nameGate.overridden,
+  }
+}
+
+interface FolderGate {
+  collectionName: string
+  mayWriteFolder: (folderId: string | null) => boolean
+}
+
+/**
+ * The project shelf's folder gate (ADR-0088). A folder the uploader may not
+ * read is not found; one they may only read refuses (403) before a byte is
+ * stored; and the folder decides the collection (ADR-0087): a restricted
+ * folder's documents live in its own, which holds no IFC model until the
+ * building data is partitioned. The Archiv has no per-role folder access.
+ */
+async function projectFolderGate(
+  session: AuthorizedSession,
+  shelf: DocumentShelf,
+  folderId: string | null,
+  fileName: string,
+  shelfCollection: string,
+): Promise<FolderGate> {
+  if (shelf.kind !== 'project') return { collectionName: shelfCollection, mayWriteFolder: () => true }
+  const access = await getProjectFolderAccess(session, shelf.projectId, shelfCollection)
+  if (!access.isVisible(folderId)) throw new NotFoundError('Folder not found in project')
+  if (access.levelOf(folderId) !== 'write') throw folderReadOnlyError()
+  const collectionName = access.collectionFor(folderId)
+  assertIfcMayBeFiledIn(fileName, collectionName, shelfCollection)
+  return { collectionName, mayWriteFolder: (id) => access.levelOf(id) === 'write' }
+}
+
+/**
+ * One document per name in a project, whichever collection holds it
+ * (ADR-0087). A re-upload into the collection that already holds the name
+ * replaces it, as before; the same name filed under a different restriction is
+ * refused, because replacing it would move it across the boundary unseen. The
+ * message names no folder: the other one may be one this person cannot see.
+ */
+async function assertNameFreeElsewhereInProject(
+  organizationId: string,
+  projectId: string,
+  collectionName: string,
+  filename: string,
+): Promise<void> {
+  const holders = await findProjectCollectionsHoldingFilename(organizationId, projectId, filename)
+  if (holders.some((holder) => holder !== collectionName)) {
+    throw new ConflictError(
+      `A document named "${filename}" already exists elsewhere in this project. Rename the file, or upload it where that document is filed.`,
+    )
   }
 }
 
@@ -426,6 +528,16 @@ export async function uploadToShelf(
     replaced: placed.replaced,
     audit: input.audit,
   })
+  await auditScreeningOverride(
+    session,
+    {
+      documentId,
+      projectId: shelf.kind === 'project' ? shelf.projectId : null,
+      filename,
+      overridden: upload.screeningOverridden,
+    },
+    request,
+  )
 
   return { documentId, jobId, status, filename }
 }

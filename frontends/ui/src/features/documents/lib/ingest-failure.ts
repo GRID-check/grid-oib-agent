@@ -27,6 +27,7 @@ export type IngestFailureKind =
   | 'timeout'
   | 'empty'
   | 'deleted'
+  | 'quarantined'
   | 'unknown'
 
 export type IngestFailure =
@@ -45,6 +46,7 @@ export const INGEST_FAILURE_PREFIXES = {
   pdf_pages_unreadable: 'unreadable_pages',
   vlm_not_configured: 'vision_not_configured',
   document_deleted: 'deleted',
+  quarantined: 'quarantined',
 } as const satisfies Record<string, IngestFailureKind>
 
 /**

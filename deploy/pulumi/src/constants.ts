@@ -464,6 +464,12 @@ export const APP_DEFAULTS = {
   schedulerBatch: 20,
   /** Job run history retention (days). */
   skillRunsRetentionDays: 90,
+  /**
+   * How long Langfuse traces live before the scheduler deletes them (days).
+   * Langfuse's own retention setting is Enterprise-only (ADR-0044); the
+   * scheduler job reads this and never goes below Langfuse's minimum of 3.
+   */
+  langfuseTraceRetentionDays: 30,
 } as const;
 
 /** Postgres server tuning (fixed; storage size and instance count are knobs). */

@@ -5,6 +5,7 @@
 import { getTokenClaims, withAuth } from '@workos-inc/authkit-nextjs'
 import { getWorkOS } from '@/lib/workos/client'
 import { getCached } from '@/lib/cache'
+import { resolveMembershipRoles } from './membership-roles'
 import { clearTenantContext, enterTenantContext } from '@/lib/db/tenant-context'
 import type { GridSession } from './types'
 
@@ -42,6 +43,18 @@ async function resolveOrganizationMembershipId(
 }
 
 /**
+ * Every role the membership holds (ADR-0087): the token's `roles` claim when
+ * WorkOS's "multiple roles" setting puts one there, else the single `role`.
+ * Strings only; anything else in the claim is dropped rather than trusted.
+ */
+export function sessionRoles(fromAuth: unknown, fromClaims: unknown, single: string | null): string[] {
+  const listed = Array.isArray(fromAuth) ? fromAuth : Array.isArray(fromClaims) ? fromClaims : null
+  const roles = (listed ?? []).filter((role): role is string => typeof role === 'string' && role.length > 0)
+  if (roles.length === 0 && single) return [single]
+  return [...new Set(roles)]
+}
+
+/**
  * Read the current Grid session from the WorkOS AuthKit session cookie.
  *
  * Uses `withAuth()` (and `getTokenClaims()` for raw JWT claims) from AuthKit v4.
@@ -70,9 +83,13 @@ export async function getGridSession(): Promise<GridSession | null> {
 
   const organizationId = auth.organizationId ?? null
 
-  const organizationMembershipId = organizationId
-    ? await resolveOrganizationMembershipId(auth.user.id, organizationId)
-    : null
+  const [organizationMembershipId, memberRoles] = organizationId
+    ? await Promise.all([
+        resolveOrganizationMembershipId(auth.user.id, organizationId),
+        resolveMembershipRoles(organizationId, auth.user.id),
+      ])
+    : [null, null]
+  const tokenRole = auth.role ?? (typeof claims.role === 'string' ? claims.role : null)
 
   const session: GridSession = {
     userId: auth.user.id,
@@ -81,7 +98,11 @@ export async function getGridSession(): Promise<GridSession | null> {
     accessToken: auth.accessToken,
     organizationId,
     organizationMembershipId,
-    role: auth.role ?? (typeof claims.role === 'string' ? claims.role : null),
+    role: tokenRole,
+    // The roles folder access is decided on (ADR-0088): WorkOS's membership,
+    // at most a minute old, so a revoked role stops opening folders within a
+    // minute; the token's claim only when WorkOS could not be asked.
+    roles: memberRoles ?? sessionRoles(auth.roles, claims.roles, tokenRole),
     permissions: auth.permissions ?? [],
     featureFlags: auth.featureFlags ?? null,
     profilePictureUrl: auth.user.profilePictureUrl ?? null,

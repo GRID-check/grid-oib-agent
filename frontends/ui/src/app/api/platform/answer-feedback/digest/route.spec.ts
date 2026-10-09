@@ -50,15 +50,25 @@ describe('GET /api/platform/answer-feedback/digest', () => {
     expect((await GET(request())).status).toBe(403)
   })
 
-  it('passes the window, the aggregate filters and the locale through', async () => {
+  it('passes the scope, the ratings filters and the locale through', async () => {
     isOwner.value = true
-    await GET(request('?days=7&org=org_2&topic=brandschutz&locale=en'))
+    await GET(request('?from=2026-10-01&to=2026-10-07&org=org_2&topic=brandschutz&reason=inaccurate&locale=en'))
 
     expect(getAnswerFeedbackDigest).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ windowDays: 7, organizationId: 'org_2', topic: 'brandschutz' }),
+      {
+        scope: { from: '2026-10-01', to: '2026-10-07', organizationIds: ['org_2'], projectIds: [] },
+        ratings: expect.objectContaining({ topics: ['brandschutz'], reasons: ['inaccurate'] }),
+      },
       { locale: 'en', refresh: false }
     )
+  })
+
+  it('refuses an unknown filter value with 400 rather than summarising something else', async () => {
+    isOwner.value = true
+    const res = await GET(request('?topic=nonsense'))
+    expect(res.status).toBe(400)
+    expect(getAnswerFeedbackDigest).not.toHaveBeenCalled()
   })
 
   it('forwards an explicit refresh so the button can bypass the cache', async () => {

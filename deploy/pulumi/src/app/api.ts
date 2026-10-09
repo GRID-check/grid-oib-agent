@@ -19,6 +19,7 @@ import {
   startupBudgetSeconds,
   surgeRollout,
 } from "../platform/rollout";
+import { withLangfuseKeysChecksum } from "../platform/langfuse";
 import { AppSecrets, AppWiring, apiEnv } from "./config";
 import { PORT, UID } from "../constants";
 
@@ -82,7 +83,7 @@ export function installApi(
             labels,
             // Rotating any credential in `grid-secrets` is a real rolling update
             // (rollout.ts).
-            annotations: secretChecksumAnnotations(secrets.checksum),
+            annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
           },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions

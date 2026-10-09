@@ -254,6 +254,25 @@ describe('SessionsPanel', () => {
     expect(firstSession).toHaveAttribute('aria-current', 'true')
   })
 
+  test('lists a chat the reader may no longer read under a neutral title, with no way to rename it (ADR-0088)', async () => {
+    const user = userEvent.setup()
+    render(
+      <SessionsPanel
+        sessions={[...mockSessions, { id: 'session-locked', title: '', date: today, contentLocked: true }]}
+      />
+    )
+
+    const locked = screen.getByRole('button', { name: /chat: shared chat/i })
+    expect(locked).toBeInTheDocument()
+    // Not the "untitled" placeholder: that would read as a chat nobody named.
+    expect(screen.queryByText(/untitled/i)).toBeNull()
+
+    await user.hover(locked)
+    // Delete stays (leaving one's own list); rename is for a title the reader can see.
+    expect(screen.getByRole('button', { name: /delete chat/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /rename chat/i })).toBeNull()
+  })
+
   test('shows edit and delete icons on hover', async () => {
     const user = userEvent.setup()
     render(<SessionsPanel sessions={mockSessions} />)

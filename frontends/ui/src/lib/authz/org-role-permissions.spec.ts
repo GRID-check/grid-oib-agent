@@ -35,7 +35,10 @@ class TestStore implements CacheStore {
   async get(key: string): Promise<string | null> {
     return this.map.get(key) ?? null
   }
-  async set(key: string, value: string): Promise<void> {
+  /** The life each stored entry was given, in the order stored. */
+  ttls: number[] = []
+  async set(key: string, value: string, ttlMs = Number.POSITIVE_INFINITY): Promise<void> {
+    this.ttls.push(ttlMs)
     this.map.set(key, value)
   }
   async delete(key: string): Promise<void> {
@@ -132,6 +135,39 @@ describe('orgRoleHoldsPermission', () => {
   })
 })
 
+/**
+ * The custom roles an office builds for itself in WorkOS exist only inside its
+ * organization. A third-party check that consulted environment roles and the
+ * catalog alone denied every one of them — the quarantine never reached a
+ * custom „Geschäftsführung" role holding org:projects:administer.
+ */
+describe('orgRoleHoldsPermission — an organization\'s own custom roles', () => {
+  it("finds a custom role's permission when told the organization", async () => {
+    listOrganizationRoles.mockResolvedValue({
+      data: [{ slug: 'org-geschaeftsfuehrung', permissions: ['org:projects:administer'] }],
+    })
+    await expect(
+      orgRoleHoldsPermission('org-geschaeftsfuehrung', 'org:projects:administer', 'org_tenant')
+    ).resolves.toBe(true)
+    expect(listOrganizationRoles).toHaveBeenCalledWith('org_tenant')
+  })
+
+  it('denies it without the organization, as before', async () => {
+    listOrganizationRoles.mockResolvedValue({
+      data: [{ slug: 'org-geschaeftsfuehrung', permissions: ['org:projects:administer'] }],
+    })
+    await expect(orgRoleHoldsPermission('org-geschaeftsfuehrung', 'org:projects:administer')).resolves.toBe(false)
+  })
+
+  it('still answers an environment role when the organization lookup fails', async () => {
+    listOrganizationRoles.mockRejectedValue(new Error('rate limited'))
+    listEnvironmentRoles.mockResolvedValue({ data: [{ slug: 'admin', permissions: ['org:projects:administer'] }] })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    await expect(orgRoleHoldsPermission('admin', 'org:projects:administer', 'org_tenant')).resolves.toBe(true)
+    warn.mockRestore()
+  })
+})
+
 describe('organization-scoped roles', () => {
   it('unions WorkOS with the catalog rather than replacing it', async () => {
     listOrganizationRoles.mockResolvedValue({
@@ -205,5 +241,17 @@ describe('tenantRolePermissions — a session built without a sign-in (D1)', () 
   it('holds nothing for no role, without calling WorkOS', async () => {
     await expect(tenantRolePermissions('org_1', null)).resolves.toEqual(new Set())
     expect(listEnvironmentRoles).not.toHaveBeenCalled()
+  })
+})
+
+describe('how long what a role holds is remembered', () => {
+  it('at most a minute, like the roles a person holds: the folder bypass is derived from both', async () => {
+    const store = new TestStore()
+    setCacheStore(store)
+
+    await orgRoleHoldsPermission('admin', ORG_PERMISSIONS.projectsAdminister, ORG)
+
+    expect(store.ttls).toHaveLength(2)
+    for (const ttl of store.ttls) expect(ttl).toBeLessThanOrEqual(60_000)
   })
 })

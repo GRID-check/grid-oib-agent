@@ -1363,6 +1363,24 @@ export interface GridConfig {
     orgId: string;
     projectId: string;
     /**
+     * The role a NEW Langfuse user gets in the seeded org (`orgId`) and project
+     * (`projectId`) on their first sign-in (`LANGFUSE_DEFAULT_ORG_ROLE` /
+     * `LANGFUSE_DEFAULT_PROJECT_ROLE`, upstream's automated access
+     * provisioning). Default `VIEWER`: read-only. Without a default, a first SSO
+     * login lands in no organization at all and sees nothing, and the people
+     * the edge now admits for read-only analysis (`platform:observability:view`)
+     * would each need an owner to add them by hand before they saw a trace.
+     *
+     * Applies only when the Langfuse account is CREATED (or first linked to the
+     * SSO identity); an existing membership is never changed by it, so
+     * promotion to MEMBER or ADMIN is an owner's edit in the Langfuse UI and
+     * survives every deploy. `NONE` joins the org with no access and no
+     * project, which is "an owner grants each person by hand". OSS Langfuse has
+     * no project-level roles (an Enterprise entitlement), so the ORG role is the
+     * one that decides; the project role is set to match for when it does.
+     */
+    defaultRole: LangfuseOrgRole;
+    /**
      * The break-glass Langfuse account created at headless init.
      *
      * Sign-in normally happens through WorkOS SSO (`AUTH_CUSTOM_*`), so this
@@ -1492,6 +1510,22 @@ function derivedScalerPassword(appPassword: pulumi.Output<string>): pulumi.Outpu
   return pulumi.secret(
     appPassword.apply((password) => createHmac("sha256", password).update("grid-keda-scaler").digest("base64url")),
   );
+}
+
+/** The roles Langfuse accepts for `LANGFUSE_DEFAULT_ORG_ROLE` (its `env.mjs` enum). */
+export const LANGFUSE_ORG_ROLES = ["OWNER", "ADMIN", "MEMBER", "VIEWER", "NONE"] as const;
+export type LangfuseOrgRole = (typeof LANGFUSE_ORG_ROLES)[number];
+
+/**
+ * `langfuseDefaultRole`, refused at load time when Langfuse would refuse it.
+ * Langfuse validates the variable with a zod enum at startup, so a typo there
+ * is not a fallback to VIEWER but a langfuse-web that never becomes Ready.
+ */
+function langfuseOrgRole(value: string | undefined): LangfuseOrgRole {
+  if (value === undefined || value.trim() === "") return "VIEWER";
+  const role = LANGFUSE_ORG_ROLES.find((known) => known === value.trim());
+  if (role) return role;
+  throw new Error(`langfuseDefaultRole must be one of ${LANGFUSE_ORG_ROLES.join(", ")}, not "${value}"`);
 }
 
 /** `langfuseV4WriteMode`, refused at load time when it is not one Langfuse knows. */
@@ -3073,17 +3107,20 @@ export function loadConfig(): GridConfig {
       enabled: langfuseEnabled,
       domain: langfuseDomain,
       // Digest-pinned on the same terms as the ADR-0029 images, and scanned by
-      // the same trivy gate: langfuse 4.54.0 (web + worker, which MUST be the
+      // the same trivy gate: langfuse 4.56.0 (web + worker, which MUST be the
       // same version) and ClickHouse 26.8.15.10 LTS, which v4 needs (>= 25.12).
-      // `4` and `26.8` are moving tags upstream; these are the digests they
-      // resolved to when pinned. v3 (3.225.11) shipped next 16.2.11, whose
+      // The langfuse digests are what GHCR's `4.56.0` tags resolve to (checked
+      // 2026-10-09); `26.8` is a moving tag upstream and this is the digest it
+      // resolved to when pinned. 4.56.0 moved both images from node:24-alpine
+      // to UBI 9 micro; the uid (1001) and the `node` binary the preStop hook
+      // runs are unchanged. v3 (3.225.11) shipped next 16.2.11, whose
       // next/og RCE (GHSA-vcvr-r3jv-pc5j) no 3.x release fixes.
       webImage:
         cfg.get("langfuseWebImage") ??
-        "ghcr.io/langfuse/langfuse@sha256:ea9f763af1181b444c081353cd2f8174323c84b2447ed7295857d04ae1153f2c",
+        "ghcr.io/langfuse/langfuse@sha256:b1948c7c0931f277975b985e30e73536b1bca5822705ddd9a89ba7c1ed79b3ee",
       workerImage:
         cfg.get("langfuseWorkerImage") ??
-        "ghcr.io/langfuse/langfuse-worker@sha256:fe7ea9e288c6586783989920ced1704172624f45da495a68d8ae07ba466641f2",
+        "ghcr.io/langfuse/langfuse-worker@sha256:3f7571ff3a725ebdcdf4c35e06bdf8c3f8325770691c673793ad61b328265e13",
       clickhouseImage:
         cfg.get("clickhouseImage") ??
         "clickhouse/clickhouse-server@sha256:3043f691ec1a847f38b446ff43708893fcbf9815bd9bd88c0f84bfe064ce852f",
@@ -3113,6 +3150,7 @@ export function loadConfig(): GridConfig {
       // existing one, orphaning every trace already stored.
       orgId: cfg.get("langfuseOrgId") ?? "grid",
       projectId: cfg.get("langfuseProjectId") ?? "grid-oib",
+      defaultRole: langfuseOrgRole(cfg.get("langfuseDefaultRole")),
       initUserEmail: cfg.get("langfuseInitUserEmail") ?? cfg.get("letsEncryptEmail") ?? "",
       initUserPassword: cfg.getSecret("langfuseInitUserPassword") ?? pulumi.output(""),
       s3AccessKey: cfg.get("langfuseS3AccessKey") ?? "grid-langfuse",

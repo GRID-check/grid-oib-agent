@@ -40,6 +40,27 @@ describe('generate-wire-schemas', () => {
     )
   })
 
+  it('keeps what the client sends strict, and strips unknown keys from what it receives', () => {
+    const closed = (properties) => ({ type: 'object', properties, additionalProperties: false })
+    const root = {
+      $defs: {
+        Answer: closed({ text: { type: 'string' } }),
+        Result: closed({ text: { type: 'string' }, run: closed({ id: { type: 'string' } }) }),
+        ClientMessage: {
+          oneOf: [{ $ref: '#/$defs/Answer' }],
+          discriminator: { propertyName: 'type' },
+        },
+      },
+    }
+    const generated = buildWireSchemaModule(root)
+    expect(generated).toContain(
+      'export const answerSchema = z.object({ "text": z.string().optional() }).strict()'
+    )
+    expect(generated).toContain(
+      'export const resultSchema = z.object({ "text": z.string().optional(), "run": z.object({ "id": z.string().optional() }).optional() })'
+    )
+  })
+
   it('refuses a field that would generate z.any()', () => {
     const root = { $defs: { Loose: { type: 'object', properties: { x: {} } } } }
     expect(() => buildWireSchemaModule(root)).toThrow(/z\.any\(\)/)

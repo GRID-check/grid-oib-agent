@@ -34,6 +34,8 @@ import { AGENT_DOCUMENT_MEDIA_TYPE, renderAgentDocumentMarkdown } from './agent-
 import { resolveDocumentBranding } from './branding'
 import { contentDigest } from './content-digest'
 import { fileGeneratedDocument } from './generated'
+import { AGENT_REFUSAL_LOCALE } from '@/lib/conversations/restricted-egress'
+import type { Locale } from '@/i18n/config'
 import { createDocumentVersion } from './lifecycle'
 import { findDocumentInOrg } from './repository'
 import { findOpenVersion } from './version-repository'
@@ -74,6 +76,8 @@ export interface FileAgentDocumentDraftInput {
    * origin is a fact the route read out of a signature.
    */
   originConversationId?: string | null
+  /** The language of a refusal; the agent's own route leaves it German. */
+  locale?: Locale
 }
 
 export interface FiledAgentDocumentDraft {
@@ -127,6 +131,10 @@ export async function fileAgentDocumentDraft(
     title: input.title,
     request: input.request,
     render: ({ marking }) => renderAgentDocumentMarkdown(input.content, marking, branding),
+    origin: {
+      conversationId: input.originConversationId ?? null,
+      locale: input.locale ?? AGENT_REFUSAL_LOCALE,
+    },
   })
 
   const document = await findDocumentInOrg(filed.documentId, input.session.organizationId)

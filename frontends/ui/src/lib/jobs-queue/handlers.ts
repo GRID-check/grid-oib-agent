@@ -13,7 +13,8 @@
  * a person who lost their role or left the organization in the meantime must
  * not have it carry on with the rights they had when they clicked. The services
  * the handlers call then check access per document exactly as they do for a
- * request. The other kinds are single steps run as the system (see `./types.ts`).
+ * request. `placement_reingest` walks as the system, and the other kinds are
+ * single steps run as the system (see `./types.ts`).
  */
 
 import 'server-only'
@@ -27,6 +28,7 @@ import {
   runReingestFailedSlice,
 } from '@/lib/documents/service'
 import { runInboundMailJob } from '@/lib/inbound-mail/job'
+import { runPlacementReingestSlice } from '@/lib/projects/collection-placement'
 import { runMailImportSlice } from '@/lib/mail-import/job'
 import { runReportFilingJob } from '@/lib/tasks/service'
 import { isLastAttempt } from './attempts'
@@ -36,6 +38,7 @@ import {
   inboundMailPayloadSchema,
   mailImportPayloadSchema,
   officeRenditionPayloadSchema,
+  placementReingestPayloadSchema,
   reindexProjectPayloadSchema,
   reingestFailedPayloadSchema,
   type BffJobKind,
@@ -98,6 +101,18 @@ function systemHandler<TPayload extends object>(
 }
 
 /**
+ * A walk that runs as the system: no session, a slice at a time, and the state
+ * it returns saved for the next one. A throw is a failed attempt, as for any
+ * kind.
+ */
+function systemWalk<TPayload extends object>(
+  schema: ZodType<TPayload>,
+  slice: (organizationId: string, payload: TPayload) => Promise<JobSliceResult<TPayload>>
+): JobHandler {
+  return async ({ organizationId, payload }) => slice(organizationId, schema.parse(payload))
+}
+
+/**
  * The mail import's walk. Not {@link handler}: a requester who left must END
  * the import with a reason, because it is a row the person sees, not a quiet
  * no-op. Its retries are its own (`lib/mail-import/job.ts`), not the queue's.
@@ -125,6 +140,7 @@ const inboundMailHandler: JobHandler = async ({ organizationId, payload }) => {
 export const JOB_HANDLERS: Record<BffJobKind, JobHandler> = {
   reindex_project: handler(reindexProjectPayloadSchema, runReindexSlice),
   reingest_failed: handler(reingestFailedPayloadSchema, runReingestFailedSlice),
+  placement_reingest: systemWalk(placementReingestPayloadSchema, runPlacementReingestSlice),
   bim_extract: systemHandler(bimExtractPayloadSchema, runBimExtractJob),
   office_rendition: systemHandler(officeRenditionPayloadSchema, runOfficeRenditionJob),
   file_research_report: systemHandler(fileResearchReportPayloadSchema, runReportFilingJob),

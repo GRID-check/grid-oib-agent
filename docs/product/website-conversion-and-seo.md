@@ -38,7 +38,7 @@ The landing page ends in a contact form (`#kontakt`, and `/kontakt/` for a
 browser without script) that reaches the founders at `kontakt@piloti.at`, the
 one address the site names. That closed the old gap of a personal mailbox
 reading as a side project. Setup: `docs/deployment/kubernetes.md` §3d;
-decision: [ADR-0086](../adr/0086-contact-form-via-cloudflare-email-sending.md).
+decision: [ADR-0090](../adr/0090-contact-form-via-cloudflare-email-sending.md).
 
 ## Keyword map
 

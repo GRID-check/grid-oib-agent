@@ -86,6 +86,7 @@ to people who have no use for it.
 | Empty attachments, and unnamed parts whose type Piloti cannot recognise | Nothing to file | Name the file and attach it again |
 | Files past the hundredth in one mail | The limit per mail | Send the rest in a second mail |
 | A file type Piloti does not accept, a file that is too large, or a full storage quota | The same rules as an upload | Only that file is skipped; the rest are filed |
+| A file whose name your office's sensitive-data list holds back | The same name screening as an upload ([sensitive data](sensitive-data-and-access.md)) | Only that file is skipped. Upload it in the app, where you can release it with one tick |
 | Links to cloud files (OneDrive, Google Drive, WeTransfer) | Piloti does not fetch them | Attach the files, or upload them in the app |
 | **The text of the mail** | It is not stored | If the text matters, save it as a PDF and attach it |
 

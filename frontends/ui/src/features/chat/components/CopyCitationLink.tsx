@@ -11,12 +11,11 @@
 'use client'
 
 import type { FC, ReactNode } from 'react'
-import { Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { citationShareUrl, type CitationRef } from '../lib/citations'
+import { COPY_ACTION_CLASSES, CopiedAnnouncement, CopyActionFace } from './CopyCitation'
 
 export const CopyCitationLinkButton: FC<{ citation: CitationRef; icon?: ReactNode }> = ({
   citation,
@@ -36,20 +35,25 @@ export const CopyCitationLinkButton: FC<{ citation: CitationRef; icon?: ReactNod
     if (!(await copy(url))) toast.error(t('answerSources.copyFailed'))
   }
 
+  // The same face as the citation copy beside it: the icon swaps to a check
+  // and the label cross-fades in a cell as wide as either, so the receipt no
+  // longer reflows the row it sits in.
   return (
-    <button
-      type="button"
-      onClick={() => void handleCopy()}
-      aria-label={t('citationPeek.copyLinkAria', { label: citation.document.title })}
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium',
-        'text-muted-foreground transition-[color,transform] duration-quick ease-out active:scale-95 hover:text-foreground',
-        'motion-reduce:transition-none motion-reduce:active:scale-100',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
-      )}
-    >
-      {copied ? <Check aria-hidden="true" className="size-3" /> : icon}
-      {copied ? t('answerSources.copied') : t('citationPeek.copyLink')}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => void handleCopy()}
+        aria-label={t('citationPeek.copyLinkAria', { label: citation.document.title })}
+        className={COPY_ACTION_CLASSES}
+      >
+        <CopyActionFace
+          copied={copied}
+          icon={icon}
+          label={t('citationPeek.copyLink')}
+          copiedLabel={t('answerSources.copied')}
+        />
+      </button>
+      <CopiedAnnouncement copied={copied} />
+    </>
   )
 }

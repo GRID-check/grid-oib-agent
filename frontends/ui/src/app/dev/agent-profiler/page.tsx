@@ -13,17 +13,24 @@
  * without an organization. The first conversation is preselected the way a
  * citation-health link does it (`?conversation=`), unless the URL names another.
  *
+ * The list is read in a scope like on the real page (`from`, `to`, repeatable
+ * `org` and `project` on the URL; default the 30 days to 8 Oct 2026). The shim
+ * answers by query: rows whose last activity falls in the range and whose
+ * organization is named, and `selected` for the asked-about conversation.
+ *
  * Variants: `?error` fails the first list load; `?empty` returns no
- * conversations; `?none` starts with nothing selected.
+ * conversations; `?none` starts with nothing selected; `?narrow` reads two
+ * organizations.
  *
  * Not linked from anywhere; 404s outside development. Pinned to German.
  */
 
 import type { JSX } from 'react'
 import { Suspense } from 'react'
-import { notFound } from 'next/navigation'
+import { notFound, useSearchParams } from 'next/navigation'
 import { AgentProfiler } from '@/features/platform/components/agent-profiler'
 import { I18nProvider } from '@/i18n'
+import { readQualityScope, type QualityScope } from '@/lib/quality/scope'
 
 const BASE = Date.parse('2026-10-08T09:30:00Z')
 const at = (offsetMs: number): string => new Date(BASE + offsetMs).toISOString()
@@ -161,6 +168,32 @@ const params =
     ? new URLSearchParams()
     : new URLSearchParams(window.location.search)
 
+/** The page's scope: the URL's, else the fixture's 30 days; `?narrow` names two organizations. */
+function previewScope(url: URLSearchParams): QualityScope {
+  const read = new URLSearchParams(url)
+  if (!read.has('from') && !read.has('days')) {
+    read.set('from', '2026-09-09')
+    read.set('to', '2026-10-08')
+  }
+  if (url.has('narrow')) {
+    read.append('org', ORGS[0].id)
+    read.append('org', ORGS[1].id)
+  }
+  return readQualityScope(read)
+}
+
+/** The fixture rows a scope holds, the way the server filters them. */
+function inScope(scope: QualityScope): typeof CONVERSATIONS {
+  return CONVERSATIONS.filter((row) => {
+    const day = row.lastActiveAt.slice(0, 10)
+    if (day < scope.from || day > scope.to) return false
+    return (
+      scope.organizationIds.length === 0 ||
+      (row.organizationId !== null && scope.organizationIds.includes(row.organizationId))
+    )
+  })
+}
+
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const w = window as unknown as { __agentProfilerShim?: boolean }
   if (!w.__agentProfilerShim) {
@@ -178,13 +211,19 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
           return new Response('{}', { status: 500 })
         }
         const q = url.searchParams.get('q')?.toLowerCase() ?? ''
-        const rows = params.has('empty')
-          ? []
-          : CONVERSATIONS.filter(
-              (row) =>
-                !q || row.conversationId.includes(q) || (row.title ?? '').toLowerCase().includes(q)
-            )
-        return Response.json({ conversations: rows, capped: !q && rows.length > 0 })
+        const scoped = params.has('empty') ? [] : inScope(readQualityScope(url.searchParams))
+        const rows = scoped.filter(
+          (row) =>
+            !q || row.conversationId.includes(q) || (row.title ?? '').toLowerCase().includes(q)
+        )
+        const asked = url.searchParams.get('conversation')
+        return Response.json({
+          conversations: rows,
+          capped: !q && rows.length > 0,
+          ...(asked
+            ? { selected: scoped.find((row) => row.conversationId === asked) ?? null }
+            : {}),
+        })
       }
       if (url.pathname.startsWith('/api/platform/profiler/conversations/')) {
         const conversationId = decodeURIComponent(url.pathname.split('/').pop() ?? '')
@@ -199,6 +238,19 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       return real(input, init)
     }
   }
+}
+
+/**
+ * The organism in the URL's scope. Read through `useSearchParams`, not the
+ * module-scope `params`, so the server render and the client agree on it.
+ */
+function ScopedAgentProfiler({ initial }: { initial?: string }): JSX.Element {
+  return (
+    <AgentProfiler
+      scope={previewScope(new URLSearchParams(useSearchParams()))}
+      initialConversationId={initial}
+    />
+  )
 }
 
 export default function AgentProfilerDevPage(): JSX.Element {
@@ -216,7 +268,7 @@ export default function AgentProfilerDevPage(): JSX.Element {
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:px-8">
         <h1 className="text-xl font-semibold tracking-tight">Antwortqualität · Laufzeit</h1>
         <Suspense>
-          <AgentProfiler initialConversationId={initial} />
+          <ScopedAgentProfiler initial={initial} />
         </Suspense>
       </main>
     </I18nProvider>

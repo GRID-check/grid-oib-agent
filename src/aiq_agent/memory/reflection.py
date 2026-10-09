@@ -51,6 +51,9 @@ from aiq_agent.common.message_utils import content_to_text
 from aiq_agent.knowledge.project_memory import VALID_CONFIDENCES
 from aiq_agent.knowledge.project_memory import insert_memory_item
 from aiq_agent.knowledge.project_memory import looks_like_personal_data
+from aiq_agent.memory.restriction import Restriction
+from aiq_agent.memory.restriction import RestrictionEvidence
+from aiq_agent.memory.restriction import decide_restrictions
 
 logger = logging.getLogger(__name__)
 
@@ -353,23 +356,25 @@ def _rejects_response_format(exc: BaseException) -> bool:
     return status in _PARAMETER_REJECTION_STATUSES
 
 
-async def _propose(llm: Any, messages: list[Any]) -> str:
-    """Ask the reflection model for findings and return its reply as text.
+async def structured_reply(llm: Any, messages: list[Any], schema: type[BaseModel]) -> str:
+    """Ask ``llm`` for a reply shaped like ``schema`` and return it as text.
 
     Requests native strict json_schema structured output; the response-healing
     plugin (forced on OpenRouter LLMs in llm_factory) repairs any fenced/prose
     JSON provider-side. The call is tool-free, so binding ``response_format``
     cannot silently cost it a tool call the way it can on a tool-bound one
     (``piloti/envelope_call.py``). A provider that rejects the
-    parameter gets one plain retry; anything else propagates.
+    parameter gets one plain retry; anything else propagates. Shared with the
+    memory restriction judge (``memory/restriction.py``), which asks the same
+    model the same way.
     """
-    response_format = strict_json_response_format(ReflectionOutput)
+    response_format = strict_json_response_format(schema)
     try:
         response = await llm.bind(response_format=response_format).ainvoke(messages)
     except Exception as exc:  # noqa: BLE001 - re-raised unless it is the provider rejecting the parameter
         if not _rejects_response_format(exc):
             raise
-        logger.warning("Reflection response_format rejected by the provider (%s); retrying without it", exc)
+        logger.warning("%s response_format rejected by the provider (%s); retrying without it", schema.__name__, exc)
         response = await llm.ainvoke(messages)
     return content_to_text(getattr(response, "content", response))
 
@@ -380,6 +385,7 @@ async def _write_finding(
     project_id: str | None,
     organization_id: str | None,
     conversation_id: str | None,
+    restriction: Restriction = None,
 ) -> dict[str, str] | None:
     """Record one finding, returning the row the frame carries, or None if it did not land."""
     item_id = await asyncio.to_thread(
@@ -399,6 +405,9 @@ async def _write_finding(
         # Retires the entry this finding corrects (frontend resolves the quote;
         # unresolvable or human-curated targets are left alone).
         supersedes_content=finding.supersedes or None,
+        # ADR-0087: a finding from a turn that could read restricted folders
+        # is served only to people cleared for the ones it draws on.
+        restricted_collections=restriction,
     )
     if not item_id:
         return None
@@ -413,6 +422,7 @@ async def _record_findings(
     project_id: str | None,
     organization_id: str | None,
     conversation_id: str | None,
+    restrictions: list[Restriction] | None = None,
 ) -> list[dict[str, str]]:
     """Write every finding concurrently, keeping the rows that landed, in order.
 
@@ -424,6 +434,7 @@ async def _record_findings(
     UNIQUE indexes make the loser an error that is logged and dropped, the same
     outcome the sequential second write reached by merging.
     """
+    restrictions = restrictions if restrictions is not None else [None] * len(findings)
     results = await asyncio.gather(
         *(
             _write_finding(
@@ -431,8 +442,9 @@ async def _record_findings(
                 project_id=project_id,
                 organization_id=organization_id,
                 conversation_id=conversation_id,
+                restriction=restriction,
             )
-            for finding in findings
+            for finding, restriction in zip(findings, restrictions, strict=True)
         ),
         return_exceptions=True,
     )
@@ -454,6 +466,7 @@ async def run_memory_reflection(
     organization_id: str | None,
     conversation_id: str | None,
     memory_digest: str | None,
+    restriction: RestrictionEvidence | None = None,
 ) -> list[dict[str, str]]:
     """Run one reflection pass and record any qualifying findings.
 
@@ -467,12 +480,18 @@ async def run_memory_reflection(
     tells a reader "Piloti noted this" renders the item's own words, and a list
     of ids would make the browser ask the database for text the writer already
     had in hand (``docs/architecture/post-answer-stages.md`` §5.1).
+
+    ``restriction`` is what the turn could have taken from restricted folders
+    (ADR-0087). Every finding goes through the one restriction decision
+    (``memory/restriction.py``), the same the ``remember`` tool uses, on the
+    same model; a finding is written as restricted memory when it depends on
+    restricted content, and never dropped for it.
     """
     messages = [
         SystemMessage(content=REFLECTION_SYSTEM_PROMPT),
         HumanMessage(content=_build_user_prompt(query, answer, memory_digest)),
     ]
-    parsed = extract_json(await _propose(llm, messages))
+    parsed = extract_json(await structured_reply(llm, messages, ReflectionOutput))
     findings = _sanitize_findings(
         parsed.get("findings") if isinstance(parsed, dict) else None,
         has_project=bool(project_id),
@@ -482,11 +501,15 @@ async def run_memory_reflection(
         logger.info("Memory reflection: no new durable findings for this turn")
         return []
 
+    restrictions = await decide_restrictions(
+        [finding.content for finding in findings], restriction or RestrictionEvidence(), llm=llm
+    )
     recorded = await _record_findings(
         findings,
         project_id=project_id,
         organization_id=organization_id,
         conversation_id=conversation_id,
+        restrictions=restrictions,
     )
     if recorded:
         logger.info("Memory reflection recorded %d new memory item(s)", len(recorded))
