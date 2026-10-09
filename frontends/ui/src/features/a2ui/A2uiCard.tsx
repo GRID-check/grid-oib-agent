@@ -24,8 +24,10 @@
 import {
   Component,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ErrorInfo,
@@ -116,6 +118,22 @@ export function A2uiCard({ card, surfaceKey, render }: A2uiCardProps) {
   const reportDrawn = useCallback(() => setDrawnSurface(surface), [surface])
   const refused = hydrated && surface === null
   const reportOnScreen = useDrawnReporter()
+  // Whether the reader SAW the placeholder: a frame went by with the surface
+  // still undrawn. A stored card draws in the layout pass before its first
+  // paint, and must not fade in on every thread open; one that took a frame
+  // or more to draw replaced a visible placeholder, and fades in over it.
+  const drawnNow = useRef(drawn)
+  useLayoutEffect(() => {
+    drawnNow.current = drawn
+  }, [drawn])
+  const [placeholderSeen, setPlaceholderSeen] = useState(false)
+  useEffect(() => {
+    if (!surface || drawn || placeholderSeen) return
+    const frame = requestAnimationFrame(() => {
+      if (!drawnNow.current) setPlaceholderSeen(true)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [surface, drawn, placeholderSeen])
   useLayoutEffect(() => {
     if (drawn || refused) reportOnScreen?.()
   }, [drawn, refused, reportOnScreen])
@@ -135,7 +153,18 @@ export function A2uiCard({ card, surfaceKey, render }: A2uiCardProps) {
                 data-a2ui-surface={surfaceKey}
                 data-a2ui-root={card.type}
                 aria-hidden={drawn ? undefined : true}
-                className={drawn ? undefined : 'pointer-events-none invisible absolute inset-x-0 top-0'}
+                // Drawn after a placeholder, the surface fades in over where the
+                // placeholder stood instead of replacing it in one frame. Not
+                // when a `CardSlot` is taking the report (`reportOnScreen`): it
+                // cross-fades the whole card itself, and two fades of one card
+                // play the entrance twice.
+                className={
+                  drawn
+                    ? reportOnScreen || !placeholderSeen
+                      ? undefined
+                      : 'animate-in fade-in-0 duration-base ease-entrance motion-reduce:animate-none'
+                    : 'pointer-events-none invisible absolute inset-x-0 top-0'
+                }
               >
                 <A2uiSurface surface={surface} />
               </div>

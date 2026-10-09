@@ -55,6 +55,10 @@
               "de": "Teammitglieder können Deep-Research-Läufe in den Projekten, in denen sie arbeiten, jetzt verfolgen und steuern – auch Läufe geplanter und geteilter Aufgaben, nicht nur ihre eigenen. Wer einen Chat ansehen kann, kann darin einen Lauf verfolgen. Um einen Lauf zu stoppen oder ein Dokument hinzuzufügen, ist weiterhin die Berechtigung erforderlich, im Projekt zu chatten."
             },
             {
+              "en": "You can write your next question while Piloti is still answering and send it as soon as the answer is complete; Escape stops the answer without touching your draft.",
+              "de": "Sie können Ihre nächste Frage verfassen, während Piloti noch antwortet, und sie absenden, sobald die Antwort vollständig ist; mit Escape stoppen Sie die Antwort, ohne Ihren Entwurf zu verändern."
+            },
+            {
               "en": "Your office's content terms and number checks now also cover what you type into the chat: before a message with an IBAN or a listed term goes out, Piloti shows what it found and sends it only masked, or lets you edit it first.",
               "de": "Die Inhaltsbegriffe und Nummernprüfungen Ihres Büros gelten jetzt auch für das, was Sie in den Chat schreiben: Bevor eine Nachricht mit einer IBAN oder einem gelisteten Begriff hinausgeht, zeigt Piloti, was es gefunden hat, und sendet sie nur maskiert – oder Sie bearbeiten sie zuerst."
             },
@@ -156,6 +160,26 @@
               "de": "Die Dateiliste im Archiv bietet jetzt dieselben Filter wie die eines Projekts. So können Sie archivierte Dateien wieder anzeigen und von Piloti erstellte Dateien von denen Ihres Teams unterscheiden."
             },
             {
+              "en": "An answer now writes itself in calmly where you are reading: the Herleitung folds away before the first word, nothing above the line you are on moves, and the sources, actions and cards arrive together when the answer is done.",
+              "de": "Eine Antwort schreibt sich jetzt ruhig genau dort, wo Sie gerade lesen: Die Herleitung klappt sich vor dem ersten Wort ein, oberhalb Ihrer aktuellen Zeile bewegt sich nichts, und Quellen, Aktionen und Karten erscheinen gemeinsam, sobald die Antwort fertig ist."
+            },
+            {
+              "en": "Stopping an answer keeps exactly the text you saw at that moment, marked „Gestoppt“, with its working citations.",
+              "de": "Wenn Sie eine Antwort stoppen, bleibt genau der Text erhalten, den Sie zu diesem Zeitpunkt gesehen haben – gekennzeichnet als „Gestoppt“ und mit weiterhin funktionierenden Quellenverweisen."
+            },
+            {
+              "en": "When an answer fails partway, the words already written stay on screen, dimmed above the error, and Erneut versuchen replaces them with a fresh answer.",
+              "de": "Wenn eine Antwort mittendrin fehlschlägt, bleiben die bereits geschriebenen Wörter oberhalb des Fehlers abgeblendet am Bildschirm, und „Erneut versuchen“ ersetzt sie durch eine neue Antwort."
+            },
+            {
+              "en": "Switching to another conversation and back, or reloading during an answer, shows the text that had already arrived at once instead of typing it out again, and each conversation reopens where you left it.",
+              "de": "Wenn Sie zu einer anderen Unterhaltung wechseln und zurückkehren oder während einer Antwort die Seite neu laden, wird der bereits eingetroffene Text sofort vollständig angezeigt, statt erneut schrittweise eingeblendet zu werden. Außerdem öffnet sich jede Unterhaltung wieder an der Stelle, an der Sie sie verlassen haben."
+            },
+            {
+              "en": "A dropped connection is now a quiet line above the input field instead of a card in the conversation, and the Herleitung says Fehlgeschlagen, Gestoppt or Auftrag angelegt instead of a green Fertig when the answer did not simply finish.",
+              "de": "Eine unterbrochene Verbindung wird jetzt als unaufdringliche Zeile über dem Eingabefeld statt als Karte im Gespräch angezeigt. Bei der Herleitung steht „Fehlgeschlagen“, „Gestoppt“ oder „Auftrag angelegt“ statt eines grünen „Fertig“, wenn die Antwort nicht einfach abgeschlossen wurde."
+            },
+            {
               "en": "The changelog on piloti.at is quicker to read: the latest week shows its new features and improvements, older busy weeks open with their headings, and fixes stay folded until you open them.",
               "de": "Der Changelog auf piloti.at liest sich schneller: Die jüngste Woche zeigt ihre neuen Funktionen und Verbesserungen, ältere Wochen mit vielen Änderungen zeigen zuerst ihre Überschriften, und Fehlerbehebungen bleiben eingeklappt, bis Sie sie öffnen."
             },
@@ -191,6 +215,14 @@
             {
               "en": "Renaming or moving a folder that has subfolders no longer fails with an error.",
               "de": "Beim Umbenennen oder Verschieben eines Ordners mit Unterordnern tritt kein Fehler mehr auf."
+            },
+            {
+              "en": "Piloti in dark mode no longer flashes white while the page loads.",
+              "de": "Piloti blitzt im Dark Mode beim Laden der Seite nicht mehr weiß auf."
+            },
+            {
+              "en": "On an iPhone, the input field no longer hides behind the keyboard.",
+              "de": "Auf dem iPhone verschwindet das Eingabefeld nicht mehr hinter der Tastatur."
             },
             {
               "en": "Previews of spreadsheets and text files saved on Windows show euro signs, dashes and curly quotes again instead of leaving them blank.",

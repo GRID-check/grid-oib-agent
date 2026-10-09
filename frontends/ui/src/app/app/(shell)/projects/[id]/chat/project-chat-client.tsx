@@ -130,21 +130,31 @@ const ProjectChatContent = ({
     // chat, and hydrating a session underneath it would undo that.
     if (!isAuthenticated || !sessionParam || newParam) return
     if (sessionHydratedRef.current === sessionParam) return
-    // Identity first, like `useSessionUrl`: the selection guard stamps rows
-    // to the fetcher, so attempting before the user is known can only refuse.
-    if (!sessionUserId) return
     const state = useChatStore.getState()
     if (state.currentConversation?.id === sessionParam) {
       sessionHydratedRef.current = sessionParam
       return
     }
+    // The thread this link opens is on its way: until it is here (or the link
+    // proves stale), the thread shows it loading, not the empty canvas or
+    // whatever was open before, which would greet the reader and then be
+    // replaced under them.
+    state.setPendingMessagesFor(sessionParam)
+    // Given up on: whatever is open stays, as it is.
+    const giveUp = () => {
+      sessionHydratedRef.current = sessionParam
+      if (useChatStore.getState().pendingMessagesFor === sessionParam) state.setPendingMessagesFor(null)
+    }
+    // Identity first, like `useSessionUrl`: the selection guard stamps rows
+    // to the fetcher, so attempting before the user is known can only refuse.
+    if (!sessionUserId) return
     const target = state.conversations.find((c) => c.id === sessionParam)
     if (!target) {
       // Not stale, just not fetched yet: a deep-linked id this browser never
       // saw only resolves once the server list lands. Giving up here would
       // strand every task link on its first open.
       if (!sessionServerLoaded) return
-      sessionHydratedRef.current = sessionParam
+      giveUp()
       return
     }
     // Never activate another project's session under this socket, and never
@@ -152,7 +162,7 @@ const ProjectChatContent = ({
     // them the same way. Unknown ids are left for `useSessionUrl`'s stale
     // handling rather than landing on the wrong thread here.
     if (!conversationMatchesProject(target, projectId) || target.userId !== sessionUserId) {
-      sessionHydratedRef.current = sessionParam
+      giveUp()
       return
     }
     selectConversation(sessionParam)
@@ -167,6 +177,18 @@ const ProjectChatContent = ({
     sessionUserId,
     selectConversation,
   ])
+
+  // A link left before it resolved (another link, the route unmounted) no
+  // longer holds the thread in its loading state.
+  useEffect(
+    () => () => {
+      const state = useChatStore.getState()
+      if (sessionParam && state.pendingMessagesFor === sessionParam && state.currentConversation?.id !== sessionParam) {
+        state.setPendingMessagesFor(null)
+      }
+    },
+    [sessionParam]
+  )
 
   // `?run=<runId>` — a deep link that names the RUN and not its thread.
   //

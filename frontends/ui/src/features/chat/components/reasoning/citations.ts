@@ -2,10 +2,9 @@
  * Citation helpers for the Herleitung assessment node.
  *
  * `citationChips` collapses the flat streamed citation list into unique
- * per-lane provenance chips (mock has none real), and `ChoicePrompt` is the
- * live HITL multiple-choice payload rendered by the branches node. Both are
- * consumed by `ReasoningFlow`; extracted here so the graph no longer depends on
- * the retired plain-DOM node components.
+ * per-lane provenance chips (mock has none real). Consumed by
+ * `ReasoningFlow`; extracted here so the graph no longer depends on the
+ * retired plain-DOM node components.
  */
 
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
@@ -33,13 +32,4 @@ export const citationChips = (citations: CitationSource[]): CitationChip[] => {
     }
   }
   return Array.from(byLane.values())
-}
-
-/** A live HITL multiple-choice clarifier for the branches node. */
-export interface ChoicePrompt {
-  promptId: string
-  text: string
-  options: string[]
-  isResponded: boolean
-  selected?: string
 }
