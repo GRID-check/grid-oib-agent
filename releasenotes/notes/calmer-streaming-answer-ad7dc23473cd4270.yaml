@@ -4,8 +4,8 @@
 # architect using Piloti, not for the reviewer of your diff.
 features:
   - >
-    You can write your next question while Piloti is still answering. Enter
-    sends it once the answer is complete, and Escape stops the answer without
+    You can write your next question while Piloti is still answering and send
+    it as soon as the answer is complete; Escape stops the answer without
     touching your draft.
 improvements:
   - >
@@ -14,7 +14,7 @@ improvements:
     and the sources, actions and cards arrive together when the answer is done.
   - >
     Stopping an answer keeps exactly the text you saw at that moment, marked
-    „Gestoppt“, and a reload shows the same text.
+    „Gestoppt“, with its working citations.
   - >
     When an answer fails partway, the words already written stay on screen,
     dimmed above the error, and Erneut versuchen replaces them with a fresh answer.

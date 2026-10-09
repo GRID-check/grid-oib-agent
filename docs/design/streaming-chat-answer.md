@@ -249,12 +249,21 @@ every prefix of the recorded answers, the blocks render the same HTML as the
 whole text rendered at once, at the default size and with a cut at every
 permitted place. A cut, once made, stays where it is while the text grows.
 
-Why a minimum size: every parse has a fixed cost, and when the turn ends
-every block is parsed again, because the chat's plugins stop drawing pending
-markers. A block per paragraph made that settle cost nearly twice what the
-whole text does. At 1200 characters it is back near the whole-text cost: 28
-against 24 ms for 11k characters under vitest. In the browser it is 10 to 25
-ms heavier for a 2.6k-character answer, and no heavier for a 10k one.
+Why a minimum size: every parse has a fixed cost. When the minimum was set,
+every block was parsed again at the end of the turn, because the chat's
+plugins stopped drawing pending markers, and a block per paragraph made that
+settle cost nearly twice what the whole text does. At 1200 characters it is
+back near the whole-text cost: 28 against 24 ms for 11k characters under
+vitest. In the browser it is 10 to 25 ms heavier for a 2.6k-character answer,
+and no heavier for a 10k one.
+
+The settle now re-parses only the last block. The plugin list is the same from
+the first word through the settle (every unresolved `[N]` is marked pending,
+and the marker decides at render time whether that is a pill), and whether the
+whole text is still arriving reaches the blocks through context
+(`MarkdownStreamStateContext`) rather than as a prop of each. Only what draws
+differently once the text is complete (a table's tally and status marks)
+reads it and re-renders; a finished block is not parsed again.
 
 **A reload mid-answer.** Nothing streams in a page that is only now loading,
 so the storage drops a stored answer that still says `isStreaming` when it
@@ -357,6 +366,12 @@ whose marker had not been revealed yet rendered below the prose and then
 jumped up into it. They arrive the way a placed card does (`CardSlot`), inside
 a `HeightArrival` like the answer's other late blocks
 ([below](#the-turn-on-screen)).
+
+A `[N]` resolves against the numbered wire sources as well as the written
+„## Quellen" list. A stopped answer keeps its resolved markers and its sources
+but is cut before its list, and with the list alone its markers settled to
+plain „[1][2]…", wider than the pills: on a phone the line re-wrapped 26 px
+under the reader just after Stop, and a reload showed bare brackets.
 
 The `[N]` markers are pending pills while the answer is live: in their place
 and shape, muted and still. They do not pulse: an answer holds dozens, and a
@@ -495,7 +510,12 @@ in `features/chat/lib/stream-pace.ts`):
   fade it painted every frame (330/s). The veil keeps fps at 57–58, long
   tasks at 2–4 and main thread at 550 ms/s (2026-09).
 - It cuts only at a word gap outside an open `**`, link, code span, fence or
-  table row; a table row appears whole. A store flush boundary is not a clean
+  table row; a table row appears whole. The search for the next clean cut is
+  one forward walk that keeps running counts of what `isCleanCut` reads
+  (`cleanCutsAfter`): asked position by position, it re-read the whole prefix
+  per character inside an open fence, 6.9 ms a frame on a desktop for 3.5k of
+  prose ahead of an open 4k mermaid fence (review, 2026-10). `isCleanCut` stays
+  the definition, and the spec holds the walk to it position by position. A store flush boundary is not a clean
   cut: a recorded first delta was `**Die Außentreppe ist in GK 4 in A2`, and
   cutting there flashed a raw `**`. Only the `MAX_LAG_MS` ceiling may show
   text whose end is not clean.
@@ -505,7 +525,11 @@ in `features/chat/lib/stream-pace.ts`):
   the first row comes. A row with no cell written yet (`| `) is not a clean
   cut either: it drew as a blank row whose cells then grew one by one, each
   step pushing everything below it down (64 → 84 → 87 → 90 px on a phone,
-  stream audit 2026-10).
+  stream audit 2026-10). A check table reserves its status tally's line from
+  its header on and draws no tally while rows arrive, so the chips fade into
+  that line when the table closes. One that closes with no tally keeps the
+  empty line where it streamed; dropping it pulled the rows up the moment the
+  table finished.
 - The first clean cut is shown at once. The target lag smooths text that is
   already moving; it does not hold back the first words.
 - An answer that mounts with text the reader already had starts where they
@@ -669,7 +693,11 @@ until the fold is done (`FOLD_HOLD_MS`, the fade plus two frames) and mounts
 directly under the folded bar. Mounted at once, its first line painted below
 the open panel and was yanked up by the panel's height, 400 px, as the reader
 started reading. The hold applies only to an answer this view watched begin
-under a Herleitung that had steps to fold. A panel the reader opened or closed
+under a Herleitung that had steps to fold, and only to one not on screen yet:
+an answer row a snapshot mounted before its first word already stands where it
+stays. The hold runs from the fold's start to its end whatever the turn does
+meanwhile, so a Stop or an end inside the fold does not mount the answer under
+the fading panel. A panel the reader opened or closed
 by hand is never overruled; one they opened keeps its cap through the settle,
 and their next toggle releases it.
 
@@ -688,8 +716,12 @@ no step keeps its bar after the settle, so the answer is not pulled up by its
 height in the frame the turn ends.
 
 **The settle is said once.** One polite region in `ChatArea`, mounted for the
-thread's life, says „Antwort fertig: {gist}" when this client's turn ends: the
-verdict, else the first sentence, at most 120 characters. The thread is not a
+thread's life, speaks when this client's turn ends. An answer gets „Antwort
+fertig: {gist}": the verdict, else the first sentence, at most 120
+characters. A turn that ended without an answer of its own is announced with
+the Herleitung's word for it („Gestoppt", „Fehlgeschlagen", „Auftrag
+angelegt", „Nicht bearbeitet"); „Antwort fertig" over a failed answer or a
+commissioned run said the opposite of what happened. The thread is not a
 `role="log"`, which would announce every word.
 
 **The footer.** While the answer arrives its footer (sources row, actions,
@@ -743,11 +775,20 @@ are recorded but do not replace the text, sources, masthead or cards. Sent
 first, a terminal that came back at once was folded as an ordinary end, and
 its missing masthead took the masthead away 140 px above the reader's line.
 The reveal settles at once at the shown length; the caret fades and „Gestoppt"
-fades in under the last word. Nothing the stream had not shown arrives
-afterwards: no takeaways, no „Ohne Quellenbeleg" row, no unplaced card that was
-not already drawn. The header reads „Gestoppt" with the glyph a cancelled run
-carries, never the green check, and a panel the reader was watching is left
-as it was. A reload shows the stored row, which is the same cut.
+fades in under the last word. The body does not fade: the frozen text drops a
+citation still pending at the press, so it is rarely a prefix of the last body,
+and treated as a rewrite the whole answer blinked out and back. The masthead
+stays, and so does its summary as far as it had been written: read as a blank
+answer, the settle after the press dropped both in one frame, and the stored
+row (a masthead, no text) drew nothing after a reload. Nothing the stream had
+not shown arrives afterwards: no takeaways, no „Ohne Quellenbeleg" row, no
+unplaced card that was not already drawn. An error the run raises after the
+Stop (a cancelled tool call, a stream cut on the way out) is not news to the
+reader: the answer stays stopped, not dimmed under an error card. The header
+reads „Gestoppt" with the glyph a cancelled run carries, never the green
+check, and a panel the reader was watching is left as it was. A reload shows
+the stored row, which is the same cut while the server accepts
+`cancel_turn.shown` (below).
 
 A Stop that crosses the finished answer (the reveal runs up to about a second
 behind the wire) finds no turn on the server, which has stored the whole
@@ -762,10 +803,16 @@ Accepted residuals:
 
 - Between the terminal and the settle (the 300 to 500 ms finish) the composer
   already shows Send, so Stop is not offered there.
-- During a rolling deploy, a socket on an agent that does not accept
-  `cancel_turn.shown` stores the prose it had, not the shown cut. Whichever of
-  the two writes reaches the BFF first wins the row, so a reload may show more
-  than the reader saw.
+- The server names `cancel_turn.shown` in its hello's `accepts` only while
+  `GRID_WIRE_V2_ADDITIVE_FIELDS` is on, and it is off in this release so that
+  tabs of the previous bundle keep parsing frames
+  ([chat wire v2, Compatibility](chat-wire-v2.md#compatibility-additive-changes-are-safe)).
+  Without it the page sends no `shown`, and the agent stores everything
+  streamed so far; the same holds for a socket on an older agent during a
+  rolling deploy. The browser stores its cut under the same id, and whichever
+  write reaches the BFF first wins the row, so a reload may show more than the
+  reader saw. A Stop that crossed the finished answer is still cut by the BFF,
+  which needs neither field. The next release turns the flag on by default.
 
 ### When a turn fails
 
@@ -793,7 +840,9 @@ nothing for it: it vanished in one frame, and the next round's first word drew
 it again with a second entrance. Now the frame stays. The words fade out on
 `motionQuickExit`, the body holds the height it had with one quiet line in it
 („Antwort wird erstellt …"), and the next round's first word on screen, or the
-settle, lets go of the height on a glide. The lede and the kept summary are
+settle, lets go of the height on a glide. The answer's card arrivals are
+forgotten (`CardSlotArrival`): the next round writes its cards at the same
+indices, and remembered as arrived they appeared without their entrance. The lede and the kept summary are
 decided again from the next round's first words, once the old ones have
 faded. The Herleitung stays folded: reopening it pushed the held frame down by
 248 px, only to fold again at the next first word.
@@ -821,7 +870,14 @@ the greeting, and the messages that replace it are placed, not entered.
 Where a thread opens, once its messages are here, in this order:
 
 1. the message a deep link names (`useMessageAnchor`), which then owns the
-   position: neither the bottom jump nor following moves the reader off it;
+   position: neither the bottom jump nor following moves the reader off it.
+   A target that never resolves (a message that is not displayable, deleted,
+   or in a thread that was refused) stops holding the thread once all its
+   messages are here without it, and leaving that thread for one the link does
+   not name drops the target. It is not dropped at the first miss: a shared
+   thread's newest message, which an inbox link is usually about, can land
+   with its history a moment after a stale local copy rendered. A target
+   pending for good once left every later thread unplaced and unfollowed;
 2. in a shared thread, the unread divider;
 3. where the reader was when they left it this session
    (`thread-positions.ts`: the first visible row and its offset, in memory
@@ -851,13 +907,32 @@ above the dock while it speaks.
 (`canDraft`) and keeps its focus, so the follow-up can be written while the
 answer arrives. Only the send waits: Enter is swallowed, no newline lands and
 nothing is queued, since a queued send would fire on a settle the reader may
-not have read. The placeholder says so while the field is empty. Send and Stop
-are one button whose glyph morphs (`useIconSwapTransition`); Stop shows the
-moment the turn exists, and Send returns on the press, not on the server's
-acknowledgement. Escape stops the answer from the composer or from the page
-body, after any open picker has taken its own Escape, and never touches the
-draft. On a coarse pointer the send blurs the field so the keyboard closes and
-the answer is visible; a fine pointer keeps focus.
+not have read. The placeholder says so while the field is empty. A held Enter
+sends once; its repeats are dropped.
+
+Send and Stop are one button whose glyph morphs (`useIconSwapTransition`);
+Stop shows the moment the turn exists, and Send returns on the press, not on
+the server's acknowledgement. For 400 ms after the button changes job it
+ignores presses (`SEND_CONTROL_SWAP_GUARD_MS`), and a held Enter on it
+activates it once: the second click of a double click, or a bounce on a touch
+screen, landed on the other job, so a Stop pressed twice sent the follow-up
+typed ahead and a Send pressed twice cancelled the turn it had just started.
+
+Escape stops the answer from the composer, or from the page body while the
+composer was the last thing used; a click elsewhere gives that up, so an
+Escape meant for a dialog, a menu, another field or a text selection in the
+thread never cancels the answer. An open picker takes the first Escape. An
+IME's Escape is the IME's, including Safari's, which arrives after
+`compositionend` and is marked only by keyCode 229. Escape never touches the
+draft.
+
+The send closes the on-screen keyboard only when one is up
+(`softKeyboardIsUp`): the visual viewport has lost more than 100 px of the
+layout viewport, or, where Chromium resizes both together and leaves nothing
+to measure, the engine has `navigator.virtualKeyboard`. A coarse pointer alone
+is not the test: an iPad on a hardware keyboard is coarse, has no soft
+keyboard, and its reader types the follow-up next, so the field keeps focus,
+as it does on a desk.
 
 ### Scroll
 
@@ -886,8 +961,11 @@ the answer is visible; a fine pointer keeps focus.
   after a send gives back what the spacer takes and nothing is clamped. The
   spacer is fitted and kept until the next question or a thread swap
   ([gotchas](../contributing/gotchas.md)).
-- **An observer following a colleague's turn is anchored too**, its question
-  at the top. One reading further up is not moved.
+- **An observer at the end of the thread anchors every colleague's turn**,
+  its question at the top, as the asker's is. At the end means following, or
+  watching the last anchored turn with its end in view: anchoring stops
+  following, so asking for following alone anchored the first colleague's turn
+  and none after it. One reading further up is not moved.
 
 ## Tests
 
