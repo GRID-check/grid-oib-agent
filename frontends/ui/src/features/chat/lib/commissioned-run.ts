@@ -12,9 +12,11 @@
  * for exactly one caller would be a second way to read the same row. This runs
  * once per escalated turn, which is rare next to the minutes of work it starts.
  *
- * Fail-open: a refused or malformed read returns `null`. The block then appears
- * on the next reload, which is a delay, not a loss — the run is a row and a
- * message no matter what this call does.
+ * Fail-open: a refused or malformed read returns `null`. The thread keeps the
+ * provisional block the projection drew under the same id
+ * (`turn-projection.ts`), which follows the run's stream by its run id; a
+ * reload brings the stored row. The run is a row and a message no matter what
+ * this call does.
  */
 
 import type { ChatMessage } from '@/features/chat/types'

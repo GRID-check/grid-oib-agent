@@ -34,10 +34,11 @@
  * (`lib/turn-projection.ts`), and a stage that would break them is not drawn. A rail that were admitted and then hidden here would pop
  * in later, which is the defect itself.
  *
- * `FadeIn distance={4}` is the standard 4px rise the transcript uses
- * (AnswerAnatomy included), and reduced motion is handled globally by
- * `<MotionConfig reducedMotion="user">`. `layout` lets a late-arriving rail
- * settle without reflowing what is already read.
+ * `FadeIn distance={4}` is the standard 4px rise on the entrance curve, and
+ * reduced motion drops the rise (`<MotionConfig reducedMotion="user">`). No
+ * `layout`: the rail is the last thing in the column, nothing beside it moves,
+ * so a layout animation had only the rail's own box to glide, and it slid on
+ * its own whenever anything above it changed height.
  *
  * ── What it must not read as ─────────────────────────────────────────────────
  *
@@ -57,8 +58,12 @@ import {
 import { useTranslations } from '@/i18n'
 import type { StoredFollowUp } from '@/lib/conversations/message-stages'
 
+/** No stage output yet, as one array rather than a new `[]` per render. */
+const NO_ITEMS: StoredFollowUp[] = []
+
 interface FollowUpsRailProps {
-  items: StoredFollowUp[]
+  /** The stage's questions; absent while only the Aktenvermerk chip is offered. */
+  items?: StoredFollowUp[]
   /**
    * Offer „Als Aktenvermerk schreiben" beside the questions (ledger 23). The
    * CONDITION is decided by the caller through
@@ -68,9 +73,21 @@ interface FollowUpsRailProps {
    * is chat copy and this is the chat feature.
    */
   offerAktenvermerk?: boolean
+  /**
+   * Whether the rail arrives with its entrance. Only a rail that lands under
+   * a reader who is already reading earns one; on a restored or reopened
+   * thread it is simply there, and a fade on every open replayed an arrival
+   * that happened days ago. The caller knows which (`ChatArea`, from its
+   * hydration bookkeeping).
+   */
+  animateIn?: boolean
 }
 
-export const FollowUpsRail: FC<FollowUpsRailProps> = ({ items, offerAktenvermerk = false }) => {
+export const FollowUpsRail: FC<FollowUpsRailProps> = ({
+  items = NO_ITEMS,
+  offerAktenvermerk = false,
+  animateIn = true,
+}) => {
   const t = useTranslations('chat')
   const actions = useMemo<FollowUpAction[]>(
     () =>
@@ -96,8 +113,15 @@ export const FollowUpsRail: FC<FollowUpsRailProps> = ({ items, offerAktenvermerk
   // an answer that has nothing to offer — exactly the reserved space §8 refused.
   if (usableFollowUps(items).length === 0 && actions.length === 0) return null
 
+  // `w-full` here and no wrapper in the caller: an empty wrapper around a
+  // rail that decided to render nothing still took the column's gap.
   return (
-    <FadeIn distance={4} layout data-testid="follow-ups-rail">
+    <FadeIn
+      distance={4}
+      className="w-full"
+      data-testid="follow-ups-rail"
+      {...(animateIn ? {} : { initial: false as const })}
+    >
       {/* No `mt-5`: inside the message column the parent's `gap-4` is the air,
           and a second margin would put the rail further from its answer than the
           answer is from the question. */}

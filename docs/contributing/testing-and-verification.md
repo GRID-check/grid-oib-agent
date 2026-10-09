@@ -424,6 +424,12 @@ store and components.
   `shared/wire/v2/turn-answered.jsonl`), the recorded `oib2` answer mapped onto
   v2 events (masthead, deltas, snapshot, cards, `RUN_FINISHED`) at `speed`
   times its pace, a heartbeat every 20 s and a stage after the terminal.
+  `RUN_FINISHED` carries the settled snapshot's text and sources and the
+  cards that streamed (`asSettled`), as the product's terminal does since
+  ADR-0067. The recording's own terminal is the whole-answer repair that ADR
+  retired: replayed as recorded, it rewrote the 1724-character settled answer
+  to 541 at the end of every run (table gone, `lastLineMaxDelta` 227). That
+  ending is `--scenario rewrite`.
 - A Web Worker paces the frames, so a busy main thread makes them queue as a
   real socket's would instead of slowing the server down.
 
@@ -435,13 +441,83 @@ cd frontends/ui
 node scripts/measure-stream-socket.mjs --url http://localhost:3001 --runs 2
 ```
 
-It opens the page at 390x844 with the CPU throttled 4x and at 1280x800, and
-prints one JSON line per run from `window.__streamSocket`: `maxFrameKB` (the
-largest frame but the terminal; the design's bound is 4 KB) and `totalKB`,
-long-task total, max and count (`longTaskMs`, `maxLongTaskMs`,
-`longTasksOver50`), `rafBusyMs`, `backlogMs` (last frame sent → handled),
-`maxFrameLagMs` (the worst of any frame, the number that shows a queue),
-`firstCardMs` from the send, `settleMs` from the terminal frame, and `cls`.
+It opens the page at 390x844 with the CPU throttled 4x and at 1280x800, keeps
+observing for 2.5 s after the answer settles (the Herleitung collapses and the
+footer lands in that window; a probe that stopped at the settle missed a 0.4
+CLS jump), and prints one JSON line per run from `window.__streamSocket`:
+
+- Cost: `maxFrameKB` (the largest frame but the terminal; the design's bound is
+  4 KB) and `totalKB`, long-task total, max and count (`longTaskMs`,
+  `maxLongTaskMs`, `longTasksOver50`), `rafBusyMs`, `backlogMs` (last frame
+  sent → handled), `maxFrameLagMs` (the worst of any frame, the number that
+  shows a queue), and `loaf`: long animation frames over 50 ms, the longest,
+  and the scripts that held the most frame time.
+- Timing: `firstDeltaMs` and `firstCardMs` (null when the turn has no card)
+  from the send, `settleMs` from the terminal frame.
+- Movement: `cls`, split into `clsBeforeSettle` and `clsAfterSettle`;
+  `shiftsMoved`, the largest moves of elements on screen before and after;
+  `shiftsEdge`, sources that entered or left the viewport, whose dy/dh are
+  of the visible part only and say nothing about distance
+  ([gotchas](gotchas.md)).
+- The reader: `reading.firstProseMaxDelta` and `reading.lastLineMaxDelta`,
+  the largest frame-to-frame jump in px of the answer's first prose block and
+  of the last visible line while on screen, the reader's own scrolling
+  excluded; `reading.answerInViewAtFirstWord`, whether the answer card's top
+  was in the scroller when its first word showed; and `scrollCalls`, the
+  programmatic scrolls of the thread's scroller (`scrollTo`, `scrollBy`,
+  `scroll`, `scrollIntoView` inside it, the `scrollTop` setter). The budget is
+  one: the top-anchor on send.
+
+`--reader scroll` wheels the thread down to the answer 2.5 s after its first
+word, the reader who wants to read it; what the settle then does to that
+reader is invisible to a run whose answer streams below the fold.
+`--animations` records every animation Chromium starts (CDP Animation domain)
+and prints each distinct one with duration, easing and element, `!` when the
+timing is off the motion tokens (`src/styles/tokens.css`,
+`src/components/motion/index.tsx`). motion.dev's JS-driven height tweens do
+not reach the compositor and are not listed. The probe itself is
+`src/app/dev/stream-socket/layout-probe.ts`.
+
+### Every lifecycle of a turn
+
+The default run is the happy turn, whose terminal continues the settle. Every
+scenario but `rewrite` ends that way. The page plays the other lifecycles from
+query parameters, and the script passes its flags of the same name through
+unchanged. Times are milliseconds after the question reached the server.
+
+| Parameter | What the turn does |
+|---|---|
+| `--scenario cards-only` | two cards and no prose; the terminal's text is empty |
+| `--scenario masthead-first` | the masthead lands, then 1.5 s of nothing before the first word |
+| `--scenario shallow` | no steps at all, the answer from 600 ms |
+| `--scenario opens-table` / `opens-card` | the first block is a table streamed row by row / a card placed by `[[card:1]]`, its event first |
+| `--scenario one-line` / `long` | a single 60-character delta / the recorded prose six times over |
+| `--scenario two-turns` | the `varianten` question 600 ms after the first answer settled; the split at the settle and the reading line follow the second turn from then |
+| `--scenario retract-with-card` | a preamble and its card stream, are retracted, and the recorded answer follows |
+| `--scenario rewrite` | the retired whole-answer repair, the `oib2` recording's own terminal: `RUN_FINISHED` replaces the settled answer with a shorter one. Kept to exercise a terminal that does not continue what was shown; no current backend sends one |
+| `--error preack\|steps\|prose\|finish` | `RUN_ERROR` right after the ack, after the first round's sources, half way through the prose, or where `RUN_FINISHED` would be; works with any scenario |
+| `--drop <ms>` | the socket closes as a lost network does (1006); the client's ladder reconnects, and its `attach{after_seq}` gets the frames it missed |
+| `--reload <ms>` | the page reloads; the server keeps the turn on its clock, and the reloaded page's `attach{after_seq: 0}` replays it. The probe restarts at the reload |
+| `--switch <ms>` | the store opens another conversation, and this one again 1.5 s later; coming back attaches from the view's last seq |
+| `--toggle open@<ms>,close@<ms>` | clicks the Herleitung's header. A programmatic click is not input to the browser, so its shift counts |
+| `--stop <ms>` | presses the composer's Stop; the server ends the turn `cancelled` with the text it sent |
+
+The fake server (`fake-turn-server.ts`) keeps every frame of a turn and runs
+the turn whether or not a socket follows it, so `attach` answers as the real
+one does, and a turn it never held is `rejected{turn_not_found}`. The line
+then carries `actions`, what the harness did and when (each `attach` with how
+many frames it replayed). The scenarios are built in
+`src/app/dev/_fixtures/v2-scenarios.ts` and held to the wire contract by its
+spec. Outcomes that need the reader to answer something (prompts, proposals,
+hand-offs) and the question the server never acknowledges are on
+`/dev/turn-outcomes`, which is not measured.
+
+`--reduced-motion` and `--color-scheme dark` set the browser context's
+preferences; with `--animations`, any animation longer than 0 ms under
+reduced motion is one the reduced-motion path missed. `--browser webkit`
+runs WebKit, for Safari's layout without scroll anchoring, when a WebKit
+build is in the Playwright browsers directory (the cloud image has none; the
+script says so and exits). CPU throttling and `--animations` need Chromium.
 
 The page is development only, so these are `next dev` numbers: React's dev
 build, whose prop-diff logging alone was a tenth of the profile. Compare runs
@@ -458,8 +534,8 @@ and `light` modes that replayed it, are gone with the v2 cut.
 | What did one turn cost, call by call? | `task be:eval:turn-census -- "<question>"` | key and ingested corpus | one turn per run (`--runs`, default 1); writes to `/tmp/turn_census` unless `--out`; `--override KEY VALUE` per census |
 | What happens in the milliseconds before the first model call? | `scripts/turn_census/startup_probe.py` | key, corpus and document inventory | several questions in one process; the first turn is cold |
 | What shape did the turn take (rounds, locator, checkpoint)? | `task be:eval:loop` | a running backend at `GRID_LOOP_EVAL_URL` with the corpus | real model calls per question; `--compare` needs no backend |
-| Does the layout shift while an answer streams? | `/dev/stream-replay?fixture=varianten` (or `oib2`), `&speed=N` | the UI dev server | free: the fixtures are recorded frames in `frontends/ui/src/app/dev/_fixtures/stream-frames.ts`, replayed as v2 events through `foldTurnEvent`. `window.__replay` holds `shifts`, `anchorTops` and `done` for a headless capture |
-| What does a whole turn cost the page as it arrives over the socket (step frames included)? | `/dev/stream-socket`, `node scripts/measure-stream-socket.mjs` | the UI dev server with the WorkOS placeholders | free: a scripted v2 server behind a stubbed `WebSocket`. [The socket-level streaming harness](#the-socket-level-streaming-harness) |
+| Does the layout shift while an answer streams? | `/dev/stream-replay?fixture=varianten` (or `oib2`), `&speed=N`, `&ending=recorded` for the recording's own terminal (the retired whole-answer rewrite on `oib2`) | the UI dev server | free: the fixtures are recorded frames in `frontends/ui/src/app/dev/_fixtures/stream-frames.ts`, replayed as v2 events through `foldTurnEvent`. `window.__replay` holds `shifts` (each source flagged `edge` when it entered or left the viewport), `anchorTops` and `done` for a headless capture. The answer alone: no Herleitung, no thread scroller |
+| What does a whole turn cost the page as it arrives over the socket (step frames included), and what does the reader see move until 2.5 s after the settle? | `/dev/stream-socket`, `node scripts/measure-stream-socket.mjs` (`--reader scroll`, `--animations`, and `--scenario`, `--error`, `--drop`, `--reload`, `--switch`, `--toggle`, `--stop` for the [other lifecycles](#every-lifecycle-of-a-turn)) | the UI dev server with the WorkOS placeholders | free: a scripted v2 server behind a stubbed `WebSocket`. [The socket-level streaming harness](#the-socket-level-streaming-harness) |
 
 ## Before opening a PR
 

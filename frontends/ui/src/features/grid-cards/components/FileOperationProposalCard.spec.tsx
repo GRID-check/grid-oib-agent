@@ -312,3 +312,35 @@ describe('FileOperationProposalCard — partial failure', () => {
     expect(calls).toEqual([])
   })
 })
+
+describe('FileOperationProposalCard — how a decision lands', () => {
+  it('shows each row’s check before the card records its decision', async () => {
+    const user = userEvent.setup()
+    render(
+      <FileOperationProposalCard {...moveCard} messageId="msg-1" cardKey="file_operation_proposal-0" />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Apply' }))
+
+    // The rows speak first; the decision follows one beat later.
+    expect(await screen.findAllByTestId('file-operation-row-ok')).toHaveLength(2)
+    expect(setCardDecision).not.toHaveBeenCalled()
+    await waitFor(() => expect(setCardDecision).toHaveBeenCalledWith('msg-1', 'file_operation_proposal-0', 'accepted'))
+  })
+
+  it('keeps focus on the busy button and ignores a second press', async () => {
+    const user = userEvent.setup()
+    render(
+      <FileOperationProposalCard {...moveCard} messageId="msg-1" cardKey="file_operation_proposal-0" />,
+    )
+    const apply = screen.getByRole('button', { name: 'Apply' })
+    apply.focus()
+    await user.keyboard('{Enter}')
+    const busy = screen.getByRole('button', { name: /^Applying/ })
+    expect(busy).toBe(apply)
+    expect(busy).toHaveAttribute('aria-disabled', 'true')
+    expect(busy).toHaveFocus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(setCardDecision).toHaveBeenCalledTimes(1))
+    expect(calls.filter((call) => call.method === 'PATCH')).toHaveLength(2)
+  })
+})
