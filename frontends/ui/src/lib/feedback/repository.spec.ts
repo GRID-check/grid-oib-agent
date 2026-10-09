@@ -277,11 +277,34 @@ describe('getFeedbackWeeklySummary', () => {
     ])
     mockGetDb.mockReturnValue({ execute } as never)
 
-    const rows = await getFeedbackWeeklySummary({})
+    const summary = await getFeedbackWeeklySummary({})
 
-    expect(rows).toEqual([
+    expect(summary.weeks).toEqual([
       { organizationId: 'org_1', isoWeek: '2026-W41', weekStart: '2026-10-05', answers: 40, up: 6, down: 0 },
     ])
+    expect(summary.truncated).toBe(false)
+  })
+
+  /** It used to stop at the cap and say nothing; a reader saw a complete-looking quarter. */
+  it('reads one row past the cap, reports the cut and keeps the newest weeks', async () => {
+    const rows = Array.from({ length: FEEDBACK_WEEKLY_SUMMARY_LIMIT + 1 }, (_, index) => ({
+      organization_id: `org_${index}`,
+      iso_week: '2026-W41',
+      week_start: '2026-10-05',
+      answers: '1',
+      up: '0',
+      down: '0',
+    }))
+    const execute = vi.fn().mockResolvedValue(rows)
+    mockGetDb.mockReturnValue({ execute } as never)
+
+    const summary = await getFeedbackWeeklySummary({})
+    const query = new PgDialect().sqlToQuery(execute.mock.calls[0][0])
+
+    expect(summary.truncated).toBe(true)
+    expect(summary.weeks).toHaveLength(FEEDBACK_WEEKLY_SUMMARY_LIMIT)
+    expect(query.params).toContain(FEEDBACK_WEEKLY_SUMMARY_LIMIT + 1)
+    expect(query.sql).toContain('order by week_start desc')
   })
 
   it('is bounded and scopes to one organization only when asked', async () => {
@@ -291,7 +314,7 @@ describe('getFeedbackWeeklySummary', () => {
     await getFeedbackWeeklySummary({ organizationId: 'org_9' })
     await getFeedbackWeeklySummary({})
 
-    expect(params(execute.mock.calls[0][0])).toContain(FEEDBACK_WEEKLY_SUMMARY_LIMIT)
+    expect(params(execute.mock.calls[0][0])).toContain(FEEDBACK_WEEKLY_SUMMARY_LIMIT + 1)
     expect(params(execute.mock.calls[0][0])).toContain('org_9')
     expect(params(execute.mock.calls[1][0])).not.toContain('org_9')
   })

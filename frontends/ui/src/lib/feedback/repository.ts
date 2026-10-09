@@ -746,7 +746,12 @@ export async function listFeedbackTurns(
  * Weekly rate inputs — the export's denominator
  * ------------------------------------------------------------------ */
 
-/** Cap on the weekly summary: 90 days is 14 ISO weeks, so this is orgs x 14 with room to spare. */
+/**
+ * Cap on the weekly summary: 90 days is 14 ISO weeks, so this is orgs x 14 with
+ * room to spare. Reached, it is reported (`FeedbackWeeklySummary.truncated`),
+ * never applied quietly, and the rows are ordered newest week first, so what
+ * the cap drops is the OLDEST weeks rather than an arbitrary slice of tenants.
+ */
 export const FEEDBACK_WEEKLY_SUMMARY_LIMIT = 5000
 
 /** One organization in one ISO week: what a failure rate is computed from. */
@@ -760,6 +765,14 @@ export interface FeedbackWeeklyCount {
   answers: number
   up: number
   down: number
+}
+
+/** The weekly rows, and whether the cap cut them. */
+export interface FeedbackWeeklySummary {
+  weeks: FeedbackWeeklyCount[]
+  /** True when the window held more than `FEEDBACK_WEEKLY_SUMMARY_LIMIT` rows; the oldest weeks were dropped. */
+  truncated: boolean
+  cap: number
 }
 
 /** Monday 00:00 UTC of the ISO week containing `instant`, as an ISO instant. */
@@ -786,7 +799,7 @@ export function isoWeekStart(instant: Date): string {
  */
 export async function getFeedbackWeeklySummary(
   filters: Pick<FeedbackHealthFilters, 'windowDays' | 'organizationId'> = {},
-): Promise<FeedbackWeeklyCount[]> {
+): Promise<FeedbackWeeklySummary> {
   const { windowDays = FEEDBACK_HEALTH_WINDOW_DAYS, organizationId = null } = filters
   const db = getDb()
   const since = isoWeekStart(new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000))
@@ -825,11 +838,15 @@ export async function getFeedbackWeeklySummary(
     from a
     full outer join v on v.organization_id = a.organization_id and v.week = a.week
     order by week_start desc, organization_id
-    limit ${FEEDBACK_WEEKLY_SUMMARY_LIMIT}
+    limit ${FEEDBACK_WEEKLY_SUMMARY_LIMIT + 1}
   `)
 
+  // One row over the cap tells "exactly full" apart from "cut". Newest first,
+  // so the rows that fall off are the oldest weeks.
+  const rows = rowsOf(result)
+  const truncated = rows.length > FEEDBACK_WEEKLY_SUMMARY_LIMIT
   // Raw `sql` results are not runtime-validated; counts arrive as strings.
-  return rowsOf(result).map((row) => ({
+  const weeks = rows.slice(0, FEEDBACK_WEEKLY_SUMMARY_LIMIT).map((row) => ({
     organizationId: String(row.organization_id),
     isoWeek: String(row.iso_week),
     weekStart: String(row.week_start),
@@ -837,4 +854,5 @@ export async function getFeedbackWeeklySummary(
     up: Number(row.up ?? 0),
     down: Number(row.down ?? 0),
   }))
+  return { weeks, truncated, cap: FEEDBACK_WEEKLY_SUMMARY_LIMIT }
 }

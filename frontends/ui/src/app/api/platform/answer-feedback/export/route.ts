@@ -78,16 +78,20 @@ export const GET = apiRoute(
       // cannot say how often an answer fails; this is answers/up/down per
       // organization and ISO week, behind the same gate and `days`/`org` filters.
       if (searchParams.get('summary') === 'weekly') {
-        const weeks = await getAnswerFeedbackWeeklySummary(session, filters)
+        const summary = await getAnswerFeedbackWeeklySummary(session, filters)
         const stamp = new Date().toISOString().slice(0, 10)
+        // Cut at its cap, the summary drops the OLDEST weeks, and says so the
+        // same two ways the row export does.
+        const cut = summary.truncated ? `-first-${summary.cap}` : ''
         return csvResponse(
-          weeks.map((w) =>
+          summary.weeks.map((w) =>
             [w.organizationId, w.isoWeek, w.weekStart, w.answers, w.up, w.down]
               .map(csvCell)
               .join(',')
           ),
           WEEKLY_COLUMNS,
-          `answer-feedback-weekly-${stamp}.csv`
+          `answer-feedback-weekly-${stamp}${cut}.csv`,
+          summary.truncated ? { [EXPORT_TRUNCATED_HEADER]: String(summary.cap) } : {}
         )
       }
       const exported = await getAnswerFeedbackExport(session, filters)

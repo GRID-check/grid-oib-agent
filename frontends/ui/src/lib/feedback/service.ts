@@ -40,7 +40,7 @@ import {
   type FeedbackHealth,
   type FeedbackOrgRollup,
   type FeedbackTurn,
-  type FeedbackWeeklyCount,
+  type FeedbackWeeklySummary,
   type FeedbackHealthFilters,
 } from './repository'
 import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
@@ -351,7 +351,7 @@ export async function getAnswerFeedbackExport(
 export async function getAnswerFeedbackWeeklySummary(
   session: GridSession | null,
   filters: FeedbackHealthFilters = {}
-): Promise<FeedbackWeeklyCount[]> {
+): Promise<FeedbackWeeklySummary> {
   await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
   return withPlatformAccess('answer feedback: weekly rate inputs across organizations', () =>
     getFeedbackWeeklySummary(filters)

@@ -51,9 +51,13 @@ vi.mock('@/lib/feedback/service', () => ({
   getAnswerFeedbackWeeklySummary: vi.fn().mockImplementation(async (session: unknown) => {
     const { requirePlatformPermission } = await import('@/lib/authz/platform')
     await requirePlatformPermission(session as never, 'platform:organizations:view')
-    return [
-      { organizationId: 'org_2', isoWeek: '2026-W41', weekStart: '2026-10-05', answers: 40, up: 6, down: 3 },
-    ]
+    return {
+      truncated: false,
+      cap: 5000,
+      weeks: [
+        { organizationId: 'org_2', isoWeek: '2026-W41', weekStart: '2026-10-05', answers: 40, up: 6, down: 3 },
+      ],
+    }
   }),
 }))
 
@@ -203,6 +207,15 @@ describe('GET /api/platform/answer-feedback/export', () => {
         expect.objectContaining({ windowDays: 90, organizationId: 'org_2' })
       )
       expect(getAnswerFeedbackExport).not.toHaveBeenCalled()
+    })
+
+    it('says so when the cap cut the oldest weeks', async () => {
+      isOwner.value = true
+      vi.mocked(getAnswerFeedbackWeeklySummary).mockResolvedValueOnce({ weeks: [], truncated: true, cap: 5000 })
+      const res = await GET(request('?summary=weekly'))
+
+      expect(res.headers.get('X-Grid-Export-Truncated')).toBe('5000')
+      expect(res.headers.get('Content-Disposition')).toMatch(/-first-5000\.csv"$/)
     })
   })
 })
