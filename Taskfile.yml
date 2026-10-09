@@ -217,7 +217,7 @@ tasks:
       - bun install --frozen-lockfile
 
   fe:lint:
-    desc: ESLint the UI
+    desc: Lint the UI (oxlint, the repo rules included as a JS plugin)
     dir: '{{.UI}}'
     cmds:
       - bun run lint

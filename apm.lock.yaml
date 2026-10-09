@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-10-08T15:00:44.975541+00:00'
+generated_at: '2026-10-09T10:40:47.531353+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -82,8 +82,8 @@ dependencies:
   - .claude/skills/aiq-definition-of-done
   - .claude/skills/aiq-definition-of-done/SKILL.md
   deployed_file_hashes:
-    .agents/skills/aiq-definition-of-done/SKILL.md: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
-    .claude/skills/aiq-definition-of-done/SKILL.md: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
+    .agents/skills/aiq-definition-of-done/SKILL.md: sha256:5b77c514efe81da13ed28eaf2aecae562fdb43659105a603301adf8ea76c717e
+    .claude/skills/aiq-definition-of-done/SKILL.md: sha256:5b77c514efe81da13ed28eaf2aecae562fdb43659105a603301adf8ea76c717e
   source: local
   local_path: ./skills/aiq-definition-of-done
 - repo_url: _local/aiq-deploy
@@ -825,7 +825,7 @@ deployments:
   owners:
   - ./skills/aiq-definition-of-done
   active_owner: ./skills/aiq-definition-of-done
-  content_hash: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
+  content_hash: sha256:5b77c514efe81da13ed28eaf2aecae562fdb43659105a603301adf8ea76c717e
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-deploy
@@ -1860,7 +1860,7 @@ deployments:
   owners:
   - ./skills/aiq-definition-of-done
   active_owner: ./skills/aiq-definition-of-done
-  content_hash: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
+  content_hash: sha256:5b77c514efe81da13ed28eaf2aecae562fdb43659105a603301adf8ea76c717e
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-deploy

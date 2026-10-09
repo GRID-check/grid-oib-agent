@@ -540,7 +540,7 @@ body {
    friends so the four colour axes in §A3 keep their own vocabulary.
 
    Enforced by `grid/card-type-scale` (eslint-rules/card-type-scale.mjs), which
-   is switched on per file as each card is migrated — see eslint.config.mjs.
+   is switched on per file as each card is migrated — see .oxlintrc.json.
    ============================================================================= */
 @layer components {
   /* Eyebrow — card type, micro-labels, column headers. Reached through

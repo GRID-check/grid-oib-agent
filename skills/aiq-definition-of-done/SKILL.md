@@ -50,8 +50,8 @@ while the bug existed, the suite was wrong too; fix both.
 ## 2a. `any` is never done
 
 **`any` is not an accepted type anywhere in this repo — not in production code,
-not in test doubles, not "just for now".** `@typescript-eslint/no-explicit-any`
-is an **error** in `frontends/ui/eslint.config.mjs` and the suite is at zero.
+not in test doubles, not "just for now".** `typescript/no-explicit-any`
+is an **error** in `frontends/ui/.oxlintrc.json` and the suite is at zero.
 A change that adds one is not done, however green the tests are.
 
 This is not style. A test double typed `(s: any) => any` switches off checking
@@ -219,7 +219,7 @@ Environment quirks that repeatedly cost time. Each points to the doc that owns
 the detail — read the doc, don't guess.
 
 - **`any` fails the build, and a spec is not exempt.** `no-explicit-any` is an
-  eslint **error** and the suite sits at zero — §2a has the ladder to reach for
+  oxlint **error** and the suite sits at zero — §2a has the ladder to reach for
   instead (real type → narrowing → `unknown` → one documented
   `as unknown as T`) and the `@/test-utils/{store,db}-fixtures` helpers that
   cover the common spec cases. Do not reach for a cast because a fixture is

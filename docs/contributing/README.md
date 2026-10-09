@@ -16,6 +16,7 @@ holds the depth behind it.
 | [agent-skills.md](agent-skills.md) | How `.claude/` is generated, which skills are installed and why, what to know before trusting them |
 | [correction-ratchet.md](correction-ratchet.md) | Closing the layer that allowed an error, instead of only fixing the output |
 | [documentation.md](documentation.md) | Which doc to update for which kind of change, and why that is part of the change |
+| [lint-evaluation.md](lint-evaluation.md) | Why the UI lints with oxlint and not ESLint or Biome: timings, rule coverage, what was lost, and how the repo's own rules are kept honest |
 
 ## Adding to this directory
 
