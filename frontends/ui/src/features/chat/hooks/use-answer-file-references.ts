@@ -17,13 +17,15 @@
  * it cannot be naming a file, and most answers are that answer, so most answers
  * cost nothing at all.
  *
- * ## Not while it is arriving
+ * ## While it is arriving, too
  *
- * A streaming body changes on every token, and half a filename is not a file
- * reference — so a chip would appear mid-word, or (worse) a name would match a
- * DIFFERENT file until its distinguishing tail arrived. Nothing is scanned
- * until the answer is finished, which in this product is a frame or two after
- * the first delta.
+ * The index is fetched as soon as the body mentions a file type, streaming or
+ * not, and names are linked as they appear. Waiting for the finished answer
+ * started the fetch at the settle, so the chips arrived a round trip later and
+ * re-parsed and re-wrapped an answer the reader had just finished. Half a
+ * filename is not a risk here: the body this reads is the PACED one, which
+ * grows a whole word at a time, and the match is the literal name the reader
+ * owns, so a name is linked once all of it is on screen and not before.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -44,6 +46,8 @@ export interface AnswerFileReferences {
 }
 
 const NO_NAMES: readonly string[] = []
+/** A filename cannot contain NUL, so the joined key splits back exactly. */
+const NAME_SEPARATOR = '\u0000'
 const NO_REFERENCES: AnswerFileReferences = { fileNames: NO_NAMES, resolve: () => null }
 
 export function useAnswerFileReferences(options: {
@@ -51,11 +55,9 @@ export function useAnswerFileReferences(options: {
   body: string
   projectId: string | null
   conversationId: string | null
-  /** Nothing is scanned or fetched while the answer is still arriving. */
-  isStreaming?: boolean
 }): AnswerFileReferences {
-  const { body, projectId, conversationId, isStreaming } = options
-  const worthLooking = !isStreaming && mentionsAnyFileType(body)
+  const { body, projectId, conversationId } = options
+  const worthLooking = mentionsAnyFileType(body)
   const [index, setIndex] = useState<Map<string, StoredFile> | null>(null)
 
   useEffect(() => {
@@ -74,15 +76,22 @@ export function useAnswerFileReferences(options: {
     }
   }, [worthLooking, projectId, conversationId])
 
-  const fileNames = useMemo(
+  // Keyed by the joined names, not by the array: the body grows a word per
+  // reveal step, so a fresh array every step (same names) would rebuild the
+  // marker plugins and re-parse every block of the answer per word.
+  const namesKey = useMemo(
     () =>
       worthLooking && index
         ? fileNamesPresentIn(
             body,
             [...index.values()].map((entry) => entry.file.filename)
-          )
-        : NO_NAMES,
+          ).join(NAME_SEPARATOR)
+        : '',
     [worthLooking, index, body]
+  )
+  const fileNames = useMemo(
+    () => (namesKey ? namesKey.split(NAME_SEPARATOR) : NO_NAMES),
+    [namesKey]
   )
 
   return useMemo(() => {

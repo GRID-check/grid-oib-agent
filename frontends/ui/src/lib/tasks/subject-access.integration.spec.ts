@@ -33,11 +33,31 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { FolderClearance } from '@/lib/authz/folder-access'
+import { NO_RATINGS_FILTERS, type FeedbackQuery } from '@/lib/feedback/filters'
 
 vi.mock('server-only', () => ({}))
 
 const STAMP = Date.now()
 const ORG = `org_subj_${STAMP}`
+
+/** This organization's down-votes, over a range that holds every seeded vote. */
+const DOWN_IN_ORG: FeedbackQuery = {
+  scope: {
+    from: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
+    to: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+    organizationIds: [ORG],
+    projectIds: [],
+  },
+  ratings: { ...NO_RATINGS_FILTERS, verdict: 'down' },
+}
+
+/** Today's profiled turns in this organization, for the staff directory. */
+const PROFILER_SCOPE = {
+  start: new Date(Date.now() - 86_400_000),
+  endExclusive: new Date(Date.now() + 86_400_000),
+  organizationIds: [ORG],
+  projectIds: [],
+}
 const CLEARED = `user_subj_cleared_${STAMP}`
 const UNCLEARED = `user_subj_uncleared_${STAMP}`
 const THREAD = `s_subj_thread_${STAMP}`
@@ -106,12 +126,12 @@ describe.skipIf(!url)('revision tasks judged by their document’s current folde
     const { listUnprocessedDownvotes } = await import('@/lib/platform-lessons/repository')
     const { listProfiledConversations } = await import('@/lib/profiler/repository')
     const turns = await withPlatformAccess('test: feedback drill-in', () =>
-      listFeedbackTurns({ organizationId: ORG, verdict: 'down' })
+      listFeedbackTurns(DOWN_IN_ORG)
     )
     const reports = (await withPlatformAccess('test: lessons sweep input', () => listUnprocessedDownvotes(500))).filter(
       (report) => report.organizationId === ORG
     )
-    const profiled = (await listProfiledConversations(THREAD)).rows.find((row) => row.conversationId === THREAD)
+    const profiled = (await listProfiledConversations(PROFILER_SCOPE, THREAD)).rows.find((row) => row.conversationId === THREAD)
     return {
       answers: turns.map((turn) => turn.answer),
       titles: turns.map((turn) => turn.conversationTitle),

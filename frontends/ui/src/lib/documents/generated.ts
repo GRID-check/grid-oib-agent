@@ -51,7 +51,7 @@ import { admitOrDiscard } from '@/lib/storage/admission'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { placementCollectionFor, requireFolderWrite } from '@/lib/authz/folder-access'
 import { aiProvenanceMarking, markingIsInBytes, type AiProvenanceMarking } from '@/lib/ai-provenance'
-import { latinize } from '@/lib/text/latinize'
+import { fileSlug } from '@/lib/text/latinize'
 import { FEATURE_FLAGS, isAgentAuthoredDocumentsEnabled } from '@/lib/authz/feature-flags'
 import { recordAuditEventOrThrow } from '@/lib/audit/service'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
@@ -397,11 +397,7 @@ const EXTENSION_BY_CONTENT_TYPE: Readonly<Record<string, string>> = {
  */
 export function generatedFilename(title: string, contentType: string, now: Date): string {
   const day = now.toISOString().slice(0, 10)
-  const slug = latinize(title)
-    .replace(/[^a-zA-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .toLowerCase()
-    .slice(0, 60)
+  const slug = fileSlug(title)
   const extension = EXTENSION_BY_CONTENT_TYPE[contentType.split(';')[0].trim()] ?? 'bin'
   return `${slug || 'piloti'}-${day}.${extension}`
 }

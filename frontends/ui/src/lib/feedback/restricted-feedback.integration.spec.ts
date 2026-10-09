@@ -34,6 +34,7 @@ import { sql } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { executeRows } from '@/lib/db/execute-rows'
+import { NO_RATINGS_FILTERS, type FeedbackQuery } from './filters'
 
 vi.mock('server-only', () => ({}))
 // What the vote service does besides writing the vote: none of it is the
@@ -47,6 +48,25 @@ vi.mock('@/lib/projects/memory-service', () => ({ implicateMemoryFromFeedback: v
 
 const STAMP = Date.now()
 const ORG = `org_rfb_${STAMP}`
+
+/** This organization's down-votes, over a range that holds every seeded vote. */
+const DOWN_IN_ORG: FeedbackQuery = {
+  scope: {
+    from: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
+    to: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+    organizationIds: [ORG],
+    projectIds: [],
+  },
+  ratings: { ...NO_RATINGS_FILTERS, verdict: 'down' },
+}
+
+/** Today's profiled turns in this organization, for the staff directory. */
+const PROFILER_SCOPE = {
+  start: new Date(Date.now() - 86_400_000),
+  endExclusive: new Date(Date.now() + 86_400_000),
+  organizationIds: [ORG],
+  projectIds: [],
+}
 const USER = `user_rfb_${STAMP}`
 const COLLEAGUE = `user_rfb_colleague_${STAMP}`
 const RESTRICTED_TITLE = `Honorare Zimmerer AAA ${STAMP}`
@@ -165,17 +185,21 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
   async function readers() {
     const { withPlatformAccess } = await import('@/lib/db/tenant-context')
     const { getFeedbackHealth, listFeedbackTurns } = await import('./repository')
+    const { listFeedbackExportRows } = await import('./export-repository')
     const { listUnprocessedDownvotes } = await import('@/lib/platform-lessons/repository')
     const turns = await withPlatformAccess('test: feedback drill-in', () =>
-      listFeedbackTurns({ organizationId: ORG, verdict: 'down' })
+      listFeedbackTurns(DOWN_IN_ORG)
     )
     const reports = (await withPlatformAccess('test: lessons sweep input', () => listUnprocessedDownvotes(500))).filter(
       (report) => report.organizationId === ORG
     )
-    const health = await withPlatformAccess('test: feedback aggregates', () =>
-      getFeedbackHealth({ organizationId: ORG, limit: 0 })
+    const exported = await withPlatformAccess('test: feedback export', () =>
+      listFeedbackExportRows(DOWN_IN_ORG, 500)
     )
-    return { turns, reports, health }
+    const health = await withPlatformAccess('test: feedback aggregates', () =>
+      getFeedbackHealth(DOWN_IN_ORG, { turnLimit: 0 })
+    )
+    return { turns, exported, reports, health }
   }
 
   /**
@@ -201,10 +225,11 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     expect(await marksIn(RESTRICTED_CHAT)).toEqual([firstQuestion, earlier, secondQuestion, answer].sort())
     expect(await marksIn(OPEN_CHAT)).toEqual([])
 
-    const { turns, reports, health } = await readers()
+    const { turns, exported, reports, health } = await readers()
     expect(turns.map((turn) => turn.answer)).toEqual([OPEN_ANSWER])
     for (const quoted of ['Zimmerer', 'ZIMMERER-AAA', 'Fluchtweg', RESTRICTED_TITLE]) {
       expect(JSON.stringify(turns)).not.toContain(quoted)
+      expect(JSON.stringify(exported)).not.toContain(quoted)
       expect(JSON.stringify(reports)).not.toContain(quoted)
     }
     expect(reports.map((report) => report.answer)).toEqual([OPEN_ANSWER])
@@ -256,9 +281,10 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     expect(marks).toHaveLength(4)
     expect(marks).toEqual(expect.arrayContaining([firstQuestion, earlier, answer]))
 
-    const { turns, reports, health } = await readers()
+    const { turns, exported, reports, health } = await readers()
     for (const quoted of ['Spengler', 'Attika']) {
       expect(JSON.stringify(turns)).not.toContain(quoted)
+      expect(JSON.stringify(exported)).not.toContain(quoted)
       expect(JSON.stringify(reports)).not.toContain(quoted)
     }
     expect(health.totals.down).toBe(6)
@@ -304,12 +330,14 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
 
     const before = await readers()
     expect(JSON.stringify(before.turns)).not.toContain('SPENGLER-BBB')
+    expect(JSON.stringify(before.exported)).not.toContain('SPENGLER-BBB')
     expect(JSON.stringify(before.reports)).not.toContain('SPENGLER-BBB')
 
     const { deleteConversationInOrg } = await import('@/lib/conversations/repository')
     await inOrg(() => deleteConversationInOrg(PHANTOM_CHAT, ORG))
     const after = await readers()
     expect(JSON.stringify(after.turns)).not.toContain('SPENGLER-BBB')
+    expect(JSON.stringify(after.exported)).not.toContain('SPENGLER-BBB')
     expect(JSON.stringify(after.reports)).not.toContain('SPENGLER-BBB')
     expect(await scoredWithoutWords(phantom)).toBe(true)
 
@@ -343,8 +371,9 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     await vote(honest, NAMED_CHAT, 'Breite')
 
     expect(await marksIn(NAMED_CHAT)).toEqual([])
-    const { turns, reports } = await readers()
+    const { turns, exported, reports } = await readers()
     expect(JSON.stringify(turns)).not.toContain('Maler')
+    expect(JSON.stringify(exported)).not.toContain('Maler')
     expect(JSON.stringify(reports)).not.toContain('Maler')
     const shown = turns.find((turn) => turn.answer === `Die Treppe ist 1,20 m breit ${STAMP}`)
     expect(shown?.question).toBe('Wie breit ist die Treppe?')
@@ -405,7 +434,7 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     }
     const { listProfiledConversations } = await import('@/lib/profiler/repository')
 
-    const { rows } = await listProfiledConversations(String(STAMP))
+    const { rows } = await listProfiledConversations(PROFILER_SCOPE, String(STAMP))
     const restricted = rows.find((row) => row.conversationId === PROFILED_CHAT)
     expect(restricted).toMatchObject({ title: null, titleWithheld: true })
     expect(rows.find((row) => row.conversationId === OPEN_PROFILED_CHAT)).toMatchObject({
@@ -414,9 +443,9 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     })
 
     // The search must not confirm a word of the title either; the id still finds it.
-    const byTitle = await listProfiledConversations('Honorare Zimmerer')
+    const byTitle = await listProfiledConversations(PROFILER_SCOPE, 'Honorare Zimmerer')
     expect(byTitle.rows.map((row) => row.conversationId)).not.toContain(PROFILED_CHAT)
-    const byId = await listProfiledConversations(PROFILED_CHAT)
+    const byId = await listProfiledConversations(PROFILER_SCOPE, PROFILED_CHAT)
     expect(byId.rows.map((row) => row.conversationId)).toEqual([PROFILED_CHAT])
   })
 })

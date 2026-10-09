@@ -537,3 +537,15 @@ describe('the answer duration survives storage', () => {
     }
   })
 })
+
+describe('the Aufwand a turn ran at survives storage', () => {
+  it('keeps a level the dial offers', () => {
+    expect(sanitizeProvenance({ reasoningEffort: 'xhigh' })).toEqual({ reasoningEffort: 'xhigh' })
+  })
+
+  it('drops anything else', () => {
+    for (const reasoningEffort of ['none', 'HIGH', 3, null]) {
+      expect(sanitizeProvenance({ reasoningEffort })).toBeNull()
+    }
+  })
+})

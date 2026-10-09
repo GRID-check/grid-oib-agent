@@ -14,7 +14,16 @@
  * because the write is a synchronous store update, never a round trip.
  */
 
-import { type CSSProperties, type FC, useEffect, useId } from 'react'
+import {
+  type CSSProperties,
+  type FC,
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { ChevronDown, HelpCircle } from 'lucide-react'
 
 import { motion, springGlide } from '@/components/motion'
@@ -50,12 +59,29 @@ export function resetEffortDialDefaultRequest(): void {
 interface EffortDialProps {
   conversationId: string | null | undefined
   disabled?: boolean
+  /**
+   * Out of sight but still in the row: invisible, unfocusable and silent, at
+   * its full width. For the composer's response mode, where a HITL answer is
+   * not a question and the dial has nothing to say. Unmounting it there made
+   * every control beside it jump sideways twice per prompt.
+   */
+  hidden?: boolean
+  /**
+   * Where the keyboard goes if the dial hides while it holds the focus (the
+   * chip, or the slider in its open popover). The composer passes its field:
+   * the dial hides because a question arrived, and the field is where it is
+   * answered. Without it the focus is let go to <body> rather than left on a
+   * control nobody can see.
+   */
+  focusOnHide?: RefObject<HTMLElement | null>
   className?: string
 }
 
 export const EffortDial: FC<EffortDialProps> = ({
   conversationId,
   disabled = false,
+  hidden = false,
+  focusOnHide,
   className,
 }) => {
   const t = useTranslations('chat')
@@ -68,23 +94,60 @@ export const EffortDial: FC<EffortDialProps> = ({
 
   const index = CHAT_EFFORTS.indexOf(effort)
   const label = t(`effortDial.levels.${effort}`)
+  // Controlled only so a dial that hides while open closes too, rather than
+  // leaving its popover standing over an invisible chip.
+  const [open, setOpen] = useState(false)
+
+  // Hiding while focused hands the focus on, before paint, so no frame has the
+  // keyboard on an invisible, aria-hidden control (and a screen reader is not
+  // left announcing one).
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!hidden) return
+    const focused = document.activeElement
+    if (!(focused instanceof HTMLElement)) return
+    const holdsFocus =
+      (triggerRef.current?.contains(focused) ?? false) ||
+      (contentRef.current?.contains(focused) ?? false)
+    if (!holdsFocus) return
+    if (focusOnHide?.current) focusOnHide.current.focus()
+    else focused.blur()
+  }, [hidden, focusOnHide])
 
   return (
-    <Popover>
+    <Popover open={open && !hidden} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          ref={triggerRef}
           variant="ghost"
           size="sm"
           data-testid="effort-dial-trigger"
           className={cn(
             'text-muted-foreground h-8 gap-1 rounded-lg px-2.5 text-xs font-semibold',
+            hidden && 'invisible',
             className
           )}
           disabled={disabled}
+          aria-hidden={hidden || undefined}
+          tabIndex={hidden ? -1 : undefined}
           aria-label={t('effortDial.trigger', { level: label })}
           title={t('effortDial.trigger', { level: label })}
         >
-          {label}
+          {/* Every level's name stacked in one cell, only the current one
+              visible: the chip is as wide as the longest name at every level,
+              so turning the dial never moves the controls beside it. */}
+          <span className="grid" data-testid="effort-dial-label">
+            {CHAT_EFFORTS.map((level) => (
+              <span
+                key={level}
+                className={cn('col-start-1 row-start-1', level !== effort && 'invisible')}
+                aria-hidden={level !== effort || undefined}
+              >
+                {t(`effortDial.levels.${level}`)}
+              </span>
+            ))}
+          </span>
           <ChevronDown className="size-3" aria-hidden="true" />
         </Button>
       </PopoverTrigger>
@@ -94,6 +157,12 @@ export const EffortDial: FC<EffortDialProps> = ({
         sideOffset={8}
         className="w-72 p-4"
         data-testid="effort-dial"
+        ref={contentRef}
+        // Closed by hiding: the focus has already moved on (above), and
+        // Radix's return to the trigger would put it back on the hidden chip.
+        onCloseAutoFocus={(event) => {
+          if (hidden) event.preventDefault()
+        }}
       >
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm">
@@ -215,7 +284,7 @@ const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose
             data-testid="effort-dial-stop"
             data-passed={position <= index}
             className={cn(
-              'bg-muted-foreground/35 duration-quick absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity ease-out',
+              'bg-muted-foreground/35 duration-quick absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity ease-out motion-reduce:transition-none',
               position <= index && 'opacity-0'
             )}
             style={{ left: `${(position / (CHAT_EFFORTS.length - 1)) * 100}%` }}
