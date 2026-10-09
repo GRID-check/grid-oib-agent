@@ -1,5 +1,4 @@
 # Architecture Decision Records
-| [0094](0094-permitting-memory-is-derived-from-the-documents-at-ingest.md) | Permitting memory is derived from the documents at ingest, read by meaning | Proposed |
 
 This directory holds the **Architecture Decision Records (ADRs)** for the Grid Agent
 project. An ADR captures a single architecturally significant decision together with
@@ -153,6 +152,7 @@ Consequences, where a reader looks for them.
 | [0091](0091-ausmisten-proposes-from-metadata-and-bins-through-a-subfolder.md) | „Ausmisten" proposes from metadata, and bins through a subfolder of each document's folder | Accepted |
 | [0092](0092-the-server-marks-the-message-that-drew-on-a-restricted-folder.md) | The server marks the message that drew on a restricted folder, and the mark outlives the chat | Accepted |
 | [0093](0093-the-agent-searches-other-projects-as-the-conversations-audience.md) | The agent searches other projects as the conversation's audience, and a closed project restricts nobody | Accepted |
+| [0094](0094-permitting-memory-is-derived-from-the-documents-at-ingest.md) | Permitting memory is derived from the documents at ingest, read by meaning | Proposed |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off
