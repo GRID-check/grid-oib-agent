@@ -36,7 +36,7 @@
  */
 
 /** Badge variants the Files chrome uses for a status. */
-export type DocumentStatusVariant = 'success' | 'info' | 'destructive' | 'secondary'
+export type DocumentStatusVariant = 'success' | 'info' | 'destructive' | 'secondary' | 'warning'
 
 /** Whether a status resolves itself, or is where the document has come to rest. */
 export type DocumentStatusPhase = 'in-flight' | 'terminal'
@@ -111,6 +111,20 @@ export const DOCUMENT_STATUS_FACTS = {
    * about. Retry remains possible through the re-ingest action.
    */
   uploaded: { variant: 'secondary', phase: 'terminal', labelKey: 'status.stored' },
+
+  // --- Held back: the bytes are here and a person has to decide. -----------
+  /**
+   * The content gate matched (ADR-0086): the ingest job read the file's text
+   * locally, found something the office's screening names, and stopped before
+   * any model saw it. Nothing is indexed. Terminal, so nothing polls it; a
+   * reviewer releases it (a re-dispatch with screening skipped for these exact
+   * bytes) or deletes it.
+   *
+   * WARNING, not destructive and not neutral: nothing failed, and nothing is
+   * at rest either — it waits on a decision. The reasons are in `errorMessage`
+   * as `quarantined:{json}` (`lib/upload-screening/quarantine.ts` reads them).
+   */
+  quarantined: { variant: 'warning', phase: 'terminal', labelKey: 'status.quarantined' },
 } as const satisfies Record<string, DocumentStatusFacts>
 
 /** The declared vocabulary as a type — `keyof`, so it cannot drift from the data. */

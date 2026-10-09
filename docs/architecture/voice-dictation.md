@@ -31,6 +31,14 @@ would have typed.
 - Nobody is billed for dictation and no budget ever blocks it. The real cost,
   with the seconds of audio, is on the ledger, and Platform → Overview names
   the share of cost that was voice input.
+- The transcript is not screened for „Sensible Daten" when it comes back: it
+  lands in the composer as is, and is screened at send like typed text (the
+  composer's hold, then the chat socket's mask). The audio itself reaches the
+  transcription model unscreened (zero data retention on the platform's key,
+  the provider's own policy for an office on its own key), so dictation is one
+  of the doors the
+  [ADR-0086 chat amendment](../adr/0086-uploads-are-screened-locally-and-matches-wait-in-quarantine.md#amendment-2026-10-02-chat-messages-are-screened-too)
+  lists under "Neutral", outside chat screening.
 
 ## How a recording travels
 

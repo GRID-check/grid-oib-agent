@@ -119,6 +119,7 @@ Organization.
 | `org:budgets:manage` | LLM budgets + org-wide usage (ADR-0015) |
 | `org:compliance:manage` | Legal holds + deletion queue |
 | `org:audit:view` | Open the org's native audit-log viewer (Admin Portal) |
+| `org:downloads:view` | Read the download log: who took which document out, and who opened one under a folder with its own access list (ADR-0088). **New 2026-10-06: run `bun run provision:authz --apply` against every environment** before a custom role can hold it; `admin` holds it through the catalog. Reading the log is audited (`download_log.viewed`, needs `npm run provision:audit-schemas -- --apply`). |
 | `org:archiv:manage` | Upload/delete/reingest/retag in the org-wide document Archiv (ADR-0024). Reads are open to any member, so only mutations need it. |
 | `org:skills:manage` | Author, edit, clone and delete skills in the organization toolbox (Agent Skills). Reads are open to any member. |
 | `org:projects:create` | Create projects. Held by **Member** by default; withhold it to make project creation admin-only. |
@@ -191,7 +192,8 @@ environment-scoped role holds a `platform:*` permission.
 | `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:memory:write` |
 | `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:skills:manage` |
 | `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |
-| `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view`, `platform:settings:view` — every read, no `*:manage`. `platformApiRoute` requires the specific permission per route, which is what makes "read-only" true rather than described. |
+| `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view`, `platform:settings:view`, `platform:observability:view` — every read, no `*:manage`. `platformApiRoute` requires the specific permission per route, which is what makes "read-only" true rather than described. |
+| `platform-observability-analyst` | **GRID Platform org only** | `platform:observability:view` only: opens Langfuse at the edge for business analysts and the Fachbereich, and no platform surface in the app (ADR-0089). The scope must be assigned to the Connect application before the stack that checks it is deployed, or every Langfuse login fails with `invalid_scope` |
 
 The five fine-grained org personas exist to keep ADR-0016's extensibility
 contract honest: each holds a strict subset of Admin and works with no code

@@ -2,7 +2,16 @@
  * @vitest-environment node
  */
 import { describe, expect, it, vi } from 'vitest'
-import { claimDue, pruneOldRuns, PLATFORM_ROLE, PRUNE_BATCH } from './db.js'
+import {
+  claimDue,
+  conversationIsHeld,
+  findConversationsAwaitingTraceErasure,
+  markConversationTracesErased,
+  pruneDownloadLog,
+  pruneOldRuns,
+  PLATFORM_ROLE,
+  PRUNE_BATCH,
+} from './db.js'
 
 // Same fake-sql idiom as purger/db.spec.mjs: a tagged-template fn that records
 // the rendered SQL text (`join('$')` renders each interpolation as `$`) plus the
@@ -235,5 +244,118 @@ describe('platform scope', () => {
       'role',
       'query',
     ])
+  })
+})
+
+describe('conversation trace erasure queries', () => {
+  it('finds purged conversation rows that are recent, settled, unstamped and not held', async () => {
+    const { sql, executed } = makeClaimSql([{ id: 'q1', entity_id: 's_1', organization_id: 'org_1' }])
+
+    const rows = await findConversationsAwaitingTraceErasure(sql, 100)
+
+    expect(rows).toEqual([{ id: 'q1', entity_id: 's_1', organization_id: 'org_1' }])
+    const [step, select] = executed
+    expect(step.text).toBe(`SET LOCAL ROLE ${PLATFORM_ROLE}`)
+    expect(select.text).toContain("q.entity_type = 'conversation'")
+    expect(select.text).toContain("q.status = 'purged'")
+    expect(select.text).toContain('q.purged_at >= now() - make_interval(days => $)')
+    expect(select.text).toContain('q.purged_at <= now() - make_interval(mins => $)')
+    expect(select.text).toContain("q.payload->>'langfuseTracesErasedAt' IS NULL")
+    expect(select.text).toContain('NOT grid_legal_hold_blocks(q.entity_type, q.entity_id, q.organization_id)')
+    // 35 days, 15 minutes, 100 rows.
+    expect(select.values).toEqual([35, 15, 100])
+  })
+
+  it('asks the hold predicate about the one conversation before its traces go', async () => {
+    const { sql, executed } = makeClaimSql([{ held: true }])
+    expect(await conversationIsHeld(sql, { entity_id: 's_1', organization_id: 'org_1' })).toBe(true)
+    expect(executed[1].text).toContain("grid_legal_hold_blocks('conversation', $, $)")
+    expect(executed[1].values).toEqual(['s_1', 'org_1'])
+
+    const free = makeClaimSql([{ held: false }])
+    expect(await conversationIsHeld(free.sql, { entity_id: 's_1', organization_id: 'org_1' })).toBe(false)
+  })
+
+  it('stamps the queue row through a jsonb merge that survives a missing or non-object payload', async () => {
+    const { sql, executed } = makeClaimSql([])
+    await markConversationTracesErased(sql, 'q1')
+    const update = executed.find((q) => q.text.startsWith('UPDATE deletion_queue'))
+    expect(update.text).toContain("jsonb_build_object('langfuseTracesErasedAt', now())")
+    expect(update.text).toContain("jsonb_typeof(payload) = 'object'")
+    expect(update.text).toContain('WHERE id = $')
+    expect(update.values).toEqual(['q1'])
+    expect(executed[0].text).toBe(`SET LOCAL ROLE ${PLATFORM_ROLE}`)
+  })
+})
+
+describe('pruneDownloadLog (retention of the download log, migration 0114)', () => {
+  /** A fake whose DELETEs answer from per-scope queues and whose organization list is fixed. */
+  function makeLogSql({ global = [], perOrg = {}, organizations = [] }) {
+    const executed = []
+    const queues = { global: [...global], ...Object.fromEntries(Object.entries(perOrg).map(([k, v]) => [k, [...v]])) }
+    const tx = makeTx(executed, (text) => {
+      if (text.startsWith('SELECT workos_organization_id')) return organizations
+      if (!text.startsWith('DELETE FROM document_access_log')) return []
+      const org = text.includes('organization_id = $')
+        ? executed[executed.length - 1].values[0]
+        : 'global'
+      return (queues[org] ?? []).shift() ?? []
+    })
+    return { sql: { begin: (cb) => cb(tx) }, executed }
+  }
+  const full = (n) => Array.from({ length: n }, (_, i) => ({ id: `r${i}` }))
+
+  it('deletes everything past twelve months for every organization, and only that when no organization chose less', async () => {
+    const { sql, executed } = makeLogSql({ global: [full(3)] })
+
+    const result = await pruneDownloadLog(sql, { batch: 1000 })
+
+    expect(result).toEqual({ deleted: 3, capped: false })
+    const deletes = queries(executed).filter((q) => q.text.startsWith('DELETE FROM document_access_log'))
+    expect(deletes).toHaveLength(1)
+    expect(deletes[0].text).toContain('occurred_at < now() - make_interval(days => $)')
+    expect(deletes[0].text).not.toContain('organization_id')
+    expect(deletes[0].values).toEqual([365, 1000])
+  })
+
+  it('applies an organization’s shorter retention to that organization alone', async () => {
+    const { sql, executed } = makeLogSql({
+      organizations: [{ organization_id: 'org_90', days: 90 }],
+      perOrg: { org_90: [full(2)] },
+    })
+
+    const result = await pruneDownloadLog(sql, { batch: 1000 })
+
+    expect(result).toEqual({ deleted: 2, capped: false })
+    const own = queries(executed).find((q) => q.text.includes('organization_id = $'))
+    expect(own.values).toEqual(['org_90', 90, 1000])
+  })
+
+  it('selects only valid shorter settings, guarding the cast, and never one longer than the cap', async () => {
+    const { sql, executed } = makeLogSql({})
+    await pruneDownloadLog(sql)
+
+    const select = queries(executed).find((q) => q.text.startsWith('SELECT workos_organization_id'))
+    expect(select.text).toContain("WHEN settings->>'downloadLogRetentionDays' ~ '^[0-9]{1,4}$' THEN")
+    expect(select.text).toContain('BETWEEN $ AND $')
+    expect(select.values).toEqual([30, 364])
+  })
+
+  it('works in bounded batches and stops on its budget, saying more may remain', async () => {
+    const { sql, executed } = makeLogSql({ global: [full(2), full(2), full(2), full(2)] })
+
+    const result = await pruneDownloadLog(sql, { batch: 2, maxBatches: 3 })
+
+    expect(result).toEqual({ deleted: 6, capped: true })
+    expect(queries(executed).filter((q) => q.text.startsWith('DELETE'))).toHaveLength(3)
+  })
+
+  it('steps up to the platform role in every transaction: the table refuses any other delete', async () => {
+    const { sql, executed } = makeLogSql({ organizations: [{ organization_id: 'org_90', days: 90 }] })
+    await pruneDownloadLog(sql)
+
+    const steps = executed.filter((q) => q.text === `SET LOCAL ROLE ${PLATFORM_ROLE}`)
+    const statements = queries(executed)
+    expect(steps).toHaveLength(statements.length)
   })
 })

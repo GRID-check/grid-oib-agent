@@ -15,6 +15,7 @@ import { useState, type FC } from 'react'
 import { BookOpen, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
+import { Input } from '@/components/ui/input'
 import { UnterlagenDialog } from '@/features/runs/components/UnterlagenDialog'
 import { useTranslations } from '@/i18n'
 import { planDocumentLabel, sanitizePlanDocuments, type PlanDocument } from '@/lib/runs/plan-documents'
@@ -122,6 +123,35 @@ export function approvalReply(
   })}`
 }
 
+/**
+ * The plan an approval reply carries: `original` with the edits
+ * {@link approvalReply} put beside the keyword, each field taken only when it
+ * has the shape it was sent in. A bare keyword, or a reply that is not an
+ * approval, is the original. What lets an answered prompt show the plan that
+ * was approved after a reload, when the reader's edits are no longer in state.
+ */
+export function planFromReply(original: PlanShape, reply: string | undefined): PlanShape {
+  const match = /^\s*approve\s+(\{[\s\S]*\})\s*$/i.exec(reply ?? '')
+  if (!match?.[1]) return original
+  let edits: Record<string, unknown>
+  try {
+    edits = JSON.parse(match[1]) as Record<string, unknown>
+  } catch {
+    return original
+  }
+  const strings = (value: unknown): string[] | undefined =>
+    Array.isArray(value) && value.every((item) => typeof item === 'string') ? (value as string[]) : undefined
+  const sections = strings(edits.sections)
+  return {
+    ...original,
+    ...(sections && sections.length > 0 ? { sections } : {}),
+    ...((PLAN_GENRES as readonly unknown[]).includes(edits.genre) ? { genre: edits.genre as PlanGenre } : {}),
+    ...((PLAN_DEPTHS as readonly unknown[]).includes(edits.depth) ? { depth: edits.depth as PlanDepth } : {}),
+    ...(strings(edits.grundlage) ? { grundlage: strings(edits.grundlage)! } : {}),
+    ...(strings(edits.ausgeschlossen) ? { ausgeschlossen: strings(edits.ausgeschlossen)! } : {}),
+  }
+}
+
 export const PlanChecklist: FC<{
   plan: PlanShape
   disabled?: boolean
@@ -178,7 +208,10 @@ export const PlanChecklist: FC<{
         </ul>
         {!disabled && (
           <div className="flex items-center gap-2">
-            <input
+            {/* The Input atom, not a bare field: it carries the 16px type a soft
+                keyboard needs (iOS zooms into anything smaller and stays there)
+                and the 44px touch height, both on coarse pointers only. */}
+            <Input
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
@@ -189,13 +222,13 @@ export const PlanChecklist: FC<{
               }}
               placeholder={t('agentPrompt.plan.addPlaceholder')}
               aria-label={t('agentPrompt.plan.addPoint')}
-              className="border-border bg-background h-7 flex-1 rounded-md border px-2 text-sm"
+              className="h-8 flex-1 px-2"
             />
             <Button
               type="button"
               size="sm"
               variant="ghost"
-              className="h-7 px-2"
+              className="pointer-coarse:size-11 h-8 px-2"
               onClick={add}
               aria-label={t('agentPrompt.plan.addPoint')}
             >

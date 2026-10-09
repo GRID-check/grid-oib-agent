@@ -4,35 +4,95 @@
  * authorization lives in the routes (platform-owner gate, mirrors
  * `api/platform/overview/route.ts`); rollup shaping lives in `./service`.
  *
- * Every query is windowed on `created_at >= start`, and every aggregate keys
+ * Every query is restricted by one predicate, `citationScopeWhere`: the date
+ * range, and the organizations and projects when named. Every aggregate keys
  * off the invariant the emitter guarantees: one `turn_verified` row per
  * observed research turn, plus one row per defect on that turn.
  */
 
 import 'server-only'
-import { and, desc, gte, ne, sql } from 'drizzle-orm'
+import { and, desc, ne, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   CITATION_BASELINE_KIND,
   CITATION_PRECISION_KIND,
   citationEvents,
+  conversations,
   type CitationEvent,
   type CitationEventKind,
   type NewCitationEvent,
 } from '@/lib/db/schema'
 
 /**
- * A window bound for a RAW `db.execute(sql\`…\`)` query.
- *
- * The drizzle select-builder knows `createdAt` is a timestamptz and encodes a
- * `Date` for it. A raw fragment carries no column type, so postgres-js receives
- * an unencodable `Date` and the query dies at bind time with
- * `The "string" argument must be of type string … Received an instance of Date`.
- * Passing an ISO string with an explicit cast is the portable fix — every raw
- * query below MUST use this, never a bare `Date`.
+ * What every read below is restricted to: `[start, endExclusive)` on
+ * `created_at`, and, when non-empty, the organizations and projects named.
+ * Built from a `QualityScope` by the service (`scopeBounds`).
  */
-function windowStart(start: Date): string {
-  return start.toISOString()
+export interface CitationScopeFilter {
+  start: Date
+  endExclusive: Date
+  /** Empty means every organization. */
+  organizationIds: readonly string[]
+  /** Empty means every project. */
+  projectIds: readonly string[]
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+const boundList = (values: readonly string[]): SQL =>
+  sql.join(
+    values.map((value) => sql`${value}`),
+    sql`, `
+  )
+
+/**
+ * The scope as ONE predicate over `citation_events`, shared by every query so
+ * no aggregate can drift onto a different set of rows than its neighbours.
+ *
+ * `alias` is how the query names the table: the select builder renders it as
+ * `citation_events`, the raw queries alias it `e`.
+ *
+ * Bounds are bound as ISO strings with an explicit cast, never as a `Date`: a
+ * raw fragment carries no column type, so postgres-js receives an unencodable
+ * `Date` and the query dies at bind time with `The "string" argument must be
+ * of type string … Received an instance of Date`.
+ *
+ * `citation_events` has no project column. A project filter resolves each
+ * event through its conversation (same organization, so a conversation id
+ * reused across tenants cannot pull another tenant's rows in), which means an
+ * event with no resolvable conversation is OUT of a project-filtered view. A
+ * project id that is not a UUID cannot name a project, so it matches nothing
+ * rather than failing the cast.
+ */
+export function citationScopeWhere(
+  filter: CitationScopeFilter,
+  alias: 'e' | 'citation_events' = 'citation_events'
+): SQL {
+  const table = sql.identifier(alias)
+  const parts: SQL[] = [
+    sql`${table}.created_at >= ${filter.start.toISOString()}::timestamptz`,
+    sql`${table}.created_at < ${filter.endExclusive.toISOString()}::timestamptz`,
+  ]
+  if (filter.organizationIds.length > 0) {
+    parts.push(sql`${table}.organization_id in (${boundList(filter.organizationIds)})`)
+  }
+  if (filter.projectIds.length > 0) {
+    const projectIds = filter.projectIds.filter((id) => UUID.test(id))
+    parts.push(
+      projectIds.length === 0
+        ? sql`false`
+        : sql`exists (
+            select 1 from ${conversations} scope_c
+            where scope_c.id = ${table}.conversation_id
+              and scope_c.organization_id = ${table}.organization_id
+              and scope_c.project_id in (${sql.join(
+                projectIds.map((id) => sql`${id}::uuid`),
+                sql`, `
+              )})
+          )`
+    )
+  }
+  return sql.join(parts, sql` and `)
 }
 
 /**
@@ -60,7 +120,7 @@ export interface KindTotalRow {
 }
 
 /** Rows per kind in the window — the headline mix. */
-export async function aggregateByKind(start: Date): Promise<KindTotalRow[]> {
+export async function aggregateByKind(filter: CitationScopeFilter): Promise<KindTotalRow[]> {
   const db = getDb()
   const rows = await db
     .select({
@@ -69,7 +129,7 @@ export async function aggregateByKind(start: Date): Promise<KindTotalRow[]> {
       items: sql<string>`coalesce(sum(${citationEvents.count}), 0)`,
     })
     .from(citationEvents)
-    .where(gte(citationEvents.createdAt, start))
+    .where(citationScopeWhere(filter))
     .groupBy(citationEvents.kind)
 
   return rows.map((row) => ({
@@ -87,24 +147,24 @@ export async function aggregateByKind(start: Date): Promise<KindTotalRow[]> {
  * it is unquestionably an observed turn. Counting distinct turn ids keeps
  * `defectTurns <= turns` and the clean rate honest.
  */
-export async function countObservedTurns(start: Date): Promise<number> {
+export async function countObservedTurns(filter: CitationScopeFilter): Promise<number> {
   const db = getDb()
   const [row] = await db
     .select({ turns: sql<string>`count(distinct ${citationEvents.turnId})` })
     .from(citationEvents)
-    .where(gte(citationEvents.createdAt, start))
+    .where(citationScopeWhere(filter))
   return Number(row?.turns ?? 0)
 }
 
 /** Distinct turns in the window that carry at least one DEFECT row. */
-export async function countDefectiveTurns(start: Date): Promise<number> {
+export async function countDefectiveTurns(filter: CitationScopeFilter): Promise<number> {
   const db = getDb()
   const [row] = await db
     .select({ turns: sql<string>`count(distinct ${citationEvents.turnId})` })
     .from(citationEvents)
     .where(
       and(
-        gte(citationEvents.createdAt, start),
+        citationScopeWhere(filter),
         ne(citationEvents.kind, CITATION_BASELINE_KIND),
         ne(citationEvents.kind, CITATION_PRECISION_KIND)
       )
@@ -127,7 +187,7 @@ export interface DailyTurnRow {
  * additive (one turn often carries several defects), so nothing derived from
  * `aggregateDailyByKind` can say how many turns were bad, only bound it.
  */
-export async function aggregateDailyTurns(start: Date): Promise<DailyTurnRow[]> {
+export async function aggregateDailyTurns(filter: CitationScopeFilter): Promise<DailyTurnRow[]> {
   const db = getDb()
   const rows = await db
     .select({
@@ -136,7 +196,7 @@ export async function aggregateDailyTurns(start: Date): Promise<DailyTurnRow[]> 
       defectTurns: sql<string>`count(distinct ${citationEvents.turnId}) filter (where ${citationEvents.kind} <> ${CITATION_BASELINE_KIND} and ${citationEvents.kind} <> ${CITATION_PRECISION_KIND})`,
     })
     .from(citationEvents)
-    .where(gte(citationEvents.createdAt, start))
+    .where(citationScopeWhere(filter))
     .groupBy(sql`date_trunc('day', ${citationEvents.createdAt} at time zone 'UTC')`)
 
   return rows.map((row) => ({
@@ -153,7 +213,7 @@ export interface DailyKindRow {
 }
 
 /** Per-UTC-day rows by kind — the trend chart's raw series (zero-filled in the service). */
-export async function aggregateDailyByKind(start: Date): Promise<DailyKindRow[]> {
+export async function aggregateDailyByKind(filter: CitationScopeFilter): Promise<DailyKindRow[]> {
   const db = getDb()
   const rows = await db
     .select({
@@ -162,7 +222,7 @@ export async function aggregateDailyByKind(start: Date): Promise<DailyKindRow[]>
       turns: sql<string>`count(distinct ${citationEvents.turnId})`,
     })
     .from(citationEvents)
-    .where(gte(citationEvents.createdAt, start))
+    .where(citationScopeWhere(filter))
     .groupBy(
       sql`date_trunc('day', ${citationEvents.createdAt} at time zone 'UTC')`,
       citationEvents.kind
@@ -193,7 +253,7 @@ const REASONS_PER_KIND = 20
  * kind's reasons (`confidence_capped`) crowd another's (`citations_removed`)
  * out of the list, and the findings read their shares off this list.
  */
-export async function aggregateReasons(start: Date): Promise<ReasonTotalRow[]> {
+export async function aggregateReasons(filter: CitationScopeFilter): Promise<ReasonTotalRow[]> {
   const db = getDb()
   const rows = await db.execute<{ kind: string; reason: string; occurrences: string }>(sql`
     with per_reason as (
@@ -205,7 +265,7 @@ export async function aggregateReasons(start: Date): Promise<ReasonTotalRow[]> {
       cross join lateral jsonb_each_text(e.reasons) r
       -- jsonb_each_text ERRORS on an array or scalar, so the type check must gate
       -- the lateral join, not merely filter its output.
-      where e.created_at >= ${windowStart(start)}::timestamptz and jsonb_typeof(e.reasons) = 'object'
+      where ${citationScopeWhere(filter, 'e')} and jsonb_typeof(e.reasons) = 'object'
       group by e.kind, r.key
     ),
     ranked as (
@@ -250,21 +310,23 @@ const SOURCE_MIX_DIMENSIONS: readonly SourceMixDimension[] = ['origin', 'lane', 
  * writes `detail.origins`, `detail.lanes` and `detail.tools`
  * (`citation_events.build_turn_events`); all three are read here.
  */
-export async function aggregateDefectiveSourceMix(start: Date): Promise<SourceMixRow[]> {
+export async function aggregateDefectiveSourceMix(
+  filter: CitationScopeFilter
+): Promise<SourceMixRow[]> {
   const db = getDb()
   const rows = await db.execute<{ dimension: string; label: string; turns: string }>(sql`
     with defective as (
-      select distinct turn_id
-      from ${citationEvents}
-      where created_at >= ${windowStart(start)}::timestamptz
-        and kind <> ${CITATION_BASELINE_KIND}
-        and kind <> ${CITATION_PRECISION_KIND}
+      select distinct e.turn_id
+      from ${citationEvents} e
+      where ${citationScopeWhere(filter, 'e')}
+        and e.kind <> ${CITATION_BASELINE_KIND}
+        and e.kind <> ${CITATION_PRECISION_KIND}
     ),
     baseline as (
       select e.detail
       from ${citationEvents} e
       join defective d on d.turn_id = e.turn_id
-      where e.created_at >= ${windowStart(start)}::timestamptz and e.kind = ${CITATION_BASELINE_KIND} and e.detail is not null
+      where ${citationScopeWhere(filter, 'e')} and e.kind = ${CITATION_BASELINE_KIND} and e.detail is not null
     ),
     labels as (
       select 'origin' as dimension, o.key as label
@@ -334,7 +396,9 @@ export const FAILED_TARGET_SCAN_CAP = 1000
  * from the corpus (add it) or present but unretrievable (an indexing problem).
  * The service decides which by cross-checking the live corpus.
  */
-export async function aggregateFailedTargets(start: Date): Promise<BoundedRows<FailedTargetRow>> {
+export async function aggregateFailedTargets(
+  filter: CitationScopeFilter
+): Promise<BoundedRows<FailedTargetRow>> {
   const db = getDb()
   const rows = await db.execute<{
     target: string
@@ -362,7 +426,7 @@ export async function aggregateFailedTargets(start: Date): Promise<BoundedRows<F
         coalesce(item ->> 'reason', 'unverifiable') as reason
       from ${citationEvents} e
       cross join lateral jsonb_array_elements(e.detail -> 'targets') item
-      where e.created_at >= ${windowStart(start)}::timestamptz
+      where ${citationScopeWhere(filter, 'e')}
         and jsonb_typeof(e.detail -> 'targets') = 'array'
         and item ->> 'target' is not null
     ) t
@@ -397,7 +461,10 @@ export async function aggregateFailedTargets(start: Date): Promise<BoundedRows<F
  * Targets are bound as individual parameters (never interpolated), and the
  * caller passes at most `FAILED_TARGET_SCAN_CAP` of them.
  */
-export async function countTurnsForTargets(start: Date, targets: string[]): Promise<number> {
+export async function countTurnsForTargets(
+  filter: CitationScopeFilter,
+  targets: string[]
+): Promise<number> {
   if (targets.length === 0) return 0
   const db = getDb()
   const list = sql.join(
@@ -410,7 +477,7 @@ export async function countTurnsForTargets(start: Date, targets: string[]): Prom
       select e.turn_id, item ->> 'target' as target
       from ${citationEvents} e
       cross join lateral jsonb_array_elements(e.detail -> 'targets') item
-      where e.created_at >= ${windowStart(start)}::timestamptz
+      where ${citationScopeWhere(filter, 'e')}
         and jsonb_typeof(e.detail -> 'targets') = 'array'
     ) t
     where t.target in (${list})
@@ -431,7 +498,7 @@ const UNAVAILABLE_TOOL_LIMIT = 8
  * in the ledger: it names the retrieval integration that is actually down.
  */
 export async function aggregateUnavailableTools(
-  start: Date
+  filter: CitationScopeFilter
 ): Promise<BoundedRows<UnavailableToolRow>> {
   const db = getDb()
   const rows = await db.execute<{ tool: string; turns: string; total: string }>(sql`
@@ -439,7 +506,7 @@ export async function aggregateUnavailableTools(
     from (
       select jsonb_array_elements_text(e.detail -> 'unavailable_tools') as tool
       from ${citationEvents} e
-      where e.created_at >= ${windowStart(start)}::timestamptz
+      where ${citationScopeWhere(filter, 'e')}
         and e.kind = 'registry_empty'
         and jsonb_typeof(e.detail -> 'unavailable_tools') = 'array'
     ) tools
@@ -471,7 +538,7 @@ export const ORGANIZATION_SCAN_CAP = 1000
 
 /** Per-organization observed vs. defective turns — most defective turns first. */
 export async function aggregateByOrganization(
-  start: Date
+  filter: CitationScopeFilter
 ): Promise<BoundedRows<OrganizationTotalRow>> {
   const db = getDb()
   const rows = await db.execute<{
@@ -482,17 +549,17 @@ export async function aggregateByOrganization(
     total: string
   }>(sql`
     select
-      organization_id,
-      count(distinct turn_id) as turns,
-      count(distinct turn_id) filter (
-        where kind <> ${CITATION_BASELINE_KIND} and kind <> ${CITATION_PRECISION_KIND}
+      e.organization_id,
+      count(distinct e.turn_id) as turns,
+      count(distinct e.turn_id) filter (
+        where e.kind <> ${CITATION_BASELINE_KIND} and e.kind <> ${CITATION_PRECISION_KIND}
       ) as defect_turns,
-      count(distinct turn_id) filter (where severity = 'error') as error_turns,
+      count(distinct e.turn_id) filter (where e.severity = 'error') as error_turns,
       count(*) over () as total
-    from ${citationEvents}
-    where created_at >= ${windowStart(start)}::timestamptz
-    group by organization_id
-    order by defect_turns desc, turns desc, organization_id
+    from ${citationEvents} e
+    where ${citationScopeWhere(filter, 'e')}
+    group by e.organization_id
+    order by defect_turns desc, turns desc, e.organization_id
     limit ${ORGANIZATION_SCAN_CAP}
   `)
 
@@ -512,7 +579,7 @@ const RECENT_LIMIT = 25
 
 /** The newest defect rows — the drill-down list ("show me the last failures"). */
 export async function listRecentDefects(
-  start: Date,
+  filter: CitationScopeFilter,
   limit = RECENT_LIMIT
 ): Promise<CitationEvent[]> {
   const db = getDb()
@@ -521,7 +588,7 @@ export async function listRecentDefects(
     .from(citationEvents)
     .where(
       and(
-        gte(citationEvents.createdAt, start),
+        citationScopeWhere(filter),
         ne(citationEvents.kind, CITATION_BASELINE_KIND),
         ne(citationEvents.kind, CITATION_PRECISION_KIND)
       )
@@ -539,7 +606,7 @@ export const EXPORT_ROW_CAP = 5000
  * the service reports when the cap was hit rather than truncating silently.
  */
 export async function listEventsForExport(
-  start: Date,
+  filter: CitationScopeFilter,
   limit = EXPORT_ROW_CAP
 ): Promise<CitationEvent[]> {
   const db = getDb()
@@ -547,7 +614,7 @@ export async function listEventsForExport(
     db
       .select()
       .from(citationEvents)
-      .where(gte(citationEvents.createdAt, start))
+      .where(citationScopeWhere(filter))
       .orderBy(citationEvents.createdAt)
       // One row over the cap, so the caller can tell "exactly full" from "truncated".
       .limit(Math.min(Math.max(limit, 1), EXPORT_ROW_CAP) + 1)

@@ -5,9 +5,8 @@ source for decks, email, social posts and printed postcards. Each **work** is a
 folder here with one Canvas 2D page (`index.html`) and its design record
 (`PRINT.md`). No libraries, fonts, images or network calls in any of it.
 
-The workflow, the series rules and the placement rules are the
-`aiq-piloti-riso` skill (`skills/aiq-piloti-riso/SKILL.md`). This file is how
-the machinery works.
+This file is how to make a print, how the machinery works, and how a page
+shows one.
 
 | Path | Holds |
 |---|---|
@@ -43,6 +42,97 @@ To look at a job, open `<work>/index.html?t=<job>` in Firefox. Views by query
 string: `?only=<ink>` one plate in colour, `?sep=<ink>` the press separation,
 `?paper=0` the inks alone on white (what the on-page file is made from),
 `?debug=lines` where a plate implements it.
+
+## Making a print
+
+**Reuse before you draw.** A new picture is a week of someone's attention; a
+reused plate is free. In order:
+
+1. An art id in `src/data/art.json` already fits the slot: place it.
+2. An existing plate fits in a format it has no job for yet: add the job (and,
+   if needed, a composition for that format to its `draw`), then export.
+3. A new plate in an existing work, when it shares that work's subject.
+4. A new work (`new.mjs`), when the subject is new: one work per series.
+
+**The series rules** are what make the plates read as one series.
+`lib/piloti.js` holds the values and
+[`tafeln/PRINT.md`](tafeln/PRINT.md#series-principle) the reasons.
+
+- Paper `#F4F2E8` with the kit's mottle, fibres and flecks, and no frame.
+- Real Riso drums only: Mist `#D5E4C0`, Kelly Green `#67B346`, Moss `#68724D`,
+  Hunter Green `#407060`, Bright Red `#F15060`. Darks are overprints (Hunter
+  over Moss), never black. Kelly means something alive; Red is spent at most
+  once per plate, on a meaning.
+- Line is Hunter, solid on the line layer: silhouettes 1.9 units, arrises
+  1.1–1.4, annotation 0.8–1.0, in 1080-unit space, with colour in screened
+  fields beneath it.
+- Every plate uses `VIEW_SERIES` and `SUN_SERIES` (low, front-left, shadows
+  back-right); west faces stay bare stock, and ground shadows are one union at
+  Hunter 0.64 (`groundShadow`).
+- The subject sits on a model board or a table, never in a landscape to the
+  horizon; a 1:100 figure gives scale where there is a site.
+- No text. The engraved roman numeral is the only glyph, so the picture reads
+  in both site languages.
+- Our own designs: generic architectural vocabulary in our own proportions,
+  never a real building, a recognisable signature element, a logo or a
+  copyrighted work. Plate I lost a Villa Savoye rooftop screen for this; Le
+  Corbusier is in copyright in the EU until 2035.
+
+**The workflow.** Each step ends when its criterion holds, not when the file
+saves.
+
+1. Write the brief in the work's `PRINT.md`: the request, the slot and art ids,
+   the plate's idea in one sentence, the inks and why. Done when someone could
+   reject the idea from the brief alone.
+2. Prove the hardest frame first: the plate whose readability is in doubt, in
+   the format where it is hardest (usually the smallest or the most extreme
+   aspect). Done when that frame reads at viewing size; record rejected proofs
+   in `PRINT.md`.
+3. Inspect. Export with `--only`, then look at the whole frame at viewing size
+   in every format, and at 1:1 crops of the 2x file at every junction, contact
+   point and small detail and at the screen itself (crop with the sharp in
+   `frontends/web/node_modules`; `?only=<ink>` shows one plate at a time). List
+   what you looked at under "Inspected" in `PRINT.md`.
+4. Export the work. Site files over 1 MB fail the export, which is the commit
+   hook's limit.
+5. `check.mjs` exits 0, and after any change to a drawing, the engine or
+   `lib/`, `verify.mjs --work <work>` does too.
+6. Place it by id ([Showing a print](#showing-a-print)), run
+   `npm run check && npm run build`, and look at the page at 390 and 1440 px.
+7. Write what is still weak under "Remaining weaknesses". An empty list is not
+   believed.
+
+The craft depth (composition, tone that prints, construction before detail,
+the quality bar) is the kit's own `riso-still` guide, in the pinned clone at
+`<kit>/.claude/skills/riso-still/SKILL.md` (setup prints the path), with
+`.claude/rules/riso-plates.md` and `docs/quality-bar.md` beside it. Read it
+before drawing a new plate.
+
+**Keep a work exportable.**
+
+- `draw(c, compose)` is pure: randomness only from `c.rng`, `c.sr` or
+  `rngFor('<stable key>')`. The plate `name` seeds every stream, so freeze it
+  once a proof is approved and never rename a shipped plate.
+- Top-level code defines constants only and touches the canvas inside `draw`:
+  `check.mjs` evaluates the page in Node, without one.
+- Changing `lib/engine.js` or `lib/piloti.js` changes every plate of every
+  work. Re-export all works and confirm `public/art/` comes back
+  byte-identical, unless the change is meant to alter them.
+
+**Adding a format.**
+
+1. Add it to `lib/formats.js`: `compose` (reuse one when the aspect matches),
+   `sizes` with density and pitch (3.4 device px per 1x and 6.8 per 2x for a
+   slot shown at native size, 5.0 for anything a platform rescales), `encode`,
+   `dest` (`site` only for files a page of this site shows) and `file`.
+2. Give each plate that should wear it a `FIT` framing, a drawing for the
+   composition if the plate branches on it, and the compose in its `composes`.
+   Below about 400 px wide, draw with `weight()` so lines stay above 1.25
+   device px, and prefer solid shapes to screened tone.
+3. If a page will show it bare, give it `onPage: true`, so the export writes the
+   on-page twin and `check.mjs` holds the two together.
+4. Add the jobs, export, look at the new files, check, and add a row to
+   [Formats](#formats) below.
 
 ## The kit
 
@@ -237,6 +327,10 @@ takes the 720 file, also 1:1. Any other slot size resamples the screen into
 moiré. It is mild on 3x phones, which get the 1440 file at about 1170 px. No
 `object-fit`, and no width that differs from these slots. `PagePrint` and
 `TapedPrint` do all of this for a plate (`src/components/craft/`).
+
+The 2x file is never the default `src`, and a riso file never goes through
+`astro:assets`. Take `alt` from the manifest wherever the picture carries
+meaning; leave it empty only where the text beside it already says all of it.
 
 ## Tafeln files
 

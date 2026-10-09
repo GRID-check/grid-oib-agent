@@ -54,7 +54,9 @@ type needs no new route.
 ### `GET /api/sharing/{resourceType}/{resourceId}`
 
 The sharing state. Requires `viewer` — a participant is entitled to know who else
-is in the room, which is also what the participant strip renders.
+is in the room, which is also what the participant strip renders. Open to a
+caller who may no longer read the conversation's content (ADR-0088): the roster
+is their own place, and `canManage` is `false` for them.
 
 Returns `ResourceSharingState` (`lib/sharing/types.ts`):
 
@@ -65,14 +67,16 @@ Returns `ResourceSharingState` (`lib/sharing/types.ts`):
 | `myRole` | The caller's effective role, or `null` |
 | `canManage` | Whether the caller may change sharing (`owner`) |
 | `canEscalate` | Project admin who may take ownership of a resource they were not party to |
-| `entries[]` | `{ person, role, reason, grantedBy }` — `reason` is why they have access (`creator`, `grant`, `visibility-project`, `visibility-organization`) so the roster is never mysterious |
+| `entries[]` | `{ person, role, reason, grantedBy, lostAccess? }` — `reason` is why they have access (`creator`, `grant`, `visibility-project`, `visibility-organization`) so the roster is never mysterious. `lostAccess` is `true` for a person still shared with who may no longer read a folder the conversation drew on (ADR-0088); it never says which. Present for a conversation, absent for a document |
 | `shared` | True when the server is authoritative for this resource (ADR-0033) |
 
 ### `PATCH /api/sharing/{resourceType}/{resourceId}`
 
 Body `{ visibility }`. Requires `owner`. Rejects a visibility the registry does
 not permit for the type (`400`, `details.allowed`). A no-op save is a no-op: no
-audit event, no events published.
+audit event, no events published. Widening a conversation whose answers drew on
+a restricted folder is refused with `409`, `details.reason = 'restricted-content'`
+(ADR-0087); narrowing back to `private` is always allowed.
 
 Narrowing publishes `resource.access.changed` to the **previous** audience as well
 as the new one, so losing sight of a thread is never silent.
@@ -93,6 +97,8 @@ Refusals worth handling in the UI:
 |---|---|---|
 | `400` | `container-access-required` | The invitee is not a member of the container project. Sharing never grants project access (spec SH-5) |
 | `409` | `roster-full` | The roster cap (`SHARE_ROSTER_LIMIT`) is reached |
+| `409` | `restricted-content` | The conversation recorded a folder the invitee may not read now (ADR-0087, ADR-0088). Applies to a grant, to a mention that would invite, and to `escalate`; the share dialog does not offer such a person, and this refusal stays the authority |
+| `403` | `folder-read-only` | A **document** in a folder the caller may only read (ADR-0088): sharing it, changing its visibility or a role, removing someone, taking ownership and assigning it each change the document and need „Bearbeiten“ in its folder |
 | `403` | `rate-limited` | Sharing rate limit for this actor |
 
 ### `PATCH /api/sharing/{resourceType}/{resourceId}/grants`
@@ -122,6 +128,14 @@ Organization members who **cannot** reach the container project are returned wit
 `needsProjectAccess: true` so the UI can show them disabled *with the reason*
 rather than silently hiding them (spec SH-19) — an invite picker that omits a
 colleague with no explanation reads as a bug.
+
+For a conversation each candidate who could otherwise be invited (reachable, not
+yet in the room) also carries `lacksFolderAccess`: `true` when their roles do not
+reach every restricted folder the conversation drew on now (ADR-0088). The UI
+shows them disabled with „Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat
+stammt“ and never names the folder. At most 200 people are evaluated, a bounded
+number at a time against the membership roles cached for 60 s; anyone beyond
+that is reported as lacking access. Absent for a document.
 
 Assignment (who is on the hook) does **not** use this endpoint. A project
 member who can assign is a `collaborator` on a project-visible document, not

@@ -38,8 +38,13 @@ import { getCached } from '@/lib/cache'
 import { getWorkOS } from '@/lib/workos/client'
 import { permissionsForOrgRole, permissionsForPlatformRole } from './permissions'
 
-/** Matches the membership cache TTL in `./project-membership`. */
-const ROLE_CACHE_TTL_MS = 10 * 60 * 1000
+/**
+ * How stale what a role holds may be. One minute, like the roles a person holds
+ * (`@/lib/auth/membership-roles`): the folder-access bypass is derived from
+ * both, so a longer life here would keep a role that lost
+ * `org:projects:administer` writing everywhere for as long as it lasted.
+ */
+export const ROLE_CACHE_TTL_MS = 60 * 1000
 
 type RolePermissionMap = Record<string, string[]>
 
@@ -72,9 +77,25 @@ async function organizationRolePermissionMap(organizationId: string): Promise<Ro
  */
 export async function orgRoleHoldsPermission(
   roleSlug: string | null | undefined,
-  permission: string
+  permission: string,
+  /**
+   * The subject's organization. With it, the organization's OWN roles are
+   * consulted first — the custom roles an office builds for itself in WorkOS
+   * (`org-geschaeftsfuehrung`), which no environment listing and no catalog
+   * can know. Without it, only environment roles and the catalog answer, and
+   * a custom role is denied.
+   */
+  organizationId?: string
 ): Promise<boolean> {
   if (!roleSlug) return false
+  if (organizationId) {
+    try {
+      const own = await organizationRolePermissionMap(organizationId)
+      if (own[roleSlug]?.includes(permission)) return true
+    } catch (error) {
+      console.warn(`[authz] organization role lookup failed for ${roleSlug}:`, error)
+    }
+  }
   try {
     const map = await environmentRolePermissionMap()
     if (map[roleSlug]?.includes(permission)) return true

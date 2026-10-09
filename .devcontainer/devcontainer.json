@@ -19,7 +19,7 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "dbaeumer.vscode-eslint",
+        "oxc.oxc-vscode",
         "esbenp.prettier-vscode",
         "bradlc.vscode-tailwindcss",
         "ms-python.python",
@@ -28,7 +28,7 @@
       "settings": {
         "python.defaultInterpreterPath": "/app/.venv/bin/python",
         "python.analysis.typeCheckingMode": "basic",
-        "eslint.workingDirectories": ["frontends/ui"],
+        "oxc.path.oxlint": "${workspaceFolder}/frontends/ui/node_modules/.bin/oxlint",
         "terminal.integrated.defaultProfile.linux": "bash"
       }
     }

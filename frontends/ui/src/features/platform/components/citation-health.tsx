@@ -7,9 +7,10 @@
  * (src/aiq_agent/common/citation_events.py, the quality sibling of the timing
  * ledger behind `agent-profiler.tsx`).
  *
- * One tab of Platform → Answer quality. The page owns the title and the window
- * control and passes `days` in; this organism owns everything below them, top
- * to bottom in reading order:
+ * One tab of Platform → Answer quality. The page owns the title and the scope
+ * (date range, organizations, projects) and passes `scope` in; this organism
+ * fetches in it, refetches when it changes, and owns everything below, top to
+ * bottom in reading order:
  *
  * 1. the four headline tiles, clean rate first;
  * 2. "What to do": the findings as compact rows, the remedy one click away;
@@ -78,6 +79,8 @@ import { CitationDefectChart } from '@/components/charts/citation-defect-chart'
 import { SeriesPaletteStyle } from '@/components/charts/palette'
 import { usePlatformCan } from '@/features/platform/platform-access'
 import { useLocale, useTranslations } from '@/i18n'
+import { qualityScopeQuery, readQualityScope, type QualityScope } from '@/lib/quality/scope'
+import { useQualityScopeLabel } from './quality-scope-label'
 import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -192,6 +195,8 @@ interface MissingSourceDto {
 }
 
 interface SnapshotDto {
+  /** The scope the server read; absent on servers that predate it. */
+  scope?: QualityScope
   windowDays: number
   totals: {
     turns: number
@@ -235,8 +240,9 @@ const ACTION_ANCHOR: Partial<Record<MissingSourceAction, string>> = {
 }
 
 /** The timing tab of Platform → Answer quality, preselecting one conversation. */
-const timingHref = (conversationId: string): string =>
-  `/app/platform/quality?view=timing&conversation=${encodeURIComponent(conversationId)}`
+/** The runtime view of one conversation, in the same scope, so the tab switch keeps the filter. */
+const timingHref = (conversationId: string, scopeQuery: string): string =>
+  `/app/platform/quality?view=timing&${scopeQuery}&conversation=${encodeURIComponent(conversationId)}`
 
 /** Finding metrics the server sends as fractions (0–1), rendered as percentages. */
 const FRACTION_METRICS = new Set(['share', 'platformShare'])
@@ -788,11 +794,14 @@ function RecentCard({
   locale,
   kindLabel,
   reasonLabel,
+  scopeQuery,
 }: {
   recent: DefectSampleDto[]
   locale: string
   kindLabel: (kind: string) => string
   reasonLabel: (reason: string) => string
+  /** The scope as a query string, carried into the runtime view's links. */
+  scopeQuery: string
 }): JSX.Element {
   const t = useTranslations('platform')
   const { count } = useNumberFormats(locale)
@@ -877,7 +886,7 @@ function RecentCard({
                                 className="text-muted-foreground pointer-coarse:size-9 size-7"
                               >
                                 <Link
-                                  href={timingHref(event.conversationId)}
+                                  href={timingHref(event.conversationId, scopeQuery)}
                                   aria-label={t('citations.openTiming')}
                                 >
                                   <Timer className="size-3.5" aria-hidden />
@@ -937,33 +946,37 @@ function LoadingState(): JSX.Element {
   )
 }
 
-export function CitationHealth({ days }: { days: number }): JSX.Element {
+export function CitationHealth({ scope }: { scope: QualityScope }): JSX.Element {
   const t = useTranslations('platform')
   const { locale } = useLocale()
   const { count, percent, decimal } = useNumberFormats(locale)
+  const scopeLabel = useQualityScopeLabel()
 
+  // The query string is the scope's identity: the page may rebuild the object
+  // on every render, and refetching on identity would loop.
+  const scopeQuery = qualityScopeQuery(scope)
   const [snapshot, setSnapshot] = useState<SnapshotDto | null>(null)
-  /** The window the shown snapshot belongs to; differs from `days` after a failed switch. */
-  const [shownDays, setShownDays] = useState<number | null>(null)
+  /** The scope the shown snapshot belongs to; differs from `scope` after a failed switch. */
+  const [shownScope, setShownScope] = useState<{ query: string; scope: QualityScope } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   // Only the newest request may land: a slow 90-day response must not
   // overwrite the 7-day one the user switched to after it.
   const requestRef = useRef<AbortController | null>(null)
-
-  const load = useCallback((windowDays: number) => {
+  const load = useCallback((query: string) => {
     requestRef.current?.abort()
     const controller = new AbortController()
     requestRef.current = controller
+    const requested = readQualityScope(new URLSearchParams(query))
     setLoading(true)
     setError(false)
-    fetch(`/api/platform/citation-health?days=${windowDays}`, { signal: controller.signal })
+    fetch(`/api/platform/citation-health?${query}`, { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error(String(res.status))
         const data = (await res.json()) as SnapshotDto
         if (controller.signal.aborted) return
         setSnapshot(data)
-        setShownDays(windowDays)
+        setShownScope({ query, scope: data.scope ?? requested })
       })
       .catch(() => {
         if (controller.signal.aborted) return
@@ -975,9 +988,9 @@ export function CitationHealth({ days }: { days: number }): JSX.Element {
   }, [])
 
   useEffect(() => {
-    load(days)
+    load(scopeQuery)
     return () => requestRef.current?.abort()
-  }, [days, load])
+  }, [scopeQuery, load])
 
   const kindLabel = useCallback((kind: string) => t(`citations.kinds.${kind}`), [t])
   const reasonLabel = useCallback(
@@ -1040,7 +1053,7 @@ export function CitationHealth({ days }: { days: number }): JSX.Element {
 
   const toolbar = (
     <div className="flex flex-wrap items-center justify-end gap-2">
-      <Button variant="outline" size="sm" onClick={() => load(days)} disabled={loading}>
+      <Button variant="outline" size="sm" onClick={() => load(scopeQuery)} disabled={loading}>
         <RefreshCw
           className={cn('size-3.5', loading && 'animate-spin motion-reduce:animate-none')}
           aria-hidden
@@ -1050,7 +1063,7 @@ export function CitationHealth({ days }: { days: number }): JSX.Element {
       {/* A plain link, not a fetch: the route sets Content-Disposition, so the
           browser downloads without buffering the bundle in JS. */}
       <Button asChild variant="outline" size="sm">
-        <a href={`/api/platform/citation-health/export?days=${days}`} download>
+        <a href={`/api/platform/citation-health/export?${scopeQuery}`} download>
           <Download className="size-3.5" aria-hidden />
           {t('citations.export')}
         </a>
@@ -1062,7 +1075,7 @@ export function CitationHealth({ days }: { days: number }): JSX.Element {
     <Button
       variant="outline"
       size="sm"
-      onClick={() => load(days)}
+      onClick={() => load(scopeQuery)}
       disabled={loading}
       className="mt-2 w-fit"
     >
@@ -1095,7 +1108,9 @@ export function CitationHealth({ days }: { days: number }): JSX.Element {
   }
 
   const tone = cleanRateTone(snapshot.totals.cleanRate)
-  const staleWindow = shownDays !== null && shownDays !== days
+  const staleWindow = shownScope !== null && shownScope.query !== scopeQuery
+  // Label what is SHOWN: after a failed switch that is still the old scope.
+  const shownLabel = scopeLabel(shownScope?.scope ?? scope)
 
   return (
     <div data-testid="citation-health" className="flex flex-col gap-4" aria-busy={refreshing}>
@@ -1106,18 +1121,31 @@ export function CitationHealth({ days }: { days: number }): JSX.Element {
           <AlertTriangle aria-hidden />
           <AlertTitle className="line-clamp-none">
             {staleWindow
-              ? t('citations.windowStale', { requested: days, shown: shownDays ?? days })
+              ? t('citations.windowStale', {
+                  requested: scopeLabel(scope),
+                  shown: shownLabel,
+                })
               : t('citations.loadError')}
           </AlertTitle>
           <AlertDescription>{retryButton}</AlertDescription>
         </Alert>
       ) : null}
 
+      {(shownScope?.scope ?? scope).projectIds.length > 0 ? (
+        <p className="text-muted-foreground text-sm" data-testid="citation-health-project-caveat">
+          {t('citations.projectCaveat')}
+        </p>
+      ) : null}
+
       {snapshot.totals.turns === 0 ? (
         <EmptyState
           icon={ShieldCheck}
           title={t('citations.empty.title')}
-          description={t('citations.empty.description')}
+          description={t('citations.empty.description', { scope: shownLabel })}
+          className={cn(
+            'duration-base transition-opacity motion-reduce:transition-none',
+            refreshing && 'opacity-60'
+          )}
         />
       ) : (
         <div
@@ -1161,7 +1189,7 @@ export function CitationHealth({ days }: { days: number }): JSX.Element {
           <Card>
             <SectionHeader
               title={t('citations.trend.title')}
-              description={t('citations.trend.description', { days: snapshot.windowDays })}
+              description={t('citations.trend.description', { scope: shownLabel })}
             />
             <CardContent>
               <CitationDefectChart
@@ -1226,6 +1254,7 @@ export function CitationHealth({ days }: { days: number }): JSX.Element {
             locale={locale}
             kindLabel={kindLabel}
             reasonLabel={reasonLabel}
+            scopeQuery={shownScope?.query ?? scopeQuery}
           />
         </div>
       )}
