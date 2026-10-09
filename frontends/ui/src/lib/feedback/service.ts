@@ -31,6 +31,7 @@ import {
   getAnswerFeedbackForUser,
   getAnswerTraceId,
   getFeedbackHealth,
+  getPersistedAnswerConversationId,
   getFeedbackWeeklySummary,
   listAnswerFeedbackForConversation,
   listFeedbackTurns,
@@ -79,10 +80,19 @@ export async function submitAnswerFeedback(
     await requireProjectAccess(session, input.projectId, 'project:view')
   }
 
+  // The conversation is the persisted answer's when there is one, not the
+  // client's say-so: readers join topics and titles on it. A turn with no row
+  // yet keeps the client's value rather than losing its vote (see the
+  // repository note), and the readers prefer the answer row's either way.
+  const conversationId =
+    (await getPersistedAnswerConversationId(input.messageId, session.organizationId)) ??
+    input.conversationId ??
+    null
+
   // Which arm of the lessons experiment this turn was in, decided by the same
   // pure function the agent used when it chose whether to inject. Null when
   // the holdout is off, which is the default — see lib/platform-lessons/holdout.
-  const lessonsHoldout = await resolveLessonsHoldout(input.conversationId ?? null)
+  const lessonsHoldout = await resolveLessonsHoldout(conversationId)
 
   // Read the prior vote before the upsert: memory implication (below) must
   // fire on NEW complaint text only, or a re-saved identical comment would
@@ -98,7 +108,7 @@ export async function submitAnswerFeedback(
     reason: input.verdict === 'down' ? (input.reason ?? null) : null,
     comment: input.verdict === 'down' ? input.comment || null : null,
     expectedAnswer: input.verdict === 'down' ? input.expectedAnswer || null : null,
-    conversationId: input.conversationId ?? null,
+    conversationId,
     projectId: input.projectId ?? null,
   })
   // A re-vote that adds detail (a comment, a corrected reason) deserves another

@@ -144,6 +144,41 @@ export async function getAnswerTraceId(messageId: string, organizationId: string
   return isTraceId(traceId) ? traceId : null
 }
 
+/**
+ * The conversation a persisted answer belongs to, in the caller's organization,
+ * or null when there is no such answer row (yet).
+ *
+ * The vote path stores THIS conversation rather than the one the client sent:
+ * `answer_feedback.conversation_id` is otherwise whatever text came with the
+ * request, and every reader that joins on it (topics, titles) would trust it.
+ * Null is not a refusal. A shallow turn may never be persisted, and a deep one
+ * is written after the vote can already be cast, so a vote on a turn without a
+ * row keeps the client's value; the readers prefer the answer row's
+ * conversation whenever one exists (`votedConversationId`). Another tenant's
+ * answer is invisible here by construction (the WHERE and row-level security
+ * both say so), which is why the readers also pin the join to the voter's
+ * organization (`VOTED_TURN_JOINS`).
+ */
+export async function getPersistedAnswerConversationId(
+  messageId: string,
+  organizationId: string,
+): Promise<string | null> {
+  if (!ANSWER_ID.test(messageId)) return null
+  const db = getDb()
+  const rows = rowsOf(
+    await db.execute(sql`
+      select conversation_id
+      from messages
+      where id = ${messageId}::uuid
+        and organization_id = ${organizationId}
+        and role = 'assistant'
+      limit 1
+    `),
+  )
+  const conversationId = rows[0]?.conversation_id
+  return typeof conversationId === 'string' && conversationId ? conversationId : null
+}
+
 /** The caller's own votes in one conversation (bounded; newest first). */
 export async function listAnswerFeedbackForConversation(
   userId: string,

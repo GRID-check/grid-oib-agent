@@ -37,6 +37,12 @@ const TRACE_A1 = A1.replace(/-/g, '')
 /** An answer from before every window, rated today. */
 const A_OLD = '0f0f0f0f-0000-4000-8000-000000000005'
 
+/** Another tenant, with an answer of its own that ORG's vote will name. */
+const OTHER_ORG = `org_feedback_other_${STAMP}`
+const OTHER_CHAT = `s_feedback_other_${STAMP}`
+const OTHER_Q = '0f0f0f0f-0000-4000-8000-000000000011'
+const OTHER_A = '0f0f0f0f-0000-4000-8000-000000000012'
+
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
 
 describe.skipIf(!url)('answer-feedback platform reads against live Postgres', () => {
@@ -93,6 +99,25 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
         update messages set metadata = jsonb_build_object('trace_id', ${TRACE_A1}::text) where id = ${A1}::uuid
       `)
     })
+    // The other tenant's turn. ORG's vote names its answer id below: nothing at
+    // vote time can see that row, so only the read can keep the two apart.
+    await platform(() =>
+      db.execute(
+        sql`insert into organizations (workos_organization_id, display_name) values (${OTHER_ORG}, ${OTHER_ORG}) on conflict do nothing`,
+      ),
+    )
+    await withTenant({ organizationId: OTHER_ORG, userId: USER }, async () => {
+      await db.execute(sql`
+        insert into conversations (id, organization_id, created_by, title, tags)
+        values (${OTHER_CHAT}, ${OTHER_ORG}, ${USER}, 'Vertraulich', array['schallschutz'])
+      `)
+      await db.execute(sql`
+        insert into messages (id, conversation_id, role, content, created_at) values
+          (${OTHER_Q}::uuid, ${OTHER_CHAT}, 'user',      'Geheime Frage',  ${minutesAgo(30)}::timestamptz),
+          (${OTHER_A}::uuid, ${OTHER_CHAT}, 'assistant', 'Geheime Antwort', ${minutesAgo(29)}::timestamptz)
+      `)
+    })
+    await vote(OTHER_A, 'up')
     await vote(A1, 'down', { reason: 'inaccurate' })
     await vote(A2, 'down', { reason: 'other' })
     await vote(A_MISSING, 'down')
@@ -114,7 +139,9 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
       await db.execute(sql`delete from answer_feedback where organization_id = ${ORG}`)
       await db.execute(sql`delete from messages where conversation_id = ${CHAT}`)
       await db.execute(sql`delete from conversations where organization_id = ${ORG}`)
-      await db.execute(sql`delete from organizations where workos_organization_id = ${ORG}`)
+      await db.execute(sql`delete from messages where conversation_id = ${OTHER_CHAT}`)
+      await db.execute(sql`delete from conversations where organization_id = ${OTHER_ORG}`)
+      await db.execute(sql`delete from organizations where workos_organization_id in (${ORG}, ${OTHER_ORG})`)
     })
     const { closeDb } = await import('@/lib/db')
     await closeDb()
@@ -140,16 +167,16 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
 
   describe('coverage', () => {
     /**
-     * Two answers were produced in the window and five votes landed on four
-     * answers: one old, one never persisted, one rated twice. Votes over produced
-     * answers said 250 %.
+     * Two answers were produced in the window and six votes landed on five
+     * answers: one old, one never persisted (from this tenant's side: OTHER_A is
+     * another tenant's), one rated twice. Votes over produced answers said 300 %.
      */
     it('counts every answer the window is about, so coverage cannot pass 100 %', async () => {
       const health = await platform(() => repo.getFeedbackHealth({ organizationId: ORG, windowDays: 7 }))
 
-      expect(health.totals.up + health.totals.down).toBe(5)
-      expect(health.ratedAnswers).toBe(4) // A1, A2, A_MISSING, A_OLD
-      expect(health.answers).toBe(4) // {A1, A2} produced, united with the four rated
+      expect(health.totals.up + health.totals.down).toBe(6)
+      expect(health.ratedAnswers).toBe(5) // A1, A2, A_MISSING, A_OLD, OTHER_A
+      expect(health.answers).toBe(5) // {A1, A2} produced, united with the five rated
       expect(health.coverage).toBe(1)
     })
 
@@ -192,6 +219,27 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
         repo.listFeedbackTurns({ organizationId: ORG, verdict: 'down', reason: 'other' }),
       )
       expect(turns.map((turn) => turn.messageId).sort()).toEqual([A2, A_MISSING].sort())
+    })
+  })
+
+  describe("another tenant's answer", () => {
+    /**
+     * A vote's `message_id` is client text. Joined on the id alone, ORG's vote on
+     * OTHER_A showed OTHER_ORG's answer, question and topic under ORG's row.
+     */
+    it('is never paired with a vote cast in a different organization', async () => {
+      const turns = await platform(() => repo.listFeedbackTurns({ organizationId: ORG, verdict: 'up' }))
+      const crossed = turns.find((turn) => turn.messageId === OTHER_A)
+
+      expect(crossed).toBeDefined()
+      expect(crossed?.answer).toBeNull()
+      expect(crossed?.question).toBeNull()
+      expect(crossed?.traceId).toBeNull()
+    })
+
+    it('is not resolved as the voted conversation at vote time', async () => {
+      await expect(inOrg(() => repo.getPersistedAnswerConversationId(OTHER_A, ORG))).resolves.toBeNull()
+      await expect(inOrg(() => repo.getPersistedAnswerConversationId(A1, ORG))).resolves.toBe(CHAT)
     })
   })
 

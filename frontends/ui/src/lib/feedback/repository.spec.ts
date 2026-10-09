@@ -209,6 +209,20 @@ describe('listFeedbackTurns', () => {
     expect(text).toContain('qm.created_at <= m.created_at')
   })
 
+  /**
+   * `message_id` is client text. Joined on the id alone, a vote that named
+   * another tenant's answer showed (and exported, and distilled) that tenant's
+   * text under the voter's row. Proven against Postgres in the integration spec.
+   */
+  it("pins the voted answer to the voter's organization", async () => {
+    const execute = capture()
+    await listFeedbackTurns({})
+    const text = new PgDialect().sqlToQuery(execute.mock.calls[0][0]).sql
+
+    expect(text).toContain('m.organization_id = f.organization_id')
+    expect(text).toContain('qm.organization_id = m.organization_id')
+  })
+
   it('coerces the raw row — `sql` results are not runtime-validated', async () => {
     const execute = vi.fn().mockResolvedValue([
         {

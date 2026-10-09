@@ -12,6 +12,7 @@ vi.mock('./repository', () => ({
   deleteAnswerFeedbackForUser: vi.fn(),
   getAnswerFeedbackForUser: vi.fn(async () => null),
   getAnswerTraceId: vi.fn(async () => null),
+  getPersistedAnswerConversationId: vi.fn(async () => null),
   listAnswerFeedbackForConversation: vi.fn(),
   getFeedbackHealth: vi.fn(),
   listFeedbackTurns: vi.fn(),
@@ -52,6 +53,7 @@ import {
   getAnswerFeedbackForUser,
   getAnswerTraceId,
   getFeedbackHealth,
+  getPersistedAnswerConversationId,
   listAnswerFeedbackForConversation,
   listFeedbackTurns,
   upsertAnswerFeedback,
@@ -118,6 +120,27 @@ beforeEach(() => {
 })
 
 describe('submitAnswerFeedback', () => {
+  /**
+   * `conversation_id` used to be stored exactly as the client sent it, and the
+   * readers joined topics and titles on it. When the answer row exists in the
+   * voter's organization, its conversation is the one stored.
+   */
+  it("stores the persisted answer's conversation, not the one the client named", async () => {
+    vi.mocked(getPersistedAnswerConversationId).mockResolvedValueOnce('conv_real')
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up', conversationId: 'conv_claimed' })
+
+    expect(getPersistedAnswerConversationId).toHaveBeenCalledWith('msg_1', 'org_1')
+    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conv_real' }))
+  })
+
+  /** A shallow turn may never be persisted; its vote must still land. */
+  it("keeps the client's conversation for a turn that has no answer row", async () => {
+    vi.mocked(getPersistedAnswerConversationId).mockResolvedValueOnce(null)
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up', conversationId: 'conv_1' })
+
+    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conv_1' }))
+  })
+
   it('upserts an up vote scoped to the session user + org', async () => {
     const view = await submitAnswerFeedback(session, {
       messageId: 'msg_1',
