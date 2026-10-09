@@ -63,6 +63,10 @@
               "de": "Wenn Ihr Büro Chatnachrichten auf sensible Daten prüft, sagt Piloti jetzt klar, dass eine diktierte Nachricht zuerst von einem externen Spracherkennungsmodell transkribiert wird; geprüft wird nur der Text, bevor er gesendet wird."
             },
             {
+              "en": "Your office can now build its own roles in Piloti, under Organisation → Personen & Zugriff → Eigene Rollen.",
+              "de": "Ihr Büro kann jetzt unter Organisation → Personen & Zugriff → Eigene Rollen eigene Rollen in Piloti anlegen."
+            },
+            {
               "en": "Organization admins can now rescan all failed ingestions at once from Organization, Enterprise: every file that could not be read is sent back through reading under its own name.",
               "de": "Organisationsadmins können unter Organisation, Enterprise jetzt alle fehlgeschlagenen Einlesevorgänge auf einmal erneut scannen: Jede Datei, die nicht gelesen werden konnte, wird unter ihrem eigenen Namen erneut eingelesen."
             },
