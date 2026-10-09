@@ -75,6 +75,10 @@
               "de": "Beim Löschen einer eigenen Rolle, die Ordner nennen, zeigt Piloti jetzt, welche Ordner das sind, und verlangt eine Bestätigung. Ordner ohne gültige Rolle können nur noch Organisations-Admins lesen und stehen in den Projekteinstellungen mit einem Link zu jedem."
             },
             {
+              "en": "Organisation admins can now see who downloaded which document, and who opened one in a folder with its own access list, under Organisation → Download-Protokoll. Entries are kept 12 months at most, which an organization can shorten to 30 days, and reading the log is itself recorded.",
+              "de": "Organisations-Admins sehen jetzt unter Organisation → Download-Protokoll, wer welches Dokument heruntergeladen und wer eines in einem Ordner mit eigener Zugriffsliste geöffnet hat. Einträge bleiben höchstens 12 Monate erhalten, was eine Organisation auf 30 Tage verkürzen kann, und auch das Lesen des Protokolls wird festgehalten."
+            },
+            {
               "en": "Your office can now build its own roles in Piloti, under Organisation → Personen & Zugriff → Eigene Rollen, and decide per project folder which roles may read it and which may edit it. A role not on a folder's list does not see the folder, its files or what Piloti finds in them, and organization admins may read and edit everything.",
               "de": "Ihr Büro kann jetzt unter Organisation → Personen & Zugriff → Eigene Rollen eigene Rollen in Piloti anlegen und je Projektordner festlegen, welche Rollen ihn lesen und welche ihn bearbeiten dürfen. Eine Rolle, die nicht auf der Liste eines Ordners steht, sieht weder den Ordner noch seine Dateien noch das, was Piloti darin findet, und Organisations-Admins dürfen alles lesen und bearbeiten."
             },
