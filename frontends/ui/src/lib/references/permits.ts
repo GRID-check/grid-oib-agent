@@ -1,9 +1,11 @@
 /**
  * The permit records of one project as the person reading it may see them
- * (permitting memory, ADR-0094). The access is the project memory's own: the
- * project must be viewable, and a record from a restricted folder shows only
- * to a reader cleared for every folder it sits in (`memoryClearance`, the same
- * read `getProjectMemory` judges by, ADR-0088). The query is the permits
+ * (permitting memory, ADR-0094). The project must be viewable, and a record
+ * whose document sits in a restricted folder shows only to a reader whose
+ * roles may read every folder restricting it now: the folders they may read
+ * come from their per-role read grants (`memoryClearance`, the read
+ * `getProjectMemory` judges by, ADR-0088), and each document is judged from
+ * its live folder against them (`liveFolderAccess`). The query is the permits
  * repository's; this file decides who may ask.
  */
 
