@@ -223,6 +223,17 @@ describe('listFeedbackTurns', () => {
     expect(text).toContain('qm.organization_id = m.organization_id')
   })
 
+  /** The client sends `conversation_id`; the answer row is the authority when it exists. */
+  it("takes the conversation from the persisted answer, inside the voter's organization", async () => {
+    const execute = capture()
+    await listFeedbackTurns({})
+    const text = new PgDialect().sqlToQuery(execute.mock.calls[0][0]).sql
+
+    expect(text).toContain('c.id = coalesce(m.conversation_id, f.conversation_id)')
+    expect(text).toContain('c.organization_id = f.organization_id')
+    expect(text).not.toMatch(/c\.id = f\.conversation_id/)
+  })
+
   it('coerces the raw row — `sql` results are not runtime-validated', async () => {
     const execute = vi.fn().mockResolvedValue([
         {

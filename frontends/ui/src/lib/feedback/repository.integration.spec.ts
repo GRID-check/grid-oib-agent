@@ -43,6 +43,15 @@ const OTHER_CHAT = `s_feedback_other_${STAMP}`
 const OTHER_Q = '0f0f0f0f-0000-4000-8000-000000000011'
 const OTHER_A = '0f0f0f0f-0000-4000-8000-000000000012'
 
+/**
+ * A third tenant whose votes CLAIM a conversation: the client sends
+ * `conversation_id` with every vote, and here it names OTHER_ORG's chat.
+ */
+const CLAIM_ORG = `org_feedback_claims_${STAMP}`
+const CLAIM_CHAT = `s_feedback_claims_${STAMP}`
+const CLAIM_A = '0f0f0f0f-0000-4000-8000-000000000021'
+const CLAIM_MISSING = '0f0f0f0f-0000-4000-8000-0000000000fe'
+
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
 
 describe.skipIf(!url)('answer-feedback platform reads against live Postgres', () => {
@@ -118,6 +127,29 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
       `)
     })
     await vote(OTHER_A, 'up')
+
+    await platform(() =>
+      db.execute(
+        sql`insert into organizations (workos_organization_id, display_name) values (${CLAIM_ORG}, ${CLAIM_ORG}) on conflict do nothing`,
+      ),
+    )
+    await withTenant({ organizationId: CLAIM_ORG, userId: USER }, async () => {
+      await db.execute(sql`
+        insert into conversations (id, organization_id, created_by, title, tags)
+        values (${CLAIM_CHAT}, ${CLAIM_ORG}, ${USER}, 'Eigene', array['brandschutz'])
+      `)
+      await db.execute(sql`
+        insert into messages (id, conversation_id, role, content, created_at)
+        values (${CLAIM_A}::uuid, ${CLAIM_CHAT}, 'assistant', 'Eigene Antwort', ${minutesAgo(10)}::timestamptz)
+      `)
+      // Both votes name OTHER_ORG's chat. The first rated an answer whose row
+      // says otherwise; the second rated a turn that was never persisted.
+      await db.execute(sql`
+        insert into answer_feedback (organization_id, conversation_id, message_id, user_id, verdict) values
+          (${CLAIM_ORG}, ${OTHER_CHAT}, ${CLAIM_A},       ${`${USER}_claim_a`},       'down'),
+          (${CLAIM_ORG}, ${OTHER_CHAT}, ${CLAIM_MISSING}, ${`${USER}_claim_missing`}, 'down')
+      `)
+    })
     await vote(A1, 'down', { reason: 'inaccurate' })
     await vote(A2, 'down', { reason: 'other' })
     await vote(A_MISSING, 'down')
@@ -139,9 +171,13 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
       await db.execute(sql`delete from answer_feedback where organization_id = ${ORG}`)
       await db.execute(sql`delete from messages where conversation_id = ${CHAT}`)
       await db.execute(sql`delete from conversations where organization_id = ${ORG}`)
-      await db.execute(sql`delete from messages where conversation_id = ${OTHER_CHAT}`)
+      await db.execute(sql`delete from answer_feedback where organization_id = ${CLAIM_ORG}`)
+      await db.execute(sql`delete from messages where conversation_id in (${OTHER_CHAT}, ${CLAIM_CHAT})`)
+      await db.execute(sql`delete from conversations where organization_id = ${CLAIM_ORG}`)
       await db.execute(sql`delete from conversations where organization_id = ${OTHER_ORG}`)
-      await db.execute(sql`delete from organizations where workos_organization_id in (${ORG}, ${OTHER_ORG})`)
+      await db.execute(
+        sql`delete from organizations where workos_organization_id in (${ORG}, ${OTHER_ORG}, ${CLAIM_ORG})`,
+      )
     })
     const { closeDb } = await import('@/lib/db')
     await closeDb()
@@ -240,6 +276,49 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
     it('is not resolved as the voted conversation at vote time', async () => {
       await expect(inOrg(() => repo.getPersistedAnswerConversationId(OTHER_A, ORG))).resolves.toBeNull()
       await expect(inOrg(() => repo.getPersistedAnswerConversationId(A1, ORG))).resolves.toBe(CHAT)
+    })
+  })
+
+  describe('the conversation a vote belongs to', () => {
+    /**
+     * `answer_feedback.conversation_id` is what the client sent. The readers
+     * joined titles and topics on it, so a vote could wear another tenant's
+     * conversation title and count under its topics.
+     */
+    it("is the persisted answer's, whatever the client claimed", async () => {
+      const turns = await platform(() => repo.listFeedbackTurns({ organizationId: CLAIM_ORG, verdict: 'down' }))
+      const byMessage = new Map(turns.map((turn) => [turn.messageId, turn]))
+
+      expect(byMessage.get(CLAIM_A)).toMatchObject({
+        conversationId: CLAIM_CHAT,
+        conversationTitle: 'Eigene',
+        topics: ['brandschutz'],
+      })
+    })
+
+    it("is never another organization's, even when no answer row says otherwise", async () => {
+      const turns = await platform(() => repo.listFeedbackTurns({ organizationId: CLAIM_ORG, verdict: 'down' }))
+      const orphan = turns.find((turn) => turn.messageId === CLAIM_MISSING)
+
+      expect(orphan?.conversationTitle).toBeNull()
+      expect(orphan?.topics).toEqual([])
+    })
+
+    it('decides the topic rollup and the topic filter the same way', async () => {
+      const health = await platform(() => repo.getFeedbackHealth({ organizationId: CLAIM_ORG, limit: 0 }))
+      expect(health.topics.map((row) => [row.topic, row.down])).toEqual([['brandschutz', 1]])
+
+      const borrowed = await platform(() =>
+        repo.getFeedbackHealth({ organizationId: CLAIM_ORG, topic: 'schallschutz', limit: 0 }),
+      )
+      expect(borrowed.totals.down).toBe(0)
+      expect(borrowed.ratedAnswers).toBe(0)
+
+      const own = await platform(() =>
+        repo.getFeedbackHealth({ organizationId: CLAIM_ORG, topic: 'brandschutz', limit: 0 }),
+      )
+      expect(own.totals.down).toBe(1)
+      expect(own.ratedAnswers).toBe(1)
     })
   })
 

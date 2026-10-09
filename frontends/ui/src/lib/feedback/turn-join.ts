@@ -63,3 +63,28 @@ export const VOTED_TURN_JOINS = sql`
       limit 1
     ) q on true
 `
+
+/**
+ * The conversation a vote belongs to: the persisted answer's, falling back to
+ * the one the client sent only when the answer has no row in the voter's
+ * organization.
+ *
+ * For a query that does not carry `VOTED_TURN_JOINS` (the aggregates, which
+ * must not join a vote to anything that could multiply it). Where `m` is
+ * joined, the same rule reads `coalesce(m.conversation_id, f.conversation_id)`.
+ * Pass the feedback row's columns as the query names them: `f.message_id` in
+ * raw SQL, `${answerFeedback.messageId}` in the query builder.
+ */
+export function votedConversationId(feedback: {
+  messageId: SQL
+  conversationId: SQL
+  organizationId: SQL
+}): SQL {
+  return sql`coalesce(
+    (select am.conversation_id from messages am
+      where am.id = ${answerIdOf(feedback.messageId)}
+        and am.role = 'assistant'
+        and am.organization_id = ${feedback.organizationId}),
+    ${feedback.conversationId}
+  )`
+}

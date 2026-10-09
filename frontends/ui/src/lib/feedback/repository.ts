@@ -26,7 +26,7 @@ import {
 } from '@/lib/db/schema'
 import { isConversationTagKey, type ConversationTagKey } from '@/lib/conversations/tags'
 import { executeRows } from '@/lib/db/execute-rows'
-import { VOTED_TURN_JOINS } from './turn-join'
+import { VOTED_TURN_JOINS, votedConversationId } from './turn-join'
 import { feedbackWindowStart } from './trend'
 import { likeContains } from '@/lib/text/like-pattern'
 import { isTraceId } from '@/lib/langfuse/config'
@@ -268,6 +268,13 @@ export interface FeedbackReasonCount {
   count: number
 }
 
+/** `votedConversationId` for a raw query that aliases the feedback row `f`. */
+const FEEDBACK_CONVERSATION = votedConversationId({
+  messageId: sql`f.message_id`,
+  conversationId: sql`f.conversation_id`,
+  organizationId: sql`f.organization_id`,
+})
+
 /** A down-vote without a reason is an `other`; one expression, used by the count and the filter. */
 const REASON_OR_OTHER = sql<AnswerFeedbackReason>`coalesce(${answerFeedback.reason}, 'other')`
 
@@ -464,12 +471,21 @@ export async function getFeedbackHealth(
   // promise for the other axis, so it is an EXISTS against the conversation
   // rather than a join: a join would multiply a vote by its tag count and
   // inflate every total on the page.
+  //
+  // The conversation is the voted answer's (`votedConversationId`), not the
+  // client's `conversation_id`, and it must be the voter's organization's: the
+  // client's text could otherwise borrow another tenant's tags.
   const orgScope = organizationId ? [eq(answerFeedback.organizationId, organizationId)] : []
   const topicScope = topic
     ? [
         sql`exists (
           select 1 from conversations tc
-          where tc.id = ${answerFeedback.conversationId}
+          where tc.id = ${votedConversationId({
+            messageId: sql`${answerFeedback.messageId}`,
+            conversationId: sql`${answerFeedback.conversationId}`,
+            organizationId: sql`${answerFeedback.organizationId}`,
+          })}
+            and tc.organization_id = ${answerFeedback.organizationId}
             and tc.tags @> array[${topic}]::text[]
         )`,
       ]
@@ -509,7 +525,9 @@ export async function getFeedbackHealth(
           topic
             ? sql`and exists (
                 select 1 from conversations tc
-                where tc.id = f.conversation_id and tc.tags @> array[${topic}]::text[]
+                where tc.id = ${FEEDBACK_CONVERSATION}
+                  and tc.organization_id = f.organization_id
+                  and tc.tags @> array[${topic}]::text[]
               )`
             : sql``
         }
@@ -579,7 +597,9 @@ export async function getFeedbackHealth(
       count(*) filter (where f.verdict = 'down')           as down,
       count(distinct f.user_id)                            as voters
     from answer_feedback f
-    join conversations c on c.id = f.conversation_id
+    join conversations c
+      on c.id = ${FEEDBACK_CONVERSATION}
+     and c.organization_id = f.organization_id
     cross join lateral unnest(c.tags) as tag
     where f.created_at >= ${since}::timestamptz
       ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
@@ -665,7 +685,7 @@ export async function listFeedbackTurns(
       f.id,
       f.organization_id,
       f.project_id,
-      f.conversation_id,
+      coalesce(m.conversation_id, f.conversation_id) as conversation_id,
       f.message_id,
       f.verdict,
       f.reason,
@@ -679,7 +699,9 @@ export async function listFeedbackTurns(
       m.metadata->>'trace_id' as trace_id
     from answer_feedback f
     ${VOTED_TURN_JOINS}
-    left join conversations c on c.id = f.conversation_id
+    left join conversations c
+      on c.id = coalesce(m.conversation_id, f.conversation_id)
+     and c.organization_id = f.organization_id
     where f.verdict = ${verdict}
       and f.created_at >= ${since}::timestamptz
       ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
