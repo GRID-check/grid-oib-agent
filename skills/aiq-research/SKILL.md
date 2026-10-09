@@ -47,8 +47,8 @@ Use this skill for research-shaped requests, including:
 - "use AI-Q to answer ..."
 - "ask AI-Q about ..."
 
-Do not use this skill for install, deploy, start, stop, UI, CLI, Docker, Helm, or troubleshooting requests. Those
-belong to `aiq-deploy`.
+Do not use this skill for install, deploy, UI, CLI, Docker, or troubleshooting requests. Those are covered by
+`docs/deployment/` and `scripts/README.md` in this repository.
 
 ## Prerequisites
 
@@ -70,7 +70,7 @@ The helper script has no third-party Python package dependencies; it uses Python
 
 1. Resolve the target backend URL.
 2. Run `health` before sending research requests.
-3. If no backend is reachable, ask for a backend URL or hand off to `aiq-deploy`.
+3. If no backend is reachable, ask for a backend URL or offer to start a local one (Step 1).
 4. Before sending any user query, state the exact AI-Q backend URL that will receive it. For non-local URLs, continue
    only if the user has explicitly confirmed that URL is trusted in the current conversation.
 5. Poll asynchronous deep research jobs when AI-Q returns a job ID.
@@ -96,11 +96,14 @@ I do not see a reachable local AI-Q backend. Do you already have an AI-Q backend
 ```
 
 - If the user provides a URL, set `AIQ_SERVER_URL` for subsequent helper calls and rerun `health`.
-- If the user wants local deployment, hand off to `aiq-deploy` and preserve the original research request.
+- If the user wants a local backend, start one from the repository root with `./scripts/start_as_skill.sh` (the api
+  role on port 8000 and the chat role on 8001; options in `scripts/README.md`), rerun `health`, and continue with the
+  original research request.
 - If a reachable backend returns `401` or `403`, stop and explain that this public skill does not manage
   authentication. Ask the user to use an authenticated AI-Q skill or configure authentication for their environment.
 - If `health` succeeds but `chat` (`POST /chat` on `AIQ_CHAT_URL`) or `/v1/jobs/async/agents` fails, report that the backend is reachable but not
-  compatible with this public research flow, then offer to run `aiq-deploy` validation.
+  compatible with this public research flow. `start_as_skill.sh` runs the one shipped config,
+  `configs/config_oib_openrouter.yml`, which serves both.
 
 ### Step 2 - Send the routed research request
 
@@ -316,7 +319,7 @@ source URLs intact.
 | Topic | Documentation |
 |---|---|
 | Helper script | `scripts/aiq.py` |
-| Deployment and backend validation | `../aiq-deploy/SKILL.md` |
+| Starting a local backend | `scripts/start_as_skill.sh`, documented in `scripts/README.md` |
 
 ## Common Issues
 
@@ -341,7 +344,7 @@ source URLs intact.
    export AIQ_SERVER_URL="http://localhost:<PORT>"
    python3 $SKILL_DIR/scripts/aiq.py health
    ```
-3. If they want a local backend, hand off to `aiq-deploy` and preserve the original research request.
+3. If they want a local backend, start one with `./scripts/start_as_skill.sh` and keep the original research request.
 
 ### Issue: Backend requires authentication
 
@@ -380,7 +383,8 @@ source URLs intact.
    ```bash
    python3 $SKILL_DIR/scripts/aiq.py agents
    ```
-2. If agents are unavailable, report the compatibility failure and offer to run `aiq-deploy` validation.
+2. If agents are unavailable, report the compatibility failure and offer to restart the backend with
+   `./scripts/start_as_skill.sh`.
 3. Confirm the deployed Blueprint version is compatible with skill version 2.1.0.
 
 ### Issue: Job is interrupted or appears stuck

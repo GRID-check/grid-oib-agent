@@ -18,7 +18,7 @@ harness is one line in that manifest's `targets`.
 | | Maintainer skills | API-consumer skills |
 | :-- | :-- | :-- |
 | **Audience** | Developers changing this repo | Users calling a running AI-Q server |
-| **Examples** | `aiq-add-data-source`, `aiq-add-tool`, `aiq-release-qa`, `aiq-prepare-pr`, `aiq-maintain-ci`, `aiq-customize-prompts-models`, `aiq-definition-of-done` | `aiq-deploy`, `aiq-research` |
+| **Examples** | `aiq-add-data-source`, `aiq-add-tool`, `aiq-release-qa`, `aiq-prepare-pr`, `aiq-maintain-ci`, `aiq-customize-prompts-models`, `aiq-definition-of-done` | `aiq-research` |
 | **Assumes** | A repo checkout and dev toolchain | A reachable AI-Q backend |
 | **Extras** | none | `skill-card.md`, `skill.oms.sig`, `evals/`, authored to be self-contained and exportable to the NVIDIA Skills catalog |
 
