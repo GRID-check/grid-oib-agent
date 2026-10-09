@@ -65,6 +65,11 @@ export type SessionsSlice = {
 
   loadServerConversations: (projectId?: string) => Promise<void>
   hydrateConversationMessages: (conversationId: string) => Promise<void>
+  /**
+   * The server said this person may no longer read the conversation (ADR-0088):
+   * drop its title and messages from the store and mark it locked.
+   */
+  _lockConversation: (conversationId: string) => void
   setCurrentUser: (userId: string | null) => void
   getUserConversations: () => Conversation[]
   createConversation: () => Conversation
@@ -219,6 +224,13 @@ const serverAnswerWaits = new Map<string, Promise<RecoveryOutcome>>()
  */
 let recoveryHolds = 0
 
+/**
+ * Whether a failed call was the server's `RESOURCE_RIGHTS_LOST`. By name: the
+ * adapter is imported lazily here, so its class is not a static import.
+ */
+const isRightsLost = (error: unknown): boolean =>
+  error instanceof Error && error.name === 'ConversationRightsLostError'
+
 const getConversationsClient = () => {
   conversationsClientModule ??= import('@/adapters/api/conversations-client')
   return conversationsClientModule.then((m) => m.conversationsClient)
@@ -371,6 +383,10 @@ export const createSessionsSlice: StateCreator<
 
       for (const serverConv of serverConvs) {
         const idx = merged.findIndex((c) => c.id === serverConv.id)
+        // The person may no longer read what this chat drew on (ADR-0088): the
+        // server sent no title, and nothing a browser cached of its messages
+        // may stay on screen.
+        const locked = serverConv.contentLocked === true
         const local: Conversation = {
           id: serverConv.id,
           // The user this row belongs to in THIS browser's store — a membership
@@ -391,8 +407,9 @@ export const createSessionsSlice: StateCreator<
           projectId: serverConv.projectId ?? (idx >= 0 ? merged[idx].projectId : null) ?? null,
           // Titles are generated client-side and may not have reached the
           // server yet — never clobber a local title with an empty one.
-          title: serverConv.title ?? (idx >= 0 ? merged[idx].title : '') ?? '',
-          messages: idx >= 0 ? merged[idx].messages : [],
+          title: locked ? '' : (serverConv.title ?? (idx >= 0 ? merged[idx].title : '') ?? ''),
+          messages: idx >= 0 && !locked ? merged[idx].messages : [],
+          ...(locked ? { contentLocked: true } : {}),
           // Client-only field — dropping it here would silently re-enable
           // every data source the user turned off for this session.
           enabledDataSourceIds: idx >= 0 ? merged[idx].enabledDataSourceIds : undefined,
@@ -407,29 +424,46 @@ export const createSessionsSlice: StateCreator<
           // which quietly re-fills the owner's chat history with 52 job
           // threads a year while every test still passes.
           jobId: serverConv.jobId ?? null,
-          subjectResourceType:
-            serverConv.subjectResourceType === 'document'
+          subjectResourceType: locked
+            ? null
+            : serverConv.subjectResourceType === 'document'
               ? 'document'
               : ((idx >= 0 ? merged[idx].subjectResourceType : null) ?? null),
-          subjectResourceId:
-            serverConv.subjectResourceId ??
-            (idx >= 0 ? merged[idx].subjectResourceId : null) ??
-            null,
+          subjectResourceId: locked
+            ? null
+            : (serverConv.subjectResourceId ??
+              (idx >= 0 ? merged[idx].subjectResourceId : null) ??
+              null),
         }
         if (idx >= 0) {
+          // Rights given back: its messages were dropped while it was locked.
+          if (merged[idx].contentLocked && !locked) markAwaitingServerMessages(local.id)
           merged[idx] = local
         } else {
-          markAwaitingServerMessages(local.id)
+          if (!locked) markAwaitingServerMessages(local.id)
           merged.push(local)
         }
       }
 
-      set({ conversations: merged }, false, 'loadServerConversations')
+      // The open conversation is a separate object: it follows the list when
+      // the list says its rights changed, in either direction.
+      const open = get().currentConversation
+      const refreshedOpen = open ? merged.find((c) => c.id === open.id) : undefined
+      const openChanged = refreshedOpen !== undefined && (refreshedOpen.contentLocked === true) !== (open?.contentLocked === true)
+      set(
+        {
+          conversations: merged,
+          ...(openChanged ? { currentConversation: refreshedOpen } : {}),
+        },
+        false,
+        'loadServerConversations'
+      )
 
       // If the restored current session lost its messages locally (storage
       // cleanup, new device), repopulate them from the server right away.
       const { currentConversation } = get()
       if (
+        currentConversation?.contentLocked !== true &&
         currentConversation &&
         (currentConversation.messages.length === 0 ||
           isAwaitingServerMessages(currentConversation.id))
@@ -448,6 +482,8 @@ export const createSessionsSlice: StateCreator<
   hydrateConversationMessages: async (conversationId: string) => {
     const conversation = get().conversations.find((c) => c.id === conversationId)
     if (!conversation) return
+    // Nothing is fetched for a chat the reader may no longer read (ADR-0088).
+    if (conversation.contentLocked) return
     // Messages here are the whole thread unless the server's were never loaded:
     // a follow-up sent before the history arrived is only the tail of it.
     if (conversation.messages.length > 0 && !isAwaitingServerMessages(conversationId)) return
@@ -491,10 +527,32 @@ export const createSessionsSlice: StateCreator<
         get().restoreSessionState(hydrated)
       }
     } catch (err) {
-      console.warn('[hydrateConversationMessages] Failed to load messages from server:', err)
+      if (isRightsLost(err)) get()._lockConversation(conversationId)
+      else console.warn('[hydrateConversationMessages] Failed to load messages from server:', err)
     } finally {
       hydratingConversationIds.delete(conversationId)
     }
+  },
+
+  _lockConversation: (conversationId: string) => {
+    const { conversations, currentConversation } = get()
+    const lock = (conversation: Conversation): Conversation => ({
+      ...conversation,
+      title: '',
+      messages: [],
+      subjectResourceType: null,
+      subjectResourceId: null,
+      contentLocked: true,
+    })
+    clearAwaitingServerMessages(conversationId)
+    set(
+      {
+        conversations: conversations.map((c) => (c.id === conversationId ? lock(c) : c)),
+        ...(currentConversation?.id === conversationId ? { currentConversation: lock(currentConversation) } : {}),
+      },
+      false,
+      'lockConversation'
+    )
   },
 
   setCurrentUser: (userId: string | null) => {
@@ -1139,7 +1197,10 @@ export const createSessionsSlice: StateCreator<
             : String(message.timestamp),
       })
     } catch (err) {
-      console.warn('[appendMessage] Failed:', err)
+      // Rights taken away while the chat was open: it closes, as the next turn
+      // would have (ADR-0088).
+      if (isRightsLost(err)) get()._lockConversation(currentConversation.id)
+      else console.warn('[appendMessage] Failed:', err)
     }
   },
 

@@ -23,6 +23,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import { PRE_EXISTING_DB_IMPORTERS } from './route-db-access-allowlist.mjs'
+
 const UI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const OXLINT = path.join(UI, 'node_modules', 'oxlint', 'bin', 'oxlint')
 
@@ -52,6 +54,16 @@ const FIXTURES = {
     'export const load = (projectId: string) => getCached(`digest:${projectId}`, 1000, async () => 1)',
     "export const isDuplicate = (error: { code: string }) => error.code === '23505'",
   ].join('\n'),
+  // Transport code does not query: one value import from `@/lib/db` must be
+  // reported; the type import and `tenant-context` must not.
+  'src/app/api/canary/route.ts': [
+    "import { db } from '@/lib/db'",
+    "import type { Users } from '@/lib/db/schema'",
+    "import { withTenant } from '@/lib/db/tenant-context'",
+    'export const handle = [db, withTenant] as unknown as Users',
+  ].join('\n'),
+  // A file that imported the db before the rule existed stays allowed.
+  'src/app/api/conversations/[id]/route.ts': "import { db } from '@/lib/db'\nexport const handle = db",
   'src/features/grid-cards/schematics/kit.tsx': "export const size = 'text-sm'",
   'tests/canary.test.ts': 'export const fixture: any = {}',
 }
@@ -66,6 +78,7 @@ const EXPECTED = [
   ['src/app/canary/page.tsx', 'next(no-img-element)'],
   ['src/lib/canary.ts', 'grid(require-tenant-cache-key)'],
   ['src/lib/canary.ts', 'grid(no-restricted-syntax)'],
+  ['src/app/api/canary/route.ts', 'eslint(no-restricted-imports)'],
   ['src/features/grid-cards/schematics/kit.tsx', 'grid(card-type-scale)'],
   ['tests/canary.test.ts', 'typescript(no-explicit-any)'],
 ]
@@ -109,6 +122,26 @@ describe('.oxlintrc.json', () => {
   it('reports each restricted selector once', () => {
     const restricted = findings.filter(([f, r]) => f === 'src/lib/canary.ts' && r === 'grid(no-restricted-syntax)')
     expect(restricted).toHaveLength(3)
+  })
+
+  it('reports only the value import from the db in a route', () => {
+    const imports = findings.filter(([f, r]) => r === 'eslint(no-restricted-imports)')
+    expect(imports).toEqual([['src/app/api/canary/route.ts', 'eslint(no-restricted-imports)']])
+  })
+
+  it('exempts exactly the files PRE_EXISTING_DB_IMPORTERS lists', () => {
+    // JSON cannot import the allowlist module, so the config carries a copy.
+    // This keeps the copy honest: an entry added to one and not the other fails.
+    const json = fs
+      .readFileSync(path.join(UI, '.oxlintrc.json'), 'utf8')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n')
+    const exempt = JSON.parse(json).overrides.find(
+      (o) => o.rules['typescript/no-restricted-imports'] === 'off' && !o.files.some((f) => f.includes('spec')),
+    )
+    const unescaped = exempt.files.map((f) => f.replace(/\\([[\]])/g, '$1'))
+    expect(unescaped).toEqual(PRE_EXISTING_DB_IMPORTERS.map((file) => `src/${file}`))
   })
 
   it('leaves specs out of the tenant-boundary and restricted-syntax rules', () => {

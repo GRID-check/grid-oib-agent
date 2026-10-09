@@ -18,12 +18,18 @@
  *      left `queued` whose job is gone (`lib/documents/stuck-processing.ts`,
  *      `lib/tasks/filing-sweep.ts`, ADR-0079);
  *   6. POSTs the BFF's upload sweep (`/api/internal/upload-batches/sweep`,
- *      ADR-0086), which settles the uploads whose browser is gone;
+ *      ADR-0086), which settles the uploads whose browser is gone, and its
+ *      folder placement sweep (`/api/internal/folder-placement/sweep`,
+ *      ADR-0087), which moves a document a backend outage left in the wrong
+ *      retrieval collection;
  *   7. once a day, deletes the Langfuse traces older than the retention window
  *      (`sweepTraceRetention`; ADR-0044 — Langfuse's own retention setting is an
  *      Enterprise feature, the delete API is not);
  *   8. every tick, deletes the Langfuse traces of chats the BFF erased in its
- *      delete request, which the purger never sees (`sweepConversationTraces`).
+ *      delete request, which the purger never sees (`sweepConversationTraces`);
+ *   9. once a day, purges the download log past its retention: 12 months at
+ *      most, less where an organization chose so, in bounded batches
+ *      (`sweepDownloadLogRetention`; migration 0114).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -40,7 +46,7 @@
  *                                        (default 30, minimum 3)
  *
  * Schedules gate (steps 1-3): only when GRID_SKILLS_ENABLED=true or
- * GRID_ENFORCE_FEATURE_FLAGS=true. Steps 4 to 8 run regardless, because runs exist
+ * GRID_ENFORCE_FEATURE_FLAGS=true. Steps 4 to 9 run regardless, because runs exist
  * without Agent Skills: a chat question escalated to deep research is a
  * `task_runs` row with no definition behind it (ADR-0062). With the gate off the
  * container is a reconcile-only worker rather than exiting.
@@ -53,6 +59,7 @@ const {
   findConversationsAwaitingTraceErasure,
   conversationIsHeld,
   markConversationTracesErased,
+  pruneDownloadLog,
 } = require('./db')
 const { nextOccurrence } = require('./cron')
 const { initOtelLogs } = require('../observability/otel-logs')
@@ -132,6 +139,7 @@ function createStreaks(config) {
     reconcile: createFailureStreak({ label: `${LOG} run reconcile`, escalateAfter }),
     background: createFailureStreak({ label: `${LOG} background work sweep`, escalateAfter }),
     uploads: createFailureStreak({ label: `${LOG} upload sweep`, escalateAfter }),
+    placement: createFailureStreak({ label: `${LOG} folder placement sweep`, escalateAfter }),
     database: createFailureStreak({ label: `${LOG} schedule claim`, escalateAfter }),
     // Counts failed ATTEMPTS, one an hour at most (`TRACE_RETENTION_RETRY_MS`),
     // not ticks: three in a row is about three hours of Langfuse being wrong.
@@ -143,6 +151,9 @@ function createStreaks(config) {
     // Backoff after a failure that is not transient: a 401 or a poisoned row
     // would otherwise log an ERROR on every tick.
     conversationTracesClock: { nextRunAt: 0 },
+    // Daily, like the trace retention; its clock lives here for the same reason.
+    downloadLog: createFailureStreak({ label: `${LOG} download log retention`, escalateAfter }),
+    downloadLogClock: { nextRunAt: 0 },
   }
 }
 
@@ -222,6 +233,26 @@ async function sweepUploads(config, fetchImpl, streak) {
     console.log(
       `${LOG} upload sweep: checked ${counts.checked}, sealed ${counts.sealed}, ` +
         `completed ${counts.completed}, failed ${counts.failed}`,
+    )
+  }
+  return counts
+}
+
+/**
+ * Move the documents a backend outage left in the wrong retrieval collection
+ * (ADR-0087): a document under a restricted folder whose chunks could not be
+ * purged from the project's open collection is still findable there until it
+ * is placed again.
+ */
+async function sweepPlacement(config, fetchImpl, streak) {
+  const counts = await postSweep(config, fetchImpl, streak, {
+    path: '/api/internal/folder-placement/sweep',
+    label: 'folder placement sweep',
+  })
+  if (counts && (counts.moved > 0 || counts.pending > 0 || counts.failed > 0)) {
+    console.log(
+      `${LOG} folder placement sweep: checked ${counts.checked}, moved ${counts.moved}, ` +
+        `still pending ${counts.pending}, failed ${counts.failed}`,
     )
   }
   return counts
@@ -344,6 +375,46 @@ async function sweepConversationTraces(
   }
 }
 
+/** After a failure of the download log sweep that is not a database outage. */
+const DOWNLOAD_LOG_BACKOFF_MS = 60 * 60 * 1000
+
+/**
+ * The download log's retention sweep (migration 0114): purge entries past their
+ * retention, once a day counted from the previous run, the first on the first
+ * tick after the process starts. A run deletes at most 50 batches of 1000
+ * (`pruneDownloadLog`); when it stopped on that budget with more behind it, the
+ * next tick continues, and the 24 hours start when a run finds nothing left to
+ * cap on. Every replica running it is harmless: the deletes repeat safely.
+ *
+ * A database outage goes to `streak` as a WARN that escalates; any other failure
+ * logs ERROR and waits an hour. Never throws. Returns the counts of a run that
+ * happened, or null.
+ */
+async function sweepDownloadLogRetention(sql, streak, clock, now = new Date(), prune = pruneDownloadLog) {
+  if (now.getTime() < clock.nextRunAt) return null
+  try {
+    const result = await prune(sql)
+    clock.nextRunAt = result.capped ? now.getTime() : now.getTime() + DAY_MS
+    streak.succeeded()
+    if (result.deleted > 0) {
+      console.log(
+        `${LOG} download log retention: deleted ${result.deleted} entr${result.deleted === 1 ? 'y' : 'ies'} past retention` +
+          (result.capped ? '; more remain, the next tick continues' : ''),
+      )
+    }
+    return result
+  } catch (error) {
+    const outage = databaseOutage(error)
+    if (outage) {
+      streak.failed(outage)
+    } else {
+      clock.nextRunAt = now.getTime() + DOWNLOAD_LOG_BACKOFF_MS
+      console.error(`${LOG} download log retention failed:`, error)
+    }
+    return null
+  }
+}
+
 /**
  * POST one of the BFF's internal sweeps and read its counts.
  *
@@ -455,8 +526,10 @@ async function tick(sql, config, fetchImpl, streaks) {
   await reconcileRuns(config, fetchImpl, streaks.reconcile)
   await reconcileBackgroundWork(config, fetchImpl, streaks.background)
   await sweepUploads(config, fetchImpl, streaks.uploads)
+  await sweepPlacement(config, fetchImpl, streaks.placement)
   await sweepTraceRetention(config, fetchImpl, streaks.traceRetention, streaks.traceRetentionClock)
   await sweepConversationTraces(sql, config, fetchImpl, streaks.conversationTraces, streaks.conversationTracesClock)
+  await sweepDownloadLogRetention(sql, streaks.downloadLog, streaks.downloadLogClock)
   return fired
 }
 
@@ -562,8 +635,10 @@ module.exports = {
   reconcileRuns,
   reconcileBackgroundWork,
   sweepUploads,
+  sweepPlacement,
   sweepTraceRetention,
   sweepConversationTraces,
+  sweepDownloadLogRetention,
   tick,
   INTERNAL_TOKEN_HEADER,
 }

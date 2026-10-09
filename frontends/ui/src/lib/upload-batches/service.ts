@@ -16,12 +16,14 @@
 import 'server-only'
 import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { getProjectFolderAccess } from '@/lib/authz/folder-access'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { Document, UploadBatch, UploadBatchExclusion, UploadBatchScope } from '@/lib/db/schema'
 import { documentStatusFacts } from '@/lib/documents/document-status'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findFolderPathsInProject } from '@/lib/documents/repository'
+import { findProjectInOrg } from '@/lib/projects/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
 import { parseQuarantine, type QuarantineVerdict } from '@/lib/upload-screening/quarantine'
 import {
@@ -233,10 +235,23 @@ function toSummaryDocument(row: EnrichedDocument, folderPaths: Map<string, strin
  * the batch, and the summary and tags come from the same enrichment the file
  * list uses.
  */
+/**
+ * The batch's documents this reader may still see. A folder restricted after
+ * the upload hides what was filed in it from its own uploader too (ADR-0087):
+ * the summary names files, and a name is what the restriction withholds.
+ */
+async function visibleToReader(session: AuthorizedSession, batch: UploadBatch, rows: Document[]): Promise<Document[]> {
+  if (batch.scope !== 'project' || !batch.projectId) return rows
+  const project = await findProjectInOrg(batch.projectId, session.organizationId)
+  if (!project) return []
+  const access = await getProjectFolderAccess(session, batch.projectId, project.collectionName)
+  return access.anyRestricted ? rows.filter((row) => access.isVisible(row.folderId)) : rows
+}
+
 export async function getUploadSummary(session: AuthorizedSession, batchId: string): Promise<UploadSummary> {
   const batch = await findOwnUploadBatch(session, batchId)
   if (!batch) throw new NotFoundError('Upload not found')
-  const rows = await listBatchDocuments(session.organizationId, batchId)
+  const rows = await visibleToReader(session, batch, await listBatchDocuments(session.organizationId, batchId))
   const enriched = await reconcileDocumentStatuses(rows, session.organizationId)
   const folderIds = [...new Set(enriched.map((row) => row.folderId).filter((id): id is string => !!id))]
   const folderPaths =

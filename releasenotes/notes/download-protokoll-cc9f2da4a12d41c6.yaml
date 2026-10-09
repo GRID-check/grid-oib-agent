@@ -1,0 +1,13 @@
+---
+features:
+  - >
+    Organisation admins can now see who downloaded which document, and who
+    opened one in a folder with its own access list, under Organisation →
+    Download-Protokoll. Entries are kept 12 months at most, which an
+    organization can shorten to 30 days, and reading the log is itself recorded.
+incident:
+  - >
+    A picture from a project could keep loading long after someone lost access
+    to the project or to its folder, because the server kept its own copy and
+    the signed address outlived the revocation. Piloti no longer keeps that
+    copy, and such a picture now stops loading within a few minutes.

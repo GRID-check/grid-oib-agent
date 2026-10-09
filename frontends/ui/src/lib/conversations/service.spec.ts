@@ -57,6 +57,15 @@ vi.mock('@/lib/sharing/repository', () => ({
 }))
 
 vi.mock('@/lib/sharing/service', () => ({ resolveParticipants: vi.fn() }))
+// Which people may read what a conversation recorded is judged against the
+// folder tree and WorkOS; `restricted-use.spec.ts` covers that. Here the default
+// is a conversation that recorded nothing restricting, and the tests of the
+// locked state say otherwise.
+vi.mock('./restricted-use', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./restricted-use')>()),
+  peopleWhoMayRead: vi.fn(async (_organizationId: string, _conversationId: string, userIds: readonly string[]) => new Set(userIds)),
+  lockedConversationIds: vi.fn(async () => new Set<string>()),
+}))
 // Discarding a chat now erases state that lives OUTSIDE Postgres before it
 // touches a row (ADR-0047 Phase 2). Mocked at the boundary so this suite can
 // state what the service does with each outcome; the erasure itself is tested
@@ -106,7 +115,7 @@ vi.mock('./engagement', () => ({
   setEngagement: vi.fn(),
 }))
 
-import { ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
+import { ConflictError, ForbiddenError, NotFoundError, ResourceRightsLostError, UpstreamError } from '@/lib/api/errors'
 import { purgeConversationCollaboration } from '@/lib/collaboration/cleanup'
 import { isCoveredByActiveHold } from '@/lib/compliance/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -123,6 +132,7 @@ import { deleteSessionCollection, purgeSessionDocuments } from '@/lib/session-do
 import { discardConversationDrafts } from './working-directory'
 import { maskChatText } from '@/lib/upload-screening/service'
 import { resolveEngagement, resolveEngagementFor, setEngagement } from './engagement'
+import { lockedConversationIds, peopleWhoMayRead } from './restricted-use'
 import {
   deleteConversationInOrg,
   findConversationInOrg,
@@ -161,6 +171,9 @@ const PROJECT_ID = '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
 const session = {
   userId: 'user_me',
   organizationId: 'org_1',
+  role: 'member',
+  roles: ['member'],
+  permissions: [],
   email: 'me@grid.test',
 } as unknown as AuthorizedSession
 
@@ -222,6 +235,9 @@ function messageRow(overrides: Partial<Message> = {}): Message {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Nothing the conversation recorded restricts anybody, unless a test says so.
+  vi.mocked(peopleWhoMayRead).mockImplementation(async (_org, _id, userIds) => new Set(userIds))
+  vi.mocked(lockedConversationIds).mockResolvedValue(new Set())
   // The collaboration feature is dark-launched (spec NF-7): without an operator
   // opt-in the mention path refuses outright, so the tests that exercise it must
   // enable it. The flag-OFF behaviour has its own tests.
@@ -340,6 +356,171 @@ describe('listing conversations', () => {
     expect(listVisibleConversations).toHaveBeenCalledWith('org_1', 'user_me', {
       projectId: undefined,
     })
+  })
+})
+
+describe('a chat the reader may no longer read (ADR-0088)', () => {
+  /** The folders the conversation recorded are no longer ones this reader's roles reach. */
+  function lockFor(...locked: string[]): void {
+    vi.mocked(peopleWhoMayRead).mockImplementation(async (_org, _id, userIds) =>
+      new Set(userIds.filter((userId) => !locked.includes(userId)))
+    )
+  }
+
+  const row = (id: string, title: string) =>
+    ({
+      id,
+      organizationId: 'org_1',
+      projectId: PROJECT_ID,
+      createdBy: 'user_me',
+      title,
+      tags: ['brandschutz'],
+      visibility: 'private',
+      engagement: null,
+      jobId: null,
+      subjectResourceType: 'document',
+      subjectResourceId: 'doc_9',
+      deletedAt: null,
+      createdAt: new Date('2026-07-01T10:00:00Z'),
+      updatedAt: new Date('2026-07-02T10:00:00Z'),
+    }) as never
+
+  beforeEach(() => {
+    vi.mocked(peopleWhoMayRead).mockImplementation(async (_org, _id, userIds) => new Set(userIds))
+  })
+
+  describe('the list keeps it, under a neutral title', () => {
+    it('sends no title, topic tags or subject for a locked chat, and the rest of the row as it was', async () => {
+      vi.mocked(listVisibleConversations).mockResolvedValue([
+        row('s_locked', 'Kündigung Müller: Honorarfolder'),
+        row('s_open', 'Brandschutz Stiegenhaus'),
+      ])
+      vi.mocked(lockedConversationIds).mockResolvedValue(new Set(['s_locked']))
+
+      const listed = await listConversations(session, { projectId: PROJECT_ID })
+
+      const locked = listed.find((entry) => entry.id === 's_locked')
+      expect(locked).toMatchObject({
+        contentLocked: true,
+        title: null,
+        tags: [],
+        subjectResourceType: null,
+        subjectResourceId: null,
+        // Still theirs, still in the list, still sortable.
+        createdBy: 'user_me',
+        updatedAt: new Date('2026-07-02T10:00:00Z'),
+      })
+      expect(JSON.stringify(locked)).not.toContain('Müller')
+      expect(listed.find((entry) => entry.id === 's_open')).toMatchObject({
+        contentLocked: false,
+        title: 'Brandschutz Stiegenhaus',
+        tags: ['brandschutz'],
+        subjectResourceId: 'doc_9',
+      })
+    })
+
+    it('asks about every row of the list at once, with its project', async () => {
+      vi.mocked(listVisibleConversations).mockResolvedValue([row('s_a', 'A'), row('s_b', 'B')])
+      vi.mocked(lockedConversationIds).mockResolvedValue(new Set())
+
+      await listConversations(session, { projectId: PROJECT_ID })
+
+      expect(lockedConversationIds).toHaveBeenCalledTimes(1)
+      expect(lockedConversationIds).toHaveBeenCalledWith(session, [
+        { id: 's_a', projectId: PROJECT_ID },
+        { id: 's_b', projectId: PROJECT_ID },
+      ])
+    })
+
+    it('brings the real title back when the role is given back: nothing was rewritten', async () => {
+      vi.mocked(listVisibleConversations).mockResolvedValue([row('s_locked', 'Brandschutz Stiegenhaus')])
+      vi.mocked(lockedConversationIds).mockResolvedValueOnce(new Set(['s_locked']))
+      expect((await listConversations(session))[0]).toMatchObject({ contentLocked: true, title: null })
+
+      vi.mocked(lockedConversationIds).mockResolvedValueOnce(new Set())
+      expect((await listConversations(session))[0]).toMatchObject({
+        contentLocked: false,
+        title: 'Brandschutz Stiegenhaus',
+      })
+    })
+  })
+
+  describe.each([
+    ['a grantee', { createdBy: 'user_other' }, true],
+    ['the CREATOR', { createdBy: 'user_me' }, false],
+  ])('opening it as %s', (_who, tenancy, granted) => {
+    beforeEach(() => {
+      stubConversation({ visibility: 'private', ...tenancy })
+      if (granted) vi.mocked(findGrantForSubject).mockResolvedValue({ role: 'collaborator' } as never)
+      lockFor('user_me')
+    })
+
+    it('answers the typed 403 for the detail, and reads no row', async () => {
+      await expect(getConversation(session, CONVERSATION_ID)).rejects.toBeInstanceOf(ResourceRightsLostError)
+      expect(findConversationInOrg).not.toHaveBeenCalled()
+    })
+
+    it('answers the typed 403 for the messages, and reads none of them', async () => {
+      await expect(listConversationMessages(session, CONVERSATION_ID)).rejects.toBeInstanceOf(ResourceRightsLostError)
+      expect(listMessagesForConversation).not.toHaveBeenCalled()
+    })
+
+    it('refuses a message into it, and stores nothing', async () => {
+      await expect(
+        createConversationMessages(session, CONVERSATION_ID, [{ id: 'm_1', role: 'user', content: 'Und jetzt?' }])
+      ).rejects.toBeInstanceOf(ResourceRightsLostError)
+      expect(insertMessages).not.toHaveBeenCalled()
+    })
+
+    it('refuses a rename and a read mark: both act on the chat', async () => {
+      // Renaming is an owner's call: a grantee never got that far, the creator is locked out of it.
+      await expect(updateConversationTitle(session, CONVERSATION_ID, 'Neu')).rejects.toBeInstanceOf(
+        granted ? NotFoundError : ResourceRightsLostError
+      )
+      await expect(markConversationRead(session, CONVERSATION_ID)).rejects.toBeInstanceOf(ResourceRightsLostError)
+      expect(updateConversationTitleInOrg).not.toHaveBeenCalled()
+    })
+
+    it('opens again, whole, once the role is given back', async () => {
+      lockFor()
+      vi.mocked(listMessagesForConversation).mockResolvedValue([messageRow()])
+
+      await expect(getConversation(session, CONVERSATION_ID)).resolves.toMatchObject({ id: CONVERSATION_ID })
+      await expect(listConversationMessages(session, CONVERSATION_ID)).resolves.toHaveLength(1)
+    })
+  })
+
+  it('opens a PROJECT-visible chat as locked for a member whose roles do not reach what it drew on', async () => {
+    stubConversation({ visibility: 'project', createdBy: 'user_other' })
+    lockFor('user_me')
+
+    await expect(listConversationMessages(session, CONVERSATION_ID)).rejects.toBeInstanceOf(ResourceRightsLostError)
+  })
+
+  it('still lets the owner delete a chat they may no longer read', async () => {
+    stubConversation({ visibility: 'private', createdBy: 'user_me' })
+    vi.mocked(markConversationDeleting).mockResolvedValue({ id: CONVERSATION_ID } as never)
+    vi.mocked(purgeSessionDocuments).mockResolvedValue({ ok: true, purged: 0, retained: 0, failures: [] })
+    vi.mocked(deleteSessionCollection).mockResolvedValue({ ok: true })
+    lockFor('user_me')
+
+    await expect(deleteConversation(session, CONVERSATION_ID)).resolves.not.toThrow()
+    expect(deleteConversationInOrg).toHaveBeenCalled()
+  })
+
+  it('carries nothing of the content in the refusal: no title, no folder', async () => {
+    stubConversation({ visibility: 'private', createdBy: 'user_me' })
+    lockFor('user_me')
+
+    const error = await getConversation(session, CONVERSATION_ID).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ResourceRightsLostError)
+    expect(JSON.stringify({ message: (error as Error).message, details: (error as ResourceRightsLostError).details })).toBe(
+      JSON.stringify({
+        message: 'You no longer have the rights to view this content.',
+        details: { reason: 'rights-lost', resourceType: 'conversation' },
+      })
+    )
   })
 })
 

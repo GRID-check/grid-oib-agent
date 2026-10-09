@@ -87,6 +87,8 @@ interface Session {
   hasActiveDeepResearch?: boolean
   /** A run in this thread finished with a report. */
   hasCompletedReport?: boolean
+  /** The reader may no longer read this chat (ADR-0088): a neutral title, no rename. */
+  contentLocked?: boolean
 }
 
 /**
@@ -890,7 +892,12 @@ const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function Session
 
   // Brand-new chats persist with an empty title — show a placeholder so the row
   // stays legible and the session remains findable in the history.
-  const displayTitle = session.title.trim() || t('sessionsPanel.untitledSession')
+  const tCollab = useTranslations('collaboration')
+  // A chat the reader may no longer read has no title for them: the real one is
+  // model-written from content they cannot see (ADR-0088).
+  const displayTitle = session.contentLocked
+    ? tCollab('rightsLost.neutralTitle')
+    : session.title.trim() || t('sessionsPanel.untitledSession')
 
   // Persistent timestamp from the session's date. Guard against unparseable
   // dates so a bad value never throws.
@@ -1099,25 +1106,27 @@ const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function Session
                 : '[background:linear-gradient(to_right,transparent,var(--muted)_1.5rem)]'
             )}
           >
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={handleEditClick}
-              disabled={isBusy || isSessionActive}
-              aria-label={
-                isBusy || isSessionActive
-                  ? t('sessionsPanel.renameDisabled')
-                  : t('sessionsPanel.rename')
-              }
-              title={
-                isBusy || isSessionActive
-                  ? t('sessionsPanel.cannotRenameBusy')
-                  : t('sessionsPanel.rename')
-              }
-            >
-              <Pencil className="size-4" aria-hidden="true" />
-            </Button>
+            {!session.contentLocked && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={handleEditClick}
+                disabled={isBusy || isSessionActive}
+                aria-label={
+                  isBusy || isSessionActive
+                    ? t('sessionsPanel.renameDisabled')
+                    : t('sessionsPanel.rename')
+                }
+                title={
+                  isBusy || isSessionActive
+                    ? t('sessionsPanel.cannotRenameBusy')
+                    : t('sessionsPanel.rename')
+                }
+              >
+                <Pencil className="size-4" aria-hidden="true" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"

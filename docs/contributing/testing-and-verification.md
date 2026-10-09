@@ -358,9 +358,14 @@ task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before
 ```
 
 **From a down-vote to a case.** Every down-voted answer can become a case, so a
-failure users reported cannot return unnoticed. Export the feedback CSV and run
-`.venv/bin/python scripts/feedback_to_cases.py feedback.csv --out /tmp/draft.yaml`:
-it drafts a case for each down-vote that has a question and an `expected_answer`
+failure users reported cannot return unnoticed. In Plattform → Antwortqualität →
+Bewertungen, choose **Exportieren → Als CSV (für Skripte)** (or fetch
+`/api/platform/answer-feedback/export?days=90&format=csv`), then run
+`.venv/bin/python scripts/feedback_to_cases.py feedback.csv --out /tmp/draft.yaml`.
+The CSV holds every vote, and the script keeps the down-votes. The columns are
+listed in [`answer-feedback-export.md`](../technical-reference/answer-feedback-export.md).
+The script
+drafts a case for each down-vote that has a question and an `expected_answer`
 and writes no organisation, conversation or answer text. Nothing is appended to
 the golden set. What the user says the answer should be is a claim: check it
 against the corpus, fill `family`, `punkt` and `expect` from the PDF, and add

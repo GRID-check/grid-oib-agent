@@ -5,8 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/documents/folder-path', () => ({ resolveShelfFolderPath: vi.fn() }))
-vi.mock('@/lib/documents/repository', () => ({ findLiveDocumentByFilename: vi.fn(async () => null) }))
-vi.mock('@/lib/documents/shelf-collection', () => ({ shelfCollectionName: vi.fn(async () => 'collection_p1') }))
+vi.mock('@/lib/documents/repository', () => ({
+  findLiveDocumentByFilename: vi.fn(async () => null),
+  findProjectCollectionsHoldingFilename: vi.fn(async () => []),
+}))
 vi.mock('@/lib/documents/service', () => ({
   assertUploadTypeAllowed: vi.fn(),
   assertFileSizeAllowed: vi.fn(),
@@ -42,11 +44,12 @@ vi.mock('@/lib/upload-batches/service', () => ({
   }),
 }))
 
-import { BadRequestError, FileTooLargeError, InsufficientStorageError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, FileTooLargeError, ForbiddenError, InsufficientStorageError } from '@/lib/api/errors'
+import { folderReadOnlyError } from '@/lib/authz/folder-access-rule'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { MailImport } from '@/lib/db/schema'
 import { resolveShelfFolderPath } from '@/lib/documents/folder-path'
-import { findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { findLiveDocumentByFilename, findProjectCollectionsHoldingFilename } from '@/lib/documents/repository'
 import { assertFileSizeAllowed, assertUploadTypeAllowed, uploadDocument } from '@/lib/documents/service'
 import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
 import { createProjectFolder, ensureProjectFolderPaths } from '@/lib/projects/folder-service'
@@ -111,10 +114,24 @@ function uploadedNames(): string[] {
   return vi.mocked(uploadDocument).mock.calls.map(([, input]) => input.file.name)
 }
 
+/** Documents of the project by name: the collection that holds each, and the folder it is filed in. */
+function projectHolds(byName: Record<string, { collection: string; folderId: string }[]>): void {
+  vi.mocked(findProjectCollectionsHoldingFilename).mockImplementation(async (_org, _project, name) =>
+    (byName[name] ?? []).map((held) => held.collection),
+  )
+  vi.mocked(findLiveDocumentByFilename).mockImplementation(async (_org, collection, name) => {
+    const held = (byName[name] ?? []).find((entry) => entry.collection === collection)
+    return held ? ({ folderId: held.folderId } as never) : null
+  })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   batchStore.clear()
   batchStore.set(BATCH_0, { sealed: false, documents: 0 })
+  // Back to the factory's upload, so a queued refusal a failed test left unread cannot leak into the next.
+  vi.mocked(uploadDocument).mockReset()
+  projectHolds({})
   vi.mocked(createProjectFolder).mockResolvedValue({ ok: true, folder: { id: 'folder_mail', name: LEAF } } as never)
 })
 
@@ -153,12 +170,61 @@ describe('fileMail', () => {
   })
 
   it('numbers a file whose name another folder of the project already has, and reuses it in its own folder', async () => {
-    vi.mocked(findLiveDocumentByFilename).mockImplementation(async (_org, _collection, name) =>
-      name === `${LEAF} – Plan.pdf` ? ({ folderId: 'folder_somewhere_else' } as never) : name === `${LEAF}.md` ? ({ folderId: 'folder_mail' } as never) : null,
-    )
+    projectHolds({
+      [`${LEAF} – Plan.pdf`]: [{ collection: 'collection_p1', folderId: 'folder_somewhere_else' }],
+      [`${LEAF}.md`]: [{ collection: 'collection_p1', folderId: 'folder_mail' }],
+    })
 
     await fileMail(await context(), mail)
     expect(uploadedNames()).toEqual([`${LEAF} – Plan (2).pdf`, `${LEAF}.md`])
+  })
+
+  it('probes a name across every collection of the project, so a restricted folder’s document is numbered past, not superseded', async () => {
+    projectHolds({
+      // Filed in a folder with its own access list, which keeps its own collection (ADR-0087).
+      [`${LEAF} – Plan.pdf`]: [{ collection: 'collection_p1_restricted', folderId: 'folder_vertraulich' }],
+      // The same name in two collections: no folder of this mail holds it alone.
+      [`${LEAF}.md`]: [
+        { collection: 'collection_p1', folderId: 'folder_other' },
+        { collection: 'collection_p1_restricted', folderId: 'folder_mail' },
+      ],
+    })
+
+    await fileMail(await context(), mail)
+    expect(uploadedNames()).toEqual([`${LEAF} – Plan (2).pdf`, `${LEAF} (2).md`])
+    expect(findProjectCollectionsHoldingFilename).toHaveBeenCalledWith('org_1', 'p1', `${LEAF} – Plan.pdf`)
+  })
+
+  it('files a retry into a restricted mail folder under the same name, its own collection holding it', async () => {
+    projectHolds({ [`${LEAF}.md`]: [{ collection: 'collection_p1_restricted', folderId: 'folder_mail' }] })
+
+    await fileMail(await context(), mail)
+    expect(uploadedNames()).toContain(`${LEAF}.md`)
+  })
+
+  it('skips a file whose name the project claimed elsewhere between the probe and the upload, and files the rest', async () => {
+    vi.mocked(uploadDocument).mockRejectedValueOnce(new ConflictError('A document named "x" already exists elsewhere in this project.'))
+
+    const result = await fileMail(await context(), mail)
+    expect(result.skipped).toContainEqual({ mail: LEAF, file: 'Plan.pdf', reason: 'name_taken' })
+    expect(result).toMatchObject({ filesFiled: 0 })
+    expect(uploadedNames().at(-1)).toBe(`${LEAF}.md`)
+  })
+
+  it('skips a file into a folder that turned read-only under the import, without failing the mail', async () => {
+    vi.mocked(uploadDocument).mockRejectedValueOnce(folderReadOnlyError()).mockRejectedValueOnce(folderReadOnlyError())
+
+    const result = await fileMail(await context(), mail)
+    expect(result.skipped).toEqual([
+      { mail: LEAF, file: 'Plan.pdf', reason: 'access' },
+      { mail: LEAF, file: 'Fwd', reason: 'embedded_message' },
+      { mail: LEAF, file: `${LEAF}.md`, reason: 'access' },
+    ])
+  })
+
+  it('lets any other refusal of the upload fail the mail', async () => {
+    vi.mocked(uploadDocument).mockRejectedValueOnce(new ForbiddenError())
+    await expect(fileMail(await context(), mail)).rejects.toBeInstanceOf(ForbiddenError)
   })
 
   it('skips an attachment the upload gate refuses, without reading its bytes', async () => {
@@ -197,11 +263,11 @@ describe('fileMail', () => {
 
     // A retry of the mail, both already in its folder, arrives at the same two names.
     vi.mocked(uploadDocument).mockClear()
-    vi.mocked(findLiveDocumentByFilename).mockImplementation(async () => ({ folderId: 'folder_earlier' }) as never)
+    const inEarlier = [{ collection: 'collection_p1', folderId: 'folder_earlier' }]
+    projectHolds({ [`${LEAF} – scan.pdf`]: inEarlier, [`${LEAF} – scan (2).pdf`]: inEarlier, [`${LEAF}.md`]: inEarlier })
     vi.mocked(resolveShelfFolderPath).mockResolvedValueOnce(`E-Mail-Import/Büro/${LEAF}`)
     await fileMail(await context({ inflightPosition: 7, inflightFolderId: 'folder_earlier' }), twins)
     expect(uploadedNames()).toEqual([`${LEAF} – scan.pdf`, `${LEAF} – scan (2).pdf`, `${LEAF}.md`])
-    vi.mocked(findLiveDocumentByFilename).mockReset()
   })
 
   it('skips a file the office’s name screening holds back and carries on with the next one', async () => {

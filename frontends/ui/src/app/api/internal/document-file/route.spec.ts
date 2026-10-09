@@ -14,13 +14,57 @@ vi.mock('@/lib/documents/service', () => ({
   findDocumentImageStorageKey: vi.fn(),
 }))
 
-import { GET } from './route'
-import { findDocumentImageStorageKey, findDocumentStorageKey } from '@/lib/documents/service'
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  drawableRestrictedCollections: vi.fn(),
+}))
 
-const request = (query = '?collection=proj_1&filename=plan.png', token: string | null = 'test-token'): Request =>
+// Partial: the factory opens a request-scoped slot itself, and replacing that
+// would test a handler the app does not run.
+vi.mock('@/lib/db/tenant-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/db/tenant-context')>()),
+  withTenant: vi.fn(async (_scope: unknown, run: () => Promise<unknown>) => run()),
+}))
+
+import { GET } from './route'
+import { drawableRestrictedCollections } from '@/lib/conversations/restricted-use'
+import { withTenant } from '@/lib/db/tenant-context'
+import { findDocumentImageStorageKey, findDocumentStorageKey } from '@/lib/documents/service'
+import { GRID_HEADER_NAMES, buildGridRequestContextEnvelope } from '@/lib/request-context'
+
+const request = (
+  query = '?collection=proj_1&filename=plan.png',
+  token: string | null = 'test-token',
+  headers: Record<string, string> = {}
+): Request =>
   new Request(`http://localhost/api/internal/document-file${query}`, {
-    headers: token ? { 'x-grid-internal-token': token } : {},
+    headers: { ...(token ? { 'x-grid-internal-token': token } : {}), ...headers },
   })
+
+const RESTRICTED = 'proj_1_r0123456789ab'
+const WRONG_SECRET = 'not-the-signing-secret' // pragma: allowlist secret
+
+/** The turn's signed envelope, as the BFF mints it and the agent echoes it. */
+function envelope(
+  overrides: { collectionScope?: string[]; conversationId?: string | null; secret?: string } = {}
+): Record<string, string> {
+  const { header, signature } = buildGridRequestContextEnvelope(
+    {
+      organizationId: 'org_1',
+      userId: 'user_asker',
+      projectId: 'p1',
+      collectionScope: overrides.collectionScope ?? ['oib_knowledge', 'proj_1'],
+      ...(overrides.conversationId === null ? {} : { conversationId: overrides.conversationId ?? 's_conv_1' }),
+      issuedAt: Date.now(),
+    },
+    overrides.secret ?? 'test-token'
+  )
+  return {
+    [GRID_HEADER_NAMES.REQUEST_CONTEXT]: header,
+    [GRID_HEADER_NAMES.REQUEST_CONTEXT_SIG]: signature ?? '',
+  }
+}
+
+const STORED = { storageKey: 'org/o1/project/p1/doc/d1/plan.png', storageBucket: null, contentType: 'image/png' }
 
 describe('GET /api/internal/document-file', () => {
   beforeEach(() => {
@@ -130,6 +174,83 @@ describe('GET /api/internal/document-file', () => {
       expect((await GET(request('?collection=proj_1&filename=plan.pdf&imageIndex=1.5'))).status).toBe(400)
       expect((await GET(request('?collection=proj_1&filename=plan.pdf&imageIndex=abc'))).status).toBe(400)
       expect(findDocumentImageStorageKey).not.toHaveBeenCalled()
+    })
+  })
+
+  // ADR-0088: the collection is the model's argument, so its name is not a
+  // boundary. The envelope the agent echoes is.
+  describe("with the turn's signed envelope", () => {
+    beforeEach(() => {
+      vi.mocked(findDocumentStorageKey).mockResolvedValue(STORED)
+      vi.mocked(drawableRestrictedCollections).mockResolvedValue([])
+    })
+
+    it('answers for a collection the envelope signs, in the organization it names', async () => {
+      const res = await GET(request('?collection=proj_1&filename=plan.png', 'test-token', envelope()))
+      expect(res.status).toBe(200)
+      expect(vi.mocked(withTenant).mock.calls[0][0]).toEqual({ organizationId: 'org_1' })
+      expect(vi.mocked(findDocumentStorageKey).mock.calls[0]).toEqual(['proj_1', 'plan.png', 'org_1'])
+    })
+
+    it('404s a collection outside the signed scope, before any lookup', async () => {
+      const res = await GET(request('?collection=proj_other&filename=plan.png', 'test-token', envelope()))
+      expect(res.status).toBe(404)
+      expect(findDocumentStorageKey).not.toHaveBeenCalled()
+    })
+
+    it('404s a query naming another organization than the envelope', async () => {
+      const res = await GET(
+        request('?collection=proj_1&filename=plan.png&organizationId=org_2', 'test-token', envelope())
+      )
+      expect(res.status).toBe(404)
+      expect(findDocumentStorageKey).not.toHaveBeenCalled()
+    })
+
+    it('401s an envelope that does not verify, rather than falling back to the name', async () => {
+      const res = await GET(
+        request('?collection=proj_1&filename=plan.png', 'test-token', envelope({ secret: WRONG_SECRET }))
+      )
+      expect(res.status).toBe(401)
+      expect(findDocumentStorageKey).not.toHaveBeenCalled()
+    })
+
+    it('answers for a restricted folder the asker and the audience may read now', async () => {
+      vi.mocked(drawableRestrictedCollections).mockResolvedValue([RESTRICTED])
+      const headers = envelope({ collectionScope: ['proj_1', RESTRICTED] })
+      const res = await GET(request(`?collection=${RESTRICTED}&filename=gehalt.png`, 'test-token', headers))
+      expect(res.status).toBe(200)
+      expect(vi.mocked(drawableRestrictedCollections).mock.calls[0]).toEqual([
+        { organizationId: 'org_1', conversationId: 's_conv_1', userId: 'user_asker', projectId: 'p1' },
+        [RESTRICTED],
+      ])
+    })
+
+    it('404s a restricted folder the asker lost read on, though the scope still signs it', async () => {
+      vi.mocked(drawableRestrictedCollections).mockResolvedValue([])
+      const headers = envelope({ collectionScope: ['proj_1', RESTRICTED] })
+      const query = `?collection=${RESTRICTED}&filename=gehalt.png&imageIndex=0`
+      const res = await GET(request(query, 'test-token', headers))
+      expect(res.status).toBe(404)
+      expect(findDocumentStorageKey).not.toHaveBeenCalled()
+      expect(findDocumentImageStorageKey).not.toHaveBeenCalled()
+    })
+
+    it('404s a restricted folder in an envelope with no conversation to admit it in', async () => {
+      const headers = envelope({ collectionScope: ['proj_1', RESTRICTED], conversationId: null })
+      const res = await GET(request(`?collection=${RESTRICTED}&filename=gehalt.png`, 'test-token', headers))
+      expect(res.status).toBe(404)
+      expect(drawableRestrictedCollections).not.toHaveBeenCalled()
+      expect(findDocumentStorageKey).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('without an envelope', () => {
+    it('never answers for a restricted folder, in either spelling', async () => {
+      vi.mocked(findDocumentStorageKey).mockResolvedValue(STORED)
+      expect((await GET(request(`?collection=${RESTRICTED}&filename=gehalt.png`))).status).toBe(404)
+      expect((await GET(request(`?collection=${RESTRICTED.toUpperCase()}&filename=gehalt.png`))).status).toBe(404)
+      expect(findDocumentStorageKey).not.toHaveBeenCalled()
+      expect(drawableRestrictedCollections).not.toHaveBeenCalled()
     })
   })
 })

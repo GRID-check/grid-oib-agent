@@ -64,6 +64,18 @@
     "de": "Eine noch laufende Chat-Antwort bricht nicht mehr ab, wenn der Browser-Tab im Hintergrund ist oder das Mobilfunksignal kurz schwächelt."
   },
   {
+    "en": "A chat shared with someone who later loses the right to read a folder it drew on stays in their list as \"Shared chat\", and opening it says they no longer have the rights, with no title, message or attachment shown. The person who shared it sees them marked \"No longer has access\", and the chat opens again if the role comes back.",
+    "de": "Ein Chat, der mit jemandem geteilt ist, die oder der später das Recht verliert, einen Ordner zu lesen, aus dem er schöpft, bleibt in deren Liste als „Geteilter Chat“; beim Öffnen steht dort, dass die Rechte fehlen, ohne Titel, Nachricht oder Anhang. Wer den Chat geteilt hat, sieht die Person als „Hat keinen Zugriff mehr“, und der Chat öffnet sich wieder, sobald die Rolle zurück ist."
+  },
+  {
+    "en": "A chat that drew on a folder not everyone may read also cannot start a Tiefenrecherche or an Auftrag, change the project context, or file a draft or diagram where colleagues who may not read the folder could open it; Piloti says why instead of offering it.",
+    "de": "Ein Chat, der aus einem Ordner geschöpft hat, den nicht alle lesen dürfen, kann außerdem keine Tiefenrecherche und keinen Auftrag starten, den Projektkontext nicht ändern und keinen Entwurf und kein Diagramm dort ablegen, wo Kolleginnen und Kollegen ohne Leserecht für den Ordner sie öffnen könnten; Piloti sagt, warum, statt es anzubieten."
+  },
+  {
+    "en": "A chat whose answers drew on a folder not everyone may read can be shared only with colleagues who may read that folder too. A chat that is already shared searches only the folders everyone in it may read.",
+    "de": "Ein Chat, dessen Antworten aus einem Ordner schöpfen, den nicht alle lesen dürfen, lässt sich nur mit Kolleginnen und Kollegen teilen, die diesen Ordner ebenfalls lesen dürfen. Ein bereits geteilter Chat durchsucht nur die Ordner, die alle darin lesen dürfen."
+  },
+  {
     "en": "A chat whose deletion failed because a service was briefly unavailable is now deleted automatically once the service is back, instead of staying hidden until someone deleted it again.",
     "de": "Ein Chat, dessen Löschen fehlgeschlagen ist, weil ein Dienst kurz nicht erreichbar war, wird jetzt automatisch gelöscht, sobald der Dienst wieder verfügbar ist. Bisher blieb er ausgeblendet, bis jemand ihn erneut löschte."
   },
@@ -134,6 +146,10 @@
   {
     "en": "A document can now be moved to another folder with Move to folder in its ⋯ menu. Each destination is listed by its full path, and All Files takes it out of every folder.",
     "de": "Ein Dokument lässt sich jetzt über „In Ordner verschieben“ im ⋯-Menü in einen anderen Ordner legen. Jedes Ziel steht mit seinem vollständigen Pfad da, und „Alle Dateien“ nimmt es aus jedem Ordner heraus."
+  },
+  {
+    "en": "A document from a folder not everyone may read cannot be added to a research run. The list marks it, and Piloti says why if you try.",
+    "de": "Ein Dokument aus einem Ordner, den nicht alle lesen dürfen, lässt sich keinem Rechercheauftrag hinzufügen. Die Liste kennzeichnet es, und Piloti sagt beim Versuch, warum."
   },
   {
     "en": "A document stuck on \"processing\" after an ingestion job was lost can now be retried from its menu instead of deleted and re-uploaded. The retry keeps the document, so sources, chat references and assignments survive, and it refuses while ingestion is genuinely still running.",
@@ -230,6 +246,10 @@
   {
     "en": "A finished task that filed no document and opened no chat now opens the report of its run, and a failed one its reasoning.",
     "de": "Eine fertige Aufgabe, die kein Dokument abgelegt und keinen Chat eröffnet hat, öffnet jetzt den Bericht ihres Laufs, eine fehlgeschlagene ihren Gedankengang."
+  },
+  {
+    "en": "A folder holding subfolders you cannot read can only be moved by an organization admin, and a demoted admin stops reaching every folder within a minute. Review requests go only to people who may read the folder, and the projects overview counts only the documents you may read.",
+    "de": "Einen Ordner mit Unterordnern, die Sie nicht lesen dürfen, kann nur ein Organisations-Admin verschieben, und wer kein Admin mehr ist, erreicht binnen einer Minute nicht mehr jeden Ordner. Prüfanfragen gehen nur an Personen, die den Ordner lesen dürfen, und die Projektübersicht zählt nur die Dokumente, die Sie lesen dürfen."
   },
   {
     "en": "A follow-up like \"kürze Punkt 3\" changes that document in place instead of producing a second version of it, so the conversation keeps working on one draft rather than on a growing pile of near-copies.",
@@ -428,6 +448,10 @@
     "de": "Ein in Kleinbuchstaben eingegebener Norm- oder Produktcode findet jetzt auch Dokumente, in denen er in Großbuchstaben geschrieben ist. Fragen zu einem bestimmten Code liefern daher unabhängig von der Schreibweise dieselben Quellen."
   },
   {
+    "en": "A subfolder can only narrow what its parent allows, and someone who may only read a folder sees it marked „Nur lesen“, without upload, rename, move or delete. Only a project admin who may edit a folder can change who may read or edit it.",
+    "de": "Ein Unterordner kann nur einschränken, was sein übergeordneter Ordner erlaubt, und wer einen Ordner nur lesen darf, sieht ihn als „Nur lesen“ markiert, ohne Hochladen, Umbenennen, Verschieben oder Löschen. Nur ein Projekt-Admin, der einen Ordner bearbeiten darf, kann ändern, wer ihn lesen oder bearbeiten darf."
+  },
+  {
     "en": "A task Piloti starts in a conversation, and a connection message, now appear in that conversation even if you have opened another one in the meantime.",
     "de": "Ein Auftrag, den Piloti in einer Unterhaltung startet, und eine Verbindungsmeldung erscheinen jetzt in dieser Unterhaltung, auch wenn Sie inzwischen eine andere geöffnet haben."
   },
@@ -470,6 +494,10 @@
   {
     "en": "Adding a comment to an answer you already marked as unhelpful now gives Piloti a second chance to learn from it — the extra detail is exactly what a bare thumbs-down was missing.",
     "de": "Wenn Sie eine bereits als nicht hilfreich markierte Antwort kommentieren, erhält Piloti nun eine zweite Chance, daraus zu lernen – die zusätzlichen Details fehlten bei einem bloßen Daumen nach unten."
+  },
+  {
+    "en": "Adding a document to a running research run from the run's list of documents now works; until now the run never received it.",
+    "de": "Eine Unterlage aus der Liste eines laufenden Rechercheauftrags hinzuzufügen funktioniert jetzt; bisher kam sie beim Auftrag nie an."
   },
   {
     "en": "Administrators can invite colleagues to a project again. Invitations failed for some administrator roles.",
@@ -890,6 +918,10 @@
   {
     "en": "Deleting a chat now also removes every file attached to it from search. Before, the content of older attachments could stay findable after the chat was gone.",
     "de": "Wer einen Chat löscht, entfernt jetzt auch alle darin angehängten Dateien aus der Suche. Bisher konnten Inhalte älterer Anhänge nach dem Löschen auffindbar bleiben."
+  },
+  {
+    "en": "Deleting a custom role that folders name now shows which folders and asks you to confirm. Folders left without a valid role are readable by organization admins only and are listed in the project settings with a link to each.",
+    "de": "Beim Löschen einer eigenen Rolle, die Ordner nennen, zeigt Piloti jetzt, welche Ordner das sind, und verlangt eine Bestätigung. Ordner ohne gültige Rolle können nur noch Organisations-Admins lesen und stehen in den Projekteinstellungen mit einem Link zu jedem."
   },
   {
     "en": "Deleting a document with more than 500 versions now removes the files of every version, not only the first 500.",
@@ -1414,6 +1446,10 @@
   {
     "en": "Opening a shared link that asks about a project file works again when the link carries the file's name. The chat now finds the file and shows its status instead of failing.",
     "de": "Ein geteilter Link, der nach einer Projektdatei fragt, funktioniert wieder, auch wenn er den Dateinamen enthält. Der Chat findet die Datei und zeigt ihren Status, statt einen Fehler zu melden."
+  },
+  {
+    "en": "Organisation admins can now see who downloaded which document, and who opened one in a folder with its own access list, under Organisation → Download-Protokoll. Entries are kept 12 months at most, which an organization can shorten to 30 days, and reading the log is itself recorded.",
+    "de": "Organisations-Admins sehen jetzt unter Organisation → Download-Protokoll, wer welches Dokument heruntergeladen und wer eines in einem Ordner mit eigener Zugriffsliste geöffnet hat. Einträge bleiben höchstens 12 Monate erhalten, was eine Organisation auf 30 Tage verkürzen kann, und auch das Lesen des Protokolls wird festgehalten."
   },
   {
     "en": "Organization admins can now rescan all failed ingestions at once from Organization, Enterprise: every file that could not be read is sent back through reading under its own name.",
@@ -2312,6 +2348,10 @@
     "de": "Wenn Sie piloti.at jetzt aufrufen, öffnet sich die Piloti-Website statt der Testumgebung. Adressen mit www führen zur selben Seite."
   },
   {
+    "en": "What Piloti remembers from a chat that drew on a folder not everyone may read is kept for the people allowed to know it. Only those who may read the folder it came from see the note in the project memory, where a lock names that folder, and only their chats are given it.",
+    "de": "Was Piloti sich aus einem Chat merkt, der aus einem Ordner geschöpft hat, den nicht alle lesen dürfen, bleibt den Personen vorbehalten, die es wissen dürfen. Nur wer den Ordner lesen darf, aus dem es stammt, sieht die Notiz im Projektgedächtnis, wo ein Schloss diesen Ordner nennt, und nur deren Chats erhalten sie."
+  },
+  {
     "en": "What Piloti searched for in an answer now survives a reload and is visible to colleagues in a shared conversation.",
     "de": "Was Piloti für eine Antwort gesucht hat, bleibt nach dem Neuladen erhalten und ist auch für Kolleginnen und Kollegen in einer geteilten Unterhaltung nachvollziehbar."
   },
@@ -2460,6 +2500,10 @@
     "de": "Wenn Sie eine neue Frage senden, während Piloti noch die vorherige beantwortet, wird die frühere Antwort vollständig beendet, bevor die neue beginnt. So können sich die beiden nicht mehr in einer Unterhaltung vermischen. Falls die frühere Antwort ausnahmsweise nicht innerhalb weniger Sekunden stoppt, teilt Piloti Ihnen mit, dass sie noch abgeschlossen wird, und bittet Sie, die Frage erneut zu senden."
   },
   {
+    "en": "When you share a chat that drew on a restricted folder, Piloti offers only colleagues who may read all of those folders, and shows the others greyed out with \"Has no access to a folder this chat draws on\". It never names the folder.",
+    "de": "Wenn Sie einen Chat teilen, der aus einem eingeschränkten Ordner geschöpft hat, bietet Piloti nur Kolleginnen und Kollegen an, die alle diese Ordner lesen dürfen, und zeigt die anderen ausgegraut mit „Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat stammt“. Den Ordner nennt es nie."
+  },
+  {
     "en": "When your office checks chat messages for sensitive data, Piloti now says plainly that a dictated message is first transcribed by an external speech model; only the text is checked before it is sent.",
     "de": "Wenn Ihr Büro Chatnachrichten auf sensible Daten prüft, sagt Piloti jetzt klar, dass eine diktierte Nachricht zuerst von einem externen Spracherkennungsmodell transkribiert wird; geprüft wird nur der Text, bevor er gesendet wird."
   },
@@ -2530,6 +2574,10 @@
   {
     "en": "You can preview the report as a PDF before you download it, in a panel you can drag as wide as you need. What you see is the document you get.",
     "de": "Sie können den Bericht vor dem Herunterladen als PDF in der Vorschau ansehen – in einem Bereich, den Sie beliebig breit ziehen können. Was Sie sehen, ist das Dokument, das Sie erhalten."
+  },
+  {
+    "en": "Your office can now build its own roles in Piloti, under Organisation → Personen & Zugriff → Eigene Rollen, and decide per project folder which roles may read it and which may edit it. A role not on a folder's list does not see the folder, its files or what Piloti finds in them, and organization admins may read and edit everything.",
+    "de": "Ihr Büro kann jetzt unter Organisation → Personen & Zugriff → Eigene Rollen eigene Rollen in Piloti anlegen und je Projektordner festlegen, welche Rollen ihn lesen und welche ihn bearbeiten dürfen. Eine Rolle, die nicht auf der Liste eines Ordners steht, sieht weder den Ordner noch seine Dateien noch das, was Piloti darin findet, und Organisations-Admins dürfen alles lesen und bearbeiten."
   },
   {
     "en": "Your office now decides what must not be uploaded, under Organisation → Sensible Daten: terms for file and folder names, terms for the content, and checks for IBANs, Austrian social security numbers and card numbers. Piloti starts you on a suggested list you can keep, change or switch off.",

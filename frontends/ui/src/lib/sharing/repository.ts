@@ -18,6 +18,7 @@
 import 'server-only'
 import { and, desc, eq, inArray, notExists, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import type { DbExecutor } from '@/lib/db/executor'
 import {
   conversations,
   documents,
@@ -153,9 +154,11 @@ export async function countGrantsForResource(
  * re-sharing with a different role updates it rather than erroring, which is
  * what the roster UI's role dropdown needs.
  */
-export async function upsertGrant(values: NewResourceShare): Promise<ResourceShare> {
-  const db = getDb()
-  const [row] = await db
+export async function upsertGrant(
+  values: NewResourceShare,
+  executor: DbExecutor = getDb(),
+): Promise<ResourceShare> {
+  const [row] = await executor
     .insert(resourceShares)
     .values(values)
     .onConflictDoUpdate({

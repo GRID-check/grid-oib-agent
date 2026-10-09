@@ -1,3 +1,4 @@
+import { isFolderVisibleToClearance } from '@/lib/authz/folder-access'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
@@ -14,6 +15,7 @@ vi.mock('@/lib/authz/project-membership', () => ({
   userHoldsProjectPermission: vi.fn(),
 }))
 vi.mock('@/lib/authz/org-role-permissions', () => ({ orgRoleHoldsPermission: vi.fn() }))
+vi.mock('@/lib/authz/folder-access', () => ({ isFolderVisibleToClearance: vi.fn().mockResolvedValue(true) }))
 
 import { orgRoleHoldsPermission } from '@/lib/authz/org-role-permissions'
 import { resolveSubjectMembership, userHoldsProjectPermission } from '@/lib/authz/project-membership'
@@ -124,6 +126,32 @@ describe('onDocumentsSettled', () => {
     })
     // The row names no file: a badge must not leak another project's file names.
     expect(JSON.stringify(emitted)).not.toContain('doc-q')
+  })
+
+  it('leaves out a project admin the quarantined document\'s folder is hidden from (ADR-0087)', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-q', projectId: 'proj-1', folderId: 'f-honorare', createdBy: 'uploader' })
+    )
+    vi.mocked(loadOrganizationDirectory).mockResolvedValue(
+      new Map([
+        ['lead', person('lead')],
+        ['gf', person('gf')],
+      ])
+    )
+    vi.mocked(resolveSubjectMembership).mockImplementation(async (_org, userId) => ({
+      organizationMembershipId: `om-${userId}`,
+      role: userId === 'gf' ? 'org-geschaeftsfuehrung' : 'member',
+    }))
+    vi.mocked(orgRoleHoldsPermission).mockResolvedValue(false)
+    vi.mocked(userHoldsProjectPermission).mockResolvedValue(true)
+    vi.mocked(isFolderVisibleToClearance).mockImplementation(async (_o, _p, _f, clearance) =>
+      clearance.roles.includes('org-geschaeftsfuehrung')
+    )
+
+    await onDocumentsSettled('org-1', [{ id: 'doc-q', status: 'quarantined' }])
+
+    const emitted = vi.mocked(emitInboxItems).mock.calls[0]?.[0] ?? []
+    expect(emitted.map((emission) => emission.recipientUserId)).toEqual(['gf'])
   })
 
   it('never throws into the read that reconciled', async () => {

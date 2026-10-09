@@ -1134,12 +1134,13 @@ died half way left no record of which half. Both are now jobs:
   read-only login that sees every lane of the row-level secured queue through a
   policy of its own (§6.3d).
 
-**Three more kinds run here, as one step each** (ADR-0079; they run as the
-system, because the person's permission was checked when the work was
-requested):
+**Four more kinds run here as the system** (ADR-0079), because the person's
+permission was checked when the work was requested. `placement_reingest` walks
+a project a slice at a time; the other three are one step each:
 
 | Kind | Replaces | Priority | The row it keeps true |
 |---|---|---|---|
+| `placement_reingest` | the re-ingest of every document a folder restriction moved, inside the request that drew it and the placement sweep (ADR-0087) | `bulk`, and every dispatch it makes `bulk` | `documents.status`: `processing` with `metadata.placementReingest` until a slice takes the row, then the ingest's own status. One job waits per project; the request and the sweep reuse it |
 | `bim_extract` | the detached IFC parse in the upload's pod | `interactive` for an upload, `bulk` inside a reindex | `documents.status` (`processing`, then `pending` or `failed`) and the `bim_models` row. A restart no longer strands the model at `extracting` |
 | `office_rendition` | the detached conversion behind a per-process queue | same | `documents.status`, as above |
 | `file_research_report` | rendering the PDF inside the research outcome callback and the report GET | `interactive` | `task_runs.filing_status`: `queued`, then `filed`, `refused` or `failed` |

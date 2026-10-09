@@ -1,7 +1,9 @@
-# Sensitive data and quarantine
+# Sensitive data, quarantine and folder access
 
-What an office can keep out of Piloti, and how an uploader learns what became
-of an upload. The decision behind this is ADR-0086 (screening and quarantine).
+What an office can keep out of Piloti, what it can keep from some of its own
+people, and how an uploader learns what became of an upload. The decisions
+behind this are ADR-0086 (screening and quarantine), ADR-0087 (folder
+access follows WorkOS roles) and ADR-0088 (read and write per role).
 
 ## The sensitive-data list
 
@@ -115,3 +117,161 @@ failed and why. While files are still being read, the summary updates itself.
 **Project settings → Uploads** lists every upload into the project, newest
 first, with who uploaded it and what became of its files. Each person opens
 the file-by-file summary of their own uploads only.
+
+## Your office's own roles
+
+**Organisation → Personen & Zugriff → Eigene Rollen.** People who may manage
+people and roles create roles such as „Geschäftsführung" or „Buchhaltung",
+choose the permissions each carries, rename them and delete them. The roles
+live in WorkOS, where Piloti's own roles live; you assign them to people on the
+**Personen** tab.
+
+- A role can only carry permissions its editor holds.
+- A role can be deleted once nobody holds it. If folders name it in their
+  access list, Piloti shows which folders (organization admins see their
+  names, other role managers how many) and asks you to confirm. After the
+  deletion those lists match nobody: only organization admins can read the
+  folders until someone sets a valid role, and the project's settings list them
+  under **Ordner ohne gültige Rolle**, with a link to each. Renaming a role
+  changes nothing for folders: they follow its identifier, not its name.
+- Until your Piloti installation lets a person hold several roles, everyone
+  holds exactly one. A role you use for folders must then also carry the
+  permissions its holders work with.
+
+## Who may read and edit a folder
+
+(Which downloads and openings of such a folder are recorded, and who may read
+that record: [the download log](download-log.md).)
+
+In a project's Files, a project admin opens a folder's **⋯ → Zugriff …** and
+chooses one of two answers. Only someone who both manages the project and may
+**edit that folder** can do this: a project admin who may only read a folder
+cannot change who may read or edit it, so they cannot give themselves
+„Bearbeiten". An organization admin can always:
+
+- **Wie der übergeordnete Ordner**: the folder has no list of its own. A
+  folder at the top of the project follows the project, so everyone keeps what
+  their project permissions allow.
+- **Eigene Zugriffsrechte**: the folder has its own list. Each entry is one of
+  your office's roles, or **Alle Projektmitglieder**, with **Lesen** or
+  **Bearbeiten**. A role that is not on the list gets nothing: for its holders
+  the folder is absent. An own list names at least one entry.
+
+A folder with its own list carries a lock that names the entries. Three rules
+decide what someone may do in it:
+
+- **A subfolder can only narrow.** Someone may do in a folder the least of what
+  every list above it, and its own, allows them. A list inside a folder that
+  only Geschäftsführung may read cannot open it to Buchhaltung.
+- **„Bearbeiten" never goes beyond the project.** It lets someone upload,
+  rename, move, delete and file into the folder as far as their project
+  permissions already allow; a project reader with „Bearbeiten" still only
+  reads.
+- **Organization admins may read and edit every folder.** Whether someone is an
+  organization admin is read from your organization's people settings at most a
+  minute ago, like their roles: an admin who is demoted stops reaching every
+  folder within a minute, not when they next sign in.
+
+Someone who may only read a folder sees it marked **Nur lesen**: they can open
+and search its documents, and there is no upload, new folder, rename, move or
+delete in it for them. A folder they may not read is **absent**, not greyed
+out:
+
+- it is not listed, and neither is anything in it or below it, including files
+  uploaded there later;
+- Piloti's search and answers do not draw on it, because its documents are kept
+  in their own search index that only the chats of people who may read it
+  search;
+- its documents do not open from a link, the inbox or a share.
+
+A list with **Alle Projektmitglieder** on it keeps the folder readable by
+everyone, so its documents stay in the project's own index; such a list only
+decides who may edit. Every other own list moves the folder's documents into
+their own index and reads them again when it is saved; for a large folder that
+takes a few minutes, and the documents show „Wird gelesen" meanwhile. Changing
+only who may edit moves nothing.
+
+Who holds which role is read from your organization's people settings at most a
+minute ago, so a role taken from someone stops opening a folder within a
+minute.
+
+**Moving a folder** needs „Bearbeiten" on it and on the folder it goes into. A
+move that changes which folder lists apply to it (out from under a folder with
+its own list, or under one) also needs project admin rights, and is refused
+unless you may read every folder inside it: otherwise it would change who may
+read folders you cannot see. Ask an organization admin to move such a folder.
+
+**Review rounds** are offered only to people who may edit the project and may
+read the folder the document is in, so nobody is asked to review something
+they cannot open. A change of a folder's access shows in Piloti's project
+context (the list of documents with a role, such as the Bebauungsplan) right
+away, and the projects overview counts only the documents you may read.
+
+**Deleting a folder** moves its documents and subfolders into the folder above,
+as before. The folder keeps its access list out of sight, so what Piloti
+recorded from it, in a chat or in its memory, stays visible only to the people
+who could read it.
+
+**A chat that draws on a folder not everyone may read is shared per person.**
+It can be shared with someone who may read every such folder it drew on, and
+with nobody else. It counts as drawing on a folder once content from it reached
+Piloti's answer: a search hit, an opened document, an image, a remembered note.
+Being able to search the folder is not enough, and until then Piloti does not
+list the folder's files, suggest their names or say that one exists; it finds
+them by searching. If the chat is shared with someone who
+may not read the folder, Piloti stops searching that folder in the chat from
+the next question on. A file name used in such a folder cannot be uploaded a
+second time elsewhere in the project.
+
+**Sharing such a chat shows only people who qualify.** In the share dialog,
+colleagues who may not read every folder the chat drew on appear greyed out
+with „Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat stammt“, without
+naming the folder (you may not be allowed to read it either). Piloti still
+refuses the invitation on its own check.
+
+**When access changes after sharing.** A chat whose folders someone may no
+longer read (their role was taken away, or the folder was narrowed) stays in
+their list as **Geteilter Chat**. Opening it says „Ihnen fehlen inzwischen die
+Rechte, um diesen Chat zu sehen“, and shows no title, message, card or
+attachment. Whoever shared it sees the person marked **Hat keinen Zugriff
+mehr**. This applies to whoever started the chat, too. It is decided each time
+the chat is opened or listed, within a minute of the role change, and nothing
+is deleted: when the person gets the role back or the folder is opened again,
+the chat is whole again. Their inbox does not show the chat's title either.
+Anything they copied or downloaded earlier stays with them.
+
+Nothing from such a chat goes where the whole project reads it, so Piloti does
+not offer, and refuses with a message saying why:
+
+- a Tiefenrecherche or an Auftrag started from it (this stays so for now, even
+  for a chat whose folders everyone may read again);
+- a change to the project context („Projektkontext aktualisieren");
+- filing a draft or a diagram from it into a folder that is not inside every
+  folder the chat drew on. Piloti files these into „Berichte", so they stay in
+  the chat unless they are moved there by hand.
+
+Whether a chat drew on such a folder is decided against the folders' lists as
+they are now: when a folder is opened to everyone, the chats and notes that
+drew on it are no longer held back by it; when a list is narrowed, they are
+shown to fewer people. The project context can still be changed by hand, in
+the project intake.
+
+**What Piloti remembers from such a chat is restricted too.** Piloti keeps
+notes from it in the project's memory as it does from any chat, but a note that
+draws on a folder not everyone may read is shown, under Projektspeicher, only to
+people who may read that folder now, with a lock that names it, and only their
+chats are given it. Everyone else does not see the note at all. A note meant
+for the whole organization that draws on such a folder is kept in the project
+instead.
+
+**Building models (IFC) stay in folders everyone may read.** A model's
+building data is kept per project, not per folder, so a list could not protect
+it. Piloti therefore refuses an IFC model in a folder not every member may
+read: uploading one there, moving one there, moving a folder that holds one
+under such a folder, and giving a folder that holds one such a list all fail
+with a message saying why. A list that includes **Alle Projektmitglieder** is
+fine. A model that was already in such a folder before this check existed is
+hidden from everyone who may not read that folder, in the model list, the
+viewer and the download, and Piloti's model questions do not reach it; its
+summary may still be found by Piloti's search, so move such a model to an open
+folder.

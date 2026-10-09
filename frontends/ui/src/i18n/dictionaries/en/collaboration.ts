@@ -12,6 +12,17 @@
  * is a defect in one locale or both.
  */
 export const collaboration = {
+  /**
+   * A chat shared with someone who can no longer read a folder it drew on
+   * (ADR-0088). The title is neutral because the real one is model-written from
+   * the chat, restricted content included; nothing here names a folder.
+   */
+  rightsLost: {
+    neutralTitle: 'Shared chat',
+    title: 'You no longer have the rights to view this chat',
+    description:
+      'Access to a folder this chat draws on has changed since it was shared. Ask someone who can read those folders, or your administrator.',
+  },
   sharing: {
     title: 'Share',
     /** Button in the chat toolbar. */
@@ -69,7 +80,16 @@ export const collaboration = {
       needsProjectAccess: 'Not in this project yet',
       needsProjectAccessHint:
         'Add them to the project first. Sharing a chat never grants access to the project itself.',
+      /**
+       * Disabled row for someone who cannot read every folder the chat drew on
+       * (ADR-0088). Never names the folder: the sharer may not be cleared for
+       * it either, and the server's refusal stays the authority.
+       */
+      lacksFolderAccess: 'Has no access to a folder this chat draws on',
+      lacksFolderAccessBadge: 'No access',
     },
+    /** On the roster: someone still shared with who can no longer read what the chat drew on. */
+    lostAccess: 'No longer has access',
     roleHeading: 'Access level',
     manageFor: 'Manage access: {name}',
     remove: 'Remove access',
@@ -89,6 +109,16 @@ export const collaboration = {
       organizationMembershipRequired: 'That person is not a member of this organization.',
       rateLimited: 'Too many sharing changes. Please wait a few minutes and try again.',
       rosterFull: 'This conversation already has the maximum number of people. Remove someone before inviting more.',
+      restrictedContent:
+        '{name} may not read every folder with restricted access this conversation draws on, so it cannot be shared with them.',
+      restrictedContentFolders:
+        '{name} may not read every folder with restricted access this conversation draws on ({folders}), so it cannot be shared with them.',
+      restrictedContentSomeone:
+        'This person may not read every folder with restricted access this conversation draws on, so it cannot be shared with them.',
+      restrictedContentSelf:
+        'You may not read every folder with restricted access this conversation draws on, so you cannot take it over.',
+      restrictedContentProject:
+        'This conversation draws on a folder with restricted access, so it cannot be made visible to the whole project. Share it with individual people who may read that folder instead.',
       loadFailed: 'Sharing settings could not be loaded.',
       saveFailed: 'That change could not be saved.',
       tryAgain: 'Try again',
