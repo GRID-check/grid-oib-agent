@@ -60,17 +60,24 @@ describe('AnatomyMasthead verdict path', () => {
     expect(screen.getByText('REI 60')).toHaveClass('card-figure-30')
   })
 
-  test("the turn's confidence sits beside the figure, as on the retired card", () => {
+  // The VERDICT's own confidence, from the masthead event. The turn's
+  // self-assessment arrives with the terminal frame, and threading it in here
+  // inserted a gauge row and a reason paragraph above the prose the reader was
+  // on; it lives in the answer details instead.
+  test("the verdict's own confidence sits beside the figure, as on the retired card", () => {
     render(
       <AnatomyMasthead
-        verdict={verdictCard}
+        verdict={{ ...verdictCard, confidence: 'high', confidence_reason: 'Direkt aus Tabelle 1b.' }}
         summary="S."
-        confidence="high"
-        confidenceReason="Direkt aus Tabelle 1b."
       />
     )
     expect(screen.getByText('hohe Sicherheit')).toBeInTheDocument()
     expect(screen.getByText('Direkt aus Tabelle 1b.')).toBeInTheDocument()
+  })
+
+  test("a verdict without a confidence of its own draws no gauge", () => {
+    render(<AnatomyMasthead verdict={verdictCard} summary="S." />)
+    expect(screen.queryByText('hohe Sicherheit')).toBeNull()
   })
 
   test('a topic beside an earned verdict headlines nothing twice', () => {

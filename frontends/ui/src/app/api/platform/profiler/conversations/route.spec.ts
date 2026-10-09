@@ -81,10 +81,60 @@ describe('GET /api/platform/profiler/conversations', () => {
 
   it('passes a trimmed search query through, and none for a blank one', async () => {
     isOwner.value = true
-    await listConversations(listRequest('?q=%20100%25%20'))
-    expect(listProfiledConversations).toHaveBeenLastCalledWith('100%')
-    await listConversations(listRequest('?q=%20%20'))
-    expect(listProfiledConversations).toHaveBeenLastCalledWith(undefined)
+    await listConversations(listRequest('?from=2026-09-01&to=2026-09-30&q=%20100%25%20'))
+    expect(listProfiledConversations).toHaveBeenLastCalledWith(
+      expect.objectContaining({ from: '2026-09-01' }),
+      { query: '100%', conversationId: undefined }
+    )
+    await listConversations(listRequest('?from=2026-09-01&to=2026-09-30&q=%20%20'))
+    expect(listProfiledConversations).toHaveBeenLastCalledWith(expect.anything(), {
+      query: undefined,
+      conversationId: undefined,
+    })
+  })
+
+  it('passes the scope and the selected conversation through', async () => {
+    isOwner.value = true
+    await listConversations(
+      listRequest(
+        '?from=2026-09-01&to=2026-09-30&org=org_1&project=p_1&project=p_2&conversation=conv_1'
+      )
+    )
+    expect(listProfiledConversations).toHaveBeenLastCalledWith(
+      {
+        from: '2026-09-01',
+        to: '2026-09-30',
+        organizationIds: ['org_1'],
+        projectIds: ['p_1', 'p_2'],
+      },
+      { query: undefined, conversationId: 'conv_1' }
+    )
+  })
+
+  it('reads the default range when none is given, so older callers keep working', async () => {
+    isOwner.value = true
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-09T15:00:00Z'))
+    try {
+      expect((await listConversations(listRequest())).status).toBe(200)
+      expect(listProfiledConversations).toHaveBeenLastCalledWith(
+        { from: '2026-09-10', to: '2026-10-09', organizationIds: [], projectIds: [] },
+        { query: undefined, conversationId: undefined }
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('answers a bad range with 400 and its code', async () => {
+    isOwner.value = true
+    const res = await listConversations(listRequest('?from=2026-02-30&to=2026-03-01'))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({
+      code: 'BAD_REQUEST',
+      details: { scope: 'invalid_from' },
+    })
+    expect(listProfiledConversations).not.toHaveBeenCalled()
   })
 })
 

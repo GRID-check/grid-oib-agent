@@ -20,10 +20,11 @@ jobs:
   title:
     name: Conventional PR title
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       # The repo uses Conventional Commits and squash-merges the PR title, so
       # the title must itself be a valid conventional-commit subject.
-      - uses: amannn/action-semantic-pull-request@v6
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -42,6 +43,7 @@ jobs:
   closing-keywords:
     name: Closing keywords
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       # GitHub closes an issue on merge only when a closing keyword stands
       # directly before its number: "Fixes #1, #2" closes #1 and leaves #2
@@ -72,10 +74,11 @@ jobs:
   label:
     name: Auto-label by path
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # Never block a PR on labeling (e.g. before the labels-as-code sync has
     # seeded them, or a transient labels API hiccup).
     continue-on-error: true
     steps:
-      - uses: actions/labeler@v7.0.0
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
         with:
           sync-labels: true

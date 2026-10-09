@@ -9,6 +9,7 @@ import type {
   ResumableTurn,
 } from '../types'
 import { useLayoutStore } from '@/features/layout/store'
+import { forgetThreadPosition } from '@/features/layout/lib/thread-positions'
 import { useDocumentsStore } from '@/features/documents/store'
 import { discardSessionDocumentsResources } from '@/features/documents/discard-session-resources'
 import {
@@ -63,8 +64,27 @@ export type SessionsSlice = {
    */
   serverConversationsLoaded: boolean
 
+  /**
+   * The thread being opened whose messages are not here yet: a fetch of its
+   * server history is in flight, or a `?session=` deep link names it and the
+   * server list that resolves it has not landed. Reactive, unlike the awaiting
+   * set in `chat-storage.ts`, because the thread draws from it (a shared
+   * thread's first read names it too, from `ChatArea`): an open thread
+   * with no messages shows the loading skeleton while this names it, and the
+   * empty canvas only once it does not. Read through `selectThreadPhase`.
+   */
+  pendingMessagesFor: string | null
+
+  /** Name (or, with null, clear) the thread a deep link is about to open. */
+  setPendingMessagesFor: (conversationId: string | null) => void
+
   loadServerConversations: (projectId?: string) => Promise<void>
   hydrateConversationMessages: (conversationId: string) => Promise<void>
+  /**
+   * The server said this person may no longer read the conversation (ADR-0088):
+   * drop its title and messages from the store and mark it locked.
+   */
+  _lockConversation: (conversationId: string) => void
   setCurrentUser: (userId: string | null) => void
   getUserConversations: () => Conversation[]
   createConversation: () => Conversation
@@ -105,7 +125,8 @@ export type SessionsSlice = {
    * Separate from `_appendMessage` because none of it exists when the message is
    * posted: it accumulates from the intermediate frames while the answer streams.
    */
-  _persistTurnProvenance: () => Promise<void>
+  /** Mirror the turn's provenance; the PATCHes wait for `after` (a write that must land first), the read does not. */
+  _persistTurnProvenance: (after?: Promise<unknown>) => Promise<void>
   /** Mirror the answer to a HITL prompt onto its message row (ADR-0037). */
   _persistPromptState: (messageId: string, response: string) => Promise<void>
   /**
@@ -117,6 +138,14 @@ export type SessionsSlice = {
    * is the last thing that will ever happen to it.
    */
   _persistStageOutput: (messageId: string, stages: MessageStages) => Promise<void>
+  /**
+   * Ask the BFF to cut a stopped answer's stored row to what was on screen
+   * (`shown`). For a Stop that crossed the server's finished answer: the
+   * server stored all of it, and a reload must show what the reader saw. The
+   * BFF only ever cuts the row it holds (`cutStoppedAnswer`), and does nothing
+   * to a row already stored as stopped.
+   */
+  _cutStoppedAnswer: (conversationId: string, messageId: string, turnId: string, shown: string) => Promise<void>
 }
 
 // Helper functions
@@ -218,6 +247,13 @@ const serverAnswerWaits = new Map<string, Promise<RecoveryOutcome>>()
  * one would let the first to finish clear it under another still waiting.
  */
 let recoveryHolds = 0
+
+/**
+ * Whether a failed call was the server's `RESOURCE_RIGHTS_LOST`. By name: the
+ * adapter is imported lazily here, so its class is not a static import.
+ */
+const isRightsLost = (error: unknown): boolean =>
+  error instanceof Error && error.name === 'ConversationRightsLostError'
 
 const getConversationsClient = () => {
   conversationsClientModule ??= import('@/adapters/api/conversations-client')
@@ -350,6 +386,7 @@ export const initialSessionsState = {
   isRecoveryPending: false,
   resumableTurn: null as ResumableTurn | null,
   serverConversationsLoaded: false,
+  pendingMessagesFor: null as string | null,
 }
 
 export const createSessionsSlice: StateCreator<
@@ -359,6 +396,11 @@ export const createSessionsSlice: StateCreator<
   SessionsSlice
 > = (set, get) => ({
   ...initialSessionsState,
+
+  setPendingMessagesFor: (conversationId: string | null) => {
+    if (get().pendingMessagesFor === conversationId) return
+    set({ pendingMessagesFor: conversationId }, false, 'setPendingMessagesFor')
+  },
 
   loadServerConversations: async (projectId?: string) => {
     try {
@@ -371,6 +413,10 @@ export const createSessionsSlice: StateCreator<
 
       for (const serverConv of serverConvs) {
         const idx = merged.findIndex((c) => c.id === serverConv.id)
+        // The person may no longer read what this chat drew on (ADR-0088): the
+        // server sent no title, and nothing a browser cached of its messages
+        // may stay on screen.
+        const locked = serverConv.contentLocked === true
         const local: Conversation = {
           id: serverConv.id,
           // The user this row belongs to in THIS browser's store — a membership
@@ -391,8 +437,9 @@ export const createSessionsSlice: StateCreator<
           projectId: serverConv.projectId ?? (idx >= 0 ? merged[idx].projectId : null) ?? null,
           // Titles are generated client-side and may not have reached the
           // server yet — never clobber a local title with an empty one.
-          title: serverConv.title ?? (idx >= 0 ? merged[idx].title : '') ?? '',
-          messages: idx >= 0 ? merged[idx].messages : [],
+          title: locked ? '' : (serverConv.title ?? (idx >= 0 ? merged[idx].title : '') ?? ''),
+          messages: idx >= 0 && !locked ? merged[idx].messages : [],
+          ...(locked ? { contentLocked: true } : {}),
           // Client-only field — dropping it here would silently re-enable
           // every data source the user turned off for this session.
           enabledDataSourceIds: idx >= 0 ? merged[idx].enabledDataSourceIds : undefined,
@@ -407,29 +454,46 @@ export const createSessionsSlice: StateCreator<
           // which quietly re-fills the owner's chat history with 52 job
           // threads a year while every test still passes.
           jobId: serverConv.jobId ?? null,
-          subjectResourceType:
-            serverConv.subjectResourceType === 'document'
+          subjectResourceType: locked
+            ? null
+            : serverConv.subjectResourceType === 'document'
               ? 'document'
               : ((idx >= 0 ? merged[idx].subjectResourceType : null) ?? null),
-          subjectResourceId:
-            serverConv.subjectResourceId ??
-            (idx >= 0 ? merged[idx].subjectResourceId : null) ??
-            null,
+          subjectResourceId: locked
+            ? null
+            : (serverConv.subjectResourceId ??
+              (idx >= 0 ? merged[idx].subjectResourceId : null) ??
+              null),
         }
         if (idx >= 0) {
+          // Rights given back: its messages were dropped while it was locked.
+          if (merged[idx].contentLocked && !locked) markAwaitingServerMessages(local.id)
           merged[idx] = local
         } else {
-          markAwaitingServerMessages(local.id)
+          if (!locked) markAwaitingServerMessages(local.id)
           merged.push(local)
         }
       }
 
-      set({ conversations: merged }, false, 'loadServerConversations')
+      // The open conversation is a separate object: it follows the list when
+      // the list says its rights changed, in either direction.
+      const open = get().currentConversation
+      const refreshedOpen = open ? merged.find((c) => c.id === open.id) : undefined
+      const openChanged = refreshedOpen !== undefined && (refreshedOpen.contentLocked === true) !== (open?.contentLocked === true)
+      set(
+        {
+          conversations: merged,
+          ...(openChanged ? { currentConversation: refreshedOpen } : {}),
+        },
+        false,
+        'loadServerConversations'
+      )
 
       // If the restored current session lost its messages locally (storage
       // cleanup, new device), repopulate them from the server right away.
       const { currentConversation } = get()
       if (
+        currentConversation?.contentLocked !== true &&
         currentConversation &&
         (currentConversation.messages.length === 0 ||
           isAwaitingServerMessages(currentConversation.id))
@@ -448,11 +512,24 @@ export const createSessionsSlice: StateCreator<
   hydrateConversationMessages: async (conversationId: string) => {
     const conversation = get().conversations.find((c) => c.id === conversationId)
     if (!conversation) return
+    // Nothing is fetched for a chat the reader may no longer read (ADR-0088).
+    if (conversation.contentLocked) return
     // Messages here are the whole thread unless the server's were never loaded:
     // a follow-up sent before the history arrived is only the tail of it.
     if (conversation.messages.length > 0 && !isAwaitingServerMessages(conversationId)) return
+    // Set before the first await, so the commit that opened the thread already
+    // shows it loading rather than the empty canvas. And before the dedupe
+    // below: a thread reopened while its first fetch is still in flight (A, B,
+    // back to A) had its pending cleared by `selectConversation`, and returning
+    // here first left it reading as empty, the greeting, until that fetch landed.
+    if (get().currentConversation?.id === conversationId) get().setPendingMessagesFor(conversationId)
     if (hydratingConversationIds.has(conversationId)) return
     hydratingConversationIds.add(conversationId)
+    // Cleared in the same `set` that brings the messages: a render with the
+    // messages and the thread still "loading" would seed their entrance
+    // bookkeeping as empty and play every row's entrance.
+    const settledPending = (): Pick<SessionsSlice, 'pendingMessagesFor'> | Record<string, never> =>
+      get().pendingMessagesFor === conversationId ? { pendingMessagesFor: null } : {}
 
     try {
       const conversationsClient = await getConversationsClient()
@@ -480,6 +557,7 @@ export const createSessionsSlice: StateCreator<
         {
           conversations: updateConversationInList(conversations, hydrated),
           ...(isCurrent && { currentConversation: hydrated }),
+          ...settledPending(),
         },
         false,
         'hydrateConversationMessages'
@@ -491,10 +569,37 @@ export const createSessionsSlice: StateCreator<
         get().restoreSessionState(hydrated)
       }
     } catch (err) {
-      console.warn('[hydrateConversationMessages] Failed to load messages from server:', err)
+      if (isRightsLost(err)) get()._lockConversation(conversationId)
+      else console.warn('[hydrateConversationMessages] Failed to load messages from server:', err)
     } finally {
       hydratingConversationIds.delete(conversationId)
+      // Confirmed empty, failed, or gone: the thread is what it is now. A
+      // failed fetch shows the thread as it stands rather than a skeleton
+      // that never resolves.
+      const pending = settledPending()
+      if ('pendingMessagesFor' in pending) set(pending, false, 'hydrateConversationMessages/settled')
     }
+  },
+
+  _lockConversation: (conversationId: string) => {
+    const { conversations, currentConversation } = get()
+    const lock = (conversation: Conversation): Conversation => ({
+      ...conversation,
+      title: '',
+      messages: [],
+      subjectResourceType: null,
+      subjectResourceId: null,
+      contentLocked: true,
+    })
+    clearAwaitingServerMessages(conversationId)
+    set(
+      {
+        conversations: conversations.map((c) => (c.id === conversationId ? lock(c) : c)),
+        ...(currentConversation?.id === conversationId ? { currentConversation: lock(currentConversation) } : {}),
+      },
+      false,
+      'lockConversation'
+    )
   },
 
   setCurrentUser: (userId: string | null) => {
@@ -603,6 +708,7 @@ export const createSessionsSlice: StateCreator<
         isLoading: false,
         currentUserMessageId: null,
         pendingInteraction: null,
+        pendingMessagesFor: null,
       },
       false,
       'startNewSessionDraft'
@@ -662,6 +768,10 @@ export const createSessionsSlice: StateCreator<
       set(
         {
           currentConversation: conversation,
+          // A deep link waiting for this thread has it now; one waiting for
+          // another thread was overruled by the reader's choice. A history
+          // fetch below names this thread again in the same tick.
+          pendingMessagesFor: null,
           // The id ONLY. `conversation.title` was the filename just long enough
           // to be overwritten by the first user message (addUserMessage), so
           // reusing it here restored the subject as "summarize this" and sent
@@ -710,6 +820,8 @@ export const createSessionsSlice: StateCreator<
     // Delete the server-persisted row too — otherwise the next
     // loadServerConversations resurrects the session as an empty ghost.
     forgetServerConversation(conversationId)
+    // Where the reader was in it goes with it.
+    forgetThreadPosition(conversationId)
     getConversationsClient().then((conversationsClient) => {
       conversationsClient.delete(conversationId).catch((err) => {
         console.warn('[deleteConversation] Failed to delete server conversation:', err)
@@ -755,7 +867,10 @@ export const createSessionsSlice: StateCreator<
 
     // Delete the server-persisted rows too — otherwise the next
     // loadServerConversations resurrects every session as an empty ghost.
-    userConversations.forEach((conv) => forgetServerConversation(conv.id))
+    userConversations.forEach((conv) => {
+      forgetServerConversation(conv.id)
+      forgetThreadPosition(conv.id)
+    })
     getConversationsClient().then(async (conversationsClient) => {
       const results = await Promise.allSettled(
         userConversations.map((conv) => conversationsClient.delete(conv.id))
@@ -1096,6 +1211,10 @@ export const createSessionsSlice: StateCreator<
           // The answer's structured anatomy — sanitized at the wire boundary
           // on write and re-sanitized by the mapper on read, like `cards`.
           ...(message.answerMeta && { answerMeta: message.answerMeta }),
+          // Marked at insert, not only by the provenance mirror after it: a
+          // stored stopped row is what tells the BFF's cut it has nothing to do
+          // (`cutStoppedAnswer`), and a reload says it was stopped.
+          ...(message.stopped && { provenance: { stopped: true } }),
           ...(message.cardInteractions && { cardInteractions: message.cardInteractions }),
           ...(message.enabledDataSources && { enabledDataSources: message.enabledDataSources }),
           ...(message.messageFiles && { messageFiles: message.messageFiles }),
@@ -1139,7 +1258,10 @@ export const createSessionsSlice: StateCreator<
             : String(message.timestamp),
       })
     } catch (err) {
-      console.warn('[appendMessage] Failed:', err)
+      // Rights taken away while the chat was open: it closes, as the next turn
+      // would have (ADR-0088).
+      if (isRightsLost(err)) get()._lockConversation(currentConversation.id)
+      else console.warn('[appendMessage] Failed:', err)
     }
   },
 
@@ -1176,7 +1298,7 @@ export const createSessionsSlice: StateCreator<
     }
   },
 
-  _persistTurnProvenance: async () => {
+  _persistTurnProvenance: async (after?: Promise<unknown>) => {
     const { currentConversation, currentUserMessageId } = get()
     if (!currentConversation) return
 
@@ -1217,6 +1339,9 @@ export const createSessionsSlice: StateCreator<
       if (assistantMessage.answerDurationMs) {
         provenance.answerDurationMs = assistantMessage.answerDurationMs
       }
+      if (assistantMessage.reasoningEffort) {
+        provenance.reasoningEffort = assistantMessage.reasoningEffort
+      }
       if (assistantMessage.citationsRemoved) {
         provenance.citationsRemoved = assistantMessage.citationsRemoved
       }
@@ -1227,6 +1352,10 @@ export const createSessionsSlice: StateCreator<
         provenance.skillsHidden = assistantMessage.skillsHidden
       }
       if (assistantMessage.researchTruncated) provenance.researchTruncated = true
+      // The PATCH replaces the row's provenance whole, so a stopped answer
+      // must say so here too, or the mirror unmarks the row the server
+      // stored as stopped and a reload renders a fragment as a finished answer.
+      if (assistantMessage.stopped) provenance.stopped = true
       // Mirrored so a reload of a LIVE turn shows what the turn showed. The
       // sanitizer in message-provenance already accepts both; nothing was
       // calling it with them.
@@ -1255,6 +1384,10 @@ export const createSessionsSlice: StateCreator<
     if (targets.length === 0) return
 
     try {
+      // The targets are read above, now: by the time `after` settles the
+      // asker may have sent the next question, and the newest answer would be
+      // the wrong one.
+      await after?.catch(() => undefined)
       const conversationsClient = await getConversationsClient()
       // Sequential: both PATCHes take a row lock on the same conversation's
       // messages, and there is no deadline here worth racing them for.
@@ -1270,6 +1403,18 @@ export const createSessionsSlice: StateCreator<
       // from the store; losing the mirror costs a colleague's view and the
       // cross-device replay, not this turn.
       console.warn('[persistTurnProvenance] Failed:', err)
+    }
+  },
+
+  _cutStoppedAnswer: async (conversationId: string, messageId: string, turnId: string, shown: string) => {
+    try {
+      const conversationsClient = await getConversationsClient()
+      await conversationsClient.cutStoppedAnswer(conversationId, messageId, { turnId, shown })
+    } catch (err) {
+      // Never surfaced: the reader has the answer they stopped on screen. A
+      // failed cut costs a reload that shows the rest of it, marked as a
+      // whole answer, which is what it was before this existed.
+      console.warn('[cutStoppedAnswer] Failed:', err)
     }
   },
 

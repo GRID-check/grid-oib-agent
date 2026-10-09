@@ -34,6 +34,7 @@ function makeDeps(response) {
       bucket: 'grid-documents',
       workos: { authorization: { deleteResourceByExternalId: vi.fn() } },
       deleteStoragePrefix: vi.fn(),
+      eraseConversationTraces: vi.fn().mockResolvedValue({ configured: true, traces: 0, batches: 0 }),
       fetchImpl,
     },
     fetchImpl,
@@ -64,6 +65,49 @@ describe('purgeConversation (the retry of a chat erasure)', () => {
     expect(init.signal).toBeInstanceOf(AbortSignal)
   })
 
+  it('deletes the chat’s Langfuse traces by conversation id once the BFF has erased it', async () => {
+    const { tx } = makeTx()
+    const { deps, fetchImpl } = makeDeps(answer(200, { outcome: 'erased' }))
+    const order = []
+    fetchImpl.mockImplementation(async () => {
+      order.push('bff')
+      return answer(200, { outcome: 'erased' })
+    })
+    deps.eraseConversationTraces.mockImplementation(async () => {
+      order.push('traces')
+    })
+
+    await purgeConversation(tx, entry, deps)
+
+    expect(deps.eraseConversationTraces).toHaveBeenCalledExactlyOnceWith('s_conv/1')
+    expect(order).toEqual(['bff', 'traces'])
+  })
+
+  it('lets a Langfuse failure fail the attempt, so the queue row retries', async () => {
+    const { tx } = makeTx()
+    const { deps } = makeDeps(answer(200, { outcome: 'erased' }))
+    deps.eraseConversationTraces.mockRejectedValue(new Error('Langfuse DELETE /api/public/traces answered 503'))
+
+    const error = await purgeConversation(tx, entry, deps).catch((e) => e)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error.code).toBeUndefined()
+    expect(error.message).toMatch(/503/)
+  })
+
+  it.each([
+    ['a legal hold', answer(409, { details: { reason: 'legal_hold' } })],
+    ['a live chat', answer(409, { details: { reason: 'not_deleting' } })],
+    ['a failed erase', answer(502, { error: 'down' })],
+  ])('leaves the traces alone when the BFF refuses (%s)', async (_label, response) => {
+    const { tx } = makeTx()
+    const { deps } = makeDeps(response)
+
+    await purgeConversation(tx, entry, deps).catch(() => undefined)
+
+    expect(deps.eraseConversationTraces).not.toHaveBeenCalled()
+  })
+
   it('re-checks the hold before the call and makes no call when one now applies', async () => {
     const { tx, executed } = makeTx(true)
     const { deps, fetchImpl } = makeDeps(answer(200))
@@ -74,6 +118,7 @@ describe('purgeConversation (the retry of a chat erasure)', () => {
     expect(executed[0].text).toContain('grid_legal_hold_blocks')
     expect(executed[0].values).toEqual(['conversation', 's_conv/1', 'org_1'])
     expect(fetchImpl).not.toHaveBeenCalled()
+    expect(deps.eraseConversationTraces).not.toHaveBeenCalled()
   })
 
   it('turns the BFF’s legal-hold 409 into the hold signal, so the row is deferred, not failed', async () => {

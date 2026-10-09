@@ -243,11 +243,14 @@ Two gaps this amendment deliberately does NOT close:
 - **The trace store has no backup.** Postgres has PITR (ADR-0042) and the S3
   event archive is in SeaweedFS, but ClickHouse has neither. Its PVC is pinned
   `Retain` and `protect`ed; that is the whole of its durability story.
-- **Nothing expires.** Data-retention policies are an Enterprise feature, so the
-  ClickHouse PVC grows for as long as the deployment runs. `clickhouseStorageSize`
-  is therefore a knob to watch rather than set once, and pruning is a manual
-  operator action. This is the clearest cost of taking the free build, and it is
-  a real one.
+- **Nothing expires on its own.** Data-retention policies are an Enterprise
+  feature, so Langfuse itself never deletes a trace. The scheduler does, through
+  the native delete API every edition has (Amendment 2026-10-06 below): traces
+  older than 30 days are deleted daily, and an erased chat's traces are deleted
+  with it. `clickhouseStorageSize` still sizes thirty days of traces plus
+  headroom, and is a knob to watch, because deletion is asynchronous and bounded
+  per run. The job replaces what the licence would have given; it is ours to
+  keep running.
 - Back-pressure is shared: both trace exporters sit on one pipeline, so a
   Langfuse outage long enough to fill its (bounded) sending queue will cost the
   dashboard spans too. Accepted — neither consumer is in a request path.
@@ -298,9 +301,9 @@ Two gaps this amendment deliberately does NOT close:
 
 ## Open Questions / Follow-ups
 
-- **Retention.** With no policy available in OSS, decide an operator runbook
-  (manual ClickHouse partition drops) or accept unbounded growth with alerting
-  on the PVC. Currently the latter, documented.
+- **Retention.** Answered by the scheduler's daily sweep, the purger's
+  per-conversation erasure and the scheduler's job for chats the BFF erased in
+  the delete request (Amendment 2026-10-06).
 - **Media capture** is deliberately not configured
   (`LANGFUSE_S3_MEDIA_UPLOAD_*`): no producer here emits it, and wiring it would
   add a browser-facing presign path for a feature with no consumer.
@@ -353,6 +356,19 @@ outside the agent knew which trace that was: NAT draws a random
   chip and the voter's words. The score id is derived from the feedback row id,
   so a re-vote upserts it and a retraction deletes it.
   `frontends/ui/src/lib/langfuse/feedback-score.ts`.
+- **A down-vote is a reason and a review item (2026-10-09).** The analysts and
+  domain experts who review answers work in Langfuse, and a reason inside a
+  comment can be neither charted nor filtered. A down-vote therefore also writes
+  a CATEGORICAL `user-feedback-reason` score (the reason key; a down-vote
+  without one is `other`, as the platform page counts it), with an id derived
+  from the feedback row like the first; a re-vote to up or a retraction deletes
+  it. The vote that becomes a down-vote also adds its trace (`objectType:
+  TRACE`) to the annotation queue `answer-review`, which `task
+  langfuse:provision` creates. The BFF finds the queue by name and caches the id,
+  or its absence, for ten minutes; without the queue nothing is enqueued. The
+  queue-item API takes no client id, so duplicates are avoided at the source:
+  editing a standing down-vote adds nothing, and only down, retract, down again
+  adds a second item. A retraction leaves the item where it is.
 
 **What it does not do.** The BFF reads the trace id from the row and never
 derives it: a row from before this amendment, or a turn whose answer was never
@@ -372,7 +388,57 @@ a named caller of the web tier, which stays withheld from the wholesale allow.
 The platform answer-feedback view gets `turns[].langfuseTraceUrl` and
 `langfuse.projectUrl` for deep links.
 
-## Amendment 4 (2026-10-08): agents pass the edge with a WorkOS token
+## Amendment 4 (2026-10-06): traces are deleted by the purger and the scheduler
+
+Langfuse traces hold the prompts and answers of every turn, and nothing erased
+them: neither a deleted chat nor the age of a trace. Langfuse's automatic
+retention is Enterprise-only when self-hosted, and no licence is bought, so two
+workers do the deleting through `DELETE /api/public/traces` (`{ "traceIds": [...] }`,
+1 to 1,000 ids, asynchronous), which every edition has:
+
+- **Erasure.** The purger deletes a conversation's traces after the BFF erased
+  it, and a purged project's for every chat in it. Our spans carry the
+  conversation id as `langfuse.session.id`, so the traces are found by session id.
+- **Retention.** The scheduler deletes traces older than
+  `GRID_LANGFUSE_TRACE_RETENTION_DAYS` (default 30, minimum 3, Langfuse's own
+  floor) once a day, at most 50 batches a run, so a backlog drains over days.
+
+Both live in one client, `frontends/ui/workers/langfuse-traces.js`, which
+`deletion-pipeline.md` describes. Two facts about the pinned version (4.48.0)
+shaped it, and both are in the module header with their sources:
+
+- **The list endpoint is the v2 observations API, not `GET /api/public/traces`.**
+  Langfuse v4 answers the legacy trace list with 404 under its default write
+  mode (`events_only`), and this stack is moving from `dual` to that. The job
+  therefore lists `GET /api/public/v2/observations` (filters `sessionId`,
+  `toStartTime`, `isRootObservation`; cursor pages of up to 1,000), which exists
+  only in a v4 write mode. A Langfuse in write mode `legacy`, or still on v3, is
+  not supported and the job fails loudly (404) rather than reporting an empty
+  store.
+- **The client distrusts the filter.** It deletes what it is shown, and a filter
+  Langfuse ignores returns every trace. A row outside the requested session, or
+  newer than the cutoff, aborts the run before it deletes; an empty session id is
+  refused before a request is made.
+
+Not configured (`LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`) is
+a logged no-op; an unreachable Langfuse, a 429 or a 5xx makes the purge attempt
+fail so the queue's retry applies, and delays the retention run by an hour. The
+two workers read the project key pair from the Langfuse Secret and reach the web
+tier through a named NetworkPolicy rule (`allow-workers-to-langfuse`).
+
+A chat deleted by its own request is erased in the BFF, which does not call
+this client and whose queue row the purger never claims. A third job closes
+that: every scheduler tick it reads the `deletion_queue` rows the BFF closed as
+`purged` for conversations (within 35 days, at least 15 minutes ago, not under a
+legal hold, not yet stamped), deletes each chat's traces and stamps
+`payload.langfuseTracesErasedAt`. It is kept in the scheduler on purpose: the
+BFF's erasure stays untouched and trace deletion keeps one home (the BFF
+writes scores since Amendment 3, but deletes nothing). Its cost is
+that the traces go within the hour, not in the request, and a span exported
+after the stamp waits for the retention sweep. Copies saved into Langfuse
+datasets would survive a trace delete; Piloti creates none.
+
+## Amendment 5 (2026-10-08): agents pass the edge with a WorkOS token
 
 Coding agents could not read Langfuse at all. Its MCP server
 (`/api/public/mcp`) and REST API sit behind the edge OIDC gate, which answers
@@ -381,10 +447,12 @@ every request without a browser session with a 302 to the AuthKit login.
 **Change:** the shared platform SecurityPolicy sets `passThroughAuthHeader`, and
 its JWT provider reads a token from `Authorization: Bearer` (the browser
 session, as before) or `x-workos-token`. A request carrying one skips the
-redirect and meets the unchanged JWKS check and `platform:organizations:view`
-rule. Agents mint the token from a WorkOS M2M application holding that
-permission (`scripts/observability-agent-token.sh`), and send Langfuse's own
-key pair in `Authorization` as Langfuse expects.
+redirect and meets the unchanged JWKS check and permission rules
+(`platform:organizations:view`, and on Langfuse also
+`platform:observability:view`, ADR-0089). Agents mint the token from a WorkOS
+M2M application holding `platform:organizations:view`
+(`scripts/observability-agent-token.sh`), and send Langfuse's own key pair in
+`Authorization` as Langfuse expects.
 
 Passthrough changes who picks the token. Before, the only token ever verified
 was the one Envoy obtained itself; after, any application in the WorkOS
@@ -393,8 +461,8 @@ minting application in `client_id` (and `sub` for M2M), not in `aud`: `aud` is
 the environment's client id on every M2M token and on a user token requested
 without a resource indicator ([token claims](https://workos.com/docs/authkit/connect/token-claims)).
 So the JWT provider's `audiences` is the environment (`workosClientId`), and the
-authorization rule ANDs the permission with a `client_id` claim match on the
-gate's own Connect client plus the M2M applications listed in
+authorization rules each AND their permission with a `client_id` claim match
+on the gate's own Connect client plus the M2M applications listed in
 `platformAgentClientIds`. Listing those application ids as `audiences`, the
 first draft of this amendment, would have refused every agent token and every
 browser session. A `Basic`-only request gets a 401 (`denyRedirect`) instead of

@@ -267,6 +267,14 @@ def delimited_documents(text: str, extension: str, base: dict[str, Any], label: 
     rows = read_delimited(text, extension)
     if not rows:
         return []
+    # Cells the length bound shortens are read by nothing, the upload screen
+    # included; counted so the file can only claim a partial check (ADR-0086).
+    cut = sum(
+        1
+        for record in csv.reader(io.StringIO(text, newline=""), _dialect(text[:8192], extension))
+        for cell in record
+        if len(re.sub(r"\s+", " ", cell).strip()) > _MAX_CELL_CHARS
+    )
     # A lone row is data under no header, not a header over no data.
     header_rows = 1 if len(rows) > 1 else 0
     table = Table("", "", [cells for _line, cells in rows], page_start=0, page_end=0, header_rows=header_rows)
@@ -287,6 +295,8 @@ def delimited_documents(text: str, extension: str, base: dict[str, Any], label: 
             "line_start": starts[first],
             "line_end": lines[last],
         }
+        if part == len(groups) and cut:
+            metadata["content_cut"] = cut
         documents.append(_document(f"{label}, {locator}{suffix}\n\n{markdown}", metadata))
     return documents
 

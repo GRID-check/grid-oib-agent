@@ -287,6 +287,13 @@ export const projects: typeof en.projects = {
         'Widerspricht „{note}“ — Piloti durfte diese Notiz nicht ersetzen. Bestätigen oder entfernen Sie einen der beiden Einträge.',
       titleUnknown: 'Widerspricht einer bestätigten Notiz, die nicht mehr in dieser Liste steht.',
     },
+    restricted: {
+      badge: 'Eingeschränkt',
+      title:
+        'Stammt aus eingeschränkten Ordnern ({folders}). Nur wer für alle diese Ordner freigegeben ist, sieht diese Notiz, und nur deren Chats erhalten sie.',
+      titleUnknown:
+        'Stammt aus eingeschränkten Ordnern. Nur wer für alle diese Ordner freigegeben ist, sieht diese Notiz.',
+    },
     time: {
       justNow: 'gerade eben',
       minutesAgo: 'vor {count} Min.',

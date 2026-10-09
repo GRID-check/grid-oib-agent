@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
@@ -251,6 +252,16 @@ class FileProgress(BaseModel):
             "`pages_transcribed`, `pages_transcription_failed`, `pages_over_ocr_cap`, "
             "`pages_not_transcribed_no_vlm`: scanned or garbled PDF pages and what became of them; "
             "`drawing_pages_over_cap`: drawing pages past AIQ_MAX_RENDERED_PAGES."
+        ),
+    )
+    screening: Literal["clean", "partial", "unchecked", "quarantined"] | None = Field(
+        default=None,
+        description=(
+            "What the upload screen made of this file, when the job carried screening rules "
+            "(null otherwise): `clean` (all its content was screened, nothing matched), "
+            "`partial` (its text layer was clean, but some pages go to OCR or drawing analysis "
+            "unscreened), `unchecked` (an image, or no local text at all), `quarantined` "
+            "(a match; the file FAILED and `error_message` starts with `quarantined:`)."
         ),
     )
 

@@ -18,6 +18,7 @@ vi.mock('@/lib/authz/feature-flags', () => ({
 
 vi.mock('@/lib/sharing/access', () => ({
   requireResourceAccess: vi.fn(),
+  requireResourceWriteAccess: vi.fn(),
 }))
 
 vi.mock('@/lib/sharing/directory', () => ({
@@ -50,15 +51,20 @@ vi.mock('./repository', () => ({
   listAssignmentsForResources: vi.fn().mockResolvedValue([]),
 }))
 
-import { NotFoundError } from '@/lib/api/errors'
+import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { canUserAccessProject, filterUsersWithProjectAccess } from '@/lib/authz/project-membership'
 import type { ResourceRole } from '@/lib/db/schema'
-import { requireResourceAccess } from '@/lib/sharing/access'
+import { requireResourceAccess, requireResourceWriteAccess } from '@/lib/sharing/access'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
-import { addResourceAssignment, listAssignmentCandidates, listResourceAssignments } from './service'
-import { listAssignmentsForResources } from './repository'
+import {
+  addResourceAssignment,
+  listAssignmentCandidates,
+  listResourceAssignments,
+  removeResourceAssignment,
+} from './service'
+import { deleteAssignment, insertAssignment, listAssignmentsForResources } from './repository'
 
 const session = {
   userId: 'user_me',
@@ -77,6 +83,7 @@ function stubCallerRole(role: ResourceRole, projectId: string | null = 'proj_1')
     visibility: 'project',
     container: { organizationId: 'org_1', projectId },
     canEscalate: false,
+    contentLocked: false,
   })
 }
 
@@ -150,6 +157,40 @@ describe('addResourceAssignment — container check', () => {
     await addResourceAssignment(session, 'document', 'doc_1', 'user_anna')
 
     expect(canUserAccessProject).toHaveBeenCalledWith(session, 'proj_1', 'user_anna')
+  })
+})
+
+describe('assigning on a document is a write in its folder (ADR-0088)', () => {
+  const readOnly = () => new ForbiddenError('You can read this folder but not change it.', { reason: 'folder-read-only' })
+
+  it('asks for the write before adding anyone, and writes nothing when it is refused', async () => {
+    vi.mocked(requireResourceWriteAccess).mockRejectedValueOnce(readOnly())
+
+    await expect(addResourceAssignment(session, 'document', 'doc_1', 'user_anna')).rejects.toMatchObject({
+      status: 403,
+      details: { reason: 'folder-read-only' },
+    })
+
+    expect(requireResourceWriteAccess).toHaveBeenCalledWith(session, 'document', 'doc_1')
+    expect(insertAssignment).not.toHaveBeenCalled()
+  })
+
+  it('asks for the write before taking anyone off, and deletes nothing when it is refused', async () => {
+    vi.mocked(requireResourceWriteAccess).mockRejectedValueOnce(readOnly())
+
+    await expect(removeResourceAssignment(session, 'document', 'doc_1', 'user_anna')).rejects.toMatchObject({
+      status: 403,
+    })
+
+    expect(deleteAssignment).not.toHaveBeenCalled()
+  })
+
+  it('assigns as before for someone who may write', async () => {
+    vi.mocked(requireResourceWriteAccess).mockResolvedValue(undefined)
+
+    await addResourceAssignment(session, 'document', 'doc_1', 'user_anna')
+
+    expect(insertAssignment).toHaveBeenCalledWith(expect.objectContaining({ subjectUserId: 'user_anna' }))
   })
 })
 

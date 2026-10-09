@@ -53,7 +53,13 @@ MAX_CONTEXT_CHARS = 8_000
 
 #: Why a question could not become a run. Each one is a different sentence to
 #: the reader, which is the whole reason this is not a bool.
-CommissionRefusal = Literal["no_project", "no_envelope", "forbidden", "busy", "unreachable"]
+CommissionRefusal = Literal["no_project", "no_envelope", "forbidden", "confined", "busy", "unreachable"]
+
+#: The BFF's code for a conversation that drew on a restricted folder (ADR-0087,
+#: ``lib/conversations/restricted-egress.ts``): a run is listed to the whole
+#: project, so none is commissioned out of it. Its own refusal, so the reader is
+#: told why rather than that the workspace lacks deep research.
+CONVERSATION_CONFINED_CODE = "CONVERSATION_CONFINED"
 
 
 @dataclass(frozen=True)
@@ -122,6 +128,8 @@ def _refusal_from(error: DelegationError) -> CommissionRefused:
     purpose, so the two are one case. 409 means the envelope named no thread,
     which is a bug in the caller rather than something the reader did.
     """
+    if error.status == 403 and error.code == CONVERSATION_CONFINED_CODE:
+        return CommissionRefused("confined", str(error))
     if error.status in (403, 404):
         return CommissionRefused("forbidden", str(error))
     if error.status == 429:

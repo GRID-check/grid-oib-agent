@@ -5,7 +5,7 @@
 # request that carries a WorkOS token holding `platform:organizations:view`,
 # checked exactly like a browser session. This script mints that token from a
 # WorkOS M2M application (client credentials) and prints it in the shape the
-# caller needs. ADR-0044 Amendment 4.
+# caller needs. ADR-0044 Amendment 5.
 #
 #   token             the bare JWT
 #   claims            the JWT's decoded payload, for the pre-deploy check in

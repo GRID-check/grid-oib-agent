@@ -117,6 +117,27 @@ describe('an inline citation marker', () => {
     vi.unstubAllGlobals()
   })
 
+  // A stopped answer keeps its resolved `[N]` and its sources but is cut
+  // before its written list (`stopped-answer.ts`). Its markers must still
+  // resolve from the numbered wire sources, or they settle to plain "[1]",
+  // wider than the pills they were, and the line re-wraps under the reader.
+  test.each([
+    ['as it stops', true],
+    ['read back after a reload', false],
+  ])('an answer cut before its Quellen list keeps its markers as citations, %s', (_, stopped) => {
+    render(
+      <AgentResponse
+        content="Zwei Fluchtwege sind erforderlich [1][2]."
+        messageId={`m-cut-${String(stopped)}`}
+        citations={citations}
+        routingDecision="deep"
+        stopped={stopped}
+      />
+    )
+    expect(screen.queryByText(/\[1\]/)).toBeNull()
+    expect(document.querySelectorAll('a[href*="cite-pending"]').length).toBe(0)
+  })
+
   test('says which source it is, without moving the reader anywhere', async () => {
     const user = userEvent.setup()
     renderAnswer()
@@ -144,6 +165,21 @@ describe('an inline citation marker', () => {
     const focused = container.querySelector('[data-focused]')
     expect(focused).not.toBeNull()
     expect(within(focused as HTMLElement).getByText(/OIB-Richtlinie 2\.1/)).toBeInTheDocument()
+  })
+
+  test('does not scroll the page to the chip, which would throw the pinned peek off screen', async () => {
+    const user = userEvent.setup()
+    const scroll = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scroll
+    try {
+      renderAnswer()
+      await user.click(screen.getByRole('button', { name: /Source 2: OIB-Richtlinie 2\.1/i }))
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
+      expect(scroll).not.toHaveBeenCalled()
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
   })
 
   test('a marker for each page of one document resolves to that page', async () => {
@@ -444,5 +480,20 @@ describe('a citation still being settled (ADR-0066)', () => {
         .filter((c) => /^(inline-flex|items-center|rounded-sm|px-|relative|-top-|text-\[|font-|leading-|tabular-|pointer-coarse:)/.test(c))
         .sort()
     expect(box(pending as Element)).toEqual(box(live))
+  })
+
+  test('stands still: no pulse on a pill an answer may hold dozens of', () => {
+    render(<AgentResponse content="Zwei Fluchtwege sind erforderlich [1]" messageId="m1" isStreaming routingDecision="deep" />)
+    const pending = document.querySelector('[data-citation-pending="1"]')
+    expect(pending?.className).not.toMatch(/animate-pulse/)
+  })
+
+  test('settles to the plain "[N]" when its source never came, without a new plugin list', () => {
+    const { rerender } = render(
+      <AgentResponse content="Zwei Fluchtwege sind erforderlich [1]" messageId="m1" isStreaming routingDecision="deep" />
+    )
+    rerender(<AgentResponse content="Zwei Fluchtwege sind erforderlich [1]" messageId="m1" routingDecision="deep" />)
+    expect(document.querySelector('[data-citation-pending]')).toBeNull()
+    expect(screen.getByText(/Zwei Fluchtwege sind erforderlich \[1\]/)).toBeInTheDocument()
   })
 })

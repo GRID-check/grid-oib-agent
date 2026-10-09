@@ -90,11 +90,28 @@ async function s3Identities(): Promise<Array<{ name: string; actions: string[] }
   return JSON.parse(data["s3.json"]).identities;
 }
 
-/** Env of the first container of a Deployment, as a plain key→value map. */
-async function containerEnv(name: string): Promise<Record<string, unknown>> {
-  const spec = (await resolve(find("kubernetes:apps/v1:Deployment", name).inputs.spec)) as any;
+/** Env of the first container of a Deployment (or StatefulSet), as a plain key→value map. */
+async function containerEnv(
+  name: string,
+  type = "kubernetes:apps/v1:Deployment",
+): Promise<Record<string, unknown>> {
+  const spec = (await resolve(find(type, name).inputs.spec)) as any;
   const env = spec.template.spec.containers[0].env as Array<{ name: string; value?: string; valueFrom?: unknown }>;
   return Object.fromEntries(env.map((e) => [e.name, e.value ?? e.valueFrom]));
+}
+
+/** The rollout-checksum annotation on a workload's pod template. */
+async function podChecksum(name: string, type = "kubernetes:apps/v1:Deployment"): Promise<string> {
+  const spec = (await resolve(find(type, name).inputs.spec)) as any;
+  const annotations = (spec.template.metadata.annotations ?? {}) as Record<string, string>;
+  const key = Object.keys(annotations).find((k) => /checksum/i.test(k));
+  if (!key) throw new Error(`${name} has no checksum annotation`);
+  return annotations[key];
+}
+
+/** The `app.kubernetes.io/name` of every caller a NetworkPolicy's first ingress rule admits. */
+function callers(spec: any): string[] {
+  return (spec.ingress[0].from as any[]).map((f) => f.podSelector.matchLabels["app.kubernetes.io/name"]).sort();
 }
 
 describe("with the Langfuse tier enabled", () => {
@@ -249,10 +266,11 @@ describe("with the Langfuse tier enabled", () => {
     // Both Dockerfiles build their runtime user at `ARG UID=1001` and chown
     // /app to it. `runAsUser` OVERRIDES the image's USER, so 1000 — the value
     // every other workload in this repo uses — would run the process as an
-    // identity owning none of its own files. And it cannot be omitted: the
-    // images name their user (`nextjs` / `expressjs`) rather than numbering it,
-    // and `runAsNonRoot` against a non-numeric image user makes the kubelet
-    // refuse the pod outright.
+    // identity owning none of its own files. Kept explicit even though 4.56.0
+    // switched to a numeric `USER 1001`: before that the images named their
+    // user (`nextjs` / `expressjs`), and `runAsNonRoot` against a non-numeric
+    // image user makes the kubelet refuse the pod outright. Pinning the uid
+    // here keeps a rollback to an older digest bootable.
     it.each(["langfuse-web", "langfuse-worker"])("runs %s as the uid its image owns", async (name) => {
       const spec = (await resolve(
         find("kubernetes:apps/v1:Deployment", name).inputs.spec,
@@ -393,6 +411,18 @@ describe("with the Langfuse tier enabled", () => {
       expect(has("kubernetes:networking.k8s.io/v1:NetworkPolicy", "allow-collector-to-langfuse")).toBe(true);
       expect(has("kubernetes:networking.k8s.io/v1:NetworkPolicy", "allow-edge-to-langfuse")).toBe(true);
     });
+
+    it("names the purger and the scheduler as the only API callers, on the web port", async () => {
+      const spec = (await resolve(
+        find("kubernetes:networking.k8s.io/v1:NetworkPolicy", "allow-workers-to-langfuse").inputs.spec,
+      )) as any;
+
+      expect(spec.podSelector.matchLabels["app.kubernetes.io/name"]).toBe("langfuse-web");
+      expect(
+        (spec.ingress[0].from as any[]).map((f) => f.podSelector.matchLabels["app.kubernetes.io/name"]).sort(),
+      ).toEqual(["purger", "skill-scheduler"]);
+      expect(spec.ingress[0].ports).toEqual([{ protocol: "TCP", port: 3000 }]);
+    });
   });
 
   describe("edge", () => {
@@ -409,6 +439,44 @@ describe("with the Langfuse tier enabled", () => {
         "platform:organizations:view",
       );
       expect(spec.oidc.redirectURL).toBe("https://langfuse.example.test/oauth2/callback");
+    });
+
+    it("also admits the read-only observability permission, on a rule of its own", async () => {
+      // Analysts get Langfuse without the platform-operator permission. Envoy
+      // ANDs the scopes inside ONE principal, so listing both on one rule
+      // would admit only a token holding both and lock the analyst out. Each
+      // permission must be its own rule (rules are ORed), and requested as a
+      // scope, or WorkOS never puts it on the token.
+      const spec = (await resolve(
+        find("kubernetes:gateway.envoyproxy.io/v1alpha1:SecurityPolicy", "grid-langfuse-security-policy")
+          .inputs.spec,
+      )) as any;
+      const rules = spec.authorization.rules as any[];
+
+      expect(rules.map((r) => r.principal.jwt.scopes)).toEqual([
+        ["platform:organizations:view"],
+        ["platform:observability:view"],
+      ]);
+      expect(rules.every((r) => r.action === "Allow")).toBe(true);
+      expect(new Set(rules.map((r) => r.name)).size).toBe(rules.length);
+      expect(spec.oidc.scopes).toEqual(
+        expect.arrayContaining(["platform:organizations:view", "platform:observability:view"]),
+      );
+    });
+
+    it("keeps the Aspire dashboard on the operator permission alone", async () => {
+      // The dashboard has no users of its own to narrow an analyst by: anyone
+      // through its edge sees every tenant's raw spans and logs.
+      const spec = (await resolve(
+        find("kubernetes:gateway.envoyproxy.io/v1alpha1:SecurityPolicy", "grid-otel-security-policy")
+          .inputs.spec,
+      )) as any;
+
+      expect(spec.authorization.defaultAction).toBe("Deny");
+      expect((spec.authorization.rules as any[]).map((r) => r.principal.jwt.scopes)).toEqual([
+        ["platform:organizations:view"],
+      ]);
+      expect(spec.oidc.scopes).not.toContain("platform:observability:view");
     });
 
     // The policy is shared (`platformOidcSecurityPolicySpec`), so both platform
@@ -453,23 +521,25 @@ describe("with the Langfuse tier enabled", () => {
         expect(spec.oidc.resources).toBeUndefined();
       });
 
-      it("allows only the gate's own client and the named agents, by client_id", async () => {
+      it("allows only the gate's own client and the named agents, by client_id, on every rule", async () => {
         const spec = await policy();
+        const rules = spec.authorization.rules as any[];
 
-        expect(spec.authorization.rules).toHaveLength(1);
-        const { principal, action } = spec.authorization.rules[0];
-        expect(action).toBe("Allow");
-        expect(principal.jwt.provider).toBe(spec.jwt.providers[0].name);
-        // AND-ed with the claim below: the scope alone would admit any M2M
-        // application in the environment that was assigned it.
-        expect(principal.jwt.scopes).toEqual(["platform:organizations:view"]);
-        expect(principal.jwt.claims).toEqual([
-          {
-            name: "client_id",
-            valueType: "String",
-            values: ["client_otel", "client_agent_a", "client_agent_b"],
-          },
-        ]);
+        expect(rules[0].principal.jwt.scopes).toEqual(["platform:organizations:view"]);
+        // Every rule, the `alsoAdmit` ones included: the claim is AND-ed with
+        // the rule's scope, and rules are ORed, so a rule without it would
+        // admit any M2M application in the environment assigned that scope.
+        for (const { principal, action } of rules) {
+          expect(action).toBe("Allow");
+          expect(principal.jwt.provider).toBe(spec.jwt.providers[0].name);
+          expect(principal.jwt.claims).toEqual([
+            {
+              name: "client_id",
+              valueType: "String",
+              values: ["client_otel", "client_agent_a", "client_agent_b"],
+            },
+          ]);
+        }
       });
 
       it("answers a Basic-only request with a 401, not a login page", async () => {
@@ -536,6 +606,93 @@ describe("with the Langfuse tier enabled", () => {
     });
   });
 
+  /**
+   * A first SSO sign-in must land somewhere. Without the defaults Langfuse
+   * creates an account in no organization, and the person the edge admitted
+   * sees an empty "create an organization" page, which reads as "Langfuse is
+   * broken" rather than "nobody added you".
+   */
+  describe("default membership for SSO users", () => {
+    it("joins a new user to the seeded org and project as VIEWER", async () => {
+      const web = await containerEnv("langfuse-web");
+
+      expect(web.LANGFUSE_DEFAULT_ORG_ID).toBe("grid");
+      expect(web.LANGFUSE_DEFAULT_ORG_ID).toBe(web.LANGFUSE_INIT_ORG_ID);
+      expect(web.LANGFUSE_DEFAULT_ORG_ROLE).toBe("VIEWER");
+      expect(web.LANGFUSE_DEFAULT_PROJECT_ID).toBe("grid-oib");
+      expect(web.LANGFUSE_DEFAULT_PROJECT_ID).toBe(web.LANGFUSE_INIT_PROJECT_ID);
+      expect(web.LANGFUSE_DEFAULT_PROJECT_ROLE).toBe("VIEWER");
+    });
+
+    it("sets it on the web tier only, which is where accounts are created", async () => {
+      const worker = await containerEnv("langfuse-worker");
+
+      expect(Object.keys(worker).filter((k) => k.startsWith("LANGFUSE_DEFAULT_"))).toEqual([]);
+    });
+  });
+
+  /**
+   * The agent writes its answer checks as scores (ADR-0089). Each failure is
+   * silent: no keys or host and `emit_scores` is a no-op, no NetworkPolicy and
+   * every post times out on a background pool, and the answer ships either way.
+   */
+  describe("the backend as a score writer", () => {
+    const BACKEND_TIERS: Array<[string, string]> = [
+      ["aiq-agent", "kubernetes:apps/v1:StatefulSet"],
+      ["aiq-api", "kubernetes:apps/v1:Deployment"],
+      ["agent-worker", "kubernetes:apps/v1:Deployment"],
+    ];
+
+    it.each(BACKEND_TIERS)("hands %s the in-cluster API and the keys by reference", async (name, type) => {
+      const env = await containerEnv(name, type);
+
+      expect(env.LANGFUSE_HOST).toBe("http://langfuse-web:3000");
+      expect(env.LANGFUSE_PUBLIC_KEY).toEqual({ secretKeyRef: { name: "langfuse-secrets", key: "public-key" } });
+      expect(env.LANGFUSE_SECRET_KEY).toEqual({ secretKeyRef: { name: "langfuse-secrets", key: "secret-key" } });
+      // A capability, not the product decision: the remote prompt stays off.
+      expect(env.LANGFUSE_PROMPTS_ENABLED).toBeUndefined();
+    });
+
+    it("withholds the keys from the ingest worker, which writes no score", async () => {
+      const env = await containerEnv("ingest-worker");
+
+      expect(Object.keys(env).filter((k) => k.startsWith("LANGFUSE_"))).toEqual([]);
+    });
+
+    it("lets exactly the three key-holding backend roles reach the web tier", async () => {
+      const spec = (await resolve(
+        find("kubernetes:networking.k8s.io/v1:NetworkPolicy", "allow-backend-to-langfuse").inputs.spec,
+      )) as any;
+
+      expect(spec.podSelector.matchLabels["app.kubernetes.io/name"]).toBe("langfuse-web");
+      expect(callers(spec)).toEqual(["agent-worker", "aiq-agent", "aiq-api"]);
+      expect(spec.ingress[0].ports).toEqual([{ protocol: "TCP", port: 3000 }]);
+    });
+
+    it("names in the policy every backend tier that carries the keys", async () => {
+      // The two lists are written in different files; this holds them together.
+      const spec = (await resolve(
+        find("kubernetes:networking.k8s.io/v1:NetworkPolicy", "allow-backend-to-langfuse").inputs.spec,
+      )) as any;
+      for (const [name, type] of BACKEND_TIERS) {
+        if ((await containerEnv(name, type)).LANGFUSE_HOST) expect(callers(spec)).toContain(name);
+      }
+    });
+
+    it.each([...BACKEND_TIERS, ["bff-jobs", "kubernetes:apps/v1:Deployment"] as [string, string]])(
+      "rolls %s when the Langfuse keys rotate, as the frontend does",
+      async (name, type) => {
+        // Every pod that reads the keys folds them into one checksum, so they
+        // all carry the frontend's; the ingest worker, which holds none, keeps
+        // the app Secret's alone.
+        const frontend = await podChecksum("frontend");
+
+        expect(await podChecksum(name, type)).toBe(frontend);
+        expect(await podChecksum("ingest-worker")).not.toBe(frontend);
+      },
+    );
+  });
+
   it("turns on backend identity attributes, which is what makes traces attributable", async () => {
     // Without this the traces arrive but carry no user and no tenant — the
     // difference between "Langfuse is receiving spans" and "Langfuse can tell
@@ -551,14 +708,83 @@ describe("with the Langfuse tier enabled", () => {
   });
 });
 
-describe("the frontend without the Langfuse tier", () => {
-  it("gets no Langfuse env and keeps its rollout checksum as it was", async () => {
-    const { frontendLangfuseEnv } = await import("./langfuse");
-    const { frontendSecretChecksum } = await import("../app/frontend");
+describe("the app pods without the Langfuse tier", () => {
+  it("get no Langfuse env and keep their rollout checksum as it was", async () => {
+    const { frontendLangfuseEnv, withLangfuseKeysChecksum } = await import("./langfuse");
+    const { langfuseApiEnv } = await import("../app/config");
     const off = { langfuse: { enabled: false } } as never;
 
     expect(frontendLangfuseEnv(off)).toEqual([]);
-    expect(frontendSecretChecksum(off, "app-sum")).toBe("app-sum");
+    expect(langfuseApiEnv(off)).toEqual([]);
+    expect(withLangfuseKeysChecksum(off, "app-sum")).toBe("app-sum");
+  });
+});
+
+describe("the Langfuse keys in a rollout checksum", () => {
+  it("change it when either key rotates", async () => {
+    const { withLangfuseKeysChecksum } = await import("./langfuse");
+    const on = (secretKey: string) =>
+      ({
+        langfuse: { enabled: true, publicKey: pulumi.output("pk-lf-a"), secretKey: pulumi.output(secretKey) },
+      }) as never;
+
+    const before = await resolve(withLangfuseKeysChecksum(on("sk-lf-1"), "app-sum"));
+    const after = await resolve(withLangfuseKeysChecksum(on("sk-lf-2"), "app-sum"));
+
+    expect(before).not.toBe("app-sum");
+    expect(after).not.toBe(before);
+  });
+});
+
+describe("default membership env", () => {
+  it("gives NONE the org alone: the project role has no NONE, and a project grant would contradict it", async () => {
+    const { langfuseDefaultMembershipEnv } = await import("./langfuse");
+    const env = langfuseDefaultMembershipEnv({ orgId: "grid", projectId: "grid-oib", defaultRole: "NONE" });
+
+    expect(env).toEqual([
+      { name: "LANGFUSE_DEFAULT_ORG_ID", value: "grid" },
+      { name: "LANGFUSE_DEFAULT_ORG_ROLE", value: "NONE" },
+    ]);
+  });
+
+  it("gives every other role to both the org and the project", async () => {
+    const { langfuseDefaultMembershipEnv } = await import("./langfuse");
+    const env = langfuseDefaultMembershipEnv({ orgId: "o", projectId: "p", defaultRole: "MEMBER" });
+
+    expect(Object.fromEntries(env.map((e) => [e.name, e.value]))).toEqual({
+      LANGFUSE_DEFAULT_ORG_ID: "o",
+      LANGFUSE_DEFAULT_ORG_ROLE: "MEMBER",
+      LANGFUSE_DEFAULT_PROJECT_ID: "p",
+      LANGFUSE_DEFAULT_PROJECT_ROLE: "MEMBER",
+    });
+  });
+});
+
+describe("the platform OIDC gate", () => {
+  const cfg = {
+    observability: { oidcIssuer: "https://auth.example.test", oidcClientId: "client_x", agentClientIds: [] },
+    auth: { workosClientId: "client_env" },
+  } as never;
+
+  it("widens only the route that names a permission, and never repeats one", async () => {
+    const { platformOidcSecurityPolicySpec } = await import("./platform-oidc");
+    const gate = { routeName: "r", domain: "d.example.test", secretName: "s" };
+
+    const plain = platformOidcSecurityPolicySpec(cfg, gate);
+    const doubled = platformOidcSecurityPolicySpec(cfg, {
+      ...gate,
+      alsoAdmit: ["platform:organizations:view", "platform:observability:view"],
+    });
+
+    expect(plain.authorization?.rules?.map((r) => r.principal.jwt?.scopes)).toEqual([["platform:organizations:view"]]);
+    expect(doubled.authorization?.rules?.map((r) => r.principal.jwt?.scopes)).toEqual([
+      ["platform:organizations:view"],
+      ["platform:observability:view"],
+    ]);
+    expect(doubled.oidc?.scopes?.filter((scope) => scope.startsWith("platform:"))).toEqual([
+      "platform:organizations:view",
+      "platform:observability:view",
+    ]);
   });
 });
 
@@ -624,6 +850,23 @@ describe("config gating", () => {
     const ids = (n: number) => Array.from({ length: n }, (_, i) => `client_${i}`).join(",");
     expect(loadWith({ "grid-oib:platformAgentClientIds": ids(127) })).toBeNull();
     expect(loadWith({ "grid-oib:platformAgentClientIds": ids(128) })?.message).toMatch(/at most 127/);
+  });
+
+  it("defaults new Langfuse users to VIEWER", () => {
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...langfuseStackConfig() });
+    expect(loadConfig().langfuse.defaultRole).toBe("VIEWER");
+  });
+
+  it.each(["OWNER", "ADMIN", "MEMBER", "VIEWER", "NONE"])("accepts %s as the default role", (role) => {
+    expect(loadWith({ "grid-oib:langfuseDefaultRole": role })).toBeNull();
+    expect(loadConfig().langfuse.defaultRole).toBe(role);
+  });
+
+  it.each(["viewer", "READ", "EDITOR"])("refuses %s as the default role", (role) => {
+    // Langfuse checks the variable against a zod enum at startup, so a value
+    // it does not know is a langfuse-web that never becomes Ready.
+    const error = loadWith({ "grid-oib:langfuseDefaultRole": role });
+    expect(error?.message).toMatch(/langfuseDefaultRole must be one of OWNER, ADMIN, MEMBER, VIEWER, NONE/);
   });
 
   it("refuses a base64 encryption key, which is the natural mistake", () => {

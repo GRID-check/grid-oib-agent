@@ -20,6 +20,7 @@ vi.mock('./staging', () => ({
   abortStagedUpload: vi.fn(),
   deleteStagedArchive: vi.fn(),
 }))
+vi.mock('./upload-batch', () => ({ sealImportBatch: vi.fn() }))
 vi.mock('./repository', () => ({
   insertMailImport: vi.fn(async (values: object) => ({ ...row(), ...values })),
   findMailImport: vi.fn(),
@@ -33,6 +34,7 @@ import type { MailImport } from '@/lib/db/schema'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
 import { MAIL_IMPORT_PART_BYTES } from './config'
 import * as repository from './repository'
+import { sealImportBatch } from './upload-batch'
 import {
   cancelMailImport,
   completeMailImportUpload,
@@ -245,6 +247,8 @@ describe('cancelMailImport', () => {
       .mockResolvedValueOnce(row({ status: 'cancelled', completedAt: new Date() }))
     const view = await cancelMailImport(admin, PROJECT, IMPORT)
     expect(view).toMatchObject({ status: 'cancelled', ownedByViewer: false })
+    // What was filed before the cancel still gets its summary.
+    expect(sealImportBatch).toHaveBeenCalledWith(expect.objectContaining({ status: 'cancelled' }))
   })
 
   it('aborts the staged upload of a cancelled send', async () => {
@@ -260,5 +264,6 @@ describe('cancelMailImport', () => {
     vi.mocked(repository.findMailImport).mockResolvedValueOnce(row({ status: 'completed', completedAt: new Date() }))
     await cancelMailImport(session, PROJECT, IMPORT)
     expect(repository.updateMailImport).not.toHaveBeenCalled()
+    expect(sealImportBatch).not.toHaveBeenCalled()
   })
 })

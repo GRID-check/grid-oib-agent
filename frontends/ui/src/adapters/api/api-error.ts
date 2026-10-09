@@ -8,9 +8,12 @@
  */
 export class ApiRequestError extends Error {
   readonly status: number
+  /** The server's machine-readable `details.reason`, when it sent one. */
+  readonly reason: string | null
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, reason: string | null = null) {
     super(message)
     this.status = status
+    this.reason = reason
   }
 }

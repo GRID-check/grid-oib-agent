@@ -13,11 +13,13 @@ vi.mock('./RunBlock', () => ({
     title,
     live,
     onCancel,
+    addDocumentFailure,
   }: {
     ledger: { status: string }
     title?: string | null
     live?: boolean
     onCancel?: (() => void) | null
+    addDocumentFailure?: string | null
   }) => (
     <div
       data-testid="run-block"
@@ -26,6 +28,7 @@ vi.mock('./RunBlock', () => ({
       data-cancellable={onCancel ? 'true' : undefined}
     >
       {title}
+      {addDocumentFailure && <p data-testid="run-add-document-failure">{addDocumentFailure}</p>}
     </div>
   ),
 }))
@@ -65,6 +68,7 @@ describe('RunBlockMessage', () => {
       cancel: null,
       writeNow: null,
       addDocument: null,
+      addDocumentFailure: null,
       connection: null,
     })
 
@@ -86,6 +90,7 @@ describe('RunBlockMessage', () => {
       cancel,
       writeNow: null,
       addDocument: null,
+      addDocumentFailure: null,
       connection: 'live',
     })
 
@@ -101,6 +106,7 @@ describe('RunBlockMessage', () => {
       cancel: null,
       writeNow: null,
       addDocument: null,
+      addDocumentFailure: null,
       connection: null,
     })
     render(<RunBlockMessage message={message()} projectId="p1" answer={answer} />)
@@ -114,6 +120,7 @@ describe('RunBlockMessage', () => {
       cancel: null,
       writeNow: null,
       addDocument: null,
+      addDocumentFailure: null,
       connection: null,
     })
 
@@ -129,6 +136,7 @@ describe('RunBlockMessage', () => {
       cancel: null,
       writeNow: null,
       addDocument: null,
+      addDocumentFailure: null,
       connection: null,
     })
 
@@ -146,6 +154,7 @@ describe('RunBlockMessage', () => {
       cancel: null,
       writeNow: null,
       addDocument: null,
+      addDocumentFailure: null,
       connection: null,
     })
 
@@ -161,11 +170,47 @@ describe('RunBlockMessage', () => {
       cancel: null,
       writeNow: null,
       addDocument: null,
+      addDocumentFailure: null,
       connection: null,
     })
 
     render(<RunBlockMessage message={message({ content: '   ' })} answer={answer} />)
 
     expect(screen.queryByTestId('agent-response')).not.toBeInTheDocument()
+  })
+
+  it('hands the block the API’s refusal of a restricted-folder document, as worded', () => {
+    const refusal = 'A document you named sits in a folder with restricted access …'
+    vi.mocked(useRunLedger).mockReturnValue({
+      ledger: ledger('laeuft'),
+      live: true,
+      cancel: null,
+      writeNow: null,
+      addDocument: vi.fn(),
+      addDocumentFailure: { message: refusal },
+      connection: null,
+    })
+
+    render(<RunBlockMessage message={message()} projectId="p1" answer={answer} />)
+
+    expect(screen.getByTestId('run-add-document-failure')).toHaveTextContent(refusal)
+  })
+
+  it('words any other failed add itself', () => {
+    vi.mocked(useRunLedger).mockReturnValue({
+      ledger: ledger('laeuft'),
+      live: true,
+      cancel: null,
+      writeNow: null,
+      addDocument: vi.fn(),
+      addDocumentFailure: { message: null },
+      connection: null,
+    })
+
+    render(<RunBlockMessage message={message()} projectId="p1" answer={answer} />)
+
+    expect(screen.getByTestId('run-add-document-failure')).toHaveTextContent(
+      'The document did not reach the run. Please try again.'
+    )
   })
 })

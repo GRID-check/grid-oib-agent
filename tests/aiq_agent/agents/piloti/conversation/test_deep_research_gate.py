@@ -18,6 +18,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
+from aiq_agent.agents.piloti.conversation import CONFINED_DEEP_RESEARCH_NOTE
 from aiq_agent.agents.piloti.conversation import DEEP_RESEARCH_UNAVAILABLE_NOTE
 from aiq_agent.agents.piloti.conversation import ConversationGraph
 from aiq_agent.agents.piloti.conversation import _finalize_answer
@@ -100,6 +101,19 @@ class TestFinalizeAnswerWithoutDeepResearch:
 
         assert update["escalate_to_deep"] is True
         assert DEEP_RESEARCH_UNAVAILABLE_NOTE not in update["messages"][0].content
+
+    def test_a_confined_turn_says_why_instead_of_blaming_the_workspace(self):
+        """ADR-0087: the capability exists; this conversation may not use it."""
+        update = _finalize_answer(
+            AIMessage(content="Dafür starte ich eine Tiefenrecherche."),
+            _signals(answer_is_handoff=True),
+            deep_research_allowed=False,
+            confined=True,
+        )
+
+        assert update["escalate_to_deep"] is False
+        assert update["messages"][0].content == CONFINED_DEEP_RESEARCH_NOTE
+        assert "eingeschränktem Zugriff" in CONFINED_DEEP_RESEARCH_NOTE
 
     def test_allowed_is_the_default_so_no_caller_withdraws_it_by_forgetting(self):
         assert _finalize_answer(AIMessage(content="Partial."), _signals())["escalate_to_deep"] is True
@@ -212,6 +226,16 @@ class TestCommissionRefusal:
         assert deep_fn.ran is False, "a forbidden commission was answered by running deep research"
         assert update["messages"][0].content == DEEP_RESEARCH_UNAVAILABLE_NOTE
         assert update["routing_decision"] == "meta"
+
+    @pytest.mark.asyncio
+    async def test_a_confined_conversation_is_told_why_and_never_run_in_process(self, deep_fn):
+        """ADR-0087: the BFF refused a run out of a thread that drew on a restricted folder."""
+        graph = self._graph(CommissionRefused("confined", "Aus dieser Unterhaltung …"), deep_fn)
+
+        update = await graph._commission_run(ConversationState(messages=[HumanMessage(content="Bericht?")]))
+
+        assert deep_fn.ran is False, "a confined thread's run was answered by running deep research in process"
+        assert update["messages"][0].content == CONFINED_DEEP_RESEARCH_NOTE
 
     @pytest.mark.asyncio
     async def test_a_transport_failure_still_falls_back(self, deep_fn):
