@@ -72,7 +72,9 @@ Returns `ResourceSharingState` (`lib/sharing/types.ts`):
 
 Body `{ visibility }`. Requires `owner`. Rejects a visibility the registry does
 not permit for the type (`400`, `details.allowed`). A no-op save is a no-op: no
-audit event, no events published.
+audit event, no events published. Widening a conversation whose answers drew on
+a restricted folder is refused with `409`, `details.reason = 'restricted-content'`
+(ADR-0087); narrowing back to `private` is always allowed.
 
 Narrowing publishes `resource.access.changed` to the **previous** audience as well
 as the new one, so losing sight of a thread is never silent.
@@ -93,6 +95,7 @@ Refusals worth handling in the UI:
 |---|---|---|
 | `400` | `container-access-required` | The invitee is not a member of the container project. Sharing never grants project access (spec SH-5) |
 | `409` | `roster-full` | The roster cap (`SHARE_ROSTER_LIMIT`) is reached |
+| `409` | `restricted-content` | The conversation recorded a folder the invitee may not read now (ADR-0087, ADR-0088). Applies to a grant, to a mention that would invite, and to `escalate` |
 | `403` | `rate-limited` | Sharing rate limit for this actor |
 
 ### `PATCH /api/sharing/{resourceType}/{resourceId}/grants`

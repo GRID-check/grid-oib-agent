@@ -73,4 +73,18 @@ export const SHARING_ERROR_REASONS = {
   rateLimited: 'rate-limited',
   /** The roster is at SHARE_ROSTER_LIMIT; someone must leave before anyone joins. */
   rosterFull: 'roster-full',
+  /**
+   * The person being let in is not cleared for every restricted folder the
+   * conversation drew on (ADR-0087). `details.person` names them; `details.folders`
+   * names the folders, and only to a sharer cleared for them.
+   */
+  restrictedContent: 'restricted-content',
+  /** As {@link restrictedContent}, for a project admin escalating to owner: the person is the caller. */
+  restrictedContentSelf: 'restricted-content-self',
+  /**
+   * The conversation drew on a restricted folder, so it cannot be made visible to
+   * the whole project: its readers there cannot be enumerated. It can still be
+   * shared with each cleared person.
+   */
+  restrictedContentProject: 'restricted-content-project',
 } as const

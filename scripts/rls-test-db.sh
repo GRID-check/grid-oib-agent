@@ -110,7 +110,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, run-reconciler, usage-ledger and answer-feedback suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger and answer-feedback suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -128,6 +128,7 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/project-profile/profile-bindings.integration.spec.ts \
     src/lib/compliance/legal-hold.integration.spec.ts \
     src/lib/conversations/erasure-queue.integration.spec.ts \
+    src/lib/conversations/restricted-use.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts \
     src/lib/budgets/service.integration.spec.ts \
     src/lib/feedback/repository.integration.spec.ts
@@ -378,7 +379,7 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0111: on a database of its own.
+# Migrations 0111 and 0112: each on a database of its own.
 #
 # `migrate_until <db> <tag>` creates <db> and applies the journal up to and
 # including <tag>, so every section below starts from exactly the chain it
@@ -502,6 +503,30 @@ apply_in grid_grants 0111_project_folder_grants.sql
 check_in grid_grants "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare=inherit,Personal=inherit,Pläne=inherit,Verträge=inherit" "0110 re-applies, every folder inheriting"
 
 echo "==> 0111 grants, constraints and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0112: the per-folder chat record, and its DOWN.
+#
+# One row per (conversation, source folder): inside the tenant boundary, and
+# `last_at` never before `first_at`. The down drops the table; 0111 re-applies.
+# The admission and read paths are proved against the real chain by
+# restricted-use.integration.spec.ts above.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0112 chat record and its down migration on grid_chat_folders"
+migrate_until grid_chat_folders 0112_conversation_restricted_folders
+check_in grid_chat_folders "SELECT relrowsecurity FROM pg_class WHERE relname = 'conversation_restricted_folders'" "t" "the table is inside the tenant boundary"
+refused_in grid_chat_folders "INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id, first_at, last_at) VALUES ('org_0107', 's_1', gen_random_uuid(), now(), now() - interval '1 minute');" "conversation_restricted_folders_order" "last_at never comes before first_at"
+sql_in grid_chat_folders <<'SQL'
+INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id)
+VALUES ('org_0107', 's_never_created', 'a1a1a1a1-a1a1-4000-8000-000000000107');
+SQL
+check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders" "1" "a row needs no conversation row yet and no folder row (no foreign keys)"
+apply_in grid_chat_folders 0112_conversation_restricted_folders.down.sql
+check_in grid_chat_folders "SELECT to_regclass('public.conversation_restricted_folders') IS NULL" "t" "down dropped the table"
+apply_in grid_chat_folders 0112_conversation_restricted_folders.sql
+check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders" "0" "0111 re-applies, empty"
+
+echo "==> 0112 chat record and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

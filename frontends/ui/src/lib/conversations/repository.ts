@@ -14,9 +14,11 @@
 import 'server-only'
 import { and, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import type { DbExecutor } from '@/lib/db/executor'
 import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
   conversationReads,
+  conversationRestrictedFolders,
   conversations,
   deletionQueue,
   messages,
@@ -326,9 +328,9 @@ export async function updateConversationVisibilityInOrg(
   conversationId: string,
   organizationId: string,
   visibility: ResourceVisibility,
+  executor: DbExecutor = getDb(),
 ): Promise<Conversation | null> {
-  const db = getDb()
-  const [row] = await db
+  const [row] = await executor
     .update(conversations)
     .set({ visibility, updatedAt: new Date() })
     .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
@@ -495,15 +497,26 @@ export async function recordConversationErased(
 }
 
 /**
- * Delete a conversation (messages cascade). Tenant isolation lives in the
- * WHERE clause — deleting by id alone would let any signed-in user delete
- * another org's conversation by guessing ids.
+ * Delete a conversation (messages cascade) and the record of the restricted
+ * folders it drew on. Tenant isolation lives in the WHERE clause — deleting by
+ * id alone would let any signed-in user delete another org's conversation by
+ * guessing ids.
  */
 export async function deleteConversationInOrg(conversationId: string, organizationId: string): Promise<void> {
   const db = getDb()
   await db
     .delete(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
+  // The record has no foreign key (a first turn runs before the row exists),
+  // so it goes here, after the row it describes.
+  await db
+    .delete(conversationRestrictedFolders)
+    .where(
+      and(
+        eq(conversationRestrictedFolders.organizationId, organizationId),
+        eq(conversationRestrictedFolders.conversationId, conversationId),
+      ),
+    )
 }
 
 /**

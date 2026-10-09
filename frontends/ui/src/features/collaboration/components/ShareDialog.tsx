@@ -163,10 +163,24 @@ export function ShareDialog({
 
   const roleLabel = (role: ResourceRole): string => t(`sharing.roles.${role}`)
 
+  /** Who is not cleared, and for which folders when the server may name them to this sharer. */
+  const restrictedContentMessage = (value: SharingFailure): string => {
+    if (!value.person) return t('sharing.errors.restrictedContentSomeone')
+    const folders = value.folders ?? []
+    return folders.length > 0
+      ? t('sharing.errors.restrictedContentFolders', { name: value.person, folders: folders.join(', ') })
+      : t('sharing.errors.restrictedContent', { name: value.person })
+  }
+
   const failureMessage = (value: SharingFailure): string => {
     if (value.reason === SHARING_ERROR_REASONS.lastOwner) return t('sharing.errors.lastOwner')
     if (value.reason === SHARING_ERROR_REASONS.rateLimited) return t('sharing.errors.rateLimited')
     if (value.reason === SHARING_ERROR_REASONS.rosterFull) return t('sharing.errors.rosterFull')
+    if (value.reason === SHARING_ERROR_REASONS.restrictedContent) return restrictedContentMessage(value)
+    if (value.reason === SHARING_ERROR_REASONS.restrictedContentSelf) return t('sharing.errors.restrictedContentSelf')
+    if (value.reason === SHARING_ERROR_REASONS.restrictedContentProject) {
+      return t('sharing.errors.restrictedContentProject')
+    }
     if (value.reason === SHARING_ERROR_REASONS.containerAccessRequired) {
       return t('sharing.errors.containerAccessRequired')
     }

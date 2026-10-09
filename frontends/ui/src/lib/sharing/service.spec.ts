@@ -38,6 +38,18 @@ vi.mock('@/lib/conversations/repository', () => ({
   listConversationIdsForProject: vi.fn(),
 }))
 
+// The per-person rule itself is `restricted-use.spec.ts` and, against Postgres,
+// `restricted-use.integration.spec.ts`. Here: that every widening asks it, with
+// the right widening, before any write or rate-limit spend, and writes through it.
+const widenings = vi.hoisted(() => ({ executor: { tx: true } }))
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  assertMayWidenConversation: vi.fn(),
+  widenConversationAudience: vi.fn(
+    async (_session: unknown, _id: string, _widening: unknown, write: (executor: unknown) => Promise<unknown>) =>
+      write(widenings.executor),
+  ),
+}))
+
 vi.mock('@/lib/documents/repository', () => ({
   findDocumentTenancy: vi.fn(),
   updateDocumentVisibilityInOrg: vi.fn(),
@@ -81,6 +93,8 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { canUserAccessProject, isUserInOrganization } from '@/lib/authz/project-membership'
 import { findConversationTenancy, updateConversationVisibilityInOrg } from '@/lib/conversations/repository'
+import { findDocumentTenancy } from '@/lib/documents/repository'
+import { assertMayWidenConversation, widenConversationAudience } from '@/lib/conversations/restricted-use'
 import type { ResourceRole, ResourceVisibility } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
 import { requireResourceAccess, resolveResourceAccess } from './access'
@@ -156,6 +170,7 @@ beforeEach(() => {
   vi.mocked(upsertGrant).mockResolvedValue({} as never)
   vi.mocked(deleteGrant).mockResolvedValue(true)
   vi.mocked(updateConversationVisibilityInOrg).mockResolvedValue({} as never)
+  vi.mocked(assertMayWidenConversation).mockResolvedValue(undefined)
 })
 
 describe('the last-owner invariant (spec SH-11)', () => {
@@ -283,6 +298,7 @@ describe('the container precondition (spec SH-5)', () => {
 
     expect(upsertGrant).toHaveBeenCalledWith(
       expect.objectContaining({ subjectUserId: 'user_member' }),
+      widenings.executor,
     )
     // No project, so no project question is asked.
     expect(canUserAccessProject).not.toHaveBeenCalled()
@@ -314,6 +330,7 @@ describe('the container precondition (spec SH-5)', () => {
 
     expect(upsertGrant).toHaveBeenCalledWith(
       expect.objectContaining({ subjectUserId: 'user_member', role: 'collaborator' }),
+      widenings.executor,
     )
     expect(recordAuditEvent).toHaveBeenCalledTimes(1)
   })
@@ -335,7 +352,7 @@ describe('setResourceVisibility (spec SH-2, SH-14)', () => {
 
     await setResourceVisibility(session, 'conversation', 'conv_1', 'project')
 
-    expect(updateConversationVisibilityInOrg).toHaveBeenCalledWith('conv_1', 'org_1', 'project')
+    expect(updateConversationVisibilityInOrg).toHaveBeenCalledWith('conv_1', 'org_1', 'project', widenings.executor)
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'resource.visibility.changed',
@@ -376,6 +393,7 @@ describe('escalateToOwner (spec SH-10)', () => {
 
     expect(upsertGrant).toHaveBeenCalledWith(
       expect.objectContaining({ subjectUserId: 'user_me', role: 'owner' }),
+      widenings.executor,
     )
     // Every other mutation here publishes and this one did not, so the creator's
     // open share dialog kept rendering a roster the escalating admin was absent
@@ -405,5 +423,124 @@ describe('escalateToOwner (spec SH-10)', () => {
     expect(publishToUsers).not.toHaveBeenCalled()
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
+  })
+})
+
+describe('a conversation that drew on a restricted folder reaches only people cleared for it (ADR-0087)', () => {
+  const notCleared = () =>
+    new ConflictError('not cleared', { reason: 'restricted-content', person: 'Ina Praktikantin' })
+
+  async function refusal(promise: Promise<unknown>): Promise<ConflictError> {
+    const error = await promise.catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ConflictError)
+    return error as ConflictError
+  }
+
+  it('asks about the person before a grant — and so a mention that would invite — and before the rate limit', async () => {
+    vi.mocked(assertMayWidenConversation).mockRejectedValue(notCleared())
+
+    const error = await refusal(
+      grantResourceAccess(session, 'conversation', 'conv_1', { subjectUserId: 'user_member', role: 'viewer' }),
+    )
+
+    expect(error.details).toMatchObject({ reason: 'restricted-content', person: 'Ina Praktikantin' })
+    expect(assertMayWidenConversation).toHaveBeenCalledWith(session, 'conv_1', {
+      kind: 'person',
+      userId: 'user_member',
+      self: false,
+    })
+    expect(consumeLimit).not.toHaveBeenCalled()
+    expect(upsertGrant).not.toHaveBeenCalled()
+  })
+
+  it('writes a grant to a cleared person through the guard, on its transaction', async () => {
+    await grantResourceAccess(session, 'conversation', 'conv_1', { subjectUserId: 'user_member', role: 'viewer' })
+
+    expect(widenConversationAudience).toHaveBeenCalledWith(
+      session,
+      'conv_1',
+      { kind: 'person', userId: 'user_member', self: false },
+      expect.any(Function),
+    )
+    expect(upsertGrant).toHaveBeenCalledWith(
+      expect.objectContaining({ subjectUserId: 'user_member', role: 'viewer' }),
+      widenings.executor,
+    )
+  })
+
+  it('announces nothing when the guard refuses under its lock', async () => {
+    vi.mocked(widenConversationAudience).mockRejectedValueOnce(notCleared())
+
+    await refusal(
+      grantResourceAccess(session, 'conversation', 'conv_1', { subjectUserId: 'user_member', role: 'viewer' }),
+    )
+
+    expect(upsertGrant).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+    expect(publishToUsers).not.toHaveBeenCalled()
+  })
+
+  it('asks before widening the visibility, and writes it through the guard', async () => {
+    stubCallerAccess('owner', 'private')
+    vi.mocked(assertMayWidenConversation).mockRejectedValueOnce(
+      new ConflictError('project', { reason: 'restricted-content-project' }),
+    )
+
+    const error = await refusal(setResourceVisibility(session, 'conversation', 'conv_1', 'project'))
+
+    expect(error.details).toMatchObject({ reason: 'restricted-content-project' })
+    expect(assertMayWidenConversation).toHaveBeenCalledWith(session, 'conv_1', { kind: 'visibility' })
+    expect(updateConversationVisibilityInOrg).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+
+    await setResourceVisibility(session, 'conversation', 'conv_1', 'project')
+    expect(updateConversationVisibilityInOrg).toHaveBeenCalledWith('conv_1', 'org_1', 'project', widenings.executor)
+  })
+
+  it('lets it narrow back to private without asking', async () => {
+    stubCallerAccess('owner', 'project')
+
+    await setResourceVisibility(session, 'conversation', 'conv_1', 'private')
+
+    expect(assertMayWidenConversation).not.toHaveBeenCalled()
+    expect(widenConversationAudience).not.toHaveBeenCalled()
+    expect(updateConversationVisibilityInOrg).toHaveBeenCalledWith('conv_1', 'org_1', 'private', undefined)
+  })
+
+  it('asks about the project admin themself when they take ownership', async () => {
+    vi.mocked(resolveResourceAccess).mockResolvedValue({
+      role: null,
+      reason: null,
+      visibility: 'private',
+      container: { organizationId: 'org_1', projectId: 'proj_1' },
+      canEscalate: true,
+    })
+    vi.mocked(assertMayWidenConversation).mockRejectedValueOnce(
+      new ConflictError('self', { reason: 'restricted-content-self' }),
+    )
+
+    await refusal(escalateToOwner(session, 'conversation', 'conv_1'))
+
+    expect(assertMayWidenConversation).toHaveBeenCalledWith(session, 'conv_1', {
+      kind: 'person',
+      userId: 'user_me',
+      self: true,
+    })
+    expect(upsertGrant).not.toHaveBeenCalled()
+  })
+
+  it('asks nothing for a document, which has no such content', async () => {
+    vi.mocked(findDocumentTenancy).mockResolvedValue({
+      organizationId: 'org_1',
+      projectId: 'proj_1',
+      visibility: 'private',
+      createdBy: 'user_owner',
+      folderId: null,
+    } as never)
+
+    await grantResourceAccess(session, 'document', 'doc_1', { subjectUserId: 'user_member', role: 'viewer' })
+
+    expect(assertMayWidenConversation).not.toHaveBeenCalled()
+    expect(upsertGrant).toHaveBeenCalledWith(expect.objectContaining({ resourceId: 'doc_1' }), undefined)
   })
 })

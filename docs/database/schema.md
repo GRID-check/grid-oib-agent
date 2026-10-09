@@ -33,6 +33,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `inbox.ts` | `inbox_items` |
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
+| `conversation-restricted-folders.ts` | `conversation_restricted_folders` |
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
@@ -654,7 +655,7 @@ export const projectFolders = pgTable('project_folders', {
 | `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs and the backend mirror |
 | `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0111`, ADR-0088**: `inherit` takes the parent's access (a root folder the project's); `custom` has its own list in `project_folder_grants`. The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
 | `access_changed_by` / `access_changed_at` | `text` / `timestamptz` | set whenever `access_mode = 'custom'` (`project_folders_access_custom_check`) | Who set the list, and when. |
-| `deleted_at` / `deleted_by` | `timestamptz` / `text` | | **Migration `0111`**: a deleted project folder is a TOMBSTONE (an Archiv folder's delete removes its row). The row keeps its `access_mode` and grants so the access rule still answers for content recorded from it; every listing, the tree, placement and every read path filter `deleted_at IS NULL`. |
+| `deleted_at` / `deleted_by` | `timestamptz` / `text` | | **Migration `0111`**: a deleted project folder is a TOMBSTONE (an Archiv folder's delete removes its row). The row keeps its `access_mode` and grants so the access rule still answers for content recorded from it (a conversation's source folders); every listing, the tree, placement and every read path filter `deleted_at IS NULL`. |
 | `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 **Indexes and constraints:**
@@ -726,6 +727,30 @@ Indexes: `upload_batches_project_created_idx` (a project's history, newest
 first) and the partial `upload_batches_open_idx` (`WHERE completed_at IS NULL`,
 the sweep). Repository: `lib/upload-batches/repository.ts`; the completion guard
 is proven against Postgres in `upload-batches.integration.spec.ts`.
+
+---
+
+## conversation_restricted_folders (migration 0112, ADR-0087, ADR-0088)
+
+A folder not every project member may read whose content this conversation
+drew on, checked under the same advisory lock as every widening of the
+conversation's audience (`lockConversationAudience`). Keyed by the SOURCE FOLDER, never by collection
+or role: who may read the conversation is decided when it is read, against the
+folders' access as it is then (`recordedRestrictedFolders`,
+`readableByEveryMember`), so a folder opened to everyone stops confining the
+conversation and a narrowed one confines it to fewer people.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `organization_id` | `text` | NOT NULL, PK | RLS: `organization_id = grid_current_org()` |
+| `conversation_id` | `text` | NOT NULL, PK | No FK: the first turn of a new chat runs before its row exists |
+| `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0110) keeps answering, and an unknown id is treated as unreadable |
+| `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
+
+`deleteConversationInOrg` deletes the rows with the conversation.
+Repository: `lib/conversations/restricted-use-repository.ts`; proven against
+Postgres in `restricted-use.integration.spec.ts`; its CHECK and down in
+`scripts/rls-test-db.sh`.
 
 ---
 

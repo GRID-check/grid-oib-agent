@@ -20,6 +20,8 @@
 
 import 'server-only'
 import { BadRequestError } from '@/lib/api/errors'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import type { DbExecutor } from '@/lib/db/executor'
 import {
   RESOURCE_ROLES,
   SHAREABLE_RESOURCE_TYPES,
@@ -34,6 +36,11 @@ import {
   listConversationIdsForProject,
   updateConversationVisibilityInOrg,
 } from '@/lib/conversations/repository'
+import {
+  assertMayWidenConversation,
+  widenConversationAudience,
+  type AudienceWidening,
+} from '@/lib/conversations/restricted-use'
 import {
   documentIdsExisting,
   findDocumentTenancy,
@@ -113,12 +120,14 @@ export interface ShareableDescriptor {
   /**
    * Persist a visibility change. Returns false when the row is missing in this
    * org (caller maps to 404). Lives on the descriptor so a new type cannot
-   * compile a silent no-op write (§3.1).
+   * compile a silent no-op write (§3.1). `executor` is the transaction a
+   * {@link widenAudience} guard holds; absent, the write opens its own.
    */
   readonly setVisibility: (
     resourceId: string,
     organizationId: string,
     visibility: ResourceVisibility,
+    executor?: DbExecutor,
   ) => Promise<boolean>
   /** One-line title for inbox / mention copy (§3.3). */
   readonly describeRef: (resourceId: string, organizationId: string) => Promise<ResourceRef | null>
@@ -126,6 +135,23 @@ export interface ShareableDescriptor {
   readonly exists: (ids: readonly string[]) => Promise<Set<string>>
   /** Ids of this type inside a project — project-member cleanup (§3.5). */
   readonly listIdsInProject: (projectId: string, organizationId: string) => Promise<string[]>
+  /**
+   * Refuse a widening of the resource's audience that its content forbids,
+   * before anything is written or a rate limit spent (ADR-0087). Absent: the
+   * type has no such content and may be shared as its roles allow.
+   */
+  readonly assertMayWiden?: (session: AuthorizedSession, resourceId: string, widening: AudienceWidening) => Promise<void>
+  /**
+   * Run a widening's write under the guard that makes the check and the write
+   * one step, passing the write the transaction's handle. Present whenever
+   * {@link assertMayWiden} is: the pre-check alone races.
+   */
+  readonly widenAudience?: <T>(
+    session: AuthorizedSession,
+    resourceId: string,
+    widening: AudienceWidening,
+    write: (executor: DbExecutor) => Promise<T>,
+  ) => Promise<T>
 }
 
 /**
@@ -160,8 +186,8 @@ const conversationDescriptor: ShareableDescriptor = {
   defaultVisibility: 'private',
   roles: RESOURCE_ROLES,
   supportsMentions: true,
-  setVisibility: async (resourceId, organizationId, visibility) => {
-    const row = await updateConversationVisibilityInOrg(resourceId, organizationId, visibility)
+  setVisibility: async (resourceId, organizationId, visibility, executor) => {
+    const row = await updateConversationVisibilityInOrg(resourceId, organizationId, visibility, executor)
     return row !== null
   },
   describeRef: async (resourceId, organizationId) => {
@@ -171,6 +197,14 @@ const conversationDescriptor: ShareableDescriptor = {
   },
   exists: (ids) => conversationIdsExisting(ids),
   listIdsInProject: (projectId, organizationId) => listConversationIdsForProject(projectId, organizationId),
+  // A conversation that drew on a restricted folder (ADR-0087) may reach only
+  // people cleared for every folder it drew on, and never the whole project.
+  // The record of what it drew on is written when a turn admits restricted
+  // content, under the lock the widening's write takes here, so a share and a
+  // use cannot pass each other (`lib/conversations/restricted-use.ts`).
+  assertMayWiden: (session, resourceId, widening) => assertMayWidenConversation(session, resourceId, widening),
+  widenAudience: (session, resourceId, widening, write) =>
+    widenConversationAudience(session, resourceId, widening, write),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
     // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).
@@ -214,8 +248,8 @@ const documentDescriptor: ShareableDescriptor = {
   // Mentions about a file happen on a conversation that has the file as
   // subject (spec F7), not on the document resource itself.
   supportsMentions: false,
-  setVisibility: async (resourceId, organizationId, visibility) => {
-    const row = await updateDocumentVisibilityInOrg(resourceId, organizationId, visibility)
+  setVisibility: async (resourceId, organizationId, visibility, executor) => {
+    const row = await updateDocumentVisibilityInOrg(resourceId, organizationId, visibility, executor)
     return row !== null
   },
   describeRef: async (resourceId, organizationId) => {

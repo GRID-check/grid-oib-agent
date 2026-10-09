@@ -57,6 +57,25 @@ export class OrgMemoryDisabledError extends ApiError {
 }
 
 /**
+ * 403 — a conversation that drew on a folder with restricted access may not
+ * carry its content to where others read it (ADR-0087): a deep-research run, a
+ * task, the project profile, or a folder not restricted at least as narrowly.
+ * The same refusal answers a run's Unterlagen naming a document from such a
+ * folder (`planDocument`): the run's Grundlage is read by the whole project.
+ * Its own code, so a caller (the agent's tools, a card) can tell this refusal
+ * from a missing permission; `details.action` says which door refused. The
+ * message is already the reader's sentence (`lib/conversations/restricted-egress.ts`).
+ */
+export class ConversationConfinedError extends ApiError {
+  constructor(
+    readonly action: 'deepResearch' | 'task' | 'profilePatch' | 'filing' | 'planDocument',
+    message: string
+  ) {
+    super(403, 'CONVERSATION_CONFINED', message, { action })
+  }
+}
+
+/**
  * 404 — resource missing OR the caller may not know it exists.
  * Cross-tenant and no-access lookups throw this (never Forbidden) so
  * responses do not leak resource existence to unauthorized callers.

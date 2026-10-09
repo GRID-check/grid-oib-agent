@@ -143,9 +143,9 @@ export async function createProjectFolder(input: CreateFolderInput, session: Aut
 
 /**
  * The root folder of this name, or null; never creates it. For a caller that
- * must decide about the destination before anything exists (the folder-write
- * check before a generated document is filed, `lib/documents/generated.ts`).
- * Like {@link getOrCreateProjectFolderByName} it does not authorize.
+ * must decide about the destination before anything exists (the restricted-
+ * folder filing check, `lib/conversations/restricted-egress.ts`). Like
+ * {@link getOrCreateProjectFolderByName} it does not authorize.
  */
 export function findRootProjectFolderByName(
   projectId: string,
