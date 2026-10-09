@@ -143,6 +143,14 @@ export function pagesWithin(page: number, radius: number, numPages: number): num
   return pages
 }
 
+/**
+ * The proportion of the loading placeholder: an ISO 216 page (A4, A3, …), the
+ * shape almost every Austrian Norm, Richtlinie and Bescheid comes in. Wrong
+ * for a landscape plan, which then changes shape once; right for the rest,
+ * which do not move at all when the first page lands.
+ */
+const PLACEHOLDER_PAGE_ASPECT = Math.SQRT2
+
 const ZOOM_STEPS = [0.75, 1, 1.25, 1.5, 2, 3]
 
 /** Horizontal room left for the page shadow and the scrollbar. */
@@ -716,10 +724,27 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
         aria-label={title}
         className="min-h-0 w-full flex-1 overflow-auto overscroll-contain rounded-lg border border-border bg-surface-sunken p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
+        {/* PAGE-SHAPED while it loads. A spinner centred in an empty frame
+            was replaced by a white page in one frame — a different shape, a
+            different colour, at a different place. The placeholder is that
+            page already: the same sheet and ring as `PdfPageCanvas`, at the
+            width the first page will take and the ISO 216 proportion most
+            documents here have, so the document arrives INTO it. */}
         {!doc && (
-          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Spinner size="sm" />
-            {t('viewer.loading')}
+          <div className="flex flex-col items-center">
+            <div
+              data-testid="pdf-page-placeholder"
+              className="relative flex w-full shrink-0 justify-center bg-white pt-16 shadow-sm ring-1 ring-border"
+              style={{
+                width: targetWidth || undefined,
+                aspectRatio: `1 / ${PLACEHOLDER_PAGE_ASPECT}`,
+              }}
+            >
+              <span className="inline-flex items-center gap-2 self-start text-sm text-muted-foreground">
+                <Spinner size="sm" />
+                {t('viewer.loading')}
+              </span>
+            </div>
           </div>
         )}
         {/* `relative`: the quote bar is positioned against this stack, so it

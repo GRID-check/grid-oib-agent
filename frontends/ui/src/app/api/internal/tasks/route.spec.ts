@@ -81,6 +81,7 @@ function envelopeHeaders(
     userId?: string
     organizationId?: string
     projectId?: string | null
+    collectionScope?: string[]
   } = {},
 ) {
   const { header, signature } = buildGridRequestContextEnvelope(
@@ -88,6 +89,7 @@ function envelopeHeaders(
       organizationId: overrides.organizationId ?? 'org_1',
       userId: overrides.userId ?? 'user_requester',
       ...(overrides.projectId === null ? {} : { projectId: overrides.projectId ?? PROJECT }),
+      ...(overrides.collectionScope ? { collectionScope: overrides.collectionScope } : {}),
       conversationId: 's_conv_1',
       issuedAt: overrides.issuedAt ?? Date.now(),
     },
@@ -387,5 +389,32 @@ describe('the research op — an escalated question becomes a run', () => {
 
     expect(response.status).toBe(409)
     expect(commissionResearchRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('a turn whose scope could draw on a restricted folder (ADR-0087, ADR-0088)', () => {
+  const RESTRICTED = 'proj_3333_r0123456789ab'
+  const restrictedTurn = () => envelopeHeaders({ collectionScope: ['oib_knowledge', 'proj_3333', RESTRICTED] })
+  const RESEARCH = { op: 'research', projectId: PROJECT, question: 'Welches Honorar gilt für LP 5?' }
+
+  it('hands the commission and the delegation the conversation, never the scope: only what was USED confines', async () => {
+    await call(RESEARCH, restrictedTurn())
+    expect(vi.mocked(commissionResearchRun).mock.calls[0][1]).toMatchObject({ conversationId: 's_conv_1' })
+    expect(vi.mocked(commissionResearchRun).mock.calls[0][1]).not.toHaveProperty('signedRestrictedCollections')
+    await call(CREATE, restrictedTurn())
+    expect(vi.mocked(delegateTask).mock.calls[0][1]).not.toHaveProperty('signedRestrictedCollections')
+  })
+
+  it('relays the service’s refusal as a typed 403 with its sentence', async () => {
+    const { ConversationConfinedError } = await import('@/lib/api/errors')
+    vi.mocked(commissionResearchRun).mockRejectedValueOnce(
+      new ConversationConfinedError('deepResearch', 'Aus dieser Unterhaltung lässt sich keine Tiefenrecherche starten.'),
+    )
+    const response = await call(RESEARCH, restrictedTurn())
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({
+      code: 'CONVERSATION_CONFINED',
+      error: 'Aus dieser Unterhaltung lässt sich keine Tiefenrecherche starten.',
+    })
   })
 })

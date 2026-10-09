@@ -10,6 +10,7 @@ import {
   FolderPlus,
   MoveRight,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -37,6 +38,7 @@ import {
   type PlannedFile,
 } from '../lib/folder-upload-plan'
 import type { UploadDecisionKind } from '../hooks/use-upload-decision'
+import { describeNameMatch } from '@/lib/upload-screening/quarantine'
 
 /**
  * „Wollen Sie aktualisieren?" — asked once, with the answer visible.
@@ -86,6 +88,11 @@ export interface FolderUploadDialogProps {
   pending?: boolean
   /** A dropped or picked folder, or loose files that met existing documents. */
   kind?: UploadDecisionKind
+  /**
+   * The reader's answer for one file the upload screening held back
+   * (ADR-0086). Absent: the exclusions are listed without a way to release.
+   */
+  onReleaseChange?: (file: File, released: boolean) => void
 }
 
 export function FolderUploadDialog({
@@ -96,6 +103,7 @@ export function FolderUploadDialog({
   onConfirm,
   pending = false,
   kind = 'folder',
+  onReleaseChange,
 }: FolderUploadDialogProps): JSX.Element {
   const t = useTranslations('files')
   /**
@@ -337,6 +345,8 @@ export function FolderUploadDialog({
               </Alert>
             )}
 
+            <ScreeningSection plan={plan} pending={pending} onReleaseChange={onReleaseChange} />
+
             <PlanDetails plan={plan} includeUpdates={includeUpdates} />
           </div>
         )}
@@ -426,6 +436,60 @@ function PlanCount({
   )
 }
 
+
+/**
+ * What the office's upload screening held back, and why (ADR-0086).
+ *
+ * A statement and a question at once: these files stay on this computer, and
+ * each one can be released by the person who knows what it is — the Bauvertrag
+ * in a folder called „Verträge". A released file stays in the list, ticked, so
+ * the release can be taken back before anything is sent.
+ */
+function ScreeningSection({
+  plan,
+  pending,
+  onReleaseChange,
+}: {
+  plan: FolderUploadPlan
+  pending: boolean
+  onReleaseChange?: (file: File, released: boolean) => void
+}): JSX.Element | null {
+  const t = useTranslations('files')
+  const screened = plan.files.filter((file) => file.action === 'excluded' || file.screeningReleased)
+  if (screened.length === 0) return null
+  const excludedCount = screened.filter((file) => file.action === 'excluded').length
+  return (
+    <Alert variant="warning" data-testid="folder-upload-excluded">
+      <ShieldAlert aria-hidden />
+      <AlertTitle>{t('folderUpload.excluded', { count: String(excludedCount) })}</AlertTitle>
+      <AlertDescription className="space-y-2">
+        <span className="block">{t('folderUpload.excludedExplain')}</span>
+        <ul className="space-y-1.5 text-xs">
+          {screened.slice(0, 20).map((file, index) => (
+            <li key={`${index}:${file.originPath}`} className="flex items-start gap-2">
+              {onReleaseChange && (
+                <Checkbox
+                  checked={file.screeningReleased === true}
+                  onCheckedChange={(checked) => onReleaseChange(file.file, checked === true)}
+                  disabled={pending}
+                  aria-label={`${t('folderUpload.releaseFile')}: ${file.originPath}`}
+                  data-testid="folder-upload-release"
+                />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-mono">{file.originPath}</span>
+                <span className="block opacity-80">
+                  {(file.screening ?? []).map((match) => describeNameMatch(match, t)).join(' · ')}
+                </span>
+              </span>
+            </li>
+          ))}
+          {screened.length > 20 && <li className="opacity-70">+{screened.length - 20}</li>}
+        </ul>
+      </AlertDescription>
+    </Alert>
+  )
+}
 
 /** Names, because a count nobody can check is a number to be believed. */
 function FileNameList({ files }: { files: readonly PlannedFile[] }): JSX.Element {

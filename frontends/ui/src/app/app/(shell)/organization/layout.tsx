@@ -20,6 +20,7 @@ import {
   canManageMembers,
   canManageModels,
   canViewAuditLogs,
+  canViewDownloadLog,
   isOrgAdmin,
 } from '@/lib/authz/organizations'
 import { BackLink, ShellContent } from '@/components/shell'
@@ -43,7 +44,11 @@ export default async function OrganizationLayout({
     // Storage joins the overview and budgets as a section every member sees:
     // a member whose upload was just refused needs to be able to find out why,
     // and the quota itself is only editable with `org:settings:manage`.
-    const sections: OrganizationSectionKey[] = ['overview', 'budgets', 'storage']
+    // Sensitive data and quarantine are open to every member too (ADR-0086): an
+    // uploader whose file was held back needs to see the list that caught it,
+    // and the quarantine queue is filtered per row on the server, so a member
+    // who may review nothing gets an honest empty list rather than a 403.
+    const sections: OrganizationSectionKey[] = ['overview', 'budgets', 'storage', 'screening', 'quarantine']
     if (canManageMembers(session)) sections.push('access')
     if (canManageModels(session)) sections.push('models')
     // Audit-view ONLY, matching `/api/organization/audit-portal`, which gates on
@@ -51,6 +56,9 @@ export default async function OrganizationLayout({
     // admitting `org:compliance:manage` here would show a button whose API answers
     // 403. Widen this the day the section grows holds/deletion UI of its own.
     if (canViewAuditLogs(session)) sections.push('compliance')
+    // Its own permission, not audit-view: the log is staff data an auditor role
+    // does not get by default, and the API answers 403 to anyone without it.
+    if (canViewDownloadLog(session)) sections.push('downloads')
     if (isOrgAdmin(session)) sections.push('enterprise')
 
     return (

@@ -484,6 +484,24 @@ describe('ArchivWorkspace — only the newest answer may win', () => {
   })
 })
 
+describe('ArchivWorkspace — a link to one document', () => {
+  it('opens the document ?doc= names once the corpus has it', async () => {
+    currentSearch = 'doc=doc-2'
+    render(<ArchivWorkspace canManage />)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getAllByText('fassadendetail.pdf').length).toBeGreaterThan(0)
+  })
+
+  it('opens nothing for an id the Archiv does not hold', async () => {
+    currentSearch = 'doc=gone'
+    render(<ArchivWorkspace canManage />)
+
+    expect(await screen.findByText('fassadendetail.pdf')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
 /** Open the Archiv preview for a document and the preview-header actions menu. */
 async function openActions(user: ReturnType<typeof userEvent.setup>, filename: string) {
   await user.click(await screen.findByText(filename))
@@ -663,7 +681,10 @@ describe('ArchivWorkspace — a file the Archiv already holds', () => {
 
     await user.click(within(dialog).getByTestId('folder-upload-confirm'))
     await waitFor(() =>
-      expect(mockUploadFiles).toHaveBeenCalledWith([revised], { folderIdFor: expect.any(Function) })
+      expect(mockUploadFiles).toHaveBeenCalledWith(
+        [revised],
+        expect.objectContaining({ folderIdFor: expect.any(Function), screeningReleased: expect.any(Function) })
+      )
     )
     expect(probed).toEqual([['brandschutz-gutachten.pdf']])
   })
@@ -690,7 +711,10 @@ describe('ArchivWorkspace — a file the Archiv already holds', () => {
     const fresh = new File(['x'], 'neu.pdf', { type: 'application/pdf' })
     pick(fresh)
 
-    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([fresh]))
+    // The folder it lands in rides along for the upload screening (ADR-0086).
+    await waitFor(() =>
+      expect(mockUploadFiles).toHaveBeenCalledWith([fresh], expect.objectContaining({ folderPathFor: expect.any(Function) }))
+    )
     expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
   })
 })

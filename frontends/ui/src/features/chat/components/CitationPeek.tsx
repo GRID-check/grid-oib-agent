@@ -20,7 +20,11 @@ import Link from 'next/link'
 import { Download, ExternalLink, FileSearch, FolderOpen, Link2 } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
+import { PRESSABLE } from '@/components/ui/press'
 import { SectionLabel } from '@/components/ui/section-label'
+import { Spinner } from '@/components/ui/spinner'
+import { useDelayedFlag } from '@/hooks/use-transient-flag'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import { documentPages, refPage, type CitationRef, type CitedDocument } from '../lib/citations'
 import type { Shelf } from '../lib/source-kinds'
@@ -95,6 +99,23 @@ const BindingStatusChip: FC<{ status?: string }> = ({ status }) => {
 }
 
 /**
+ * A text action in a peek's footer („An dieser Stelle öffnen", „In Dateien",
+ * the download, the outbound link): tinted ink that underlines on hover, the
+ * shared press and the one focus ring.
+ *
+ * Under a finger each takes the 44px floor as its OWN height. The row holds up
+ * to six of these a few pixels apart, and the `touch-target` overhang they
+ * used to carry is centred on each control and so overlapped its neighbours —
+ * a tap between two of them resolved to whichever painted last. A real 44px
+ * box per control, in a row that wraps, gives every target its own ground.
+ */
+export const PEEK_ACTION_CLASSES = cn(
+  'inline-flex items-center gap-1 rounded-sm text-xs font-medium outline-none hover:underline pointer-coarse:min-h-11',
+  PRESSABLE,
+  FOCUS_RING
+)
+
+/**
  * The locus line: which page this reference names, or — for a
  * document-level reference — every page the answer drew on.
  *
@@ -165,7 +186,7 @@ const DocumentHomeLink: FC<{ shelf?: Shelf; tint: CitedDocument['tint'] }> = ({
     <Link
       href={target.href}
       data-citation-home=""
-      className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
+      className={PEEK_ACTION_CLASSES}
       style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
     >
       <FolderOpen aria-hidden="true" className="size-3.5" />
@@ -178,7 +199,11 @@ const DocumentHomeLink: FC<{ shelf?: Shelf; tint: CitedDocument['tint'] }> = ({
  * „An dieser Stelle öffnen": the document at the cited place, in the app.
  * One control for every surface that offers it (the peek, an excerpt's margin).
  */
-export const CitationOpenButton: FC<{ tint: CitedDocument['tint']; onOpen: () => void }> = ({ tint, onOpen }) => {
+export const CitationOpenButton: FC<{
+  tint: CitedDocument['tint']
+  onOpen: () => void
+  className?: string
+}> = ({ tint, onOpen, className }) => {
   const t = useTranslations('chat')
   return (
     <button
@@ -187,11 +212,48 @@ export const CitationOpenButton: FC<{ tint: CitedDocument['tint']; onOpen: () =>
       // The screenshot harness needs to walk peek → document the way a
       // reader does; naming the step beats guessing at button order.
       data-citation-open=""
-      className="inline-flex items-center gap-1 text-xs font-medium hover:underline touch-target"
+      className={cn(PEEK_ACTION_CLASSES, className)}
       style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
     >
       <FileSearch aria-hidden="true" className="size-3.5" />
       {t('citationPeek.openAtPage')}
+    </button>
+  )
+}
+
+/**
+ * „Herunterladen", for a source with no viewer. Busy without being DISABLED:
+ * a disabled button drops the keyboard focus that pressed it to `<body>`, and
+ * dims to 70% for a presign that usually answers before the eye registers the
+ * dim. So it stays focusable, `aria-disabled` while in flight (a second press
+ * is ignored rather than refused), and only a wait past the Doherty threshold
+ * shows a spinner — in the icon's slot, so the label does not move.
+ */
+export const PeekDownloadButton: FC<{
+  tint: CitedDocument['tint']
+  onDownload: () => void
+  pending?: boolean
+}> = ({ tint, onDownload, pending = false }) => {
+  const t = useTranslations('chat')
+  const showBusy = useDelayedFlag(pending)
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (!pending) onDownload()
+      }}
+      aria-disabled={pending || undefined}
+      aria-busy={pending || undefined}
+      data-citation-download=""
+      className={cn(PEEK_ACTION_CLASSES, pending && 'cursor-progress')}
+      style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
+    >
+      {showBusy ? (
+        <Spinner size="xs" aria-hidden="true" />
+      ) : (
+        <Download aria-hidden="true" className="size-3.5" />
+      )}
+      {t(showBusy ? 'citationPeek.downloading' : 'citationPeek.download')}
     </button>
   )
 }
@@ -279,17 +341,7 @@ export const CitationPeek: FC<CitationPeekProps> = ({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2">
         {onOpen && <CitationOpenButton tint={tint} onOpen={onOpen} />}
         {onDownload && !onOpen && (
-          <button
-            type="button"
-            onClick={onDownload}
-            disabled={downloadPending}
-            data-citation-download=""
-            className="inline-flex items-center gap-1 text-xs font-medium hover:underline disabled:cursor-progress disabled:opacity-70"
-            style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
-          >
-            <Download aria-hidden="true" className="size-3.5" />
-            {t(downloadPending ? 'citationPeek.downloading' : 'citationPeek.download')}
-          </button>
+          <PeekDownloadButton tint={tint} onDownload={onDownload} pending={downloadPending} />
         )}
         {unavailable && !onOpen && !onDownload && (
           <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
@@ -302,7 +354,7 @@ export const CitationPeek: FC<CitationPeekProps> = ({
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
+            className={PEEK_ACTION_CLASSES}
             style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
           >
             {t('sourcePreview.openExternal')}

@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Long answers and long tables stream without slowing down. Reading them
+    used to take more time with every line written, which could hold up other
+    chats on the same server while one long reply was being written.

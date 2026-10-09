@@ -142,6 +142,7 @@ never surfaced; the orphaned-vector sweep is the net)
 **Conversation**:
 1. Delete LangGraph checkpoints (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes` in `aiq_checkpoints`) for `thread_id = conversation id`
 2. Delete `conversations` row (`messages` cascade)
+3. Delete the chat's Langfuse traces (below): in the purger's retry after the BFF's erasure, or, for a chat the delete request erased itself, by the scheduler afterwards; see **Langfuse traces**
 
 What `DELETE /api/conversations/[id]` does today is immediate, with the queue
 as its retry (`deleteConversation`, `lib/conversations/service.ts`), and every
@@ -186,6 +187,71 @@ its own:
   are keyed by the id and are no-ops on an absent row, so the collaboration rows,
   the drafts and the queue row are still dealt with.
 
+**Langfuse traces (ADR-0044).** Traces hold the prompts and answers of every
+turn, so the purger deletes a chat's after the BFF has erased it
+(`purge-conversation.js` calls `deps.eraseConversationTraces`, built from
+`workers/langfuse-traces.js`). The traces carry the conversation id as
+`langfuse.session.id`, so the step lists the observations of that session,
+`GET /api/public/v2/observations?sessionId=<id>` (cursor-paged, 1,000 a page),
+and sends their distinct trace ids to `DELETE /api/public/traces` in batches of
+at most 1,000. The legacy `GET /api/public/traces` is not used: Langfuse v4
+answers it with 404 under its default write mode. Langfuse deletes
+asynchronously (a worker, usually within about 15 minutes), and the step is
+idempotent: a chat with no traces, or whose traces are gone or already queued,
+finishes cleanly. Three outcomes, by design:
+
+- **Langfuse not configured** (`LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`,
+  `LANGFUSE_SECRET_KEY` not all set): a logged no-op, once per process and at boot,
+  never a failure. A deployment without Langfuse has no traces to erase.
+- **Langfuse unreachable, a 429 or a 5xx**: the step throws, the attempt is
+  recorded and the queue row retries with its usual backoff. It runs after the
+  BFF's erasure, so the retry finds the chat gone (`already-gone`) and goes
+  straight back to the traces.
+- **Langfuse answers something that is not the session's data** (a row of another
+  session): the step throws before deleting anything. The client deletes what it
+  is shown, and a filter Langfuse ignores returns everything.
+
+A project purge runs the same step for every chat the project holds (step 2b of
+**Project**), with the hold re-checked before each.
+
+**A chat deleted by the request itself: the scheduler goes back for its traces.**
+Only a retry or a project purge goes through the purger. A
+`DELETE /api/conversations/[id]` that finishes erases in the BFF
+(`eraseMarkedConversation`), closes its own queue row as `purged`, and the
+purger never sees it. So the scheduler (`scheduler/index.js`,
+`sweepConversationTraces`, on every tick) reads those rows
+(`findConversationsAwaitingTraceErasure`, `scheduler/db.js`): `entity_type =
+'conversation'`, `status = 'purged'`, `purged_at` within the last 35 days and at
+least 15 minutes ago (a turn that was still streaming exports spans for a
+little after the delete), no `payload.langfuseTracesErasedAt` yet, and not
+blocked by `grid_legal_hold_blocks`. For each it asks the hold predicate once
+more, deletes the chat's traces with the same client, and stamps
+`payload.langfuseTracesErasedAt` on the row (a jsonb merge; no column). A chat
+under a hold keeps its traces and is looked at again, inside the 35 days, after
+the hold is released. A chat the purger erased itself is in the same set and is
+simply repeated: the list finds nothing. Same failure semantics as the purger's
+step: not configured is a no-op, a 429, a 5xx, a timeout or a database outage
+stops the run and retries on the next tick (a WARN streak, one ERROR after about
+five minutes), and any other failure (a 401, a 404 from a Langfuse outside a v4
+write mode) logs one ERROR and backs off an hour. A run handles at most 100
+chats and two minutes. The 15 minutes and the Langfuse delay mean the traces of
+such a chat go within the hour, not at once; a span that arrives after the stamp
+is removed by the retention sweep.
+
+**Trace retention.** Langfuse's own retention is Enterprise-only, so the
+scheduler (`scheduler/index.js`, `sweepTraceRetention`) does it once a day, the
+first run on its first tick: it lists root observations that started before
+`now - GRID_LANGFUSE_TRACE_RETENTION_DAYS` (default 30, never below Langfuse's
+own minimum of 3) and deletes their traces in batches of 1,000. A run sends at
+most 50 batches, reads at most 100 pages and stops after two minutes, so a
+backlog drains over days; it logs how many it asked Langfuse to delete. A failed
+run retries in an hour (a WARN streak for transient failures, one ERROR after
+three, an ERROR at once for a 401 or a Langfuse outside a v4 write mode). It is a
+no-op, logged at boot, without the Langfuse variables. Traces still being
+written when a chat was erased can reappear after the erasure; this sweep
+removes them. A trace whose root observation was never recorded is not found by
+it.
+
 A row that reaches `failed` stays in `GET /api/deletions` with its `last_error`
 (the Recently deleted panel shows only projects). A person who deletes the chat
 again gets a new pending row, and a successful erase closes both.
@@ -197,8 +263,9 @@ It used to send a collection delete through the v1 proxy alongside it, and when
 the row went first that request was refused and the collection was left behind.
 
 **Project**:
-1. Gather pointers: `collectionName`, SeaweedFS prefix `org/{orgId}/project/{projectId}/`, all conversation ids for the project
-2. Delete Chroma collection (existing `DELETE /v1/collections/{name}`; also clears its `document_metadata` rows)
+1. Gather pointers: `collectionName`, SeaweedFS prefix `org/{orgId}/project/{projectId}/`, all conversation ids for the project, and every other distinct `documents.collection_name` of the project — the restricted folders' collections, `<collectionName>_r<12 hex>` (ADR-0087), which hold chunks the project's own collection does not
+2. Delete Chroma collection (existing `DELETE /v1/collections/{name}`; also clears its `document_metadata` rows), then each chat's `s_` collection and each restricted folder's collection, one backend call each with the legal hold re-checked before each; a failure aborts the purge before any row is deleted
+2b. Delete the Langfuse traces of every gathered conversation id, one chat at a time with the hold re-checked before each; a failure aborts the purge before any row is deleted. A logged no-op without Langfuse configured
 3. Delete `aiq_jobs` rows (`job_info`, `job_access`, `job_events`) for jobs referencing that collection
 4. Delete LangGraph checkpoints for all gathered conversation ids
 5. Delete all SeaweedFS objects under the prefix (paginated `ListObjectsV2` + batched `DeleteObjects` — first S3 delete code in the repo)
@@ -256,6 +323,7 @@ How the design satisfies the articles enterprise DPAs and security questionnaire
 | Obligation | Mechanism |
 |---|---|
 | **Art. 17** — right to erasure "without undue delay" | Deletion pipeline for all five entity types; grace + retry bounded within the Art. 12(3) one-month response window; `purged_at` timestamps are the evidence of completion |
+| **Art. 17 / Art. 5(1)(e)** — the prompts and answers in LLM traces | Langfuse traces are deleted by conversation id when the purger erases a chat or a project (native delete API, every edition; asynchronous, usually within about 15 minutes), and by the scheduler's daily sweep once older than `GRID_LANGFUSE_TRACE_RETENTION_DAYS` (default 30, minimum 3). A chat deleted by the request itself is picked up by a scheduler job from its closed queue row, within about the hour (legal-held chats keep theirs); the 30-day sweep is the net behind it. Langfuse does not remove copies saved into datasets; Piloti creates none |
 | **Art. 12(3)** — respond within one month | Grace periods capped at ≤ 23 days; `attempts`/`failed` status surfaces stuck purges before the deadline |
 | **Art. 18** — restriction of processing | Legal hold: data preserved, hidden from active use, purge blocked until release |
 | **Art. 5(2) / Art. 30** — accountability, records of processing | `deletion_queue` rows survive purge as the record of what was erased, when, by whose request; `legal_holds` records restriction events |

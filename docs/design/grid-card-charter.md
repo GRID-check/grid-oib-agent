@@ -637,8 +637,8 @@ Landed in `b82f23e1`: the §A2 type ramp, the §A3 colour-role fix, and items 1,
 properties and a card legitimately overrides one of them. In the utilities layer,
 which of `card-title` and `font-semibold` wins depends on Tailwind's internal
 ordering; in the components layer the ramp is a base every utility beats, by layer
-order rather than by luck. Enforced by a new `grid/card-type-scale` eslint rule,
-switched on per file through `CARDS_ON_THE_TYPE_RAMP` in `eslint.config.mjs` — the
+order rather than by luck. Enforced by a new `grid/card-type-scale` lint rule,
+switched on per file through its override in `frontends/ui/.oxlintrc.json` — the
 compliant set is real project state and belongs in config, not in an exemption list
 inside the rule, which would report "clean" with eleven cards still off the ramp.
 

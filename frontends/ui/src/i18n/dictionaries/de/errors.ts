@@ -40,4 +40,15 @@ export const errors: typeof en.errors = {
       Default: 'Bei der Authentifizierung ist ein Fehler aufgetreten.',
     },
   },
+  confinement: {
+    deepResearch:
+      'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff, deshalb lässt sich aus ihr keine Tiefenrecherche starten: Recherche, Titel und Bericht wären für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind.',
+    task: 'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff, deshalb lässt sich aus ihr kein Auftrag anlegen: Aufträge sind für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind.',
+    profilePatch:
+      'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff, deshalb lässt sich aus ihr der Projektkontext nicht ändern: Er ist für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind.',
+    filing:
+      'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff, deshalb lässt sich aus ihr nichts dorthin ablegen: Der Ablageort ist auch für Personen sichtbar, die für den eingeschränkten Ordner nicht freigegeben sind. Ablegen geht nur in einen Ordner, der mindestens so eng eingeschränkt ist.',
+    planDocument:
+      'Eine genannte Unterlage liegt in einem Ordner mit eingeschränktem Zugriff, deshalb lässt sie sich einer Recherche nicht als Unterlage mitgeben: Unterlagen und Bericht einer Recherche sind für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind.',
+  },
 }

@@ -41,6 +41,13 @@ vi.mock('@/lib/conversations/repository', () => ({
 }))
 
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+// Which people may read what the conversation recorded is `restricted-use.spec.ts`'s
+// subject; here nothing it recorded restricts anybody.
+vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/conversations/restricted-use')>()),
+  peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
+  lockedConversationIds: vi.fn(async () => new Set<string>()),
+}))
 vi.mock('@/lib/sharing/repository', () => ({
   findGrantForSubject: vi.fn(),
   countGrantsForResource: vi.fn(),

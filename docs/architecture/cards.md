@@ -750,7 +750,7 @@ charter counted thirteen distinct sizes in `features/grid-cards/`, ten of them
 arbitrary values, with `text-[12px]` beside `text-xs`.
 
 `grid/card-type-scale` (`eslint-rules/card-type-scale.mjs`) makes that an error
-— **per file**, listed as `CARDS_ON_THE_TYPE_RAMP` in `eslint.config.mjs`. The
+— **per file**, listed in the `grid/card-type-scale` override of `.oxlintrc.json`. The
 charter migrates a card when a sprint touches it rather than in one flag day, so
 a card joins the list when it is clean, and a card already on it cannot regress.
 Adding a new card? Put it on the list from the start.
@@ -870,7 +870,7 @@ without re-plumbing generation or transport.
 4. Add the renderer under `features/grid-cards/` and wire the `GridCards`
    dispatcher (interactive cards get `messageId={messageId} cardKey={key}`).
    Type it with the [`card-*` ramp](#type-sizes-six-classes-and-lint-per-card)
-   and add the file to `CARDS_ON_THE_TYPE_RAMP` in `eslint.config.mjs`.
+   and add the file to the `grid/card-type-scale` override in `.oxlintrc.json`.
 5. Add a fixture to the `/dev/cards` gallery, then capture it and attach the
    capture to the PR (`docs/ux/visual-screenshots.md`).
 6. **Give it a trigger in the doctrine** (`render_card_doctrine` in

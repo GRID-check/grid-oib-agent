@@ -13,6 +13,7 @@ from pathlib import Path
 
 from knowledge_layer.deferred_files import ORIGINAL_DOWNLOAD_FAILED
 from knowledge_layer.llamaindex.adapter import unreadable_pdf_verdict
+from knowledge_layer.llamaindex.screening import QUARANTINED_PREFIX
 from knowledge_layer.llamaindex.transcription import SCAN_NEEDS_VLM
 from knowledge_layer.renditions import OFFICE_RENDITION_REQUIRED
 
@@ -68,6 +69,8 @@ def test_the_known_failure_constants_each_have_a_ui_category():
         INTERRUPTED_MESSAGE,
         SCAN_NEEDS_VLM,
         pages_verdict,
+        # One word, so the reason scan below cannot see it: named here instead.
+        QUARANTINED_PREFIX,
     )
     assert {_prefix(message) for message in messages} <= _ts_prefixes()
 
