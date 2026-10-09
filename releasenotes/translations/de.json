@@ -2064,6 +2064,10 @@
     "de": "Der leere Chat-Bildschirm wirkt ruhiger. Das Badge, das jeden neuen Chat als privaten Arbeitsbereich gekennzeichnet hat, ist verschwunden, da jeder Chat so beginnt. Auch die Bedienelemente über der Begrüßung befinden sich nicht mehr in einem Panel, dem nichts gegenübersteht."
   },
   {
+    "en": "The end of an answer no longer shows a hard cut and stray marks just above the question field.",
+    "de": "Am Ende einer Antwort gibt es keinen abrupten Schnitt und keine vereinzelten Zeichen mehr direkt über dem Fragenfeld."
+  },
+  {
     "en": "The exported report is now presented as a Piloti document, with a cover page, a running header and page numbers, and it includes the answer cards that until now existed only on screen.",
     "de": "Der exportierte Bericht wird nun als Piloti-Dokument mit Deckblatt, fortlaufender Kopfzeile und Seitenzahlen ausgegeben und enthält auch die Antwortkarten, die bisher nur am Bildschirm zu sehen waren."
   },
@@ -2542,6 +2546,10 @@
   {
     "en": "While Piloti works, its thinking indicator and the lines of the Herleitung no longer strain a phone.",
     "de": "Solange Piloti arbeitet, belasten der Hinweis „denkt nach“ und die Linien der Herleitung das Telefon nicht mehr."
+  },
+  {
+    "en": "While Piloti works, the Herleitung shows its whole reasoning graph again, with a spinning icon and moving connectors, instead of a cut-off window.",
+    "de": "Während Piloti arbeitet, zeigt die Herleitung wieder den vollständigen Begründungsgraphen mit einem rotierenden Symbol und beweglichen Verbindungslinien statt eines abgeschnittenen Fensters."
   },
   {
     "en": "While a run is going, Dokument hinzufügen adds another document, and the block shows whether each named document was read. A report names any it did not reach.",

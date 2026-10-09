@@ -249,6 +249,14 @@
               "de": "Lange Antworten und Tabellen werden ohne Verzögerung gestreamt. Bisher dauerte das Lesen mit jeder geschriebenen Zeile länger, wodurch andere Chats auf demselben Server aufgehalten werden konnten, während eine lange Antwort erstellt wurde."
             },
             {
+              "en": "While Piloti works, the Herleitung shows its whole reasoning graph again, with a spinning icon and moving connectors, instead of a cut-off window.",
+              "de": "Während Piloti arbeitet, zeigt die Herleitung wieder den vollständigen Begründungsgraphen mit einem rotierenden Symbol und beweglichen Verbindungslinien statt eines abgeschnittenen Fensters."
+            },
+            {
+              "en": "The end of an answer no longer shows a hard cut and stray marks just above the question field.",
+              "de": "Am Ende einer Antwort gibt es keinen abrupten Schnitt und keine vereinzelten Zeichen mehr direkt über dem Fragenfeld."
+            },
+            {
               "en": "Scheduled research reports are filed into the project again in organizations whose features are switched on individually; they had been held back.",
               "de": "Geplante Rechercheberichte werden in Organisationen, in denen Funktionen individuell aktiviert werden, wieder im Projekt abgelegt; bisher wurden sie zurückgehalten."
             },
