@@ -34,7 +34,7 @@
  *    org degrades to exactly the previous behaviour.
  */
 
-import type { FC } from 'react'
+import { type FC, useMemo, useState } from 'react'
 import { ShimmerText } from '@/components/ui/shimmer-text'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
 import { AgentResponse } from '@/features/chat/components/AgentResponse'
@@ -50,15 +50,59 @@ export interface SpectatedTurnProps {
   turn: TurnView
   /** "Piloti is answering Anna's question…" — resolved by the caller, which owns the roster. */
   label: string
+  /**
+   * When the turn started, if the caller knows (the question's timestamp), so
+   * the Herleitung's figure counts what the asker's does rather than from the
+   * moment this observer arrived.
+   */
+  since?: Date | string | number
   className?: string
 }
 
-export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }) => {
+/**
+ * The text an observer who joined in the middle of the answer must not show
+ * yet: the fragment they arrived to, which starts mid-sentence (or mid-word).
+ * A view that saw the turn begin carries the answer's id from `RUN_STARTED`;
+ * one that did not, and whose first sight of the turn already held text,
+ * holds that text back until the whole answer replaces it: a
+ * `STATE_SNAPSHOT` (text from the start again) or the terminal.
+ */
+const useJoinedMidText = (turn: TurnView): string | null => {
+  const [seen, setSeen] = useState<{ turnId: string; fragment: string | null; sawEmpty: boolean }>(() => ({
+    turnId: turn.turnId,
+    fragment: turn.messageId === undefined && turn.text ? turn.text : null,
+    sawEmpty: !turn.text,
+  }))
+  if (seen.turnId !== turn.turnId) {
+    setSeen({
+      turnId: turn.turnId,
+      fragment: turn.messageId === undefined && turn.text ? turn.text : null,
+      sawEmpty: !turn.text,
+    })
+    return null
+  }
+  const fragment = seen.fragment
+  if (fragment !== null && (turn.phase !== 'running' || !turn.text.startsWith(fragment))) {
+    // Replaced by the whole answer: from here the text is the answer's own.
+    setSeen({ ...seen, fragment: null })
+    return null
+  }
+  return fragment
+}
+
+export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, since, className }) => {
   const t = useTranslations('collaboration')
   const done = turn.phase !== 'running'
   const waitingOn = turn.interaction?.text
-  const cards = observerCards(turn)
-  const answerMeta = sanitizeAnswerMeta(turn.answerMeta) ?? undefined
+  // Memoised on the view's own fields, which the fold replaces only when they
+  // change: rebuilt per render, every frame handed the answer new cards,
+  // masthead and citations, and it re-rendered them all.
+  const cards = useMemo(() => observerCards(turn), [turn.cards]) // eslint-disable-line react-hooks/exhaustive-deps
+  const answerMeta = useMemo(() => sanitizeAnswerMeta(turn.answerMeta) ?? undefined, [turn.answerMeta])
+  const citations = useMemo(() => citationsFromWireList(turn.sources), [turn.sources])
+  const heldFragment = useJoinedMidText(turn)
+  const text = heldFragment !== null ? '' : turn.text
+  const hasSteps = turn.stepOrder.length > 0
 
   return (
     <div
@@ -74,8 +118,10 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
       <div className="flex items-center gap-2">
         {/* The shimmer says "still working". It stops the moment the terminal
             frame lands, so the last second before the persisted answer swaps in
-            does not look like a stall. */}
-        <ShimmerText active={!done} className="text-foreground text-xs font-medium">
+            does not look like a stall. And only while there is no Herleitung:
+            its header carries the turn's one ambient loop, as it does for the
+            asker, and two shimmers stacked were two. */}
+        <ShimmerText active={!done && !hasSteps} className="text-foreground text-xs font-medium">
           {label}
         </ShimmerText>
       </div>
@@ -83,8 +129,16 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
       {/* The reasoning chain, in the same panel the asker gets. Collapsed by
       default: an observer opting in to the detail is a click, an observer having
       it forced on them is noise in someone else's conversation. */}
-      {turn.stepOrder.length > 0 && (
-        <ChatThinking steps={orderedSteps(turn)} isThinking={!done} isWaiting={Boolean(waitingOn)} />
+      {hasSteps && (
+        <ChatThinking
+          steps={orderedSteps(turn)}
+          isThinking={!done}
+          isWaiting={Boolean(waitingOn)}
+          // Once the answer is being written the caret is the loop, and the
+          // header names the panel instead of shimmering an activity.
+          answering={Boolean(text || answerMeta)}
+          since={since}
+        />
       )}
 
       {/* Piloti put a question to the asker. Stated, not offered. */}
@@ -98,12 +152,12 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
         <p className="text-muted-foreground text-xs">{t('thread.spectatorFailed')}</p>
       )}
 
-      {(turn.text || answerMeta || cards?.some((card) => card !== undefined)) && (
+      {(text || answerMeta || cards?.some((card) => card !== undefined)) && (
         <AgentResponse
-          content={turn.text}
+          content={text}
           isStreaming={!done}
           answerMeta={answerMeta}
-          citations={citationsFromWireList(turn.sources)}
+          citations={citations}
           cards={cards}
           readOnly
         />

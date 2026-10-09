@@ -69,6 +69,8 @@ describe('a long :::check', () => {
     expect(rows).toHaveLength(2)
     expect(rows[1].textContent).not.toContain('not met')
     expect(container.querySelector('[data-testid="status-tally"]')).toBeNull()
+    // …but holds its line, so the tally fades in where the rows already are.
+    expect(container.querySelector('[data-testid="status-tally-reserve"]')).not.toBeNull()
   })
 })
 

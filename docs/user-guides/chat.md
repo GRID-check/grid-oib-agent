@@ -8,6 +8,8 @@ On small screens (below the `md` breakpoint) the chat is mobile-first: the sessi
 
 Click **New chat** in the chat-history panel (left) or the quiet **New chat** button in the thread header to start a fresh conversation. On an empty thread the chat shows a time-of-day greeting (with your first name when available). Type your message in the composer at the bottom of the screen and press Enter. The first user message sets the conversation title (truncated to 50 characters).
 
+While Piloti answers, the composer stays open, so you can write the next question as you read (the placeholder says *Type your next question …*). Enter does nothing until the answer has settled: the button is **Stop** until then and turns back into **Send** when it is done. Esc stops the answer and keeps whatever you have typed. While a colleague's question is being answered in a shared chat, the composer stays locked.
+
 ## Thread header
 
 The header is two floating pills, split by what they are for.

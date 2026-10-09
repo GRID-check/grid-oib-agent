@@ -7,6 +7,7 @@ import {
   formatCount,
   formatCredits,
   formatDate,
+  formatDayRange,
   formatDurationElapsed,
   formatDurationShort,
   formatEur,
@@ -47,6 +48,25 @@ describe('formatDate', () => {
     expect(formatDate('2026-08-01T09:00:00Z', 'en')).toBe('Aug 1, 2026')
     expect(formatDate('2026-08-01T09:00:00Z', 'de')).toBe('01.08.2026')
     expect(formatDate('not a date', 'en')).toBe('not a date')
+  })
+})
+
+describe('formatDayRange', () => {
+  test('an inclusive range of UTC days in the locale range form', () => {
+    expect(formatDayRange('2026-09-01', '2026-09-30', 'de')).toBe('1.–30. Sept. 2026')
+    // English sets the dash between thin spaces (U+2009); ICU decides, not us.
+    expect(formatDayRange('2026-09-01', '2026-09-30', 'en')).toBe('Sep 1\u2009–\u200930, 2026')
+    expect(formatDayRange('2026-12-15', '2027-01-10', 'de')).toMatch(
+      /^15\. Dez\. 2026\s–\s10\. Jan\. 2027$/
+    )
+  })
+
+  test('one day prints once', () => {
+    expect(formatDayRange('2026-09-01', '2026-09-01', 'de')).toBe('1. Sept. 2026')
+  })
+
+  test('falls back to the raw days for unparseable input', () => {
+    expect(formatDayRange('nope', '2026-09-01', 'en')).toBe('nope – 2026-09-01')
   })
 })
 

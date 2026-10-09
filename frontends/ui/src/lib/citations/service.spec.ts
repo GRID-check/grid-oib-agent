@@ -37,8 +37,9 @@ import * as repository from './repository'
 import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
 import { getKnowledgeBaseStatus } from '@/lib/knowledge/service'
 import { getNormRegistry } from '@/lib/norms/service'
-import { clampWindowDays, getCitationHealth, recordCitationEvents } from './service'
+import { getCitationHealth, recordCitationEvents } from './service'
 import type { CitationEvent } from '@/lib/db/schema'
+import type { QualityScope } from '@/lib/quality/scope'
 
 const mocked = {
   insert: vi.mocked(repository.insertCitationEvents),
@@ -85,6 +86,14 @@ function withEmptyRepository(): void {
   vi.mocked(getNormRegistry).mockResolvedValue({ registry: { entries: [] } } as never)
 }
 
+/** A scope of UTC days, every organization and project unless named. */
+function scope(from: string, to: string, overrides: Partial<QualityScope> = {}): QualityScope {
+  return { from, to, organizationIds: [], projectIds: [], ...overrides }
+}
+
+/** The last 30 days ending on the frozen "today", 2026-07-28. */
+const LAST_30 = scope('2026-06-29', '2026-07-28')
+
 function event(overrides: Partial<CitationEvent> = {}): CitationEvent {
   return {
     id: 'row_1',
@@ -114,19 +123,6 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('clampWindowDays', () => {
-  it('defaults to 30 for missing or non-numeric input', () => {
-    expect(clampWindowDays(undefined)).toBe(30)
-    expect(clampWindowDays(Number.NaN)).toBe(30)
-  })
-
-  it('clamps to the supported 1–90 day range', () => {
-    expect(clampWindowDays(0)).toBe(1)
-    expect(clampWindowDays(7)).toBe(7)
-    expect(clampWindowDays(365)).toBe(90)
-  })
-})
-
 describe('recordCitationEvents', () => {
   it('delegates straight to the repository', async () => {
     mocked.insert.mockResolvedValue(2)
@@ -138,16 +134,54 @@ describe('recordCitationEvents', () => {
 
 describe('getCitationHealth', () => {
   it('reports a fully clean window when nothing was observed', async () => {
-    const snapshot = await getCitationHealth()
+    const snapshot = await getCitationHealth(LAST_30)
     // No traffic must never read as "everything is broken".
     expect(snapshot.totals).toMatchObject({ turns: 0, defectTurns: 0, cleanTurns: 0, cleanRate: 1 })
     expect(snapshot.byKind).toEqual([])
   })
 
-  it('queries the window starting at UTC midnight, windowDays-1 days back', async () => {
-    await getCitationHealth({ days: 7 })
-    // 2026-07-28 minus 6 days, at 00:00 UTC.
-    expect(mocked.observed).toHaveBeenCalledWith(new Date('2026-07-22T00:00:00.000Z'))
+  it('reads every aggregate in the same scope: UTC day bounds plus organizations and projects', async () => {
+    const scoped = scope('2026-09-01', '2026-09-30', {
+      organizationIds: ['org_1', 'org_2'],
+      projectIds: ['0f0f0f0f-0000-4000-8000-0000000000a1'],
+    })
+    const snapshot = await getCitationHealth(scoped)
+
+    const filter = {
+      start: new Date('2026-09-01T00:00:00.000Z'),
+      // Exclusive: the whole of 30 September is in, 1 October is not.
+      endExclusive: new Date('2026-10-01T00:00:00.000Z'),
+      organizationIds: ['org_1', 'org_2'],
+      projectIds: ['0f0f0f0f-0000-4000-8000-0000000000a1'],
+    }
+    for (const query of [
+      mocked.observed,
+      mocked.defective,
+      mocked.byKind,
+      mocked.dailyKind,
+      mocked.dailyTurns,
+      mocked.reasons,
+      mocked.sourceMix,
+      mocked.unavailableTools,
+      mocked.byOrg,
+      mocked.recent,
+      mocked.failedTargets,
+    ]) {
+      expect(query).toHaveBeenCalledWith(filter)
+    }
+    expect(snapshot.scope).toEqual(scoped)
+    expect(snapshot.windowDays).toBe(30)
+  })
+
+  it('buckets the trend for each day of a past range, not a window ending today', async () => {
+    mocked.dailyTurns.mockResolvedValue([{ day: '2026-07-02', turns: 4, defectTurns: 1 }])
+    const snapshot = await getCitationHealth(scope('2026-07-01', '2026-07-03'))
+    expect(snapshot.dailyTrend.map((point) => point.day)).toEqual([
+      '2026-07-01',
+      '2026-07-02',
+      '2026-07-03',
+    ])
+    expect(snapshot.dailyTrend[1]).toMatchObject({ turns: 4, defectTurns: 1 })
   })
 
   it('derives the clean rate from distinct observed turns, not baseline rows', async () => {
@@ -161,7 +195,7 @@ describe('getCitationHealth', () => {
       { kind: 'registry_empty', turns: 2, items: 2 },
     ])
 
-    const snapshot = await getCitationHealth()
+    const snapshot = await getCitationHealth(LAST_30)
     expect(snapshot.totals.turns).toBe(100)
     expect(snapshot.totals.cleanTurns).toBe(80)
     expect(snapshot.totals.cleanRate).toBeCloseTo(0.8)
@@ -177,7 +211,7 @@ describe('getCitationHealth', () => {
       { kind: 'citations_removed', turns: 11, items: 30 },
     ])
 
-    const snapshot = await getCitationHealth()
+    const snapshot = await getCitationHealth(LAST_30)
     expect(snapshot.byKind.map((row) => row.kind)).toEqual([
       'citations_removed',
       'quote_unverified',
@@ -193,7 +227,7 @@ describe('getCitationHealth', () => {
       { day: '2026-07-27', kind: 'quote_unverified', turns: 2 },
     ])
 
-    const snapshot = await getCitationHealth({ days: 3 })
+    const snapshot = await getCitationHealth(scope('2026-07-26', '2026-07-28'))
     expect(snapshot.dailyTrend.map((point) => point.day)).toEqual([
       '2026-07-26',
       '2026-07-27',
@@ -220,7 +254,7 @@ describe('getCitationHealth', () => {
       { day: '2026-07-28', kind: 'quote_unverified', turns: 2 },
     ])
 
-    const snapshot = await getCitationHealth({ days: 1 })
+    const snapshot = await getCitationHealth(scope('2026-07-28', '2026-07-28'))
     expect(snapshot.dailyTrend[0].defectTurns).toBe(6)
   })
 
@@ -231,7 +265,7 @@ describe('getCitationHealth', () => {
       { kind: 'citations_removed', reason: 'duplicate', occurrences: 10 },
     ])
 
-    const snapshot = await getCitationHealth()
+    const snapshot = await getCitationHealth(LAST_30)
     expect(snapshot.reasons[0].share).toBeCloseTo(0.75)
     expect(snapshot.reasons[1].share).toBeCloseTo(0.25)
   })
@@ -252,7 +286,7 @@ describe('getCitationHealth', () => {
       { kind: 'citations_removed', reason: 'duplicate', occurrences: 10 },
     ])
 
-    const snapshot = await getCitationHealth()
+    const snapshot = await getCitationHealth(LAST_30)
     const removed = snapshot.reasons.find((row) => row.reason === 'url_not_in_registry')
     expect(removed?.share).toBeCloseTo(0.75)
     expect(snapshot.reasons.find((row) => row.kind === 'confidence_capped')?.share).toBeCloseTo(1)
@@ -270,7 +304,7 @@ describe('getCitationHealth', () => {
     })
     withNames({ org_big: 'Bauwerk' })
 
-    const snapshot = await getCitationHealth()
+    const snapshot = await getCitationHealth(LAST_30)
     // A single bad turn at 100 % must not outrank 50 bad turns at 10 %.
     expect(snapshot.organizations.map((org) => org.organizationId)).toEqual([
       'org_big',
@@ -299,7 +333,7 @@ describe('getCitationHealth', () => {
     mocked.byOrg.mockResolvedValue({ rows: [...busy, outlier], total: 61 })
     withNames({ org_outlier: 'Statik Nord' })
 
-    const snapshot = await getCitationHealth()
+    const snapshot = await getCitationHealth(LAST_30)
     expect(snapshot.organizations).toHaveLength(50)
     expect(snapshot.organizationsTotal).toBe(61)
     const finding = snapshot.findings.find((entry) => entry.id === 'organization_outlier')
@@ -325,7 +359,7 @@ describe('getCitationHealth', () => {
     mocked.failedTargets.mockResolvedValue({ rows, total: 1200 })
     mocked.targetTurns.mockResolvedValue(40)
 
-    const snapshot = await getCitationHealth()
+    const snapshot = await getCitationHealth(LAST_30)
     expect(snapshot.missingSources).toHaveLength(25)
     expect(snapshot.missingSourcesTotal).toBe(1200)
     const missing = snapshot.findings.find((entry) => entry.id === 'sources_missing')
@@ -341,7 +375,7 @@ describe('getCitationHealth', () => {
       total: 11,
     })
 
-    const snapshot = await getCitationHealth()
+    const snapshot = await getCitationHealth(LAST_30)
     expect(
       snapshot.findings.find((entry) => entry.id === 'retrieval_unavailable')?.metrics.tools
     ).toBe(11)
@@ -362,7 +396,7 @@ describe('getCitationHealth', () => {
       } as never)
       mocked.failedTargets.mockResolvedValue({ rows: [heldDocument], total: 1 })
 
-      const snapshot = await getCitationHealth()
+      const snapshot = await getCitationHealth(LAST_30)
       expect(snapshot.inventoryKnown).toBe(true)
       expect(snapshot.missingSources[0]).toMatchObject({
         present: true,
@@ -378,7 +412,7 @@ describe('getCitationHealth', () => {
       mocked.defective.mockResolvedValue(9)
       mocked.failedTargets.mockResolvedValue({ rows: [heldDocument], total: 1 })
 
-      const snapshot = await getCitationHealth()
+      const snapshot = await getCitationHealth(LAST_30)
       expect(snapshot.inventoryKnown).toBe(false)
       expect(snapshot.missingSources[0]).toMatchObject({
         present: null,
@@ -400,7 +434,7 @@ describe('getCitationHealth', () => {
         total: 1,
       })
 
-      const snapshot = await getCitationHealth()
+      const snapshot = await getCitationHealth(LAST_30)
       expect(snapshot.inventoryKnown).toBe(false)
       expect(snapshot.missingSources[0]).toMatchObject({
         present: false,
@@ -412,7 +446,7 @@ describe('getCitationHealth', () => {
   it('serializes recent defects with ISO timestamps and the profiler turn id', async () => {
     mocked.recent.mockResolvedValue([event()])
 
-    const snapshot = await getCitationHealth()
+    const snapshot = await getCitationHealth(LAST_30)
     expect(snapshot.recent[0]).toEqual({
       id: 'row_1',
       createdAt: '2026-07-20T10:00:00.000Z',

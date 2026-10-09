@@ -32,11 +32,23 @@ import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { FolderClearance } from '@/lib/authz/folder-access'
+import { NO_RATINGS_FILTERS, type FeedbackQuery } from '@/lib/feedback/filters'
 
 vi.mock('server-only', () => ({}))
 
 const STAMP = Date.now()
 const ORG = `org_ruse_${STAMP}`
+
+/** This organization's down-votes, over a range that holds every seeded vote. */
+const DOWN_IN_ORG: FeedbackQuery = {
+  scope: {
+    from: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
+    to: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+    organizationIds: [ORG],
+    projectIds: [],
+  },
+  ratings: { ...NO_RATINGS_FILTERS, verdict: 'down' },
+}
 const OTHER_ORG = `${ORG}_other`
 /** Owner of every chat here, cleared for the restricted folder. */
 const OWNER = `user_ruse_owner_${STAMP}`
@@ -515,7 +527,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     const { listFeedbackTurns, isRestrictedUseVote } = await import('@/lib/feedback/repository')
     const { listUnprocessedDownvotes } = await import('@/lib/platform-lessons/repository')
     const turns = await withPlatformAccess('test: feedback drill-in', () =>
-      listFeedbackTurns({ organizationId: ORG, verdict: 'down' })
+      listFeedbackTurns(DOWN_IN_ORG)
     )
     const reports = (await withPlatformAccess('test: lessons input', () => listUnprocessedDownvotes(500))).filter(
       (report) => report.organizationId === ORG

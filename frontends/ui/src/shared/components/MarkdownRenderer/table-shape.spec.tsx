@@ -252,3 +252,106 @@ function cell(text: string): Element {
     children: [{ type: 'text', value: text }],
   }
 }
+
+describe('a table still arriving', () => {
+  /** CHECK cut inside its last row, the way the reveal shows it. */
+  const ARRIVING = `${CHECK}\n| Stiege | R 30 |`
+
+  it('draws no tally while it streams, but holds the tally’s line', () => {
+    render(<MarkdownRenderer content={ARRIVING} isStreaming />)
+    expect(screen.queryByTestId('status-tally')).toBeNull()
+    expect(screen.getByTestId('status-tally-reserve')).toBeInTheDocument()
+  })
+
+  it('lifts no column while it streams: the next row could cite something else', () => {
+    const { container } = render(<MarkdownRenderer content={ARRIVING} isStreaming />)
+    expect(container.querySelector('caption')).toBeNull()
+    expect(container.querySelectorAll('th')).toHaveLength(4)
+  })
+
+  it('keeps its decisions from one token to the next while a row fills cell by cell', () => {
+    const shapes = ['| Stiege |', '| Stiege | R 30 |', '| Stiege | R 30 | erf', '| Stiege | R 30 | erfüllt |'].map((row) => {
+      const { container, unmount } = render(<MarkdownRenderer content={`${CHECK}\n${row}`} isStreaming />)
+      const table = container.querySelector('table')!
+      const shape = {
+        columns: container.querySelectorAll('th').length,
+        reserve: screen.queryByTestId('status-tally-reserve') !== null,
+        stack: table.getAttribute('data-stack'),
+        numeric: [...container.querySelectorAll('th')].map((th) => th.className.includes('text-right')),
+      }
+      unmount()
+      return JSON.stringify(shape)
+    })
+    expect(new Set(shapes).size).toBe(1)
+  })
+
+  it('stacks a table of its header alone as it will once its rows come', () => {
+    // Undecided, a phone drew the header as a table row for a frame, then hid
+    // it and restacked at the first row.
+    const head = CHECK.split('\n').slice(0, 2).join('\n')
+    const stackOf = (content: string) => {
+      const { container, unmount } = render(<MarkdownRenderer content={content} isStreaming />)
+      const stack = container.querySelector('table')?.getAttribute('data-stack')
+      unmount()
+      return stack
+    }
+    expect(stackOf(head)).toBe('true')
+    expect(stackOf(`${head}\n| Stiege |`)).toBe('true')
+  })
+
+  it('holds the tally’s line from the header on, before the first row', () => {
+    // Held only from the first row, the line pushed the header down by a row.
+    const head = CHECK.split('\n').slice(0, 2).join('\n')
+    render(<MarkdownRenderer content={head} isStreaming />)
+    expect(screen.getByTestId('status-tally-reserve')).toBeInTheDocument()
+  })
+
+  it('gives a cell not yet written the line its first word will take', () => {
+    // A stacked row on a phone grew as each padded cell got its word.
+    const { container } = render(<MarkdownRenderer content={`${CHECK}\n| Stiege |`} isStreaming />)
+    const cells = [...container.querySelectorAll('tbody tr:last-child td')]
+    expect(cells[0].textContent).toBe('Stiege')
+    expect(cells.slice(1).map((cell) => cell.textContent)).toEqual(['\u200B', '\u200B', '\u200B'])
+  })
+
+  it('draws the rule between two rows on the lower one, so an arriving row moves none above it', () => {
+    const { container } = render(<MarkdownRenderer content={ARRIVING} isStreaming />)
+    for (const row of container.querySelectorAll('tbody tr')) {
+      expect(row.className).toContain('border-t first:border-t-0')
+      expect(row.className).not.toMatch(/\bborder-b\b/)
+    }
+  })
+
+  it('shapes a table followed by more text as finished, though the text streams', () => {
+    const { container } = render(<MarkdownRenderer content={`${CHECK}\n\nDanach folgt`} isStreaming />)
+    expect(screen.getByTestId('status-tally')).toBeInTheDocument()
+    expect(container.querySelector('caption')).not.toBeNull()
+  })
+
+  describe('closing with no tally after all', () => {
+    // Two rows are too few to count (a tally starts at three), so the line the
+    // open table held stays empty. Dropping it at the close pulled the table up
+    // by a row in the frame it finished.
+    const SHORT = CHECK.split('\n').slice(0, 4).join('\n')
+
+    it('keeps the held line where the table streamed', () => {
+      const { rerender } = render(<MarkdownRenderer content={`${SHORT}\n| Stiege | R 30 |`} isStreaming />)
+      expect(screen.getByTestId('status-tally-reserve')).toBeInTheDocument()
+
+      rerender(<MarkdownRenderer content={SHORT} />)
+      expect(screen.queryByTestId('status-tally')).toBeNull()
+      expect(screen.getByTestId('status-tally-reserve')).toBeInTheDocument()
+    })
+
+    it('draws no empty line for the same table loaded finished', () => {
+      render(<MarkdownRenderer content={SHORT} />)
+      expect(screen.queryByTestId('status-tally-reserve')).toBeNull()
+    })
+
+    it('holds no line once a written row says no status word', () => {
+      const plain = `${SHORT}\n| Stiege | R 30 | siehe Plan | [1] |\n| Dach |`
+      render(<MarkdownRenderer content={plain} isStreaming />)
+      expect(screen.queryByTestId('status-tally-reserve')).toBeNull()
+    })
+  })
+})

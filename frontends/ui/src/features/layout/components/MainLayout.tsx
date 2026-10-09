@@ -22,6 +22,7 @@ import { useIsMobile } from '@/hooks/use-is-mobile'
 import { ChatToolbar } from './ChatToolbar'
 import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
+import { ComposerScrim } from './ComposerScrim'
 import { InputArea } from './InputArea'
 import { RightsLostPanel } from './RightsLostPanel'
 import { useChatStore, NoSourcesBanner } from '@/features/chat'
@@ -32,6 +33,7 @@ import { useFilePreviewStore } from '@/features/documents/stores/file-preview-st
 import { useComposerMetrics } from '../hooks/use-composer-metrics'
 import { useSessionRows } from '../hooks/use-session-rows'
 import { motion } from '@/components/motion'
+import { selectThreadPhase } from '../lib/thread-phase'
 
 interface MainLayoutProps {
   /** Whether the user is authenticated */
@@ -88,9 +90,10 @@ export const MainLayout: FC<MainLayoutProps> = ({
   // Only what the layout shows, never the conversation objects themselves:
   // a streamed answer replaces the open conversation on every delta, and the
   // whole shell would re-render with each one. How many messages the thread
-  // holds decides two separate things — whether the toolbar calls the chat
-  // started, and whether the composer is lifted off the floor into the empty
-  // canvas — so it is read once, here.
+  // holds decides whether the toolbar calls the chat started; whether the
+  // composer is lifted off the floor into the empty canvas is the thread's
+  // PHASE, the same selector `ChatArea` draws the greeting from, so a thread
+  // whose messages are still loading keeps the composer down.
   const {
     currentConversationId,
     currentConversationTitle,
@@ -112,6 +115,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
       projectId: s.projectId,
     }))
   )
+  const isThreadEmpty = useChatStore((s) => selectThreadPhase(s) === 'empty')
   const sessions = useSessionRows()
 
   const selectConversation = useChatStore((s) => s.selectConversation)
@@ -130,9 +134,8 @@ export const MainLayout: FC<MainLayoutProps> = ({
   // Composer geometry (--composer-h, --welcome-offset, and the lift the stack
   // travels on) — see useComposerMetrics.
   // Shared with the /dev preview route so the two cannot drift.
-  const { composerRef, columnVars, composerStyle, composerMotion } = useComposerMetrics(
-    messageCount === 0
-  )
+  const { composerRef, columnVars, composerStyle, composerMotion } =
+    useComposerMetrics(isThreadEmpty)
 
   // Sync session state with URL query parameters
   const { updateSessionUrl, clearSessionUrl } = useSessionUrl({ isAuthenticated })
@@ -268,19 +271,8 @@ export const MainLayout: FC<MainLayoutProps> = ({
                 canCollaborate={canCollaborate}
               />
 
-              {/* Bottom fade scrim — the mirror of the top one, behind the floating
-              composer. Without it the last message stopped at a hard edge
-              exactly where the composer's own surface began: two opaque,
-              same-width, same-radius panels stacked flush, reading as one
-              collided block rather than a transcript with an input floating
-              over it. This dissolves the message column into the composer's
-              glass instead. Taller than the top scrim (h-40 vs h-24): the
-              composer is a multi-line card, not a slim pill row, so the
-              gradient needs more room to resolve before its edge. */}
-              <div
-                aria-hidden="true"
-                className="from-background pointer-events-none absolute inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-[2.5rem] to-transparent"
-              />
+              {/* The scrims under and above the floating composer (`ComposerScrim`). */}
+              <ComposerScrim threadEmpty={isThreadEmpty} />
 
               {/* Floating composer stack: overlays the bottom of the chat scroll
               area instead of docking below it, so messages scroll behind the
