@@ -98,9 +98,9 @@ body {
    + `[animation-fill-mode:backwards]` holds the element at its *from* keyframe
    (opacity 0) for the whole delay; with the duration zeroed the element then
    snaps in, so the only thing the reader experiences is N milliseconds of
-   nothing. The answer meta row in AgentResponse.tsx does exactly this at 120ms,
-   and its source chips stagger on top of that out to ~240ms — a quarter of a
-   second of invisible content for the one reader who asked for LESS motion.
+   nothing. The answer's source chips once did exactly this, staggered out to
+   ~240ms behind a delayed meta row — a quarter of a second of invisible
+   content for the one reader who asked for LESS motion.
    Zeroing the delay is therefore not a nicety, it is the correctness half of
    the rule; `transition-delay` is the same bug on the transition side. */
 @media (prefers-reduced-motion: reduce) {
@@ -693,9 +693,12 @@ body {
 }
 
 /* The three dots of a turn waiting for its first step: a slow left-to-right
-   wave. The delays stay under the period, so the dots rise in order; at the
-   180 ms `--motion-quick` period a 240 ms delay wrapped, and the dots jittered
-   in the order 2, 1, 3. */
+   wave on the ambient loop (`--motion-ambient`, `--ease-cycle`), like every
+   other indeterminate loop here. The stagger lives in the utility, as a tenth
+   of the period per dot, so the delays scale with the token and always stay
+   under the period: at the 180 ms `--motion-quick` period a 240 ms delay
+   wrapped, and the dots jittered in the order 2, 1, 3. Callers put three
+   sibling dots side by side and write no `[animation-delay:…]` of their own. */
 @keyframes grid-typing-dot {
   0%,
   60%,
@@ -710,7 +713,15 @@ body {
 }
 
 @utility animate-typing-dot {
-  animation: grid-typing-dot 1.2s ease-in-out infinite;
+  animation: grid-typing-dot var(--motion-ambient) var(--ease-cycle) infinite;
+
+  &:nth-child(2) {
+    animation-delay: calc(var(--motion-ambient) / 10);
+  }
+
+  &:nth-child(3) {
+    animation-delay: calc(var(--motion-ambient) / 5);
+  }
 }
 
 @keyframes grid-progress-sweep {
@@ -722,9 +733,37 @@ body {
   }
 }
 
-/* A short highlight that repeatedly sweeps left→right inside its track. */
+/* A short highlight that repeatedly sweeps left→right inside its track. The
+   curve was `--ease-cycle` written out as a literal bezier; it is the token now,
+   on the ambient period, so a retune of the loop reaches it. */
 @utility animate-progress-sweep {
-  animation: grid-progress-sweep 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  animation: grid-progress-sweep var(--motion-ambient) var(--ease-cycle) infinite;
+}
+
+/* The streaming caret: a calm breath, not a blink. Opacity only (the compositor
+   runs it, and it moves nothing beside it), 1 → 0.35 → 1 on the ambient period
+   and the loop curve. `animate-pulse` was the caret before, and Tailwind's pulse
+   is 2s of cubic-bezier(0.4, 0, 0.6, 1) down to 0.5 — off the motion scale and
+   outside the vocabulary the lint rule enforces. It counts as the viewport's one
+   ambient loop while an answer streams, so nothing else should loop beside it.
+   Callers add `motion-reduce:animate-none`; the global reduced-motion block
+   below also collapses it, and the 100% keyframe leaves the caret at full ink. */
+@keyframes grid-caret-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@utility animate-caret-breathe {
+  animation: grid-caret-breathe var(--motion-ambient) var(--ease-cycle) infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 }
 
 /* =============================================================================

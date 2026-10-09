@@ -74,6 +74,13 @@ const nextConfig: NextConfig = {
     minimumCacheTTL: 300,
   },
 
+  // Loaded from node_modules at runtime instead of bundled into the route that
+  // uses it (the answer-feedback workbook export). exceljs is CommonJS with
+  // ~60 dependencies (archiver, jszip, saxes, …) and circular requires, which
+  // the server bundle gains nothing from inlining; the production image ships
+  // node_modules (deploy/Dockerfile), so Node resolves it as it does in tests.
+  serverExternalPackages: ['exceljs'],
+
   experimental: {
     serverActions: {
       bodySizeLimit: `${requestBodyLimitMB}mb`,

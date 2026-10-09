@@ -196,6 +196,7 @@ delete. Reduce complexity, never features. That pass is part of done.
   [`docs/architecture/patterns-in-use.md`](docs/architecture/patterns-in-use.md).
 - Verification, CI sharding, the security stack, visual evidence:
   [`docs/contributing/testing-and-verification.md`](docs/contributing/testing-and-verification.md).
+- Lifecycle matrix: a change to a surface listed in `docs/design/lifecycles/` (the chat turn) updates its rows; the method, and the bar a new heavy surface must clear: [`docs/contributing/lifecycle-matrix.md`](docs/contributing/lifecycle-matrix.md).
 - Skills: `skills/` is the one source, `.claude/` and `.agents/` are generated.
   [`docs/contributing/agent-skills.md`](docs/contributing/agent-skills.md).
 - `configs/` model names are the boot fallback only. The live default is
