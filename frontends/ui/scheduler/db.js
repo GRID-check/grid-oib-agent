@@ -157,4 +157,103 @@ async function pruneOldRuns(sql, retentionDays) {
   return total
 }
 
-module.exports = { createSql, claimDue, pruneOldRuns, PRUNE_BATCH, PLATFORM_ROLE }
+/**
+ * How long after a chat was erased its traces are still looked for. The BFF
+ * erases a chat in the delete request and closes its queue row as 'purged';
+ * this is the window in which the scheduler goes back for the traces. Past it
+ * the retention sweep (`GRID_LANGFUSE_TRACE_RETENTION_DAYS`) is what removes
+ * them, so it need only outlast the longest outage worth recovering from.
+ */
+const TRACE_ERASURE_WINDOW_DAYS = 35
+/**
+ * How long a chat must have been gone before its traces are looked for. A turn
+ * still streaming when the chat was deleted exports spans for a little while
+ * afterwards, and an erasure that ran first would be stamped done and miss them.
+ */
+const TRACE_ERASURE_SETTLE_MINUTES = 15
+
+/**
+ * Conversations the BFF has erased (its queue row is 'purged') whose Langfuse
+ * traces have not been erased yet, oldest first. A chat the purger erased
+ * itself is in here too: its traces were just erased, the repeat is a list
+ * that finds nothing, and one code path is cheaper than a second one to tell
+ * them apart.
+ *
+ * A conversation under a legal hold is not returned: the hold keeps its traces,
+ * exactly as it keeps everything else (`grid_legal_hold_blocks`, the one
+ * predicate the purger and the BFF's deletes share). It becomes a candidate
+ * again, inside the window, once the hold is released.
+ *
+ * @param {object} sql  postgres.js client (or fake) exposing `.begin`
+ * @param {number} limit
+ * @returns {Promise<{ id: string, entity_id: string, organization_id: string }[]>}
+ */
+async function findConversationsAwaitingTraceErasure(sql, limit) {
+  return sql.begin(async (tx) => {
+    await enterPlatformScope(tx)
+    return tx`
+      SELECT q.id, q.entity_id, q.organization_id
+      FROM deletion_queue q
+      WHERE q.entity_type = 'conversation'
+        AND q.status = 'purged'
+        AND q.purged_at >= now() - make_interval(days => ${TRACE_ERASURE_WINDOW_DAYS})
+        AND q.purged_at <= now() - make_interval(mins => ${TRACE_ERASURE_SETTLE_MINUTES})
+        AND (q.payload IS NULL OR q.payload->>'langfuseTracesErasedAt' IS NULL)
+        AND NOT grid_legal_hold_blocks(q.entity_type, q.entity_id, q.organization_id)
+      ORDER BY q.purged_at
+      LIMIT ${limit}
+    `
+  })
+}
+
+/**
+ * The hold re-check made immediately before a conversation's traces are
+ * deleted: a hold placed since the candidates were read still keeps them.
+ *
+ * @param {object} sql
+ * @param {{ entity_id: string, organization_id: string }} row
+ * @returns {Promise<boolean>}
+ */
+async function conversationIsHeld(sql, row) {
+  const rows = await sql.begin(async (tx) => {
+    await enterPlatformScope(tx)
+    return tx`
+      SELECT grid_legal_hold_blocks('conversation', ${row.entity_id}, ${row.organization_id}) AS held
+    `
+  })
+  return rows[0]?.held === true
+}
+
+/**
+ * Record that a conversation's traces were erased, on its queue row
+ * (`payload.langfuseTracesErasedAt`), so no later run repeats it. A payload
+ * that is not a JSON object is replaced rather than appended to.
+ *
+ * @param {object} sql
+ * @param {string} queueId
+ * @returns {Promise<void>}
+ */
+async function markConversationTracesErased(sql, queueId) {
+  await sql.begin(async (tx) => {
+    await enterPlatformScope(tx)
+    await tx`
+      UPDATE deletion_queue
+      SET payload = (CASE WHEN jsonb_typeof(payload) = 'object' THEN payload ELSE '{}'::jsonb END)
+                    || jsonb_build_object('langfuseTracesErasedAt', now())
+      WHERE id = ${queueId}
+    `
+  })
+}
+
+module.exports = {
+  createSql,
+  claimDue,
+  pruneOldRuns,
+  findConversationsAwaitingTraceErasure,
+  conversationIsHeld,
+  markConversationTracesErased,
+  PRUNE_BATCH,
+  PLATFORM_ROLE,
+  TRACE_ERASURE_SETTLE_MINUTES,
+  TRACE_ERASURE_WINDOW_DAYS,
+}
