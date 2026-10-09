@@ -2056,6 +2056,14 @@
     "de": "Die Detailansicht zeigt, wo eine Datei auf Ihrem Büroserver lag, und ein Klick kopiert den Pfad, damit Sie am Original weiterarbeiten können."
   },
   {
+    "en": "The dots in the effort slider no longer seem to slide along with the handle. They now stay in place and grow denser as you turn the effort up.",
+    "de": "Die Punkte im Aufwand-Slider scheinen sich nicht mehr mit dem Regler zu bewegen. Sie bleiben jetzt an Ort und Stelle und werden dichter, wenn Sie den Aufwand erhöhen."
+  },
+  {
+    "en": "The effort slider now warns when it is set to Maximum, and the level chip in the composer turns amber while it is on. Maximum thinks much longer and costs far more tokens, and is rarely smarter than High.",
+    "de": "Der Effort-Slider warnt jetzt, wenn er auf Maximum eingestellt ist, und der Level-Chip im Composer wird währenddessen bernsteinfarben. Maximum rechnet deutlich länger und verbraucht wesentlich mehr Tokens, ist aber nur selten intelligenter als High."
+  },
+  {
     "en": "The empty chat no longer offers example questions or explains that answers cite their sources, and the composer no longer states that a plain message goes to Piloti. Mentioning a colleague works exactly as before, and the composer still names the recipient whenever it is not Piloti — when you have tagged someone, or when the chat is waiting on a person.",
     "de": "Im leeren Chat werden keine Beispielfragen mehr angezeigt und es wird nicht mehr erklärt, dass Antworten ihre Quellen zitieren. Im Eingabefeld steht auch nicht mehr, dass eine einfache Nachricht an Piloti geht. Jemanden zu erwähnen funktioniert wie bisher, und im Eingabefeld wird weiterhin der Empfänger genannt, wenn es nicht Piloti ist – wenn Sie jemanden markiert haben oder der Chat auf eine Person wartet."
   },

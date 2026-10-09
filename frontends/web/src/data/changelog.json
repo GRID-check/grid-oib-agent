@@ -51,6 +51,10 @@
               "de": "Das Archiv hat jetzt Ordner, wie bei den Dateien eines Projekts: Sie können Ordner erstellen, umbenennen, verschieben und löschen, eine ganze Ordnerstruktur hochladen und Dokumente zwischen Ordnern verschieben. Beim Löschen eines Ordners bleiben die darin enthaltenen Inhalte erhalten, und Piloti weiß, in welchem Ordner sich ein Dokument befindet."
             },
             {
+              "en": "The effort slider now warns when it is set to Maximum, and the level chip in the composer turns amber while it is on. Maximum thinks much longer and costs far more tokens, and is rarely smarter than High.",
+              "de": "Der Effort-Slider warnt jetzt, wenn er auf Maximum eingestellt ist, und der Level-Chip im Composer wird währenddessen bernsteinfarben. Maximum rechnet deutlich länger und verbraucht wesentlich mehr Tokens, ist aber nur selten intelligenter als High."
+            },
+            {
               "en": "Teammates can now follow and steer deep research runs in the projects they work in, including the runs of scheduled and shared tasks, not only their own. Anyone who can view a chat can follow a run in it, while stopping a run or adding a document to it still needs permission to chat in the project.",
               "de": "Teammitglieder können Deep-Research-Läufe in den Projekten, in denen sie arbeiten, jetzt verfolgen und steuern – auch Läufe geplanter und geteilter Aufgaben, nicht nur ihre eigenen. Wer einen Chat ansehen kann, kann darin einen Lauf verfolgen. Um einen Lauf zu stoppen oder ein Dokument hinzuzufügen, ist weiterhin die Berechtigung erforderlich, im Projekt zu chatten."
             },
@@ -215,6 +219,10 @@
             {
               "en": "Renaming or moving a folder that has subfolders no longer fails with an error.",
               "de": "Beim Umbenennen oder Verschieben eines Ordners mit Unterordnern tritt kein Fehler mehr auf."
+            },
+            {
+              "en": "The dots in the effort slider no longer seem to slide along with the handle. They now stay in place and grow denser as you turn the effort up.",
+              "de": "Die Punkte im Aufwand-Slider scheinen sich nicht mehr mit dem Regler zu bewegen. Sie bleiben jetzt an Ort und Stelle und werden dichter, wenn Sie den Aufwand erhöhen."
             },
             {
               "en": "Piloti in dark mode no longer flashes white while the page loads.",
