@@ -319,8 +319,10 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         className={cn(
-          // `h-dvh`, not `h-svh`: the app shell this rail sits in is `h-dvh`
-          // (`app/projects/[id]/layout.tsx`), and this element is `fixed` with
+          // The shell's height, not `h-svh`: the app shell this rail sits in is
+          // `h-[var(--visual-viewport-height,100dvh)]` (`useVisualViewport`:
+          // iOS keeps the layout viewport behind the keyboard, so `dvh` alone
+          // leaves the footer under it), and this element is `fixed` with
           // `inset-y-0` — over-constrained, so height wins and `bottom` is
           // dropped. Wherever `svh > dvh` (any browser with a retracting URL
           // bar) the mismatch pushed the rail's last rows, footer included,
@@ -335,7 +337,7 @@ function Sidebar({
           // while collapsed, so the rail leaves on `ease-exit` and returns on
           // `ease-entrance` — a departure accelerates away, an arrival decides
           // early and settles.
-          'fixed inset-y-0 z-10 hidden h-dvh w-(--sidebar-width) transition-transform duration-deliberate ease-entrance group-data-[collapsible=offcanvas]:ease-exit motion-reduce:transition-none md:flex',
+          'fixed inset-y-0 z-10 hidden h-[var(--visual-viewport-height,100dvh)] w-(--sidebar-width) transition-transform duration-deliberate ease-entrance group-data-[collapsible=offcanvas]:ease-exit motion-reduce:transition-none md:flex',
           side === 'left'
             ? 'left-0 group-data-[collapsible=offcanvas]:-translate-x-full'
             : 'right-0 group-data-[collapsible=offcanvas]:translate-x-full',

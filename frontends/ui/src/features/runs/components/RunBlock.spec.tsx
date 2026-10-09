@@ -374,7 +374,7 @@ describe('RunBlock — the line and the affordances', () => {
     expect(screen.getByTestId('run-review')).toHaveAttribute('data-decision', 'rejected')
   })
 
-  it('failed: the reason is in the line, what was done by then is in the body, Retry only when offered', () => {
+  it('failed: the reason is in the line, what was done by then beneath it, Retry only when offered', () => {
     const onRetry = vi.fn()
     const { unmount } = render(
       <RunBlock ledger={failed()} title={TITLE} defaultOpen onRetry={onRetry} />
@@ -427,6 +427,19 @@ describe('RunBlock — the line and the affordances', () => {
       'Cancelled · stopped at your request'
     )
     expect(screen.getByTestId('run-completed-before')).toHaveTextContent('Done so far: Planning')
+  })
+
+  it('failed and folded: what was done by then stays under the stand', () => {
+    // The body folds once a run has landed; the closing rows used to fold with
+    // it, leaving the verdict without its reason.
+    render(<RunBlock ledger={failed()} title={TITLE} />)
+    expect(screen.queryByTestId('run-body')).not.toBeInTheDocument()
+    expect(screen.getByTestId('run-completed-before')).toHaveTextContent('Done so far: Planning')
+  })
+
+  it('has no entrance of its own: the thread row owns it', () => {
+    render(<RunBlock ledger={failed()} title={TITLE} />)
+    expect(screen.getByTestId('run-block').className).not.toMatch(/animate-in/)
   })
 
   it('interrupted: says the report was written from what was there', () => {

@@ -57,6 +57,17 @@ afterEach(() => {
 })
 
 describe('PdfDocumentView', () => {
+  it('holds a page-shaped sheet while loading, replaced by the first page', async () => {
+    state.pages = [{ items: [] }]
+    render(<PdfDocumentView src="/api/doc.pdf" title="doc.pdf" />)
+    // Synchronously, before the fake runtime resolves: the reader sees a page
+    // already, not a spinner in an empty frame.
+    const sheet = screen.getByTestId('pdf-page-placeholder')
+    expect(sheet.style.aspectRatio).toBe(`1 / ${Math.SQRT2}`)
+    await waitFor(() => expect(document.querySelectorAll('[data-page]')).toHaveLength(1))
+    expect(screen.queryByTestId('pdf-page-placeholder')).toBeNull()
+  })
+
   it('renders one frame per page of the document', async () => {
     state.pages = [{ items: [] }, { items: [] }, { items: [] }]
     render(<PdfDocumentView src="/api/doc.pdf" title="doc.pdf" />)

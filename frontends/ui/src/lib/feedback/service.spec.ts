@@ -13,10 +13,9 @@ vi.mock('./repository', () => ({
   getAnswerFeedbackForUser: vi.fn(async () => null),
   getAnswerTraceId: vi.fn(async () => null),
   isRestrictedUseVote: vi.fn(async () => false),
+  getPersistedAnswerConversationId: vi.fn(async () => null),
   listAnswerFeedbackForConversation: vi.fn(),
   getFeedbackHealth: vi.fn(),
-  listFeedbackTurns: vi.fn(),
-  FEEDBACK_EXPORT_ROW_CAP: 3,
 }))
 
 // The memory-implication trigger: mocked wholesale — its own behavior is
@@ -71,8 +70,8 @@ import {
   getAnswerTraceId,
   getFeedbackHealth,
   isRestrictedUseVote,
+  getPersistedAnswerConversationId,
   listAnswerFeedbackForConversation,
-  listFeedbackTurns,
   upsertAnswerFeedback,
 } from './repository'
 import { implicateMemoryFromFeedback } from '@/lib/projects/memory-service'
@@ -86,12 +85,17 @@ import {
 } from '@/lib/langfuse/feedback-score'
 import {
   getAnswerFeedbackDigest,
-  getAnswerFeedbackExport,
   getAnswerFeedbackHealth,
   getOwnConversationFeedback,
   retractAnswerFeedback,
   submitAnswerFeedback,
 } from './service'
+import { NO_RATINGS_FILTERS, type FeedbackQuery } from './filters'
+
+const Q: FeedbackQuery = {
+  scope: { from: '2026-09-10', to: '2026-10-09', organizationIds: [], projectIds: [] },
+  ratings: NO_RATINGS_FILTERS,
+}
 
 const mockRequireProjectAccess = vi.mocked(requireProjectAccess)
 const mockUpsert = vi.mocked(upsertAnswerFeedback)
@@ -139,6 +143,27 @@ beforeEach(() => {
 })
 
 describe('submitAnswerFeedback', () => {
+  /**
+   * `conversation_id` used to be stored exactly as the client sent it, and the
+   * readers joined topics and titles on it. When the answer row exists in the
+   * voter's organization, its conversation is the one stored.
+   */
+  it("stores the persisted answer's conversation, not the one the client named", async () => {
+    vi.mocked(getPersistedAnswerConversationId).mockResolvedValueOnce('conv_real')
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up', conversationId: 'conv_claimed' })
+
+    expect(getPersistedAnswerConversationId).toHaveBeenCalledWith('msg_1', 'org_1')
+    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conv_real' }))
+  })
+
+  /** A shallow turn may never be persisted; its vote must still land. */
+  it("keeps the client's conversation for a turn that has no answer row", async () => {
+    vi.mocked(getPersistedAnswerConversationId).mockResolvedValueOnce(null)
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up', conversationId: 'conv_1' })
+
+    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conv_1' }))
+  })
+
   it('upserts an up vote scoped to the session user + org', async () => {
     const view = await submitAnswerFeedback(session, {
       messageId: 'msg_1',
@@ -483,7 +508,7 @@ describe('getAnswerFeedbackHealth', () => {
   it('refuses anyone who is not a platform owner, and does not read first', async () => {
     vi.mocked(requirePlatformPermission).mockRejectedValue(new PlatformAccessDeniedError())
 
-    await expect(getAnswerFeedbackHealth({} as never)).rejects.toBeInstanceOf(
+    await expect(getAnswerFeedbackHealth({} as never, Q)).rejects.toBeInstanceOf(
       PlatformAccessDeniedError
     )
     // The guard runs BEFORE the unscoped query — a refusal must not still have
@@ -503,7 +528,7 @@ describe('getAnswerFeedbackHealth', () => {
       turns: [],
     } as never)
 
-    const health = await getAnswerFeedbackHealth({} as never)
+    const health = await getAnswerFeedbackHealth({} as never, Q)
 
     expect(health.totals).toEqual({ up: 4, down: 1 })
     expect(requirePlatformPermission).toHaveBeenCalledOnce()
@@ -534,7 +559,7 @@ describe('getAnswerFeedbackHealth', () => {
     vi.stubEnv('LANGFUSE_PUBLIC_URL', 'https://langfuse.example.at/')
     vi.stubEnv('LANGFUSE_PROJECT_ID', 'grid')
     try {
-      const linked = await getAnswerFeedbackHealth({} as never)
+      const linked = await getAnswerFeedbackHealth({} as never, Q)
       expect(linked.turns.map((turn) => turn.langfuseTraceUrl)).toEqual([
         'https://langfuse.example.at/project/grid/traces/6135ac80f26d5f7dab0f1633fe313293',
         null,
@@ -542,7 +567,7 @@ describe('getAnswerFeedbackHealth', () => {
       expect(linked.langfuse).toEqual({ projectUrl: 'https://langfuse.example.at/project/grid' })
 
       vi.stubEnv('LANGFUSE_PROJECT_ID', '')
-      const unlinked = await getAnswerFeedbackHealth({} as never)
+      const unlinked = await getAnswerFeedbackHealth({} as never, Q)
       expect(unlinked.turns.map((turn) => turn.langfuseTraceUrl)).toEqual([null, null])
       expect(unlinked.langfuse).toBeNull()
     } finally {
@@ -572,7 +597,7 @@ describe('getAnswerFeedbackHealth', () => {
       ],
     } as never)
 
-    const health = await getAnswerFeedbackHealth({} as never)
+    const health = await getAnswerFeedbackHealth({} as never, Q)
 
     expect(health.organizations.map((org) => org.organizationName)).toEqual([
       'Architekturbüro Huber',
@@ -600,7 +625,7 @@ describe('getAnswerFeedbackDigest', () => {
   it('refuses anyone who is not a platform owner, and neither reads nor summarises', async () => {
     vi.mocked(requirePlatformPermission).mockRejectedValue(new PlatformAccessDeniedError())
 
-    await expect(getAnswerFeedbackDigest({} as never)).rejects.toBeInstanceOf(
+    await expect(getAnswerFeedbackDigest({} as never, Q)).rejects.toBeInstanceOf(
       PlatformAccessDeniedError
     )
     expect(getFeedbackHealth).not.toHaveBeenCalled()
@@ -613,58 +638,12 @@ describe('getAnswerFeedbackDigest', () => {
     vi.mocked(getFeedbackHealth).mockResolvedValue(health)
     vi.mocked(getFeedbackDigest).mockResolvedValue({ digest: null, error: 'too_few_votes' })
 
-    const result = await getAnswerFeedbackDigest({} as never, { windowDays: 7 }, { locale: 'en' })
+    const result = await getAnswerFeedbackDigest({} as never, Q, { locale: 'en' })
 
-    // `limit: 0` — the digest samples its own turns in both directions, so the
-    // aggregate read must not also pay for a drill-in nobody will look at.
-    expect(getFeedbackHealth).toHaveBeenCalledWith({ windowDays: 7, limit: 0 })
-    expect(getFeedbackDigest).toHaveBeenCalledWith(health, { windowDays: 7 }, { locale: 'en' })
+    // `turnLimit: 0` — the digest samples its own turns in both directions, so
+    // the aggregate read must not also pay for a list nobody will look at.
+    expect(getFeedbackHealth).toHaveBeenCalledWith(Q, { turnLimit: 0 })
+    expect(getFeedbackDigest).toHaveBeenCalledWith(health, Q, { locale: 'en' })
     expect(result).toEqual({ digest: null, error: 'too_few_votes' })
-  })
-})
-
-/**
- * The export used to read through the health view and so stopped at the page's
- * 50 rows without a word. It has its own bound now, and reports hitting it.
- */
-describe('getAnswerFeedbackExport', () => {
-  beforeEach(() => {
-    vi.mocked(requirePlatformPermission).mockReset()
-    vi.mocked(listFeedbackTurns).mockReset()
-  })
-
-  it('refuses anyone who is not a platform owner, and does not read first', async () => {
-    vi.mocked(requirePlatformPermission).mockRejectedValue(new PlatformAccessDeniedError())
-
-    await expect(getAnswerFeedbackExport({} as never)).rejects.toBeInstanceOf(
-      PlatformAccessDeniedError
-    )
-    expect(listFeedbackTurns).not.toHaveBeenCalled()
-  })
-
-  it('reads one row past the cap, keeps the filters, and reports a cut', async () => {
-    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
-    vi.mocked(listFeedbackTurns).mockResolvedValue([
-      { id: '1' },
-      { id: '2' },
-      { id: '3' },
-      { id: '4' },
-    ] as never)
-
-    const exported = await getAnswerFeedbackExport({} as never, { windowDays: 90, verdict: 'up' })
-
-    expect(listFeedbackTurns).toHaveBeenCalledWith({ windowDays: 90, verdict: 'up', limit: 4 })
-    expect(exported.turns).toHaveLength(3)
-    expect(exported).toMatchObject({ truncated: true, cap: 3 })
-  })
-
-  it('does not report a cut when the window fit exactly', async () => {
-    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
-    vi.mocked(listFeedbackTurns).mockResolvedValue([{ id: '1' }, { id: '2' }, { id: '3' }] as never)
-
-    const exported = await getAnswerFeedbackExport({} as never)
-
-    expect(exported.turns).toHaveLength(3)
-    expect(exported.truncated).toBe(false)
   })
 })
