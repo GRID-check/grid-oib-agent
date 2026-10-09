@@ -1,29 +1,7 @@
 lockfile_version: '1'
-generated_at: '2026-10-09T10:03:18.456306+00:00'
+generated_at: '2026-10-09T10:04:36.537605+00:00'
 apm_version: 0.28.0
 dependencies:
-- repo_url: _local/aiq-customize-prompts-models
-  name: aiq-customize-prompts-models
-  version: 0.0.0
-  package_type: claude_skill
-  deployed_files:
-  - .agents/skills/aiq-customize-prompts-models
-  - .agents/skills/aiq-customize-prompts-models/SKILL.md
-  - .agents/skills/aiq-customize-prompts-models/references/model-selection.md
-  - .agents/skills/aiq-customize-prompts-models/references/prompt-templates.md
-  - .claude/skills/aiq-customize-prompts-models
-  - .claude/skills/aiq-customize-prompts-models/SKILL.md
-  - .claude/skills/aiq-customize-prompts-models/references/model-selection.md
-  - .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md
-  deployed_file_hashes:
-    .agents/skills/aiq-customize-prompts-models/SKILL.md: sha256:0acbe39b359d0efbcfdd2a1ddd1071115ffba982d32e393669f05a25633cf935
-    .agents/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:61d8a44e21033776cf2a0b5234461ccfebae937091a62e304669c288f0bd3351
-    .agents/skills/aiq-customize-prompts-models/references/prompt-templates.md: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
-    .claude/skills/aiq-customize-prompts-models/SKILL.md: sha256:0acbe39b359d0efbcfdd2a1ddd1071115ffba982d32e393669f05a25633cf935
-    .claude/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:61d8a44e21033776cf2a0b5234461ccfebae937091a62e304669c288f0bd3351
-    .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
-  source: local
-  local_path: ./skills/aiq-customize-prompts-models
 - repo_url: _local/aiq-deploy
   name: aiq-deploy
   version: 0.0.0
@@ -575,42 +553,6 @@ deployments:
   - vercel-labs/agent-browser/skills/agent-browser
   active_owner: vercel-labs/agent-browser/skills/agent-browser
   content_hash: sha256:3a7520e64de2dfaa516b6721c001e84e06e3c06a187b82af029ae721540ebfac
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-customize-prompts-models
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-customize-prompts-models
-  active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: null
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-customize-prompts-models/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-customize-prompts-models
-  active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:0acbe39b359d0efbcfdd2a1ddd1071115ffba982d32e393669f05a25633cf935
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-customize-prompts-models/references/model-selection.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-customize-prompts-models
-  active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:61d8a44e21033776cf2a0b5234461ccfebae937091a62e304669c288f0bd3351
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-customize-prompts-models/references/prompt-templates.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-customize-prompts-models
-  active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-deploy
@@ -1430,42 +1372,6 @@ deployments:
   - vercel-labs/agent-browser/skills/agent-browser
   active_owner: vercel-labs/agent-browser/skills/agent-browser
   content_hash: sha256:3a7520e64de2dfaa516b6721c001e84e06e3c06a187b82af029ae721540ebfac
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-customize-prompts-models
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-customize-prompts-models
-  active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: null
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-customize-prompts-models/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-customize-prompts-models
-  active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:0acbe39b359d0efbcfdd2a1ddd1071115ffba982d32e393669f05a25633cf935
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-customize-prompts-models/references/model-selection.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-customize-prompts-models
-  active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:61d8a44e21033776cf2a0b5234461ccfebae937091a62e304669c288f0bd3351
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-customize-prompts-models
-  active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-deploy
