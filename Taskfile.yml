@@ -500,6 +500,13 @@ tasks:
       # ADR-0064 uses 4, 8 and 9. Exit 0 = the floors in the script hold.
       - '{{.PY}} scripts/decision_eval_offpath.py {{.CLI_ARGS}}'
 
+  be:eval:decisions:held:
+    desc: 'Held-evidence decision eval — do the passages a conversation already read answer the new message, on the hand-labelled rows (NEEDS OPENROUTER_API_KEY; no backend)'
+    cmds:
+      # ADR-0064 use 10. Exit 0 = no false yes at the threshold and recall
+      # at or above the floor; 1 = set held_evidence: false.
+      - '{{.PY}} scripts/decision_eval_held.py {{.CLI_ARGS}}'
+
   be:eval:decisions:holdout:
     desc: 'Held-out check for the decision-model uses, on sets written blind to the wording — never tune on them (NEEDS OPENROUTER_API_KEY; no backend)'
     cmds:

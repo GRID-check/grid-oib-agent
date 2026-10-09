@@ -251,6 +251,11 @@ class ResearchAgentState(BaseModel):
     # does not already carry. Rendered by the register before ``run()``;
     # None renders no section.
     card_shapes_block: str | None = None
+    # The held-evidence verdict (ADR-0064 use 10, ``held_evidence.py``): which
+    # passages still in the transcript were judged to answer this message.
+    # Rendered by the register before ``run()`` only on a confident yes; None
+    # renders no section.
+    held_evidence_block: str | None = None
     # Ordered names of the skills whose BODY reached the model this turn, in
     # delivery order, deduped. DELIVERED, not offered: the disclosure renders
     # this as "what shaped this answer", and a skill the model read past in the

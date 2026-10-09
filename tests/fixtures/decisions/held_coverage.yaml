@@ -1,0 +1,108 @@
+# Held-evidence decision (ADR-0064 use 10): do the passages still in the
+# transcript hold what the new message asks? Tuning set for
+# `task be:eval:decisions:held`.
+#
+# The passages are written for this eval in the shape the knowledge layer
+# returns them. They paraphrase the Richtlinien and an invented Bescheid;
+# they are NOT the corpus's wording and no answer may be built from them.
+# `held` is what a planner would say: could this message be answered from
+# these passages, without searching again?
+
+passages:
+  oib2_overview: &oib2_overview
+    - source: oib-rl_2_ausgabe_mai_2023.pdf
+      citation: oib-rl_2_ausgabe_mai_2023.pdf, p.3
+      punkt: "0"
+      text: >-
+        Diese Richtlinie legt die Anforderungen an den Brandschutz von Gebäuden fest; für sonstige
+        Bauwerke gilt sie sinngemäß. Für Betriebsbauten gilt ergänzend die OIB-Richtlinie 2.1, für
+        Garagen, überdachte Stellplätze und Parkdecks die OIB-Richtlinie 2.2 und für Gebäude mit einem
+        Fluchtniveau von mehr als 22 m die OIB-Richtlinie 2.3. Bei gemischter Nutzung sind die
+        Wechselwirkungen der Nutzungsbereiche zu berücksichtigen.
+    - source: oib-rl_2.1_ausgabe_mai_2023.pdf
+      citation: oib-rl_2.1_ausgabe_mai_2023.pdf, p.2
+      punkt: "1"
+      text: >-
+        Diese Richtlinie gilt für Betriebsbauten, das sind Gebäude oder Gebäudeteile, die der Produktion
+        oder der Lagerung von Gütern dienen. Die Bestimmungen der OIB-Richtlinie 2 gelten zusätzlich,
+        soweit hier nichts anderes festgelegt ist.
+    - source: oib-richtlinie_2.2_ausgabe_mai_2023.pdf
+      citation: oib-richtlinie_2.2_ausgabe_mai_2023.pdf, p.2
+      punkt: "1"
+      text: >-
+        Diese Richtlinie gilt für Garagen, überdachte Stellplätze und Parkdecks. Überdachte Stellplätze
+        mit einer Nutzfläche von nicht mehr als 50 m² sind von den Anforderungen dieser Richtlinie
+        ausgenommen.
+    - source: oib-rl_2.3_ausgabe_mai_2023.pdf
+      citation: oib-rl_2.3_ausgabe_mai_2023.pdf, p.2
+      punkt: "1"
+      text: >-
+        Diese Richtlinie gilt für Gebäude mit einem Fluchtniveau von mehr als 22 m. Die Bestimmungen
+        der OIB-Richtlinie 2 gelten zusätzlich, soweit hier nichts anderes festgelegt ist.
+    - source: oib-rl_2_ausgabe_mai_2023.pdf
+      citation: oib-rl_2_ausgabe_mai_2023.pdf, p.4
+      punkt: "2"
+      text: >-
+        Das Brandverhalten von Baustoffen und der Feuerwiderstand von Bauteilen sind getrennt zu
+        beurteilen. Für zusätzliche Bekleidungen und Beläge gelten die Anforderungen der Tabelle 1a.
+    - source: oib-rl_2_ausgabe_mai_2023.pdf
+      citation: oib-rl_2_ausgabe_mai_2023.pdf, p.14
+      punkt: "12"
+      text: >-
+        Bei Änderungen an bestehenden Bauwerken sind für die bestehenden Bauwerksteile, auf die sich
+        die Änderungen auswirken, Abweichungen von den Anforderungen dieser Richtlinie zulässig, wenn
+        das ursprüngliche Anforderungsniveau des rechtmäßigen Bestandes nicht verschlechtert wird.
+    - source: oib-rl_2_ausgabe_mai_2023.pdf
+      citation: oib-rl_2_ausgabe_mai_2023.pdf, p.12
+      punkt: "8"
+      text: >-
+        Gebäude müssen für Einsatzkräfte der Feuerwehr zugänglich sein. Erforderliche Aufstell- und
+        Bewegungsflächen für die Feuerwehr müssen ausreichend befestigt und tragfähig sein.
+  tabelle_1b: &tabelle_1b
+    - source: oib-rl_2_ausgabe_mai_2023.pdf
+      citation: oib-rl_2_ausgabe_mai_2023.pdf, p.7
+      punkt: Tabelle 1b
+      text: >-
+        Anforderungen an den Feuerwiderstand von Bauteilen, tragende Bauteile. Im obersten Geschoß:
+        GK 1 keine Anforderung, GK 2 R 30, GK 3 R 30, GK 4 R 30, GK 5 R 60. In sonstigen oberirdischen
+        Geschoßen: GK 1 R 30, GK 2 R 30, GK 3 R 60, GK 4 R 60, GK 5 R 90 und A2. In unterirdischen
+        Geschoßen: GK 1 und GK 2 R 60, GK 3 bis GK 5 R 90 und A2.
+  stufen: &stufen
+    - source: oib-rl_4_ausgabe_mai_2023.pdf
+      citation: oib-rl_4_ausgabe_mai_2023.pdf, p.4
+      punkt: 2.2.2
+      text: >-
+        Die Stufenhöhe darf bei Haupttreppen höchstens 18 cm betragen, der Auftritt muss mindestens
+        27 cm betragen. Bei Treppen innerhalb von Wohnungen sind eine Stufenhöhe von höchstens 20 cm
+        und ein Auftritt von mindestens 24 cm zulässig.
+  bescheid: &bescheid
+    - source: Baubescheid_MA37_2026-03-14.pdf
+      citation: Baubescheid_MA37_2026-03-14.pdf, p.3
+      text: >-
+        Auflage 7: Die Feuerwehrzufahrt ist mit einer Breite von mindestens 3,50 m und einer
+        Tragfähigkeit für 10 t Achslast herzustellen, dauerhaft freizuhalten und zu kennzeichnen. Die
+        Herstellung ist mit der Fertigstellungsanzeige nachzuweisen.
+
+rows:
+  - {id: h01, passages: *oib2_overview, held: true, message: "was weißt du zur oib 2"}
+  - {id: h02, passages: *oib2_overview, held: true, message: "gib mir nochmal einen überblick über die brandschutz-richtlinien"}
+  - {id: h03, passages: *oib2_overview, held: true, message: "welche teile hat die OIB 2 eigentlich?"}
+  - {id: h04, passages: *oib2_overview, held: true, message: "Was bedeutet Punkt 12 für einen Umbau im Bestand?"}
+  - {id: h05, passages: *oib2_overview, held: true, message: "gilt die 2.2 auch für überdachte Stellplätze?"}
+  - {id: h06, passages: *oib2_overview, held: false, message: "wie lang darf ein fluchtweg maximal sein?"}
+  - {id: h07, passages: *oib2_overview, held: false, message: "welche feuerwiderstandsklasse brauchen tragende bauteile in GK 4?"}
+  - {id: h08, passages: *oib2_overview, held: false, message: "und was sagt die OIB 3 zur belichtung?"}
+  - {id: h09, passages: *oib2_overview, held: false, message: "danke!"}
+  - {id: h10, passages: *oib2_overview, held: false, message: "Welche Anforderungen gelten in Wien abweichend davon?"}
+  - {id: h11, passages: *tabelle_1b, held: true, message: "welche feuerwiderstandsklasse braucht das tragwerk in GK 3?"}
+  - {id: h12, passages: *tabelle_1b, held: true, message: "welche feuerwiderstandsklasse braucht das tragwerk in GK 5?"}
+  - {id: h13, passages: *tabelle_1b, held: true, message: "und im obersten geschoß?"}
+  - {id: h14, passages: *tabelle_1b, held: true, message: "bist du sicher mit R 60 in GK 3?"}
+  - {id: h15, passages: *tabelle_1b, held: false, message: "welche anforderung gilt für brandwände?"}
+  - {id: h16, passages: *tabelle_1b, held: false, message: "wie ist das in der OIB 2.1 für betriebsbauten?"}
+  - {id: h17, passages: *stufen, held: true, message: "wie hoch darf eine stufe bei einer wohnungstreppe sein?"}
+  - {id: h18, passages: *stufen, held: false, message: "welche geländerhöhe brauche ich an der treppe?"}
+  - {id: h19, passages: *stufen, held: true, message: "kannst du die stufenmaße nochmal als tabelle geben?"}
+  - {id: h20, passages: *bescheid, held: true, message: "was verlangt der bescheid zur feuerwehrzufahrt nochmal?"}
+  - {id: h21, passages: *bescheid, held: false, message: "gibt es im bescheid auch auflagen zum lärmschutz?"}
+  - {id: h22, passages: *bescheid, held: true, message: "wie breit muss die zufahrt sein?"}
