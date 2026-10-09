@@ -75,6 +75,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Agent skills](contributing/agent-skills.md) | When a procedure is a skill rather than a document, how `.claude/` is generated, which skills are installed |
 | [Correction ratchet](contributing/correction-ratchet.md) | Closing the layer that allowed an error |
 | [Documentation obligations](contributing/documentation.md) | Which doc to update for which change |
+| [Lint evaluation](contributing/lint-evaluation.md) | Why the UI lints with oxlint, not ESLint or Biome, and what that cost |
 
 ## User guides
 

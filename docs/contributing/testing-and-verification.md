@@ -27,7 +27,7 @@ Reach for the narrow task rather than the whole gate:
 |---|---|
 | UI types | `task fe:types` |
 | UI tests | `task fe:test` |
-| UI lint | `task fe:lint` |
+| UI lint (oxlint; why not ESLint or Biome: [lint-evaluation.md](lint-evaluation.md)) | `task fe:lint` |
 | Backend lint | `task be:lint` |
 | Backend tests | `task be:test`, or `task be:test:api` for the plugin suite |
 | Pulumi and the policy pack | `task infra:types` |

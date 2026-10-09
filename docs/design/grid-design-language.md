@@ -429,7 +429,7 @@ thing they just dismissed.
 | `--ease-exit` / `ease-exit` | `0.4, 0, 1, 1` | Anything **leaving** — departure accelerates away |
 | `--ease-cycle` / `ease-cycle` | `0.65, 0, 0.35, 1` | **Only** looping / indeterminate motion |
 
-No `linear`, no `ease-in-out` on a one-shot, no bare `ease`. An eslint rule
+No `linear`, no `ease-in-out` on a one-shot, no bare `ease`. A lint rule
 (`grid/motion-vocabulary`) flags `transition-all`, `ease-linear` and
 transitions on layout-triggering properties.
 

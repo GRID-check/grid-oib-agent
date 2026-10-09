@@ -96,7 +96,7 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
   blocks only findings a pull request introduces (CI), and OSV-Scanner is
   advisory in the weekly
   [`.github/workflows/security.yml`](../../.github/workflows/security.yml); no clean-as-you-code
-  smell gate (CodeQL + Sonar removed — code smells now via ruff/eslint + coverage
+  smell gate (CodeQL + Sonar removed — code smells now via ruff/oxlint + coverage
   gate); actions tag-pinned not SHA-pinned (one `@main`); dev image pipes
   nodesource script to bash (dev only).
 
