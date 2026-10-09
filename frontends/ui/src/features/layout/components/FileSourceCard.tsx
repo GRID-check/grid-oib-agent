@@ -13,7 +13,8 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
-import { motion, springDrawer } from '@/components/motion'
+import type { Transition } from 'motion/react'
+import { motion, motionQuick, springDrawer, useMotionToken } from '@/components/motion'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { useLocale, useTranslations } from '@/i18n'
 import { IngestFailureNotice } from '@/features/documents/components/ingest-failure-notice'
@@ -168,6 +169,13 @@ const useExpiryInfo = (
 }
 
 /**
+ * The card's arrival and the deleting dim: the rise lands on `springDrawer`,
+ * opacity is the `motionQuick` tween (opacity never springs). Instant under
+ * reduced motion.
+ */
+const cardTransition: Transition = { ...springDrawer, opacity: motionQuick }
+
+/**
  * Card component for displaying an uploaded file source.
  */
 export const FileSourceCard: FC<FileSourceCardProps> = ({
@@ -185,6 +193,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
 }) => {
   const t = useTranslations('research')
   const { locale } = useLocale()
+  const cardMotion = useMotionToken(cardTransition)
   const config = STATUS_CONFIG[status]
   const label = t(config.labelKey)
   const isBusy = useIsCurrentSessionBusy()
@@ -291,7 +300,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
       // Deleting state dims the card (was `opacity-50`; motion owns inline opacity now)
       animate={{ opacity: isDeleting ? 0.5 : 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.97 }}
-      transition={springDrawer}
+      transition={cardMotion}
     >
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {canOpen ? (

@@ -234,6 +234,49 @@ describe('SourcePreviewChip', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/documents?'))).toBe(false)
   })
 
+  test('a chip resolving its document stays focused and busy, never disabled, and ignores a second press', async () => {
+    // Hold the presign open so the in-flight state can be looked at.
+    let release: () => void = () => {}
+    const routed = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation((input, init) =>
+      String(input) === '/api/documents/doc-1/preview'
+        ? new Promise((resolve) => {
+            release = () => resolve(jsonResponse({ url: 'https://storage.example/presigned.pdf' }))
+          })
+        : routed(input, init)
+    )
+    try {
+      const user = userEvent.setup()
+      render(
+        <SourcePreviewChip
+          citation={ref({
+            content: '[KB] Brandschutzkonzept.pdf, p.3',
+            fileName: 'Brandschutzkonzept.pdf',
+            collection: 'proj_1',
+            kind: 'projekt',
+            page: 3,
+          })}
+        />
+      )
+      const chip = await screen.findByRole('button', { name: 'Preview source: Brandschutzkonzept' })
+      // The peek is the tooltip: no native `title` racing it.
+      expect(chip).not.toHaveAttribute('title')
+
+      await user.click(chip)
+      expect(chip).not.toBeDisabled()
+      expect(chip).toHaveAttribute('aria-busy', 'true')
+      expect(chip).toHaveFocus()
+      await user.click(chip)
+      const presigns = fetchMock.mock.calls.filter(([url]) => String(url) === '/api/documents/doc-1/preview')
+      expect(presigns).toHaveLength(1)
+
+      release()
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    } finally {
+      fetchMock.mockImplementation(routed)
+    }
+  })
+
   test('an office citation opens its PDF rendition and keeps the original downloadable', async () => {
     const user = userEvent.setup()
     render(

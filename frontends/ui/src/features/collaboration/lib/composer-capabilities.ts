@@ -113,6 +113,12 @@ export interface ComposerCapabilityInput {
   readonly isResponseMode: boolean
   /** Somebody else holds the turn. */
   readonly otherPersonsTurn: boolean
+  /**
+   * The running turn is this reader's own question being answered (the local
+   * store streams it, and it is not waiting on a HITL answer). Optional so a
+   * caller that does not know keeps the old, closed behaviour.
+   */
+  readonly ownTurnStreaming?: boolean
 }
 
 export interface ComposerCapabilities {
@@ -126,6 +132,17 @@ export interface ComposerCapabilities {
    * a contributor still cannot compose mid-turn. Was `!disabled`.
    */
   readonly canCompose: boolean
+  /**
+   * May type into the draft right now, whether or not Enter would send it.
+   * Wider than `canCompose` by exactly one case: the reader's own turn is
+   * streaming. Someone used to ChatGPT or Claude writes the follow-up while
+   * reading the answer (Jakob's law), and a field that greys out under them
+   * drops the keystrokes they had already started. The send itself stays
+   * closed until the turn settles — that is `canCompose`. A colleague's turn
+   * keeps the field closed: the reader did not start it, and the composer
+   * there says whose turn it is instead.
+   */
+  readonly canDraft: boolean
   /**
    * May broadcast a typing claim. Only where someone could see it and where the
    * draft could actually become a message.
@@ -174,7 +191,11 @@ export function composerCapabilities(input: ComposerCapabilityInput): ComposerCa
     !(input.isBusy && !input.isResponseMode) &&
     !input.otherPersonsTurn
 
+  const canDraft =
+    canCompose ||
+    (canContribute && !input.otherPersonsTurn && input.ownTurnStreaming === true)
+
   const canBroadcastTyping = input.canCollaborate && input.sharing === 'shared' && canContribute
 
-  return { canContribute, canCompose, canBroadcastTyping, deniedBy, roleUnknown }
+  return { canContribute, canCompose, canDraft, canBroadcastTyping, deniedBy, roleUnknown }
 }

@@ -46,7 +46,7 @@ export const exportName = (defName) => `${defName[0].toLowerCase()}${defName.sli
 export const refToDefName = (ref) => ref.split('/').pop()
 
 /** Every `$def` name a schema node points at, at any depth. */
-function referencedDefNames(node, found = new Set()) {
+export function referencedDefNames(node, found = new Set()) {
   if (Array.isArray(node)) {
     for (const entry of node) referencedDefNames(entry, found)
   } else if (node && typeof node === 'object') {
