@@ -37,8 +37,14 @@ const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     showCloseButton?: boolean
+    /**
+     * Below `sm`, fill the screen like a sheet instead of floating a card with
+     * a 1rem margin: for a dialog with several sections, where a floating card
+     * on a phone is mostly margin and a scroll region the thumb keeps missing.
+     */
+    fullScreenOnMobile?: boolean
   }
->(({ className, children, showCloseButton = true, ...props }, ref) => (
+>(({ className, children, showCloseButton = true, fullScreenOnMobile = false, ...props }, ref) => (
   <DialogPortal data-slot="dialog-portal">
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -51,6 +57,8 @@ const DialogContent = React.forwardRef<
       className={cn(
         'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid grid-cols-1 max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-xl border p-6 shadow-lg sm:max-w-lg '
         + OVERLAY_MOTION,
+        fullScreenOnMobile &&
+          'max-sm:inset-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none max-sm:border-0 max-sm:px-4',
         className
       )}
       {...props}
