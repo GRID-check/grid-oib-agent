@@ -46,6 +46,7 @@ from aiq_api.roles import web_role
 from aiq_api.routes.chat_occupancy import CHAT_OCCUPANCY_PATH
 from nat.data_models.config import Config
 from nat.data_models.config import GeneralConfig
+from nat.front_ends.fastapi.fastapi_front_end_config import FastApiFrontEndConfig
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 from nat.runtime.session import SessionManager
 
@@ -204,7 +205,7 @@ def test_every_route_the_single_process_mounted_is_mounted_by_exactly_one_role(r
 def test_each_role_serves_what_its_deployment_is_there_for(route_sets):
     chat, api = route_sets["chat"], route_sets["api"]
 
-    assert {("WS", plugin.CHAT_SOCKET_PATH), ("GET", CHAT_OCCUPANCY_PATH), ("POST", "/generate/stream")} <= chat
+    assert {("WS", plugin.CHAT_SOCKET_PATH), ("GET", CHAT_OCCUPANCY_PATH)} <= chat
     assert {
         ("POST", "/v1/ingest"),
         ("POST", "/v1/jobs/async/submit"),
@@ -237,6 +238,93 @@ def test_every_router_registrar_under_routes_is_assigned_to_exactly_one_role():
     assert twice == [], f"assigned to both roles (or twice): {twice}"
     assert unassigned == [], f"under routes/ and mounted by no role: {unassigned}"
     assert unknown == [], f"mounted but not a registrar under routes/: {unknown}"
+
+
+# ---------------------------------------------------------------------------
+# A turn runs on the chat socket alone (ADR-0068)
+# ---------------------------------------------------------------------------
+
+#: NAT's HTTP turn routes, read off its own defaults rather than listed here, so
+#: a path NAT adds to the defaults is covered the day the pin moves. Each base
+#: path is also served with the suffixes NAT's generate routes add.
+_NAT_DEFAULTS = FastApiFrontEndConfig()
+_TURN_BASES = [
+    getattr(_NAT_DEFAULTS.workflow, name) for name in plugin.WORKFLOW_ROUTE_FIELDS if name != "websocket_path"
+]
+NAT_TURN_PATHS = sorted(
+    {f"{base}{suffix}" for base in _TURN_BASES if base for suffix in ("", "/stream", "/full", "/atif", "/async")}
+    | {"/chat", "/chat/stream", "/generate", "/generate/stream", "/v1/chat/completions", _NAT_DEFAULTS.evaluate.path}
+)
+
+#: Every POST the chat role answers. None of them runs the workflow: the
+#: execution store answers an HTTP interaction nothing can start any more, and
+#: `/evaluate/item` scores an answer it is handed. A new POST on chat is named
+#: here on purpose, or this fails.
+CHAT_POST_ROUTES = {
+    "/executions/{execution_id}/interactions/{interaction_id}/response",
+    "/evaluate/item",
+}
+
+
+@pytest.mark.parametrize("path", NAT_TURN_PATHS)
+def test_the_chat_role_answers_no_http_turn_route(apps, path):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(apps["chat"])
+
+    assert client.post(path, json={"query": "Fluchtweg GK 4", "messages": []}).status_code in (404, 405)
+    assert client.get(path).status_code in (404, 405)
+
+
+def test_every_post_the_chat_role_answers_is_one_that_runs_no_turn(route_sets):
+    assert {path for method, path in route_sets["chat"] if method == "POST"} == CHAT_POST_ROUTES
+
+
+def test_the_chat_socket_is_the_one_websocket(route_sets):
+    assert {path for method, path in route_sets["chat"] if method == "WS"} == {plugin.CHAT_SOCKET_PATH}
+
+
+async def test_no_http_turn_route_is_mounted_even_with_a_dask_scheduler(monkeypatch, tmp_path):
+    # NAT's own add_default_route mounts its async generate route whenever Dask
+    # is reachable, whatever the config says: as `None/async` with no path.
+    config_file = tmp_path / "config.yml"
+    config_file.write_text("{}")
+    monkeypatch.setenv("NAT_CONFIG_FILE", str(config_file))
+    worker = _worker("chat")
+    worker._dask_available = True
+    app = FastAPI()
+    before = list(app.routes)
+
+    await worker.add_default_route(app, _session_manager())
+
+    assert app.routes == before
+
+
+def test_the_default_config_puts_no_nat_route_in_front_of_the_workflow():
+    config = plugin.AIQAPIConfig()
+
+    assert [name for name in plugin.WORKFLOW_ROUTE_FIELDS if getattr(config.workflow, name)] == []
+    assert config.evaluate.path is None
+    assert config.endpoints == []
+
+
+@pytest.mark.parametrize(
+    ("override", "named"),
+    [
+        *(
+            ({"workflow": {"method": "POST", "description": "x", name: "/x"}}, f"workflow.{name}")
+            for name in plugin.WORKFLOW_ROUTE_FIELDS
+        ),
+        ({"evaluate": {"method": "POST", "description": "x", "path": "/evaluate"}}, "evaluate.path"),
+        (
+            {"endpoints": [{"method": "POST", "description": "x", "path": "/research", "function_name": "deep"}]},
+            "endpoints[deep]",
+        ),
+    ],
+)
+def test_a_config_that_puts_a_route_in_front_of_the_workflow_is_refused(override, named):
+    with pytest.raises(ValueError, match=re.escape(named)):
+        plugin.AIQAPIConfig(**override)
 
 
 @pytest.mark.parametrize("raw", ["chat", "api", " API ", "Chat"])

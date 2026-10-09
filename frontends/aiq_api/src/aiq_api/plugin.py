@@ -4,7 +4,8 @@ NAT plugin registration for unified AI-Q API.
 One plugin, two web roles (``GRID_ROLE``, ``roles.WebRole``, ADR-0082 step B):
 
 * ``chat`` mounts the chat socket, the chat-occupancy route KEDA reads, and
-  NAT's own routes, and drains running chat turns at shutdown.
+  what is left of NAT's own routes once its HTTP turn routes are off (see
+  ``AIQAPIConfig``), and drains running chat turns at shutdown.
 * ``api`` mounts the Knowledge API (collections/documents, the LLM utilities,
   admin), the Async Job API (agent jobs, SSE streaming, housekeeping) and the
   debug console, and closes its SSE streams at shutdown.
@@ -164,6 +165,19 @@ def _load_validators_from_entry_points() -> list:
     return validators
 
 
+#: The fields of a NAT endpoint config that each mount a route running the
+#: workflow: the HTTP turn routes and NAT's own WebSocket. ``AIQAPIConfig`` leaves
+#: every one unset and refuses a config that sets one.
+WORKFLOW_ROUTE_FIELDS = (
+    "path",
+    "legacy_path",
+    "openai_api_path",
+    "legacy_openai_api_path",
+    "openai_api_v1_path",
+    "websocket_path",
+)
+
+
 class AIQAPIConfig(FastApiFrontEndConfig, name="aiq_api"):
     """
     Configuration for unified AI-Q API endpoints.
@@ -186,20 +200,40 @@ class AIQAPIConfig(FastApiFrontEndConfig, name="aiq_api"):
         le=604800,
         description="Job expiry time in seconds (default: 24 hours)",
     )
-    # The chat wire is ours (ADR-0068): NAT mounts no WebSocket route, and its
-    # step adaptor, which fed that route, is off. Steps still reach the
-    # exporters, which subscribe to the step manager and not to the adaptor.
+    # The chat wire is ours (ADR-0068), and it is the only way in to a turn. NAT
+    # mounts no WebSocket route and none of its HTTP turn routes, and its step
+    # adaptor, which fed them, is off. Steps still reach the exporters, which
+    # subscribe to the step manager and not to the adaptor.
     workflow: FastApiFrontEndConfig.EndpointBase = FastApiFrontEndConfig().workflow.model_copy(
-        update={"websocket_path": None}
+        update=dict.fromkeys(WORKFLOW_ROUTE_FIELDS)
     )
+    # `/evaluate` runs the workflow over a dataset; evaluation runs `nat eval`.
+    # `/evaluate/item` scores an answer it is given and runs no turn, so it stays.
+    evaluate: FastApiFrontEndConfig.EndpointBase = FastApiFrontEndConfig().evaluate.model_copy(update={"path": None})
     step_adaptor: StepAdaptorConfig = StepAdaptorConfig(mode=StepAdaptorMode.OFF)
 
     @model_validator(mode="after")
-    def _no_nat_websocket(self) -> "AIQAPIConfig":
-        """`/websocket` is the chat socket's; a NAT socket route beside it would run the old wire."""
-        paths = [self.workflow.websocket_path, *(endpoint.websocket_path for endpoint in self.endpoints)]
-        if any(paths):
-            raise ValueError("aiq_api serves the chat socket itself; leave every websocket_path unset")
+    def _the_chat_socket_is_the_only_turn_route(self) -> "AIQAPIConfig":
+        """Refuse a config that puts a NAT route in front of the workflow, rather than serve it.
+
+        NAT's defaults put the workflow behind ``/v1/workflow*``, ``/generate*``,
+        ``/v1/chat*`` (its OpenAI-compatible completions among them), ``/chat*``
+        and ``/websocket``. Each of those skips what the chat socket does per
+        turn: admission, the conversation fence, cancel, replay, the persisted
+        answer, and the ``finally`` that always sends a terminal. They stream through NAT's
+        ``generate_streaming_response``, whose early stop leaves the producer
+        running (``workflow_stream`` has the account), and with the step adaptor
+        off they carry none of the steps a reader is shown. ``/websocket`` is the
+        chat socket's own path. An extra ``endpoints`` entry mounts the same set
+        for another function.
+        """
+        served = [f"workflow.{name}" for name in WORKFLOW_ROUTE_FIELDS if getattr(self.workflow, name)]
+        served += ["evaluate.path"] if self.evaluate.path else []
+        served += [f"endpoints[{endpoint.function_name}]" for endpoint in self.endpoints]
+        if served:
+            raise ValueError(
+                f"aiq_api serves a turn over its own chat socket only (ADR-0068); leave {', '.join(served)} unset"
+            )
         return self
 
 
@@ -259,8 +293,9 @@ def _create_shutdown_signal_handler(
     return handler
 
 
-#: The routers the ``chat`` role mounts on its router. The chat socket and NAT's
-#: own routes are the rest of what it serves (``AIQAPIWorker._add_chat_routes``).
+#: The routers the ``chat`` role mounts on its router. The chat socket and what
+#: is left of NAT's own routes are the rest of what it serves
+#: (``AIQAPIWorker._add_chat_routes``).
 CHAT_ROUTERS: tuple[Callable[[APIRouter], None], ...] = (
     # The chat tier's scaling signal, read by KEDA (ADR-0080). Internal-token
     # only, so it stays off the external allowlist like the maintenance routes.
@@ -329,7 +364,9 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
     - Async Job API routes (agent jobs, SSE streaming, housekeeping)
 
     ``chat``:
-    - The chat socket (ADR-0068) and NAT's own routes
+    - The chat socket (ADR-0068), the one route a turn runs through
+    - NAT's own routes that run no turn (the OAuth callback, its execution
+      store, ``/evaluate/item``, the MCP tool list)
     """
 
     _original_sigint_handler: Callable | signal.Handlers | None = None
@@ -413,6 +450,17 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         return app
 
     @override
+    async def add_default_route(self, app: FastAPI, session_manager: SessionManager):
+        """Nothing: a turn's one route is the chat socket, which ``_add_chat_routes`` mounts.
+
+        NAT's version mounts the generate, chat and socket routes the
+        ``workflow`` config names, which ``AIQAPIConfig`` leaves unset. It also
+        mounts the async generate route whenever a Dask scheduler is reachable,
+        whatever the config says, as ``None/async`` when ``workflow.path`` is
+        unset. So the routes are left out here, not by the config alone.
+        """
+
+    @override
     async def add_routes(self, app: FastAPI, builder: WorkflowBuilder):
         if self._role is WebRole.CHAT:
             await self._add_chat_routes(app, builder)
@@ -458,7 +506,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
             self._restore_signal_handlers()
 
     async def _add_chat_routes(self, app: FastAPI, builder: WorkflowBuilder) -> None:
-        """What only ``chat`` serves: NAT's own routes and the chat socket."""
+        """What only ``chat`` serves: the chat socket, and NAT's own routes that run no turn."""
         await super().add_routes(app, builder)
 
         # The chat socket (ADR-0068), on the worker's own session manager so
@@ -469,8 +517,8 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
     async def _add_api_routes(self, app: FastAPI, builder: WorkflowBuilder) -> None:
         """What only ``api`` serves beside its router: the job routes and the debug console.
 
-        NAT's own routes (generate, chat, execution, evaluate, monitor, static,
-        MCP) belong to ``chat`` alone: nothing calls them on this tier.
+        NAT's own routes (execution, the OAuth callback, evaluate item, monitor,
+        static, MCP) belong to ``chat`` alone: nothing calls them on this tier.
         """
         for register in API_APP_REGISTRARS:
             await register(app, builder, self)

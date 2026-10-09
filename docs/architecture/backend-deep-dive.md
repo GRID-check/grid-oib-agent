@@ -31,8 +31,9 @@ OpenRouter embeddings), the only config left in `configs/`.
 
 ## 2. Chat request lifecycle (WebSocket-only)
 
-Chat is **WebSocket only**. The old SSE `/api/generate` chat path is dead; SSE
-now serves **only** the deep-research job stream (§7).
+Chat is **WebSocket only**. The old SSE `/api/generate` chat path is dead, and
+the backend mounts none of NAT's HTTP turn routes, so the chat socket is the
+only way to run a turn; SSE now serves **only** the deep-research job stream (§7).
 
 ```
 Browser WebSocket
@@ -253,8 +254,10 @@ is present. It is deny-by-default: the exempt list is the paths that run no
 workflow and that a BFF proxy forwards with the member's bearer alone
 (`/health`, `/v1/collections`, `/v1/documents`, `/v1/data_sources`, the async
 job reads and controls under `/v1/jobs/async/{jobs,job,agents}`, `/v1/drafts`);
-every other path, NAT's `/chat`, `/v1/chat/completions` and `/v1/workflow`
-routes and the WebSocket included, needs the envelope. Always exempt:
+every other path, the WebSocket included, needs the envelope. NAT's HTTP turn
+routes (`/chat`, `/generate`, `/v1/chat/completions`, `/v1/workflow`, ...) are
+not mounted at all: a turn runs on the chat socket alone (`AIQAPIConfig`,
+ADR-0068), and deny by default is what closes a route a later NAT adds. Always exempt:
 anonymous mode and internal-token-authenticated service calls. Dev fail-open note:
 when `GRID_INTERNAL_API_TOKEN` is unset, signature verification is skipped
 but envelope *presence* is still required for authenticated requests.

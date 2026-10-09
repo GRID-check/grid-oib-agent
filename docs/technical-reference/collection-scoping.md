@@ -39,7 +39,7 @@ The Archiv collection is injected in `buildCollectionScopeFromRequest` (which ha
 │  buildCollectionScopeFromRequest(session, context) → {scope,     │
 │    headerValue, projectId, conversationId}                       │
 └────┬─────────────────────────────────────────────────────────┬───┘
-     │ SSE (/api/generate, /api/chat)                          │ WebSocket upgrade
+     │ HTTP (/api/v1, /api/jobs/async)                         │ WebSocket upgrade
      │ X-Grid-Collection-Scope header                          │ calls /api/auth/websocket-scope
      ▼                                                          ▼
 ┌────────────────────────────────────────────────────────────────┐
@@ -216,11 +216,10 @@ On 401/403, the WebSocket connection is rejected with the appropriate status cod
 
 ---
 
-## SSE Routes
+## HTTP proxy routes
 
-**File**: `frontends/ui/src/app/api/generate/route.ts`
-
-The `POST /api/generate` route reads `projectId` and `conversationId` from the request body, calls `buildCollectionScopeFromRequest`, and includes the header when proxying to the backend:
+There is no HTTP chat route: a chat turn runs on the WebSocket alone (ADR-0068). The HTTP proxies read `projectId` and
+`conversationId`, call `buildCollectionScopeFromRequest`, and include the header when proxying to the backend:
 
 ```typescript
 const { headerValue } = await buildCollectionScopeFromRequest(session, {
@@ -230,9 +229,7 @@ const { headerValue } = await buildCollectionScopeFromRequest(session, {
 // Forwarded as: 'X-Grid-Collection-Scope': headerValue
 ```
 
-The same pattern is used in:
-- `frontends/ui/src/app/api/chat/route.ts` — `POST /api/chat`
-- `frontends/ui/src/app/api/generate/respond/route.ts` — response follow-ups
+The pattern is used in:
 - `frontends/ui/src/app/api/v1/[...path]/route.ts` — generic API proxy
 - `frontends/ui/src/app/api/jobs/async/[...path]/route.ts` — async job proxy
 
@@ -339,7 +336,7 @@ invisible.
 
 | Priority | Source | When |
 |----------|--------|------|
-| 1 (highest) | `X-Grid-Collection-Scope` header | Present in SSE and WebSocket upgrades |
+| 1 (highest) | `X-Grid-Collection-Scope` header | Present on proxied HTTP requests and WebSocket upgrades |
 | 2 | `_resolve_target_collections()` config | Header absent (legacy/fallback) |
 
-The header is always set for SSE requests (`/api/generate`, `/api/chat`) and WebSocket upgrades. It is absent only when requests bypass the BFF or when the NAT context has no metadata headers.
+The header is always set for proxied HTTP requests (`/api/v1/*`, `/api/jobs/async/*`) and WebSocket upgrades. It is absent only when requests bypass the BFF or when the NAT context has no metadata headers.

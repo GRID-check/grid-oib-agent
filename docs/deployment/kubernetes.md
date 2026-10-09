@@ -18,7 +18,7 @@ their own namespaces.
 
 | Workload | k8s object | Replicas | Storage | Scales by |
 |---|---|---|---|---|
-| `aiq-agent` (the **`chat` role**, `GRID_ROLE=chat`: the chat socket and NAT's own routes, ADR-0082) | **StatefulSet** | N (default 2) | none (no PVC; ADR-0082 step A2) | Horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
+| `aiq-agent` (the **`chat` role**, `GRID_ROLE=chat`: the chat socket, the only route a turn runs through, ADR-0082) | **StatefulSet** | N (default 2) | none (no PVC; ADR-0082 step A2) | Horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
 | `aiq-api` (the **`api` role**, `GRID_ROLE=api`: every other backend HTTP route; `BACKEND_URL` names its Service, ADR-0082) | Deployment + HPA + PDB | `apiMinReplicas`→`apiMaxReplicas` (default 2→4; prod 1→3, dev 1→2) | — | Horizontally (CPU HPA, `apiHpaCpuTargetPercent`). Stateless: no volume. Drains for 60 s (the SSE close and short requests), not for a chat turn |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | `frontendMinReplicas`→`frontendMaxReplicas` (default 2→6; prod and dev 1→3) | — | Horizontally (CPU HPA) |
 | `agent-worker` (research) | Deployment + KEDA ScaledObject | `agentWorkerMinReplicas`→`agentWorkerMaxReplicas` (default 1→8; prod 1→3, dev 0→3) | — | Horizontally, on `research_job_queue` depth (§6.3) |

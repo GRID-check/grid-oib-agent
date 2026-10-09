@@ -1,0 +1,15 @@
+---
+security:
+  - >
+    A question is now answered only over the chat connection the app opens,
+    which checks who is asking, their organization's budget and source
+    settings, and the conversation. The backend no longer offers the
+    toolkit's own HTTP routes that could run an answer past those checks, and
+    none of them is reachable from outside the cluster any more.
+operators:
+  - >
+    The chat tier no longer serves /generate, /chat, /v1/chat, /v1/chat/completions,
+    /v1/workflow or /evaluate. Anything that asked questions through them has to
+    use the chat WebSocket instead, as the loop eval already does. A
+    front-end configuration that sets one of those paths now stops the
+    backend at start.

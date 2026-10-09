@@ -55,7 +55,10 @@ disabled sources and no model overrides, reached through the BFF's v1 proxy
 with nothing but the member's cookie. A path a future NAT release adds would
 have been open the same way. Now a JWT caller needs the envelope everywhere
 except the short list of paths that run no workflow and that a BFF proxy
-legitimately forwards with the member's bearer and no envelope.
+legitimately forwards with the member's bearer and no envelope. Those NAT
+routes are no longer mounted at all (``aiq_api.plugin.AIQAPIConfig``: a turn
+runs on the chat socket alone); deny by default is what still closes a route
+a later NAT release adds.
 
 EXEMPT (enforcement never applies):
 

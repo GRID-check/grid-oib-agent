@@ -178,13 +178,16 @@ budget ran out. Thirty-one realistic German questions from a Wiener Planungsbür
 live in [`tests/fixtures/herleitung/loop_eval_questions.yaml`](../../tests/fixtures/herleitung/loop_eval_questions.yaml)
 — every expected Punkt in it is read off the committed structural index rather
 than remembered — and [`scripts/loop_eval.py`](../../scripts/loop_eval.py) runs
-them, writes a CSV, and diffs two CSVs with `--compare`. **It cannot run in
+them, writes a CSV, and diffs two CSVs with `--compare`. Each question is one
+turn over the chat socket of the `chat` role at `GRID_LOOP_EVAL_URL` (wire v2,
+`REQUIRE_AUTH=false`), the only way a turn runs; the columns are read off the
+turn's own steps and its terminal `RUN_FINISHED`. **It cannot run in
 CI**, for the same reason `be:eval:retrieval` no longer does: it needs a
 reachable backend with the operator-provided, gitignored OIB corpus ingested,
 and every question costs real model calls. Run it on either side of a change to
-the answering loop and quote the delta in the PR; the CSV and comparison logic
-themselves are covered offline by
-[`tests/test_loop_eval.py`](../../tests/test_loop_eval.py).
+the answering loop and quote the delta in the PR; the CSV and comparison logic,
+and the reading of a recorded wire v2 turn (`shared/wire/v2/`), are covered
+offline by [`tests/test_loop_eval.py`](../../tests/test_loop_eval.py).
 
 ## Cross-service contract fixtures
 
