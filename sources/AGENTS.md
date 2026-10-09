@@ -22,7 +22,7 @@ Keep it that way: a helper a test needs from another file is imported by its pat
 (`from sources.ris_adapter.tests.conftest import LookupHarness`), never as
 `tests.conftest`.
 
-This suite went uncovered for a long time. CI now runs it in the backend-test job
+This suite went uncovered for a long time. CI now runs it in the Backend tests job
 (`task be:test:sources`). A package here once carried
 three tests asserting a function signature the implementation had already
 changed, and they stayed green through every gate because nothing ran them.

@@ -17,7 +17,7 @@ task agents:update  # refresh the third-party pins, then review the diff
 **Edit a skill, commit `apm.lock.yaml` with it.** The lockfile records a hash of
 every deployed file, so an edit under `skills/` invalidates it — and because the
 deployment is gitignored, nothing in your diff says so. `task agents:audit` is
-what catches that, and `task lint:repo` and CI's repo-lint job both run it. It
+what catches that, and `task lint:repo` and CI's Repo checks job both run it. It
 re-deploys from `skills/` and fails if the lockfile changed, leaving the correct
 file on disk for you to commit. (Its own `apm audit` exits 0 on drift, which is
 why the task is a wrapper and not a one-liner; the lockfile went stale against

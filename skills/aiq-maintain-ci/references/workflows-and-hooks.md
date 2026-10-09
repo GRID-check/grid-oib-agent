@@ -5,38 +5,31 @@ Authoritative sources: the workflow files under `.github/workflows/` and
 
 ## Workflows
 
-- `ci.yml` ("CI") — PRs and pushes to `develop` and `release/**`. Jobs:
-  `changes` (path filter over `.github/filters.yml`, plus the reuse lookup on
-  push), `backend-lint` (`task be:lint`: ruff check and format), `repo-lint`
-  (`pre-commit run --all-files`, then `task agents:audit`), `backend-test` (the
-  coverage-gated core suite), `backend-test-plugins` (the aiq_api suite and the
-  `sources/` suites, beside it; `task be:verify` runs all three locally), `frontend`, `frontend-test` (six shards),
-  `frontend-coverage`, `tenant-isolation`, `web`, `infra`, `packages`,
-  `release-note` (note lint on every run; requiring a note only on pull
-  requests), and `ci-ok`, the single required check.
-- `security.yml` ("Security") — Semgrep, OSV-Scanner and trivy behind the
-  `changes` filter, gitleaks on every run, and `security-ok` ("Security OK"),
-  the aggregate gate. Also weekly on a schedule, always in full.
-- Reuse on push: a green `pull_request` run's gate job (`ci-ok`,
-  `security-ok`) uploads a `ci-green-<tree>` / `security-green-<tree>` marker,
-  and on push `changes` runs `ci/reuse_green_run.py`. On a hit every tier output
-  is `'false'`, every job skips and the run still concludes `success`, which is
-  what `deploy.yml`'s gate reads. A new job must take its `if:` from a
-  `changes` output (or `reused`), or it re-runs on every merge;
-  `tests/test_ci_change_detection.py` evaluates every job's condition and fails
-  on one that does not skip.
-- `docker-build.yml` ("Docker Build") — builds the backend, frontend and web
-  images on PRs, no push, reading the shared path filter.
+The design and the reasons: `docs/contributing/ci.md`.
+
+- `ci.yml` ("CI") — pull requests (the merge gate) and pushes to `develop` and
+  `release/**` (the release gate). Jobs: `changes` ("Plan": tier filter, last
+  green commit and reuse on push, image plan, new image pins), `repo`
+  (pre-commit on all files, `task agents:audit`, `task be:lint`, release-note
+  lint and requirement, gitleaks), `semgrep` (PRs, diff-aware), `backend`
+  (core, aiq_api and `sources/` suites), `frontend` (cards, lint, types,
+  tenant isolation), `frontend-test` (four shards), `frontend-coverage` (PR
+  comment, not gating), `web`, `infra`, `packages`, `trivy` (changed pins),
+  `image` (PR build, no push), `image-push` and `publish` (push: build missing
+  images, then tag `sha-<commit>` after every check passed), and `ci-ok`, the
+  single required check.
+- `deploy.yml` ("Deploy (staging)") — `workflow_run` of CI: a green push run on
+  `develop` from this repository deploys staging. Also `prod` pushes (behind the
+  `production` environment's reviewers) and manual dispatch (rollback).
+- `security.yml` ("Security") — weekly and on demand: Semgrep full tree, OSV
+  over every lockfile, gitleaks, trivy over every pin. Surveillance, not a gate.
 - `pr.yml` ("PR") — `pull_request_target` hygiene: the Conventional PR title
   check, closing keywords, and labels. Never checks out PR code.
+- `release-notes.yml` ("Release notes") — on `develop`, regenerates the
+  published changelog from `releasenotes/` on top of the current tip and
+  commits it back.
 - `blog-preview.yml` — screenshots changed blog posts on PRs that touch
   `frontends/web/src/content/`. Informational, never blocks.
-- `publish-images.yml` ("Publish Images") — builds and pushes the images to GHCR
-  on pushes to `develop`, `release/**` and `v*` tags.
-- `deploy.yml` ("Deploy (staging)") — chained off Publish Images on `develop`;
-  requires the commit's CI and Security runs to be green first.
-- `release-notes.yml` ("Release notes") — on `develop`, regenerates the
-  published changelog from `releasenotes/` and commits it back.
 - `labels.yml` ("Sync Labels") — syncs `.github/labels.yml` to the repo labels
   (`skip-delete`).
 - Scheduled and on demand: `docs-links.yml` (weekly external link sweep),
@@ -44,6 +37,9 @@ Authoritative sources: the workflow files under `.github/workflows/` and
   (weekly WorkOS drift check).
 - `claude.yml` and `claude-code-review.yml` — the `@claude` agent and the
   automatic PR review.
+
+Composite actions in `.github/actions/`: `setup-python-env`, `setup-task`,
+`setup-bun`, and `build-image` (one image from an entry of the image plan).
 
 ## CI trigger flow
 
@@ -61,7 +57,7 @@ pre-commit-hooks set (check-merge-conflict, check-added-large-files, check-yaml,
 end-of-file-fixer, trailing-whitespace), the repo's own checks (sync-platform-skills,
 card-schemas, wire-schemas, agent-docs, adr-check, hidden-unicode, doc-paths,
 validate-skills), and markdown-link-check. Secret scanning is not a hook: gitleaks
-runs in `security.yml`.
+runs in CI's `repo` job and weekly in `security.yml`.
 
 ## Validation
 

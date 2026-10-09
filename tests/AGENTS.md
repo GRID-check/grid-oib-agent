@@ -31,7 +31,7 @@ CI's 65% coverage gate.
 | Fix a bug | Add the test that fails without your fix | Review. A fix with no test is a fix that comes back |
 | Assert on an LLM call | Assert the contract, never the prose: tools bound, prompt block present, bounds respected | The test passes until the model changes its wording, then fails for no reason |
 | Test tenant behaviour | Remember this suite does not exercise row-level security; `task db:test:rls` does, and `task verify` does not run it | A tenancy bug that only RLS would catch |
-| Add a suite under `sources/` | Nothing extra — `task be:test:sources` runs it, in `be:verify` and in CI. Do not add a `tests/__init__.py` to it: a package named `tests` collides with this suite's `tests.conftest` ([`sources/AGENTS.md`](../sources/AGENTS.md)) | The **backend-test** CI job |
+| Add a suite under `sources/` | Nothing extra — `task be:test:sources` runs it, in `be:verify` and in CI. Do not add a `tests/__init__.py` to it: a package named `tests` collides with this suite's `tests.conftest` ([`sources/AGENTS.md`](../sources/AGENTS.md)) | The **Backend tests** CI job |
 
 ## Reference
 

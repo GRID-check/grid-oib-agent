@@ -92,10 +92,10 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
   advisory databases OSV already ingests — GHSA and PyPA — while taking longer
   than the whole rest of the workflow (9m53s with it, 2m36s without), and two of
   its three steps were silently reporting nothing. Rationale in
-  [`security.yml`](../../.github/workflows/security.yml).) Gaps: Semgrep and
-  OSV-Scanner are currently non-blocking in
-  [`.github/workflows/security.yml`](../../.github/workflows/security.yml)
-  (Phase 1 — findings surface in the job log); no clean-as-you-code
+  [`security.yml`](../../.github/workflows/security.yml).) Gaps: Semgrep
+  blocks only findings a pull request introduces (CI), and OSV-Scanner is
+  advisory in the weekly
+  [`.github/workflows/security.yml`](../../.github/workflows/security.yml); no clean-as-you-code
   smell gate (CodeQL + Sonar removed — code smells now via ruff/eslint + coverage
   gate); actions tag-pinned not SHA-pinned (one `@main`); dev image pipes
   nodesource script to bash (dev only).

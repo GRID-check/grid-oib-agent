@@ -87,28 +87,20 @@ release rather than trusting a green suite.
 ## How CI distributes the same tasks
 
 CI calls the Taskfile, so there is no second copy of the commands. Only the
-scheduling differs: the frontend tier's lint, types and build run in one job
-while the suite is sharded six ways (`fe:test:shard`) and stitched back together
-by `fe:test:merge` for the coverage comment. Run in series on one runner, the
-tests were about 63% of the job's wall clock. Locally `task fe:verify` runs lint,
-types, tests and build in order instead.
+scheduling differs: the frontend tier's card check, lint, types and the
+tenant-isolation suite share one job, the suite is sharded four ways
+(`fe:test:shard`) and stitched back together by `fe:test:merge` for the coverage
+comment, and the production UI build runs inside the frontend image build
+rather than as `fe:build`. Locally `task fe:verify` runs lint, types, tests and
+build in order instead.
 
-A push to `develop` or `release/**` whose tree a green pull request run already
-tested does not run the jobs again. CI and Security still start and conclude
-`success` (the deploy gate reads exactly that), but `changes` finds the PR
-run's `ci-green-<tree>` / `security-green-<tree>` marker and every job skips. A
-squash merge onto a base that did not move lands that tree; a base that moved
-lands a different one and runs in full. The decision and every reason to refuse
-a marker (a cancelled, failed or still-running run, a fork, another workflow, a
-workflow file that differs from the pushed one, an expired marker, an API
-error) live in [`ci/reuse_green_run.py`](../../ci/reuse_green_run.py) and
-[`tests/test_reuse_green_run.py`](../../tests/test_reuse_green_run.py);
-[`tests/test_ci_change_detection.py`](../../tests/test_ci_change_detection.py)
-evaluates every job's condition to pin that a hit skips all of them and a miss
-skips none. What a reused push gives up: Semgrep's full-tree report (advisory
-on push anyway), and a trivy re-scan against an advisory database up to the
-marker's seven days newer, which on push only ever ran when the image pins
-changed. The weekly scan covers both.
+What decides which jobs run (a pull request against its base, a push against the
+last commit CI passed), when a push reuses its pull request's result, and how
+images are built and tagged: [ci.md](ci.md). The reuse decision and every reason
+to refuse a marker live in [`ci/reuse_green_run.py`](../../ci/reuse_green_run.py)
+and [`tests/test_reuse_green_run.py`](../../tests/test_reuse_green_run.py);
+[`tests/test_ci_workflows.py`](../../tests/test_ci_workflows.py) evaluates every
+job's condition to pin that a hit skips all the checks and a miss skips none.
 
 Three required checks are not in `task verify` at all: `db:test:rls` (it needs
 PostgreSQL server binaries), `pkg:test` (four minutes, on a directory most
@@ -219,20 +211,25 @@ so drift fails a test rather than splitting the contract in half.
 
 ## Security and static analysis
 
-[`security.yml`](../../.github/workflows/security.yml) runs on push, on pull
-request, and weekly. All of it is free and runs entirely in CI, with no GitHub
-Advanced Security licence and no SonarQube subscription.
+Two halves, by what can cause a finding. A change can introduce a secret, a new
+SAST finding or a vulnerable image pin, so those are checked in CI, behind
+`CI OK`. A CVE disclosed against code nobody touched cannot be the change's
+fault, so the full scans run weekly in
+[`security.yml`](../../.github/workflows/security.yml), where a red run is a
+finding to triage and nobody's merge waits on it. All of it is free and runs in
+CI, with no GitHub Advanced Security licence and no SonarQube subscription.
 
-| Tool | Covers | Blocking |
-|---|---|---|
-| Semgrep | SAST for Python, TS/JS and Actions. Replaces CodeQL and Sonar's security rules | **Yes on a PR.** `semgrep ci` is diff-aware, so it blocks a *new* finding without failing on the existing backlog. Push and schedule runs stay advisory |
-| OSV-Scanner | Dependency CVEs from **every** lockfile in the tree — the two npm ones, `bun.lock`, and both `uv.lock`s. Replaces Sonar SCA, and as of Sep 2026 the `pip-audit`/`bun audit`/`npm audit` job too | No, phase 1 |
-| gitleaks | Secret scan over full history | Yes |
-| trivy (`image-scan`) | The digest-pinned observability and Langfuse images from `deploy/pulumi/src/config.ts` | Yes, on **fixable** HIGH and CRITICAL findings (it runs `--ignore-unfixed`) |
+| Tool | Covers | In CI (blocking) | Weekly |
+|---|---|---|---|
+| gitleaks | Secret scan over full history | **Yes**, every run (Repo checks job) | Yes |
+| Semgrep | SAST for Python, TS/JS and Actions. Replaces Sonar's security rules | **Yes, on a PR**, diff-aware: blocks a *new* finding without failing on the backlog | Full tree, advisory |
+| trivy | The digest-pinned third-party images in `deploy/pulumi/src` | **Yes**, for the pins a change adds or moves, on fixable HIGH/CRITICAL (`--ignore-unfixed`) | Every pin, blocking |
+| OSV-Scanner | Dependency CVEs from **every** lockfile: both npm ones, `bun.lock`, both `uv.lock`s. Replaces Sonar SCA and the old `pip-audit`/`bun audit`/`npm audit` job | No | Advisory |
 
 OSV-Scanner being advisory is worth knowing before you rely on it: a vulnerable
-dependency passes CI today. Making it block means removing its
-`continue-on-error`.
+dependency passes CI today. Making it a gate means running it on pull requests
+in osv-scanner's diff mode, which reports only what a change introduces;
+blocking on the whole backlog would fail every unrelated PR.
 
 There is deliberately **no** second dependency scanner. A `Dependency audit` job
 ran `pip-audit`, `bun audit` and `npm audit` until it was measured: it was the
@@ -247,10 +244,13 @@ used to be, so it is read before anyone adds it back.
 
 Three things about the trivy job that are not obvious:
 
-- It asserts the exact image count (five as of ADR-0044), so a new pin fails CI
-  until it is added to the scan list rather than going unscanned forever.
-- The vulnerability database is downloaded once into a shared cache and the five
-  scans reuse it with `--skip-db-update`. Five fresh `docker run --rm` pulls of
+- It finds the pins by shape, every `<image>@sha256:<digest>` string under
+  `deploy/pulumi/src` ([`ci/pinned_images.py`](../../ci/pinned_images.py)),
+  so a new pin is scanned the day it lands. It used to match a list of names,
+  which a new image was not on.
+- The vulnerability database is downloaded once into a shared cache and every
+  scan reuses it with `--skip-db-update` ([`ci/trivy_scan.sh`](../../ci/trivy_scan.sh)).
+  Five fresh `docker run --rm` pulls of
   `trivy-db` from GCR return 429 and fail the job with `failed=0`.
 - What trivy learns by *walking* the images is cached across runs
   (`actions/cache`, keyed on the pin set and the trivy version). The

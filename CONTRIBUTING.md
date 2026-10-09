@@ -49,7 +49,7 @@ person to trip over them.
 ## Release notes
 
 Every change a customer can notice ships with a release note in the same PR —
-this is an obligation, enforced by the **Release note** CI job, not a
+this is an obligation, enforced by CI's **Repo checks** job, not a
 convention. Notes are written with [reno](https://docs.openstack.org/reno/latest/)
 and published automatically to piloti.at/changelog (German and English) when the
 PR merges.
@@ -105,20 +105,22 @@ just the commits.
 
 - The single required status check is **CI OK**
   ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): it passes only when
-  every needed lint/test/build job succeeded or was skipped by the path filter.
-- Security scanning runs in
-  [`.github/workflows/security.yml`](.github/workflows/security.yml): Semgrep
-  (SAST), OSV-Scanner (dependency CVEs from every lockfile), gitleaks and trivy
-  — fully in-CI, no paid licence. What each tool blocks on, and the three
-  non-obvious things about the trivy job:
+  every needed job succeeded or was skipped because the change could not affect
+  it. How CI decides what to run, and why:
+  [docs/contributing/ci.md](docs/contributing/ci.md).
+- Security checks a change can fail are part of CI: gitleaks on every run,
+  Semgrep on the findings a PR introduces, trivy on the image pins it adds.
+  The weekly [`.github/workflows/security.yml`](.github/workflows/security.yml)
+  scans everything else that can turn red without a code change (OSV-Scanner
+  over every lockfile, every pin, the whole tree). What each tool blocks on:
   [docs/contributing/testing-and-verification.md](docs/contributing/testing-and-verification.md).
 - Dependency-update PRs are opened by Dependabot
   ([`.github/dependabot.yml`](.github/dependabot.yml)).
 
 ## Secret scanning
 
-Gitleaks scans full history on every PR and push, plus a weekly run
-([`.github/workflows/security.yml`](.github/workflows/security.yml)). Its
+Gitleaks scans full history on every PR and push (CI's **Repo checks** job),
+plus a weekly run ([`.github/workflows/security.yml`](.github/workflows/security.yml)). Its
 allowlist is [`.gitleaks.toml`](.gitleaks.toml): test, doc, mock and fixture
 paths, lockfiles and `.env.example`, one regex for placeholder words (`example`,
 `dummy`, `changeme` and the like), and one exact literal, Pulumi's public secret
