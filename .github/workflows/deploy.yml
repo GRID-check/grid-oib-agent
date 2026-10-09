@@ -1,25 +1,23 @@
 name: Deploy (staging)
 
-# Deploys the `dev` (staging) Pulumi stack after the images for a develop commit
-# have been built + pushed. Chained off "Publish Images" (not a raw push) so the
-# stack never references a tag GHCR doesn't have yet, and it deploys the exact
-# commit's immutable SHA tag rather than the moving `latest`. An explicit gate
-# step additionally requires the commit's CI and Security workflows to be green
-# before anything touches the cluster (Publish Images runs in parallel with
-# them, so chaining alone would deploy untested code).
+# Deploys the `dev` (staging) Pulumi stack for every develop commit CI passed.
 #
-# Image pinning is PER-SERVICE, not global. Publish Images is incremental: on
-# a develop push it only rebuilds images whose inputs changed. A service
-# rebuilt at this commit gets the commit's immutable sha-<sha> tag; a service
-# that was NOT rebuilt gets the newest develop commit's tag that GHCR actually
-# has (walking first-parent history back from this commit), so a partial
-# publish never points an unchanged service at a tag GHCR does not have
-# (ImagePullBackOff). A resolved image older than the deployed one fails the
-# job (deploy/pulumi/scripts/resolve-image-refs.sh).
-# A manual dispatch with imageTag pins all three services to that tag,
-# preserving full-fleet rollback semantics; the workflow first verifies the
-# tag exists for all three images, so a rollback to a partially-built commit
-# fails fast instead of rolling the others into ImagePullBackOff.
+# Triggered by the CI run itself (`workflow_run`), not by a raw push and not by
+# a poll. A push run of CI concludes `success` only after every check passed AND
+# its publish job put `sha-<commit>` on all three images (ci.yml, `publish`), so
+# a green run is exactly the condition for a deploy, and the images it names
+# exist. A cancelled run is a commit superseded while queued: the newer commit's
+# run carries everything it had, and deploys instead. A red run deploys nothing.
+#
+# This replaced a chain off Publish Images plus a `gate` job that polled the CI
+# and Security workflows for up to 25 minutes, and per-service image pinning
+# that walked history for the newest image each service had. Both existed
+# because images were built incrementally by path filter and could be missing
+# for a commit; now every green commit has all three.
+#
+# A manual dispatch with imageTag pins all three services to that tag (a
+# rollback); the tag is verified to exist for all three first. A dispatch
+# without one re-deploys the newest commit that has images.
 #
 # One-time setup (per environment). Stack config is FILE-BASED for plaintext
 # (committed deploy/pulumi/Pulumi.<stack>.yaml) and ESC-BASED for secrets (the
@@ -57,13 +55,12 @@ name: Deploy (staging)
 #     resolves NO per-service refs and verifies NO rollback tag — the preview
 #     applies exactly what the stack file records. That pinned line IS the
 #     promotion mechanism: every develop→prod promotion PR bumps
-#     grid-oib:imageTag to a develop sha at which publish-images built all
-#     three images (it builds only what changed, so not every develop sha
-#     qualifies; the verify step below refuses one that does not). CI computes nothing
-#     dynamically here — prod merge shas never have GHCR images; only develop
-#     tips do. (Publish Images never runs for `prod`, so there is nothing else
-#     to pin tags.)
-# There is deliberately NO Publish Images chaining and NO template preflight:
+#     grid-oib:imageTag to a develop sha CI passed, and every such sha has
+#     all three images (ci.yml tags them only on a green run; the verify step
+#     below still refuses a tag that is missing). CI computes nothing
+#     dynamically here: prod merge shas never have GHCR images, only green
+#     develop commits do.
+# There is deliberately NO CI chaining and NO template preflight:
 # the prod stack is expected fully configured, and a broken one fails closed
 # at `pulumi preview`. CI does not run on `prod` pushes either (ci.yml targets
 # develop/release only), so green-CI enforcement belongs in prod BRANCH
@@ -75,7 +72,7 @@ on:
   push:
     branches: [prod]
   workflow_run:
-    workflows: ["Publish Images"]
+    workflows: ["CI"]
     types: [completed]
     branches: [develop]
   workflow_dispatch:
@@ -97,121 +94,25 @@ on:
 
 permissions:
   contents: read
-  actions: read # poll CI / Security workflow conclusions for the gate step
-  packages: read # verify an image tag exists for all three images (staging rollback, every prod deploy)
+  packages: read # verify an image tag exists for all three images before pinning it
 
 # Concurrency is PER JOB now (`deploy-dev` / `deploy-prod` below): a
 # production apply must not queue behind a staging publish or vice versa.
 # Within each stack, updates still run strictly one at a time.
 jobs:
-  # The green-CI gate, lifted out of the deploy into its own job so that
-  # "do not deploy" and "something is wrong" can look different. As a step it
-  # had only one way to stop the run, `core.setFailed`, and a commit superseded
-  # before its CI finished took that path — so an ordinary merge train painted
-  # the Actions tab red, which is how a real deploy failure stops being noticed.
-  # Now: green → deploy; a FAILED check → this job fails, because a commit that
-  # should have shipped did not; a CANCELLED one → this job passes and the
-  # deploy is skipped, because the commit was superseded and was never going to
-  # ship. Nothing about WHICH commits reach the cluster changes.
-  gate:
-    name: Require green CI + Security
-    # Same conditions the deploy itself carries: this job decides whether that
-    # deploy runs, so it must not run in cases the deploy would not.
-    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'staging' || inputs.target == 'both')) }}
-    runs-on: ubuntu-latest
-    outputs:
-      # 'true' only when every required workflow is green for this commit.
-      # Empty when the gate failed or was skipped, which the deploy reads as no.
-      proceed: ${{ steps.require.outputs.proceed }}
-    env:
-      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-    steps:
-      # The stated invariant: staging only receives commits whose CI and
-      # Security workflows passed. Publish Images has no `needs` relationship
-      # to them, so enforce it here by polling both workflows' conclusions for
-      # the deploy SHA (they usually finish long before the image build).
-      - name: Require green CI + Security for this commit
-        id: require
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const required = ["CI", "Security"];
-            const sha = process.env.DEPLOY_SHA;
-            const deadline = Date.now() + 25 * 60 * 1000;
-            for (const name of required) {
-              for (;;) {
-                const runs = (await github.rest.actions.listWorkflowRunsForRepo({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  head_sha: sha,
-                  per_page: 50,
-                })).data.workflow_runs.filter((r) => r.name === name);
-                const run = runs[0]; // most recent for this SHA
-                if (run && run.status === "completed") {
-                  // CANCELLED is not a failure, it is a SUPERSESSION: `develop`
-                  // moved on while the images were building and the concurrency
-                  // group killed this commit's CI. Nothing is broken, nothing is
-                  // deployable, and the newer tip brings its own Publish Images →
-                  // Deploy chain. Standing down quietly is the whole point of
-                  // this job: a red mark here is meant to mean "a commit that
-                  // should have shipped did not", and a merge train that paints
-                  // it red as a matter of routine is how a real deploy failure
-                  // stops being noticed.
-                  if (run.conclusion === "cancelled") {
-                    // Cancelled means SUPERSEDED only when a newer commit exists
-                    // on the branch. On the tip nothing superseded it — a person
-                    // cancelled it, usually because a job was slow — and standing
-                    // down silently there STRANDS THE BRANCH: nothing re-runs a
-                    // cancelled workflow on its own, so the tip keeps a cancelled
-                    // check forever and every later dispatch takes this same path
-                    // and deploys nothing, reporting success each time. That is
-                    // the failure this branch exists to tell apart, and it cost
-                    // an evening of dispatching into a green no-op.
-                    const branch = context.payload.workflow_run?.head_branch || context.ref.replace("refs/heads/", "");
-                    const tip = (await github.rest.repos.getBranch({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      branch,
-                    })).data.commit.sha;
-                    if (tip !== sha) {
-                      core.notice(
-                        `${name} for ${sha} was cancelled — this commit was superseded before its ` +
-                        `checks finished, so there is nothing to deploy. Skipping.`
-                      );
-                      core.setOutput("proceed", "false");
-                      return;
-                    }
-                    core.setFailed(
-                      `${name} for ${sha} was cancelled, and ${sha} is the tip of ${branch} — nothing ` +
-                      `superseded it, so this is a cancelled check rather than a superseded commit. ` +
-                      `Re-run the ${name} workflow for this commit, then dispatch the deploy again.`
-                    );
-                    return;
-                  }
-                  if (run.conclusion !== "success") {
-                    core.setFailed(`${name} for ${sha} concluded '${run.conclusion}' — refusing to deploy.`);
-                    return;
-                  }
-                  core.info(`${name}: success`);
-                  break;
-                }
-                if (!run) core.info(`${name}: no run found yet for ${sha}, waiting…`);
-                else core.info(`${name}: ${run.status}, waiting…`);
-                if (Date.now() > deadline) {
-                  core.setFailed(`${name} for ${sha} did not complete within 25 minutes.`);
-                  return;
-                }
-                await new Promise((r) => setTimeout(r, 30_000));
-              }
-            }
-            core.setOutput("proceed", "true");
-
   deploy:
     name: Pulumi up (dev)
-    # `gate` already encodes the trigger conditions; a skipped or failed gate
-    # leaves this output empty, so both read as "do not deploy".
-    needs: gate
-    if: ${{ needs.gate.outputs.proceed == 'true' }}
+    # A green CI run of a PUSH to develop in this repository, or a dispatch.
+    # The `branches` filter above matches a run's head branch by name, and a
+    # pull request from a fork whose branch is called `develop` has that name
+    # too, so the event and the repository are checked here: this job checks
+    # out the run's commit and holds the stack's credentials.
+    if: >-
+      (github.event_name == 'workflow_run'
+        && github.event.workflow_run.conclusion == 'success'
+        && github.event.workflow_run.event == 'push'
+        && github.event.workflow_run.head_repository.full_name == github.repository)
+      || (github.event_name == 'workflow_dispatch' && (inputs.target == 'staging' || inputs.target == 'both'))
     runs-on: ubuntu-latest
     environment: staging
     concurrency:
@@ -223,8 +124,8 @@ jobs:
       # triggering commit's immutable tag, or an operator-supplied older tag
       # when rolling back.
       IMAGE_TAG: ${{ inputs.imageTag || format('sha-{0}', github.event.workflow_run.head_sha || github.sha) }}
-      # The triggering "Publish Images" run id — workflow_run only; empty on
-      # workflow_dispatch, where every service is treated as built/pinned.
+      # The CI run that triggered this deploy; empty on workflow_dispatch. Set,
+      # it means all three images carry sha-<DEPLOY_SHA>.
       RUN_ID: ${{ github.event.workflow_run.id }}
       # The tag an OPERATOR typed, empty otherwise. It is what separates the two
       # kinds of manual dispatch: a rollback, which pins every service to one
@@ -246,7 +147,7 @@ jobs:
           exit 1
 
       # IMAGE_TAG is interpolated into `pulumi config set`, so constrain it to
-      # the shapes publish-images actually produces before it reaches a command
+      # the shapes ci.yml's publish job produces before it reaches a command
       # line. Rejecting anything else also catches the likelier operator error
       # of typing a tag GHCR does not have (→ cluster-wide ImagePullBackOff).
       - name: Validate image tag
@@ -259,9 +160,8 @@ jobs:
           esac
           echo "deploying image tag: $IMAGE_TAG"
 
-      # The upstream "Publish Images" workflow runs ONLY on push to
-      # develop/release and on tags (never on pull_request), so
-      # workflow_run.head_sha is always a trusted, already-merged commit, not
+      # The job's `if` admits only a push run of CI in this repository, so
+      # workflow_run.head_sha is always an already-merged develop commit, never
       # fork PR code. This is the safe use of workflow_run + checkout, so the
       # generic pwn-request rule is a false positive here.
       # nosemgrep: yaml.github-actions.security.workflow-run-target-code-checkout.workflow-run-target-code-checkout
@@ -375,32 +275,22 @@ jobs:
           curl -fsSL https://get.pulumi.com -o "$RUNNER_TEMP/install-pulumi.sh"
           sh "$RUNNER_TEMP/install-pulumi.sh" --version latest
 
-      # Publish Images is incremental: on a develop push it only rebuilds
-      # images whose inputs changed, so a single global imageTag for every
-      # service would pin unchanged services to a tag GHCR does not have
-      # (ImagePullBackOff). Resolve ONE ref per service:
-      #   * rebuilt by the triggering run → the commit's sha-<sha> tag;
-      #   * operator rollback (dispatch with imageTag) → that tag, for all
-      #     three, after verifying GHCR has it for every image;
-      #   * otherwise → the newest commit on develop's first-parent line, at or
-      #     before this one, whose sha-<commit> tag GHCR actually has. Git
-      #     history and the registry decide, not the Actions run index: that
-      #     index is served from a search backend, and on 09-28 it twice
-      #     returned a list without the newest backend build, so a docs-only
-      #     commit's deploy pinned a 09-11 backend and every chat hung.
+      # One ref per service, all three the commit's own tag when CI triggered
+      # this deploy. A rollback pins all three to the operator's tag, after
+      # checking GHCR has it for each. A bare dispatch takes, per service, the
+      # newest commit on develop's first-parent line whose tag GHCR has.
       # Then a guard: a resolved commit older than the one the stack last
       # deployed (stack output `deployedImages`) fails the job, unless it is an
-      # operator rollback. The script, its rationale and its tests:
-      # deploy/pulumi/scripts/resolve-image-refs.{sh,spec.ts}.
+      # operator rollback. deploy/pulumi/scripts/resolve-image-refs.{sh,spec.ts}.
       - name: Resolve per-service image refs
         working-directory: deploy/pulumi
         run: |
           export PATH="$HOME/.pulumi/bin:$PATH"
           pulumi stack select matthiasbigl/grid-oib/dev
 
-          # A rollback pins ALL three services to one tag; a tag only some
-          # images were built at would roll the others into ImagePullBackOff.
-          if [ -z "$RUN_ID" ] && [ -n "$EXPLICIT_TAG" ]; then
+          # A tag missing for one image would roll that service into
+          # ImagePullBackOff, so check every tag this deploy pins by name.
+          if [ -n "$RUN_ID" ] || [ -n "$EXPLICIT_TAG" ]; then
             ./scripts/verify-image-tag.sh "$GITHUB_REPOSITORY_OWNER" "$IMAGE_TAG"
           fi
 
@@ -409,7 +299,7 @@ jobs:
           printf '%s\n' "$refs" >> "$GITHUB_ENV"
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-          GH_TOKEN: ${{ github.token }} # built-job lookup + GHCR tag lookups
+          GH_TOKEN: ${{ github.token }} # GHCR tag lookups
 
       - name: Validate plan (CRD schemas + policy pack)
         working-directory: deploy/pulumi
@@ -460,12 +350,12 @@ jobs:
   # error handling) against the fully-configured prod stack. All staging-only
   # machinery is absent ON PURPOSE — see the header comment: no dispatch
   # guard, no image-tag validation or pinning (the committed stack config owns
-  # the image refs), no CI/Security poll, no template preflight.
+  # the image refs), no template preflight.
   deploy-prod:
     name: Pulumi up (prod)
     # Direct events only: pushes to `prod` (branch filter on the push trigger)
     # and manual dispatches with target=prod/both. NEVER on the workflow_run
-    # chain from Publish Images — that is staging's trigger and would otherwise
+    # chain from CI — that is staging's trigger and would otherwise
     # queue a prod apply on every merge to develop.
     if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.target == 'prod' || inputs.target == 'both')) }}
     runs-on: ubuntu-latest

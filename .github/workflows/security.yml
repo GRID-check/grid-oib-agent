@@ -1,299 +1,128 @@
 name: Security
 
-# Always-on security analysis, running fully in CI (no GitHub Advanced Security
-# licence required on this private repo):
-#   - Semgrep     -> SAST for Python + TS/JS + GitHub Actions (replaces CodeQL
-#                    and Sonar's security rules)
-#   - OSV-Scanner -> dependency vulnerabilities from EVERY lockfile in the tree
-#                    (replaces Sonar SCA; Dependabot opens the fix PRs, see
-#                    .github/dependabot.yml). This is the ONLY dependency
-#                    scanner here — see the note on the job below for why the
-#                    pip-audit / bun audit / npm audit job was deleted.
-#   - gitleaks    -> secret scanning across full history
-#   - image-scan  -> trivy on the digest-pinned observability images (ADR-0029)
-#                    deployed via deploy/pulumi (these images are not part of
-#                    any repo-built Dockerfile, so no other scanner sees them)
+# Surveillance, not a gate: what can turn red without anyone changing the code.
+# A CVE disclosed against a dependency or a pinned image, a secret nobody
+# noticed, a Semgrep rule that landed upstream. Weekly, and on demand.
 #
-# Runs on every PR and push to the integration branches, plus a weekly scheduled
-# full scan to catch newly-disclosed advisories in code that has not changed. A
-# push whose tree a green pull_request run already scanned skips every scan and
-# passes (`changes`, ci/reuse_green_run.py); the scheduled run never does.
+# The gate for a CHANGE lives in ci.yml, behind `CI OK`, and checks only what
+# the change itself can break:
+#   gitleaks   every pull request and push, full history (repo job)
+#   Semgrep    pull requests, diff-aware: findings the change introduces
+#   trivy      the third-party image pins the change adds or moves
 #
-# Phase 1 (current): Semgrep and OSV-Scanner are non-blocking (continue-on-error)
-# so findings surface in the job log without blocking merges while we tune noise
-# (see .semgrepignore / .gitleaks.toml). Once trusted, drop continue-on-error to
-# make them required checks.
+# This workflow used to run on every pull request and push as well, beside CI.
+# That cost six runner slots per push, and what it caught there was either
+# already gated (gitleaks) or not the change's doing: a CVE disclosed this
+# morning against an untouched Langfuse pin turned every pull request that
+# edited deploy/pulumi red, and the staging deploy with it. Here, a red run is a
+# finding for someone to triage, and nobody's merge waits on it.
+#
+# All of it is free and runs in CI, with no GitHub Advanced Security licence.
 on:
-  push:
-    branches: [develop, "release/**"]
-  pull_request:
-    # `claude/**`: a PR stacked on another PR's branch gets the same gate as
-    # one that targets develop, instead of nothing until the PR below merges.
-    branches: [develop, "release/**", "claude/**"]
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # Same rule as ci.yml: each push has its own group, so no pending scan is
-  # dropped by a newer push. A PR's newer push may cancel its older scan.
-  group: ${{ github.event_name == 'push' && format('security-push-{0}', github.sha) || format('security-{0}', github.ref) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: security
+  cancel-in-progress: true
 
 jobs:
-  # Same diff base as ci.yml and docker-build.yml: a PR diffs the whole PR on
-  # every push, a push diffs itself. Job-level `if` so a skipped check still
-  # posts (branch protection) instead of a filtered-out workflow that never
-  # appears.
-  changes:
-    name: Detect changes
+  # The whole tree, so it reports the backlog too. Advisory: the backlog is not
+  # a regression, and the pull request scan already blocks new findings.
+  semgrep:
+    name: SAST (Semgrep, full tree)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read # find the pull request run's green marker (ci/reuse_green_run.py)
-    outputs:
-      # Same reuse as ci.yml: on a hit the filter does not run and every scope
-      # reads 'false', so every scan skips and Security OK passes.
-      reused: ${{ steps.reuse.outputs.hit || 'false' }}
-      images: ${{ steps.filter.outputs.security_images || 'false' }}
-      deps: ${{ steps.filter.outputs.security_deps || 'false' }}
-      sast: ${{ steps.filter.outputs.security_sast || 'false' }}
+    container:
+      image: semgrep/semgrep:1.177.0
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-          fetch-depth: 0
-          ref: ${{ github.event.action == 'synchronize' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
-      # Push only, so the weekly scheduled scan always runs in full.
-      - name: Reuse the pull request's green result for this tree
-        id: reuse
-        if: github.event_name == 'push'
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python3 ci/reuse_green_run.py security-green
-      - uses: dorny/paths-filter@v4
-        id: filter
-        if: steps.reuse.outputs.hit != 'true'
-        with:
-          filters: .github/filters.yml
-          token: ''
-          base: ${{ github.event.pull_request.base.sha || github.event.before }}
-
-  semgrep:
-    name: SAST (Semgrep)
-    needs: changes
-    if: github.event_name == 'schedule' || needs.changes.outputs.sast == 'true'
-    runs-on: ubuntu-latest
-    container:
-      image: semgrep/semgrep
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
       - name: Semgrep scan
+        continue-on-error: true
         run: >-
-          semgrep ci --sarif-output=semgrep.sarif --json-output=semgrep.json
+          semgrep ci --json-output=semgrep.json
           --exclude-rule yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
           --exclude-rule javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
         env:
-          SEMGREP_RULES: >-
-            p/default
-            p/javascript
-            p/typescript
-            p/python
-            p/secrets
-            p/github-actions
-        continue-on-error: ${{ github.event_name != 'pull_request' }}
+          SEMGREP_RULES: p/default p/javascript p/typescript p/python p/secrets p/github-actions
       - name: Findings summary
         if: always()
         continue-on-error: true
-        run: |
-          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json, collections, pathlib
-          p = pathlib.Path("semgrep.json")
-          if not p.exists():
-              print("## Semgrep SAST\n\nNo JSON output produced."); raise SystemExit
-          res = json.loads(p.read_text()).get("results", [])
-          print("## Semgrep SAST\n")
-          print(f"**{len(res)} finding(s)** "
-                "(diff-aware on PRs: new vs base branch; full tree on push/schedule)\n")
-          sev = collections.Counter(r.get("extra", {}).get("severity", "INFO") for r in res)
-          if res:
-              print("| Severity | Count |\n|---|---|")
-              for s in ("ERROR", "WARNING", "INFO"):
-                  if sev.get(s):
-                      print(f"| {s} | {sev[s]} |")
-              print("\n| Rule | File | Line |\n|---|---|---|")
-              for r in res[:50]:
-                  rule = r.get("check_id", "").split(".")[-1]
-                  print(f"| `{rule}` | {r.get('path','')} | {r.get('start',{}).get('line','')} |")
-              if len(res) > 50:
-                  print(f"\n…and {len(res) - 50} more — see the `semgrep-findings` artifact.")
-          PY
+        run: python3 ci/semgrep_summary.py semgrep.json "the whole tree, backlog included" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Semgrep report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: semgrep-findings
-          path: |
-            semgrep.sarif
-            semgrep.json
+          path: semgrep.json
           retention-days: 14
 
-  deps-osv:
+  # Every lockfile in the tree (both npm ones, bun.lock, both uv.locks).
+  # Dependabot opens the fix pull requests (.github/dependabot.yml). Advisory
+  # while the backlog is triaged: to make it a gate, run it on pull requests in
+  # osv-scanner's diff mode, which reports only what a change introduces.
+  #
+  # There is deliberately no second dependency scanner. pip-audit, bun audit
+  # and npm audit query the same advisory databases OSV ingests; that job was
+  # the whole difference between a 2m36s run and a 9m53s one, and two of its
+  # three steps reported nothing (a registry 503, a pip-audit abort) behind
+  # `|| true` while OSV found 23 advisories in 4 seconds.
+  osv:
     name: Dependency vulns (OSV-Scanner)
-    needs: changes
-    if: github.event_name == 'schedule' || needs.changes.outputs.deps == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
+        continue-on-error: true
         with:
           scan-args: |-
             -r
             ./
-        continue-on-error: true
 
-  secret-scan:
-    name: Secret scan (gitleaks)
-    needs: changes
-    # Runs even when `changes` failed (it never depended on it), but not on a
-    # push whose tree a green pull_request run already scanned.
-    if: ${{ !cancelled() && needs.changes.outputs.reused != 'true' }}
+  # The same scan as CI's, so a gitleaks rule update that flags an old commit
+  # surfaces here first instead of on somebody's unrelated pull request.
+  gitleaks:
+    name: Secret scan (gitleaks, full history)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
-      - name: gitleaks
-        run: |
-          docker run --rm -v "${{ github.workspace }}:/repo" \
-            zricethezav/gitleaks:latest detect --source /repo --redact -v
+      - run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" \
+            zricethezav/gitleaks:v8.30.1 detect --source /repo --redact -v
 
-  image-scan:
-    name: Image vulns (trivy)
-    needs: changes
-    if: github.event_name == 'schedule' || needs.changes.outputs.images == 'true'
+  # Every pinned image, against today's advisories. This is the run that turns
+  # red when a pin we have not touched gets a fixable CVE; the fix is a pin bump
+  # or a boxed exception in .trivyignore.yaml.
+  trivy:
+    name: Image vulns (trivy, every pin)
     runs-on: ubuntu-latest
     env:
       TRIVY_VERSION: "0.61.1"
     steps:
       - uses: actions/checkout@v7
-      - name: Extract pinned images
-        id: images
-        run: |
-          expected=(
-            'mcr\.microsoft\.com/dotnet/aspire-dashboard'
-            'otel/opentelemetry-collector-contrib'
-            'ghcr\.io/langfuse/langfuse'
-            'ghcr\.io/langfuse/langfuse-worker'
-            'clickhouse/clickhouse-server'
-            'ghcr\.io/matthiasbigl/err2issue'
-            # Tag AND digest (the tag is the PgBouncer version, >= 1.21).
-            'ghcr\.io/cloudnative-pg/pgbouncer:[0-9]+\.[0-9]+\.[0-9]+'
-          )
-          pattern="$(IFS='|'; echo "(${expected[*]})@sha256:[a-f0-9]{64}")"
-          grep -oE "$pattern" deploy/pulumi/src/config.ts | sort -u | tee pinned-images.txt
-          test "$(wc -l < pinned-images.txt)" -eq "${#expected[@]}"
-          for image in "${expected[@]}"; do
-            grep -qE "^${image}@sha256:[a-f0-9]{64}$" pinned-images.txt
-          done
-      - name: Restore the pinned images' layer analysis
-        id: layers
+        with:
+          persist-credentials: false
+      - run: python3 ci/pinned_images.py list | tee pins.txt
+      - name: Restore the layer analysis
         uses: actions/cache/restore@v6
         with:
           path: .trivy-cache/fanal
-          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pinned-images.txt') }}
-      - name: Scan each pinned image
-        id: scan
-        run: |
-          set -euo pipefail
-          cache="$PWD/.trivy-cache"
-          mkdir -p "$cache"
-          trivy() {
-            docker run --rm \
-              --user "$(id -u):$(id -g)" \
-              --env HOME=/tmp \
-              -v "$cache:/cache" \
-              -v "$PWD/.trivyignore.yaml:/config/.trivyignore.yaml:ro" \
-              "aquasec/trivy:${TRIVY_VERSION}" \
-              --cache-dir /cache \
-              "$@"
-          }
-          download_db() {
-            trivy image --download-db-only --db-repository "$1"
-          }
-          downloaded=0
-          for attempt in 1 2 3 4 5; do
-            if download_db 'mirror.gcr.io/aquasec/trivy-db:2' \
-              || download_db 'ghcr.io/aquasecurity/trivy-db:2'; then
-              downloaded=1
-              break
-            fi
-            echo "trivy DB download failed (attempt ${attempt}/5); retrying"
-            sleep $((attempt * 15))
-          done
-          if [ "$downloaded" -ne 1 ]; then
-            echo "trivy DB download failed after retries"
-            exit 1
-          fi
-          failed=0
-          while read -r img; do
-            echo "=== trivy: $img"
-            trivy image \
-              --skip-db-update \
-              --ignorefile /config/.trivyignore.yaml \
-              --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$img" || failed=1
-          done < pinned-images.txt
-          echo "analysed=true" >> "$GITHUB_OUTPUT"
-          exit "$failed"
-      - name: Save the pinned images' layer analysis
-        if: always() && steps.scan.outputs.analysed == 'true' && steps.layers.outputs.cache-hit != 'true'
+          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
+      - run: bash ci/trivy_scan.sh pins.txt
+      - name: Save the layer analysis
+        if: always() && hashFiles('.trivy-cache/fanal/**') != ''
+        continue-on-error: true
         uses: actions/cache/save@v6
         with:
           path: .trivy-cache/fanal
-          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pinned-images.txt') }}
-
-  security-ok:
-    name: Security OK
-    if: always()
-    # The aggregate gate docs/deployment/cd.md names. Same rule as CI OK: every
-    # needed job succeeded or was skipped.
-    needs: [changes, semgrep, deps-osv, secret-scan, image-scan]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require needed jobs to have passed (skipped is fine)
-        run: |
-          python3 - <<'EOF'
-          import json, sys
-          needs = json.loads('''${{ toJSON(needs) }}''')
-          failed = {k: v["result"] for k, v in needs.items() if v["result"] not in ("success", "skipped")}
-          if failed:
-              print("Failing jobs:", failed)
-              sys.exit(1)
-          print("All required jobs passed or were skipped.")
-          EOF
-      # The marker `changes` looks for on push; see the same steps in ci.yml.
-      - name: Name the tree this run tested
-        id: tree
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$GITHUB_SHA" --jq .tree.sha)"
-          [[ "$tree" =~ ^[0-9a-f]{40}$ ]]
-          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/green-run.txt"
-          echo "tree=$tree" >> "$GITHUB_OUTPUT"
-      - name: Record this tree as green
-        if: github.event_name == 'pull_request' && steps.tree.outputs.tree != ''
-        continue-on-error: true
-        uses: actions/upload-artifact@v7
-        with:
-          name: security-green-${{ steps.tree.outputs.tree }}
-          path: ${{ runner.temp }}/green-run.txt
-          retention-days: 7
-          overwrite: true
+          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
