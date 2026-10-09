@@ -213,12 +213,15 @@ jobs:
             exit 0
           fi
           python3 ci/require_release_note.py "$BASE_SHA" "$HEAD_SHA"
-      # Full history on every run, so a secret is caught in the commit that
-      # added it. Exceptions: CONTRIBUTING.md "Secret scanning".
+      # The full history of the commit under test, so a secret is caught in the
+      # commit that added it. Not `--all`, gitleaks' default: a full-depth
+      # checkout fetches every branch, and an open PR's fixture then failed
+      # every other PR's run. Exceptions: CONTRIBUTING.md "Secret scanning".
       - name: Secret scan (gitleaks)
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/repo" \
-            zricethezav/gitleaks:v8.30.1 detect --source /repo --redact -v
+            zricethezav/gitleaks:v8.30.1 detect --source /repo --redact -v \
+            --log-opts="--full-history HEAD"
 
   # Diff-aware: `semgrep ci` on a pull request reports only findings the change
   # introduces, so it blocks a new finding without failing on the backlog. A

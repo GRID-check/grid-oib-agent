@@ -86,8 +86,10 @@ jobs:
             -r
             ./
 
-  # The same scan as CI's, so a gitleaks rule update that flags an old commit
-  # surfaces here first instead of on somebody's unrelated pull request.
+  # Every branch (gitleaks' default `--all`), unlike CI's scan of one commit's
+  # history: a secret pushed to any branch is already on GitHub, and a gitleaks
+  # rule update that flags an old commit surfaces here first instead of on
+  # somebody's unrelated pull request.
   gitleaks:
     name: Secret scan (gitleaks, full history)
     runs-on: ubuntu-latest

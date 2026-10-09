@@ -268,6 +268,14 @@ def test_a_push_lints_its_release_notes_and_a_pull_request_must_add_one():
 # --- Security -----------------------------------------------------------------------
 
 
+def test_the_pr_secret_scan_reads_only_the_history_under_test():
+    # A full-depth checkout fetches every branch, and gitleaks scans `--all`
+    # unless told otherwise, so one PR's fixture used to fail everyone's run.
+    scan = next(step for step in JOBS["repo"]["steps"] if "gitleaks" in step.get("run", ""))
+
+    assert '--log-opts="--full-history HEAD"' in scan["run"]
+
+
 def test_security_is_surveillance_and_the_gate_lives_in_ci():
     triggers = set(load("security.yml")["on"])
 
