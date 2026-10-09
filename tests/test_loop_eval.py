@@ -559,7 +559,9 @@ class TestTheSocket:
         received: list[object] = []
 
         def handler(ws) -> None:
-            ws.send((WIRE / "hello.jsonl").read_text(encoding="utf-8").strip())
+            # hello.jsonl holds one recorded hello per line (its variants); a
+            # server sends exactly one, so send the first, not the whole file.
+            ws.send(json.dumps(_recorded("hello.jsonl")[0]))
             question = wire_v2.CLIENT_MESSAGE.validate_json(ws.recv())
             received.append(question)
             for event in _recorded("turn-answered.jsonl"):
