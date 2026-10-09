@@ -415,4 +415,3 @@ Gates come from `lib/projects/settings-access.ts` (permissions through
 `decide.ts`), and a section a reader cannot use is absent from the nav and 404s
 by URL. §9.1 is unchanged: the profile stays read-only here. New blocks go in
 the section whose question they answer (`features/projects/lib/settings-sections.ts`).
-
