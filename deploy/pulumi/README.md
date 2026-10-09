@@ -28,8 +28,8 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 - The provider's **StorageClass** name — `premium` (default, 3 replicas),
   `standard` (2), or `single-replica` (1). Confirm with `kubectl get storageclass`.
   (`lightbits` is the VolumeSnapshotClass, not a StorageClass.)
-- Images published to a registry (the `publish-images` GitHub Actions workflow
-  pushes them to GHCR on merge to `develop`).
+- Images published to a registry (CI pushes them to GHCR and tags all three
+  `sha-<commit>` for every `develop` commit whose checks passed).
 
 ## Quick start
 

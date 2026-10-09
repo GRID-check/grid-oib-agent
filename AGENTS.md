@@ -22,6 +22,7 @@ Node must already be on the PATH. Install lines:
 | Question | Go to |
 |---|---|
 | Where does X live in the code | [`docs/architecture/where-is-what.md`](docs/architecture/where-is-what.md) |
+| What does this word mean | [`CONTEXT.md`](CONTEXT.md) for the domain, [`docs/glossary.md`](docs/glossary.md) for the code |
 | Set up, branch, commit, get a PR merged | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Everything written down, by the question you arrived with | [`docs/README.md`](docs/README.md) |
 | How the system works | [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md) |
@@ -135,12 +136,13 @@ ones that will fail your PR.
 | Write a commit, or open **or rename** a PR | Conventional Commits — `feat` `fix` `docs` `refactor` `perf` `test` `ci` `build` `chore` `revert`. The **PR title** most of all: the repo squash-merges it, so the title is the commit that lands on `develop`. [`CONTRIBUTING.md`](CONTRIBUTING.md#commits-and-pr-titles) | The **Conventional PR title** job blocks the PR. A prose title is the one that keeps slipping through, because nothing local checks it |
 | Name anything in code | English only. German just in UI copy, answers, domain data | Review |
 | Add an environment variable | Add its row to [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md) in the same change | Review |
-| Change what a customer can notice | `task release:note -- <slug>` | The **Release note** CI job |
+| Change what a customer can notice | `task release:note -- <slug>` | CI's **Repo checks** job (its release-note step) |
 | Change what a customer can **see** | Capture it and attach it to the PR — `agent-browser` to shoot, `before-and-after` to publish. Commit no image files. [`docs/ux/visual-screenshots.md`](docs/ux/visual-screenshots.md) | Review |
-| Edit anything under `skills/` | Commit the re-locked `apm.lock.yaml` with it — `task agents:audit` rewrites it for you. The deployment is gitignored, so nothing else in your diff shows the lockfile went stale | `task lint:repo` and CI's **repo-lint** job |
+| Add or edit anything under `skills/` | Add a skill only for agent-specific procedure; anything a contributor needs too is a document ([the rule](docs/contributing/agent-skills.md#skill-or-document)). Commit the re-locked `apm.lock.yaml` with it — `task agents:audit` rewrites it for you. The deployment is gitignored, so nothing else in your diff shows the lockfile went stale | `task lint:repo` and CI's **Repo checks** job for the lockfile; review for the rule |
 | Change behaviour a doc describes | Update the doc in the same commit | Review. Stale docs are a bug, because an agent acts on them |
 | Add a model call, a quality check, an agent step or a surface | Make it observable in Langfuse: a model call is a generation (`observed_generation` outside a NAT run), a check is a score declared in `SCORE_DEFINITIONS`, a dimension is trace metadata. Langfuse is our observability platform and this is not optional. [`docs/observability/langfuse.md`](docs/observability/langfuse.md) | `test_model_calls_are_traced.py`, `test_langfuse_scores.py`, review |
 | Change what shapes an answer: the prompt, the card or envelope contract, retrieval, ingestion, the answer pipeline, a model or effort default | Run `task be:eval:answer-suite` before and after yourself and put the report in the PR. [The answer suite](docs/contributing/testing-and-verification.md#the-answer-suite) | Review. Nothing else sees seconds, reasoning spikes or a wrong value in a real answer |
+| Say a change is done, finished or ready, or open a PR | Clear [`definition-of-done.md`](docs/contributing/definition-of-done.md) and put its closing checklist, every line filled with evidence or with why not, in your summary | Review. "Done" without evidence is the one way to fail it |
 | Learn something the repo could have told you | Write it down where the next agent will already be looking, before you carry on | Nothing, once. Then everyone re-earns it. [The ratchet](docs/contributing/correction-ratchet.md#human-intervention-is-a-failure-signal) |
 
 `task verify` is the local gate: host-native, defined once in `Taskfile.yml`. CI
@@ -150,11 +152,9 @@ builds, `fe:build` and `web:build`.
 
 Two gates sit outside `task verify` and are still required: `task db:test:rls`
 whenever you touch the tenant boundary, and `task pkg:test` whenever you touch
-`packages/`. Both are now CI jobs, so a PR cannot merge without them; they stay
+`packages/`. CI runs both (the Frontend job and the packages job), so a PR cannot merge without them; they stay
 out of `verify` because each needs something a per-commit gate should not pay
-for — PostgreSQL server binaries, and four minutes of IfcOpenShell. (`sources/`
-and `packages/` both used to be in this sentence as covered by *nothing*;
-`sources/` is `task be:test:sources`, `packages/` is CI's `packages` job.)
+for — PostgreSQL server binaries, and four minutes of IfcOpenShell.
 
 ## Two rules that span services
 

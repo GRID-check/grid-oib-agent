@@ -7,7 +7,7 @@ import { join } from "node:path";
 /**
  * The staging image resolver and its downgrade guard, run as the workflow runs
  * them: bash, a real git history, and stubs for everything that would touch the
- * network (`pulumi`, `gh`, the GHCR lookup, `curl`).
+ * network (`pulumi`, the GHCR lookup, `curl`).
  *
  * On 09-28 the deploy resolved the backend from the Actions run index, which
  * returned a list without the newest build, and pinned a 09-11 image. Nothing
@@ -22,7 +22,7 @@ const BIN = join(ROOT, "bin");
 
 // Commits by name. Develop's first-parent line is c1 c2 c3 m4 c5; `side` was
 // merged by m4 and is on develop's history but NOT its first-parent line, so
-// publish-images never ran at it.
+// CI never published images for it.
 const C: Record<string, string> = {};
 
 const GIT_ENV = {
@@ -74,8 +74,6 @@ beforeAll(() => {
       "printf '%s' \"$out\"",
     ].join("\n"),
   );
-  // `gh api …/jobs --jq …` prints the successful job names in $STUB_BUILT_JOBS.
-  stub("gh", 'printf \'%s\\n\' "${STUB_BUILT_JOBS:-}"');
   // The registry: $STUB_PUBLISHED holds "service tag" lines. Same contract as
   // find-published-tag.sh — first published tag in argument order, exit 1 for
   // none, exit 2 when the registry "fails".
@@ -183,17 +181,16 @@ describe("resolve-image-refs.sh", () => {
     expect(pinned(out).BACKEND_IMAGE_REF).toBe(ref("backend", "c2"));
   });
 
-  it("pins a service the triggering run built to the deploy commit without asking the registry", () => {
-    const out = resolve({
-      RUN_ID: "123",
-      STUB_BUILT_JOBS: "Detect changes\nBuild & push backend image",
-      STUB_PUBLISHED: publishedAt("c3"),
-    });
+  it("pins every service to the deploy commit when a green CI run triggered it, without asking the registry", () => {
+    // CI tags all three images for a commit only once every check passed, so
+    // a green run means the tags exist (the workflow verifies them before
+    // this runs). An older commit in the registry must not win.
+    const out = resolve({ RUN_ID: "123", STUB_PUBLISHED: publishedAt("c3") });
     expect(out.status, out.stderr).toBe(0);
     expect(pinned(out)).toEqual({
       BACKEND_IMAGE_REF: ref("backend", "c5"),
-      FRONTEND_IMAGE_REF: ref("frontend", "c3"),
-      WEB_IMAGE_REF: ref("web", "c3"),
+      FRONTEND_IMAGE_REF: ref("frontend", "c5"),
+      WEB_IMAGE_REF: ref("web", "c5"),
     });
   });
 

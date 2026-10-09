@@ -217,10 +217,12 @@ tasks:
       - bun install --frozen-lockfile
 
   fe:lint:
-    desc: ESLint the UI
+    desc: 'Lint the UI (oxlint, the repo rules included as a JS plugin). CI: task fe:lint -- --format=github'
     dir: '{{.UI}}'
     cmds:
-      - bun run lint
+      # Extra arguments reach oxlint: CI passes `--format=github`, which turns
+      # each finding into an annotation on the pull request's diff.
+      - bun run lint {{.CLI_ARGS}}
 
   fe:types:
     desc: Typecheck the UI, specs included (next build checks production code only)
@@ -268,7 +270,12 @@ tasks:
       # (`blob-1-6.json`) because all six artifacts are downloaded into one
       # directory with `merge-multiple: true`, where a fixed name would
       # overwrite five of them.
-      - bun run test:shard -- --shard={{.SHARD}} --reporter=default --outputFile=.vitest-reports/blob-{{.SHARD | replace "/" "-"}}.json
+      #
+      # On GitHub Actions the github-actions reporter is added as well. Vitest
+      # adds it on its own only while no reporter is named, and this task names
+      # two, so without it a failing test is a log line instead of an
+      # annotation on the pull request's diff.
+      - bun run test:shard -- --shard={{.SHARD}} --reporter=default{{if .GITHUB_ACTIONS}} --reporter=github-actions{{end}} --outputFile=.vitest-reports/blob-{{.SHARD | replace "/" "-"}}.json
 
   fe:test:merge:
     desc: Merge sharded blob reports into one result + the coverage CI comments on
@@ -364,8 +371,8 @@ tasks:
 
   # ── riso art (frontends/web/art/riso — procedural prints for the site) ──────
   # The raw commands are `node art/riso/<script>.mjs` in frontends/web; every
-  # task below is one of them. The workflow and the series rules are the
-  # aiq-piloti-riso skill and frontends/web/art/riso/README.md.
+  # task below is one of them. The workflow and the series rules are in
+  # frontends/web/art/riso/README.md.
 
   art:setup:
     desc: Clone the pinned riso-windowseat kit into the user cache and find a browser (idempotent)
@@ -400,9 +407,11 @@ tasks:
   # ── backend (src/, sources/, frontends/aiq_api) ─────────────────────────────
 
   be:lint:
-    desc: Ruff lint + format check
+    desc: 'Ruff lint + format check. CI: task be:lint -- --output-format=github'
     cmds:
-      - '{{.RUFF}} check .'
+      # Extra arguments reach `ruff check` only: the formatter calls its own
+      # --output-format unstable and warns about it.
+      - '{{.RUFF}} check . {{.CLI_ARGS}}'
       - '{{.RUFF}} format --check .'
 
   be:format:

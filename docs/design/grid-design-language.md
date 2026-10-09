@@ -457,7 +457,7 @@ thing they just dismissed.
 | `--ease-exit` / `ease-exit` | `0.4, 0, 1, 1` | Anything **leaving** — departure accelerates away |
 | `--ease-cycle` / `ease-cycle` | `0.65, 0, 0.35, 1` | **Only** looping / indeterminate motion |
 
-No `linear`, no `ease-in-out`, no `ease-in`, no bare `ease`. An eslint rule
+No `linear`, no `ease-in-out`, no `ease-in`, no bare `ease`. A lint rule
 (`grid/motion-vocabulary`) flags `transition-all`, `ease-linear`, `ease-in`,
 `ease-in-out`, `animate-pulse`, literal durations, hand-written
 `[animation-delay:…]` / `[animation-duration:…]`, transitions on

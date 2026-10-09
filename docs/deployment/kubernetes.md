@@ -108,15 +108,12 @@ Runbook: [row-level security](../database/row-level-security.md).
 - A kubeconfig for the cluster (the provider gives you this).
 - The provider's **StorageClass** name for block volumes — this is your
   **Lightbits** (NVMe/TCP) class. Find it: `kubectl get storageclass`.
-- Container images in a registry. The [`publish-images`](../../.github/workflows/publish-images.yml)
-  workflow builds and pushes `grid-oib-backend`, `grid-oib-frontend` and
-  `grid-oib-web` to GHCR on merge to `develop` — on `develop` only the images
-  whose files changed are rebuilt (per-service change detection; a blog-post
-  commit rebuilds just `grid-web`), while `release/**` pushes, version tags and
-  manual runs build all three. Deploys pin each rebuilt service to its commit-SHA
-  tag; a service that was not rebuilt gets the newest develop commit's tag that
-  GHCR actually has, and a resolved image older than the deployed one fails the
-  deploy — see [cd.md](cd.md#partial-deploys-per-service-images). The kubelet pulls **anonymously**: if the GHCR packages are *private*, set
+- Container images in a registry. CI ([`ci.yml`](../../.github/workflows/ci.yml))
+  builds `grid-oib-backend`, `grid-oib-frontend` and `grid-oib-web`, pushes
+  them to GHCR, and tags all three `sha-<commit>` for every `develop` commit
+  whose checks passed; an image whose inputs did not change is re-tagged, not
+  rebuilt. Deploys pin all three to that tag
+  ([cd.md](cd.md#image-pinning)). The kubelet pulls **anonymously**: if the GHCR packages are *private*, set
   `registryUsername` + `registryPassword` (a token with `read:packages`) so the
   program creates the `grid-registry-pull` imagePullSecret — otherwise every app
   pod lands in ImagePullBackOff.
@@ -1776,24 +1773,18 @@ deliberate non-goal here (§10), not an oversight.
 
 ## 8. CI/CD
 
-`.github/workflows/deploy.yml` deploys the **dev** stack automatically after
-`Publish Images` succeeds on `develop` — which on `develop` rebuilds only the
-images whose files changed (a paths-filter gate per service; blog content under
-`frontends/web/src/content/**` rebuilds only `grid-web`; `release/**` pushes,
-version tags and manual dispatch always build all three). Before `pulumi up`
-it enforces four gates: the commit's **CI and Security workflows must be
-green** (Publish Images runs in parallel with them, so the chain alone would
-deploy untested code — a polling gate closes that race), a **preflight** that
-the committed stack file is configured (see below), `tsc --noEmit` (typed
-manifests), and two checks on the *same commit* the apply runs —
-`scripts/validate-crs.mjs` (schema-validates every CustomResource against the
-real upstream CRD schemas) and the **CrossGuard policy pack** (§7c). The plan
-is previewed with the same image pins the apply deploys, resolved **per
-service** by `deploy/pulumi/scripts/resolve-image-refs.sh`: services the
-triggering Publish Images run built get the commit's `sha-<40-hex>` tag, the
-rest the newest develop commit's tag that GHCR has, and a resolved image older
-than the stack output `deployedImages` fails the job
-([cd.md](cd.md#partial-deploys-per-service-images)). The
+`.github/workflows/deploy.yml` deploys the **dev** stack automatically after a
+**green CI push run** on `develop`: a run that passed every check and tagged
+the commit's three images ([ci.md](../contributing/ci.md#images-and-deploys)).
+Before `pulumi up` it runs a **preflight** that the committed stack file is
+configured (see below), `tsc --noEmit` (typed manifests), and two checks on the
+*same commit* the apply runs: `scripts/validate-crs.mjs` (schema-validates
+every CustomResource against the real upstream CRD schemas) and the
+**CrossGuard policy pack** (§7c). The plan is previewed with the same image
+pins the apply deploys, resolved by
+`deploy/pulumi/scripts/resolve-image-refs.sh`: all three at the commit's
+`sha-<40-hex>` tag, and a resolved image older than the stack output
+`deployedImages` fails the job ([cd.md](cd.md#image-pinning)). The
 apply then runs on the same runner (`pulumi up --yes`) — the policy pack does
 not re-run on the apply (accepted residual, see
 `docs/deployment/pulumi-cloud-feature-audit.md`). Because the
