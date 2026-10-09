@@ -101,6 +101,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Document Ingestion](technical-reference/document-ingestion.md) | SeaweedFS upload, `/v1/ingest`, chunking, embedding, ChromaDB |
 | [OIB Sync](technical-reference/oib-sync.md) | Incremental OIB PDF ingestion with a SHA-256 hash registry |
 | [WebSocket Gateway](technical-reference/websocket-gateway.md) | Gateway proxy, scope resolution, auth forwarding |
+| [Answer-feedback export](technical-reference/answer-feedback-export.md) | The votes workbook and CSV: scope, sheets, every column and where it comes from |
 | [BFF Proxy Pattern](technical-reference/bff-proxy-pattern.md) | Auth, scope injection, error handling, SSE passthrough |
 | [Projects Access Control](technical-reference/projects-access-control.md) | WorkOS FGA project permissions |
 | [UI Layout & Providers](technical-reference/ui-layout-providers.md) | App Router structure, providers, panel system, store |

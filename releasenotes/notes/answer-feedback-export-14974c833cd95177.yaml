@@ -1,0 +1,11 @@
+---
+operators:
+  - >
+    The answer feedback export now holds every vote in the window by default, as
+    an Excel workbook with weekly rates, an overview and a column guide; the
+    current selection and a CSV for scripts are separate menu choices.
+security:
+  - >
+    A vote that named another organization's answer could show that answer's
+    text in the platform feedback view, its export and the lesson pipeline.
+    Votes are now only ever matched with answers from their own organization.

@@ -273,14 +273,22 @@ describe('getFeedbackWeeklySummary', () => {
 
   it('coerces counts, which the driver returns as strings', async () => {
     const execute = vi.fn().mockResolvedValue([
-      { organization_id: 'org_1', iso_week: '2026-W41', week_start: '2026-10-05', answers: '40', up: '6', down: null },
+      {
+        organization_id: 'org_1',
+        iso_week: '2026-W41',
+        week_start: '2026-10-05',
+        answers: '40',
+        rated_answers: '8',
+        up: '6',
+        down: null,
+      },
     ])
     mockGetDb.mockReturnValue({ execute } as never)
 
     const summary = await getFeedbackWeeklySummary({})
 
     expect(summary.weeks).toEqual([
-      { organizationId: 'org_1', isoWeek: '2026-W41', weekStart: '2026-10-05', answers: 40, up: 6, down: 0 },
+      { organizationId: 'org_1', isoWeek: '2026-W41', weekStart: '2026-10-05', answers: 40, ratedAnswers: 8, up: 6, down: 0 },
     ])
     expect(summary.truncated).toBe(false)
   })

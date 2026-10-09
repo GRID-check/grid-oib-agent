@@ -1,70 +1,57 @@
 /**
- * Answer-feedback export — the filtered drill-in as CSV, for the analysis that
- * does not fit on a page (pivoting by org, joining against a release date, handing
- * a quarter's worth to somebody without a login).
+ * Answer-feedback export — every vote in the window, as an Excel workbook for a
+ * person or a CSV for a script.
+ *
+ *   ?days=7|30|90          the window (UTC calendar days, as on the page)
+ *   ?scope=all|selection   `all` (default): every vote in the window, both
+ *                          directions. `selection`: the page's own filters —
+ *                          `org`, `topic`, `verdict`, `reason`, `q` — read with
+ *                          the page's parser, so the file matches the screen.
+ *   ?format=xlsx|csv       `csv` (default, what scripts have always fetched) or
+ *                          `xlsx`, the four-sheet workbook the page links to.
+ *   ?summary=weekly        instead: per organization and ISO week, as CSV.
  *
  * Streams out with `Content-Disposition` rather than being assembled in the
  * browser, so the download costs the bundle nothing and is reachable as a plain
- * link — the same shape as the citation-health export beside it.
- *
- * It reads through `getAnswerFeedbackExport` with the SAME parser as the page, so
- * it carries the same gate and the same filters. An export that quietly disagreed
- * with the view it was taken from would be worse than no export. It is NOT
- * limited to the page's 50 rows: up to `FEEDBACK_EXPORT_ROW_CAP`, and a cut
- * export says so (`X-Grid-Export-Truncated`, and `-first-<cap>` in the filename).
+ * link. A thin adapter: the gate and the reads are the service's
+ * (`lib/feedback/export-service.ts`), the columns are `export-columns.ts`, and
+ * the two renderers sit beside them. A cut export says so in a header for a
+ * script (`X-Grid-Export-Truncated`) and in the file name for a person.
  */
 
 import { NextResponse } from 'next/server'
 import { ForbiddenError } from '@/lib/api/errors'
 import { apiRoute } from '@/lib/api/handler'
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
-import { getAnswerFeedbackExport, getAnswerFeedbackWeeklySummary } from '@/lib/feedback/service'
+import { getLocale } from '@/i18n/server'
+import { getDictionary } from '@/i18n/dictionaries'
 import { parseFeedbackFilters } from '@/lib/feedback/query'
-// Quoted per RFC 4180 AND formula-neutralised: questions, comments and answers
-// are user and model text, and a spreadsheet evaluates `=...` even inside quotes.
-import { csvCell } from '@/lib/text/csv-cell'
 import { EXPORT_TRUNCATED_HEADER } from '@/lib/feedback/types'
+import {
+  feedbackExportFileName,
+  feedbackWeeklyFileName,
+  getAnswerFeedbackExport,
+  getAnswerFeedbackWeeklyExport,
+} from '@/lib/feedback/export-service'
+import { FEEDBACK_EXPORT_COLUMNS, FEEDBACK_WEEKLY_COLUMNS } from '@/lib/feedback/export-columns'
+import { renderCsv } from '@/lib/feedback/export-csv'
+import { renderFeedbackWorkbook } from '@/lib/feedback/export-workbook'
 
-const COLUMNS = [
-  'created_at',
-  'organization_id',
-  'conversation_id',
-  'message_id',
-  // The export follows the drill-in in BOTH directions now, so the verdict has
-  // to be a column: a praise export and a defect export are otherwise
-  // indistinguishable once the file leaves the browser.
-  'verdict',
-  'reason',
-  'topics',
-  'question',
-  'answer',
-  // The voter's own words on a down-vote. The reason chip says which bucket;
-  // this says what was actually wrong, and was stored but never exported.
-  'comment',
-  // What the voter says a good answer would have contained. The column name is
-  // a contract: the answer-suite converter reads it by name.
-  'expected_answer',
-] as const
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
-/** The weekly summary's columns: the numerator and denominator of a failure rate. */
-const WEEKLY_COLUMNS = ['organization_id', 'iso_week', 'week_start', 'answers', 'up', 'down'] as const
-
-function csvResponse(
-  rows: string[],
-  columns: readonly string[],
+function download(
+  body: string | Uint8Array,
+  contentType: string,
   filename: string,
-  extraHeaders: Record<string, string> = {}
+  truncatedAt: number | null
 ): NextResponse {
-  // A BOM so Excel opens UTF-8 correctly. These answers are German and full of
-  // umlauts; a mojibake export is one nobody trusts a second time.
-  const body = `\uFEFF${columns.join(',')}\n${rows.join('\n')}\n`
-  return new NextResponse(body, {
+  return new NextResponse(body as BodyInit, {
     status: 200,
     headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Type': contentType,
       'Content-Disposition': `attachment; filename="${filename}"`,
       'Cache-Control': 'no-store',
-      ...extraHeaders,
+      ...(truncatedAt === null ? {} : { [EXPORT_TRUNCATED_HEADER]: String(truncatedAt) }),
     },
   })
 }
@@ -73,59 +60,34 @@ export const GET = apiRoute(
   async ({ request, session }) => {
     const searchParams = new URL(request.url).searchParams
     const filters = parseFeedbackFilters(searchParams)
+    const dictionary = getDictionary(await getLocale())
     try {
-      // `?summary=weekly`: the denominator. The drill-in lists votes only, so it
-      // cannot say how often an answer fails; this is answers/up/down per
-      // organization and ISO week, behind the same gate and `days`/`org` filters.
       if (searchParams.get('summary') === 'weekly') {
-        const summary = await getAnswerFeedbackWeeklySummary(session, filters)
-        const stamp = new Date().toISOString().slice(0, 10)
-        // Cut at its cap, the summary drops the OLDEST weeks, and says so the
-        // same two ways the row export does.
-        const cut = summary.truncated ? `-first-${summary.cap}` : ''
-        return csvResponse(
-          summary.weeks.map((w) =>
-            [w.organizationId, w.isoWeek, w.weekStart, w.answers, w.up, w.down]
-              .map(csvCell)
-              .join(',')
-          ),
-          WEEKLY_COLUMNS,
-          `answer-feedback-weekly-${stamp}${cut}.csv`,
-          summary.truncated ? { [EXPORT_TRUNCATED_HEADER]: String(summary.cap) } : {}
+        const weekly = await getAnswerFeedbackWeeklyExport(session, filters)
+        return download(
+          renderCsv(FEEDBACK_WEEKLY_COLUMNS, weekly.weeks, dictionary),
+          'text/csv; charset=utf-8',
+          feedbackWeeklyFileName(weekly),
+          weekly.truncated ? weekly.cap : null
         )
       }
-      const exported = await getAnswerFeedbackExport(session, filters)
 
-      const rows = exported.turns.map((turn) =>
-        [
-          turn.createdAt instanceof Date ? turn.createdAt.toISOString() : turn.createdAt,
-          turn.organizationId,
-          turn.conversationId,
-          turn.messageId,
-          turn.verdict,
-          turn.reason,
-          turn.topics.join(' '),
-          turn.question,
-          turn.answer,
-          turn.comment,
-          turn.expectedAnswer,
-        ]
-          .map(csvCell)
-          .join(',')
-      )
-
-      const stamp = new Date().toISOString().slice(0, 10)
-
-      // The verdict is in the FILENAME as well as the column, because the two
-      // exports are otherwise one download folder away from being the same file.
-      // A cut export says so twice: in a header for a script, and in the
-      // filename for the person who will open it in a spreadsheet.
-      const cut = exported.truncated ? `-first-${exported.cap}` : ''
-      return csvResponse(
-        rows,
-        COLUMNS,
-        `answer-feedback-${filters.verdict ?? 'down'}-${stamp}${cut}.csv`,
-        exported.truncated ? { [EXPORT_TRUNCATED_HEADER]: String(exported.cap) } : {}
+      const format = searchParams.get('format') === 'xlsx' ? 'xlsx' : 'csv'
+      const scope = searchParams.get('scope') === 'selection' ? 'selection' : 'all'
+      const exported = await getAnswerFeedbackExport(session, {
+        scope,
+        filters,
+        withSummary: format === 'xlsx',
+      })
+      const body =
+        format === 'xlsx'
+          ? await renderFeedbackWorkbook(exported, dictionary)
+          : renderCsv(FEEDBACK_EXPORT_COLUMNS, exported.records, dictionary)
+      return download(
+        body,
+        format === 'xlsx' ? XLSX_TYPE : 'text/csv; charset=utf-8',
+        feedbackExportFileName(exported, format),
+        exported.truncated ? exported.cap : null
       )
     } catch (error) {
       if (error instanceof PlatformAccessDeniedError) throw new ForbiddenError()
@@ -135,7 +97,7 @@ export const GET = apiRoute(
   {
     authz: {
       enforcedBy:
-        'getAnswerFeedbackExport / getAnswerFeedbackWeeklySummary (requirePlatformPermission platform:organizations:view)',
+        'getAnswerFeedbackExport / getAnswerFeedbackWeeklyExport (requirePlatformPermission platform:organizations:view)',
     },
   }
 )

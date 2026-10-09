@@ -37,6 +37,12 @@ const TRACE_A1 = A1.replace(/-/g, '')
 /** An answer from before every window, rated today. */
 const A_OLD = '0f0f0f0f-0000-4000-8000-000000000005'
 
+/** ORG's project, which the chat belongs to, with a federal state in its profile. */
+const PROJECT = '0f0f0f0f-0000-4000-8000-0000000000a1'
+/** A deep-research run's backend job id, named by A2's provenance. */
+const JOB = `job_feedback_${STAMP}`
+const LESSON = '0f0f0f0f-0000-4000-8000-0000000000b1'
+
 /** Another tenant, with an answer of its own that ORG's vote will name. */
 const OTHER_ORG = `org_feedback_other_${STAMP}`
 const OTHER_CHAT = `s_feedback_other_${STAMP}`
@@ -59,6 +65,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
   let repo: typeof import('./repository')
+  let exportRepo: typeof import('./export-repository')
   let lessons: typeof import('@/lib/platform-lessons/repository')
 
   const inOrg = <T>(fn: () => PromiseLike<T>) => withTenant({ organizationId: ORG, userId: USER }, fn)
@@ -79,6 +86,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
     withTenant = context.withTenant
     withPlatformAccess = context.withPlatformAccess
     repo = await import('./repository')
+    exportRepo = await import('./export-repository')
     lessons = await import('@/lib/platform-lessons/repository')
     db = (await import('@/lib/db')).getDb()
 
@@ -104,8 +112,46 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
       `)
       // The agent names the trace an answer was produced in on its row
       // (`observability/turn_trace.py`); A1 has one, A2 predates the field.
+      // A1 is a researched chat answer with three sources, one retrieved but
+      // not cited; A2 is a deep-research run's report.
       await db.execute(sql`
-        update messages set metadata = jsonb_build_object('trace_id', ${TRACE_A1}::text) where id = ${A1}::uuid
+        update messages set metadata = jsonb_build_object(
+          'trace_id', ${TRACE_A1}::text,
+          'provenance', jsonb_build_object(
+            'routingDecision', 'deep',
+            'answerConfidence', 'medium',
+            'skillsActivated', jsonb_build_array('oib-rl-2'),
+            'answerDurationMs', 41230,
+            'citationsRemoved', jsonb_build_object('count', 1, 'reasons', jsonb_build_array('unverified')),
+            'thinkingSteps', jsonb_build_array(jsonb_build_object('kind', 'search', 'huge', repeat('x', 1000)))
+          ),
+          'citations', jsonb_build_object('v', 1, 'sources', jsonb_build_array(
+            jsonb_build_object('title', 'OIB-RL 2', 'is_cited', true),
+            jsonb_build_object('title', 'OIB-RL 4'),
+            jsonb_build_object('title', 'gelesen', 'is_cited', false)
+          ))
+        ) where id = ${A1}::uuid
+      `)
+      await db.execute(sql`
+        update messages set metadata = jsonb_build_object(
+          'provenance', jsonb_build_object('deepResearchJobId', ${JOB}::text, 'researchTruncated', true)
+        ) where id = ${A2}::uuid
+      `)
+      await db.execute(sql`
+        insert into projects (id, organization_id, name, created_by, collection_name, profile)
+        values (${PROJECT}::uuid, ${ORG}, 'Wohnanlage West', ${USER}, ${`p_feedback_${STAMP}`},
+                '{"facts": {"bundesland": {"value": "tirol"}}}'::jsonb)
+      `)
+      await db.execute(sql`update conversations set project_id = ${PROJECT}::uuid where id = ${CHAT}`)
+      // The ledger: two calls for A1's turn, one of them in another
+      // conversation that must not count, and two for the research run.
+      await db.execute(sql`
+        insert into llm_usage_events (organization_id, conversation_id, message_id, job_id, model, total_tokens, cost_usd) values
+          (${ORG}, ${CHAT},       ${A1}, null,    'model-a', 1000, 0.010000),
+          (${ORG}, ${CHAT},       ${A1}, null,    'model-b',  500, 0.002500),
+          (${ORG}, 'elsewhere',   ${A1}, null,    'model-a', 9999, 9.000000),
+          (${ORG}, null,          null,  ${JOB},  'model-c', 7000, 0.300000),
+          (${ORG}, null,          null,  ${JOB},  'model-c', 3000, 0.100000)
       `)
     })
     // The other tenant's turn. ORG's vote names its answer id below: nothing at
@@ -153,6 +199,17 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
     await vote(A1, 'down', { reason: 'inaccurate' })
     await vote(A2, 'down', { reason: 'other' })
     await vote(A_MISSING, 'down')
+    // A2's down-vote became a lesson (A1's stays unprocessed for the sweep spec below).
+    await platform(async () => {
+      await db.execute(sql`
+        insert into platform_lessons (id, content, category, status) values (${LESSON}::uuid, 'Fluchtweglänge je GK prüfen', 'inaccurate', 'active')
+      `)
+      await db.execute(sql`
+        insert into platform_lesson_reports (feedback_id, lesson_id, outcome, org_hash)
+        select id, ${LESSON}::uuid, 'created', 'h' from answer_feedback
+        where organization_id = ${ORG} and message_id = ${A2} and verdict = 'down'
+      `)
+    })
     await vote(A_OLD, 'up')
     // A second person rating the same answer: one more vote, no more answers.
     await inOrg(() =>
@@ -171,6 +228,9 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
       await db.execute(sql`delete from answer_feedback where organization_id = ${ORG}`)
       await db.execute(sql`delete from messages where conversation_id = ${CHAT}`)
       await db.execute(sql`delete from conversations where organization_id = ${ORG}`)
+      await db.execute(sql`delete from projects where id = ${PROJECT}::uuid`)
+      await db.execute(sql`delete from platform_lessons where id = ${LESSON}::uuid`)
+      await db.execute(sql`delete from llm_usage_events where organization_id = ${ORG}`)
       await db.execute(sql`delete from answer_feedback where organization_id = ${CLAIM_ORG}`)
       await db.execute(sql`delete from messages where conversation_id in (${OTHER_CHAT}, ${CLAIM_CHAT})`)
       await db.execute(sql`delete from conversations where organization_id = ${CLAIM_ORG}`)
@@ -319,6 +379,129 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
       )
       expect(own.totals.down).toBe(1)
       expect(own.ratedAnswers).toBe(1)
+    })
+  })
+
+  describe('the export', () => {
+    const everything = {
+      windowDays: 7,
+      verdict: null,
+      reason: null,
+      organizationId: ORG,
+      topic: null,
+      query: null,
+    } as const
+    const exportRows = () => platform(() => exportRepo.listFeedbackExportRows(everything, 100))
+
+    it('lists both verdicts, one row per vote, newest first', async () => {
+      const rows = await exportRows()
+
+      expect(rows).toHaveLength(6)
+      expect(new Set(rows.map((row) => row.verdict))).toEqual(new Set(['up', 'down']))
+      const times = rows.map((row) => row.firstVotedAt.getTime())
+      expect([...times].sort((a, b) => b - a)).toEqual(times)
+    })
+
+    it('agrees with its own totals, which are not capped', async () => {
+      const totals = await platform(() => exportRepo.getFeedbackExportTotals(everything))
+      expect(totals).toEqual({ votes: 6, up: 3, down: 3, voters: 6, organizations: 1 })
+      expect(await platform(() => exportRepo.listFeedbackExportRows(everything, 2))).toHaveLength(2)
+    })
+
+    it('names a voter by a stable 12-character pseudonym, never by the user id', async () => {
+      const rows = await exportRows()
+      for (const row of rows) {
+        expect(row.voterKey).toMatch(/^[0-9a-f]{12}$/)
+        expect(JSON.stringify(row)).not.toContain(USER)
+      }
+      const { createHash } = await import('node:crypto')
+      const a1Down = rows.find((row) => row.messageId === A1 && row.verdict === 'down')
+      expect(a1Down?.voterKey).toBe(
+        createHash('sha256').update(`${ORG}:${USER}_${A1}`).digest('hex').slice(0, 12),
+      )
+    })
+
+    it('reads how the answer was produced off its normalized metadata', async () => {
+      const a1 = (await exportRows()).find((row) => row.messageId === A1 && row.verdict === 'down')
+
+      expect(a1).toMatchObject({
+        answerMode: 'deep',
+        answerConfidence: 'medium',
+        sourcesCited: 2,
+        citationsRemoved: 1,
+        researchTruncated: false,
+        skills: ['oib-rl-2'],
+        clientDurationMs: 41230,
+        traceId: TRACE_A1,
+        jobId: null,
+        projectId: PROJECT,
+        projectName: 'Wohnanlage West',
+        bundesland: 'tirol',
+        conversationTitle: 'Fluchtwege',
+        conversationFound: true,
+        topics: [],
+      })
+      expect(a1?.answeredAt).toBeInstanceOf(Date)
+    })
+
+    it("sums a chat turn's cost from its own conversation only, and a report's by its job", async () => {
+      const rows = await exportRows()
+      const a1 = rows.find((row) => row.messageId === A1 && row.verdict === 'down')
+      const a2 = rows.find((row) => row.messageId === A2)
+
+      expect(a1).toMatchObject({ llmCalls: 2, models: ['model-a', 'model-b'], tokensTotal: 1500 })
+      expect(a1?.costUsd).toBeCloseTo(0.0125)
+      expect(a2).toMatchObject({ answerMode: 'report', jobId: JOB, llmCalls: 2, models: ['model-c'], tokensTotal: 10000 })
+      expect(a2?.researchTruncated).toBe(true)
+    })
+
+    it('carries the lesson a vote became, and nothing for one the pipeline never saw', async () => {
+      const rows = await exportRows()
+      expect(rows.find((row) => row.messageId === A2)).toMatchObject({ lessonId: LESSON, lessonStatus: 'active' })
+      expect(rows.find((row) => row.messageId === A_MISSING)).toMatchObject({ lessonId: null, lessonStatus: null })
+    })
+
+    it('counts a chip-less down-vote as `other`, and leaves a turn nobody stored empty', async () => {
+      const missing = (await exportRows()).find((row) => row.messageId === A_MISSING)
+      expect(missing).toMatchObject({
+        reason: 'other',
+        answer: null,
+        question: null,
+        llmCalls: null,
+        costUsd: null,
+        sourcesCited: null,
+        researchTruncated: null,
+      })
+    })
+
+    it('narrows to a selection with the same filters as the page', async () => {
+      const selection = await platform(() =>
+        exportRepo.listFeedbackExportRows({ ...everything, verdict: 'down', reason: 'inaccurate', query: '40 m bei' }, 100),
+      )
+      expect(selection.map((row) => row.messageId)).toEqual([A1])
+    })
+
+    it("never pairs a vote with another tenant's answer", async () => {
+      const crossed = (await exportRows()).find((row) => row.messageId === OTHER_A)
+      // The vote named ORG's own chat, so that title is fine; OTHER_ORG's text is not.
+      expect(crossed).toMatchObject({ answer: null, question: null, conversationTitle: 'Fluchtwege' })
+    })
+  })
+
+  describe('the weekly summary', () => {
+    it('counts the answers a week is about, so coverage cannot pass 100 %', async () => {
+      const { weeks, truncated } = await platform(() =>
+        repo.getFeedbackWeeklySummary({ windowDays: 7, organizationId: ORG }),
+      )
+      const total = weeks.reduce(
+        (sum, week) => ({ answers: sum.answers + week.answers, rated: sum.rated + week.ratedAnswers, votes: sum.votes + week.up + week.down }),
+        { answers: 0, rated: 0, votes: 0 },
+      )
+
+      expect(truncated).toBe(false)
+      expect(total.votes).toBe(6)
+      for (const week of weeks) expect(week.ratedAnswers).toBeLessThanOrEqual(week.answers)
+      expect(total.rated).toBeGreaterThanOrEqual(5)
     })
   })
 

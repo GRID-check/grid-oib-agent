@@ -1,6 +1,7 @@
 /**
- * Feedback repository — the only module that queries the `answer_feedback`
- * table (ADR-0017, WS-7).
+ * Feedback repository — the module that queries the `answer_feedback` table
+ * (ADR-0017, WS-7), with its sibling `./export-repository` for the export's
+ * wider joins and the lesson sweep's read in `lib/platform-lessons`.
  *
  * Repository rules (see docs/architecture/bff-service-architecture.md):
  *   - drizzle only; no HTTP, no auth, no WorkOS.
@@ -216,7 +217,7 @@ export const FEEDBACK_HEALTH_WINDOW_DAYS = 30
 export const FEEDBACK_HEALTH_RECENT_LIMIT = 50
 
 /**
- * Ceiling on the CSV export's rows. The export is the analysis that does not fit
+ * Ceiling on the export's rows. The export is the analysis that does not fit
  * on a page, so it cannot share the page's 50, but it is still a list and still
  * bounded; the service reports when it was reached instead of truncating quietly.
  */
@@ -761,8 +762,14 @@ export interface FeedbackWeeklyCount {
   isoWeek: string
   /** The Monday that week starts on (UTC), `YYYY-MM-DD`. */
   weekStart: string
-  /** Persisted assistant messages - an under-count, see `FeedbackHealth.answers`. */
+  /**
+   * The answers the week is about: produced in it (persisted assistant
+   * messages) united with the answers rated in it — the page's coverage
+   * denominator (`FeedbackHealth.answers`), bucketed by week.
+   */
   answers: number
+  /** Distinct answers that received at least one vote in the week. Never more than `answers`. */
+  ratedAnswers: number
   up: number
   down: number
 }
@@ -775,6 +782,15 @@ export interface FeedbackWeeklySummary {
   cap: number
 }
 
+/**
+ * Where the weekly summary starts: the Monday of the ISO week `windowDays`
+ * ago, so the first row is a whole week. One function for the query and the
+ * file name, so the name never claims a different start than the rows.
+ */
+export function weeklyWindowStart(windowDays: number, now: Date = new Date()): string {
+  return isoWeekStart(new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1000))
+}
+
 /** Monday 00:00 UTC of the ISO week containing `instant`, as an ISO instant. */
 export function isoWeekStart(instant: Date): string {
   const day = (instant.getUTCDay() + 6) % 7 // Monday = 0
@@ -784,60 +800,82 @@ export function isoWeekStart(instant: Date): string {
 }
 
 /**
- * Answers, up-votes and down-votes per organization and ISO week.
+ * Answers, rated answers, up-votes and down-votes per organization and ISO week.
  *
- * The export lists down-votes only, so it cannot say how often an answer fails.
- * This is the denominator, taken from the same two tables the health page uses:
- * assistant `messages` (joined to their conversation for the organization) and
- * `answer_feedback`. Each side is aggregated on its own before the join, so a
- * vote is never multiplied by its conversation's message count. The window
- * starts on the Monday of the week `windowDays` ago, so no row is a partial week
- * at the front. Weeks are UTC, like every other bucket in the BFF.
+ * The vote rows cannot say how often an answer fails; this is the denominator,
+ * taken from the same two tables and with the same definition the page's
+ * coverage uses: the answers PRODUCED in a week (assistant `messages`, joined
+ * to their conversation for the organization) united with the answers RATED in
+ * it, deduplicated by id, so `ratedAnswers <= answers` holds in every row. The
+ * votes are counted on their own and joined per bucket, so a vote is never
+ * multiplied by a message count. The window starts on the Monday of the week
+ * `windowDays` ago, so no row is a partial week at the front. Weeks are UTC,
+ * like every other bucket in the BFF, and a vote counts in the week of its
+ * FIRST cast (`created_at`), as on the page.
  *
  * Cross-tenant like `getFeedbackHealth`; reachable only through
- * `getAnswerFeedbackWeeklySummary`, which sits behind the platform permission.
+ * `getAnswerFeedbackWeeklySummary` and the workbook, which sit behind the
+ * platform permission.
  */
 export async function getFeedbackWeeklySummary(
   filters: Pick<FeedbackHealthFilters, 'windowDays' | 'organizationId'> = {},
 ): Promise<FeedbackWeeklySummary> {
   const { windowDays = FEEDBACK_HEALTH_WINDOW_DAYS, organizationId = null } = filters
   const db = getDb()
-  const since = isoWeekStart(new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000))
+  const since = weeklyWindowStart(windowDays)
 
   const result = await db.execute(sql`
-    with a as (
+    with produced as (
       select
         c.organization_id,
         date_trunc('week', m.created_at at time zone 'UTC') as week,
-        count(*) as answers
+        m.id::text as message_id
       from messages m
       join conversations c on c.id = m.conversation_id
       where m.role = 'assistant'
         and m.created_at >= ${since}::timestamptz
         ${organizationId ? sql`and c.organization_id = ${organizationId}` : sql``}
+    ),
+    votes as (
+      select
+        f.organization_id,
+        date_trunc('week', f.created_at at time zone 'UTC') as week,
+        f.message_id,
+        f.verdict
+      from answer_feedback f
+      where f.created_at >= ${since}::timestamptz
+        ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
+    ),
+    a as (
+      select organization_id, week, count(*) as answers
+      from (
+        select organization_id, week, message_id from produced
+        union
+        select organization_id, week, message_id from votes
+      ) u
       group by 1, 2
     ),
     v as (
       select
-        f.organization_id,
-        date_trunc('week', f.created_at at time zone 'UTC') as week,
-        count(*) filter (where f.verdict = 'up')   as up,
-        count(*) filter (where f.verdict = 'down') as down
-      from answer_feedback f
-      where f.created_at >= ${since}::timestamptz
-        ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
+        organization_id,
+        week,
+        count(distinct message_id)                  as rated_answers,
+        count(*) filter (where verdict = 'up')      as up,
+        count(*) filter (where verdict = 'down')    as down
+      from votes
       group by 1, 2
     )
     select
-      coalesce(a.organization_id, v.organization_id)                 as organization_id,
-      to_char(coalesce(a.week, v.week), 'IYYY-"W"IW')                as iso_week,
-      to_char(coalesce(a.week, v.week), 'YYYY-MM-DD')                as week_start,
-      coalesce(a.answers, 0)                                         as answers,
-      coalesce(v.up, 0)                                              as up,
-      coalesce(v.down, 0)                                            as down
+      a.organization_id,
+      to_char(a.week, 'IYYY-"W"IW')   as iso_week,
+      to_char(a.week, 'YYYY-MM-DD')   as week_start,
+      a.answers,
+      coalesce(v.rated_answers, 0)    as rated_answers,
+      coalesce(v.up, 0)               as up,
+      coalesce(v.down, 0)             as down
     from a
-    full outer join v on v.organization_id = a.organization_id and v.week = a.week
-    order by week_start desc, organization_id
+    left join v on v.organization_id = a.organization_id and v.week = a.week
+    order by week_start desc, a.organization_id
     limit ${FEEDBACK_WEEKLY_SUMMARY_LIMIT + 1}
   `)
 
@@ -851,6 +889,7 @@ export async function getFeedbackWeeklySummary(
     isoWeek: String(row.iso_week),
     weekStart: String(row.week_start),
     answers: Number(row.answers ?? 0),
+    ratedAnswers: Number(row.rated_answers ?? 0),
     up: Number(row.up ?? 0),
     down: Number(row.down ?? 0),
   }))

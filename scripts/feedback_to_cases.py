@@ -9,12 +9,16 @@ A user's down-vote is evidence that an answer failed. The answer suite
 (`task be:eval:answer-suite`, cases in `tests/fixtures/herleitung/loop_eval_questions.yaml`)
 is where a failure stays caught. This script is the first step between the two.
 
-It reads the platform's feedback export (columns `created_at, organization_id,
-conversation_id, message_id, verdict, reason, topics, question, answer`, and an
-optional `expected_answer`) and writes a draft file of cases for a human to
-review. It never touches the golden set: what a user says the answer should have
-been is a claim, and the suite's rule is that an expectation is read off the
-corpus, never taken on trust. A draft therefore carries the claim as
+It reads the platform's feedback export as CSV (Plattform → Antwortqualität →
+Bewertungen → Exportieren → "Als CSV", or `GET
+/api/platform/answer-feedback/export?format=csv`; the columns are listed in
+`docs/technical-reference/answer-feedback-export.md`). Of those it reads
+`verdict`, `question`, `expected_answer`, `reason` and `voted_at`, falling back
+to `created_at`, the name an export from before the column rework used. It
+writes a draft file of cases for a human to review. It never touches the
+golden set: what a user says the answer should have been is a claim, and the
+suite's rule is that an expectation is read off the corpus, never taken on
+trust. A draft therefore carries the claim as
 `draft.expected_answer` and leaves `family`, `punkt` and `expect` for the
 reviewer to fill from the corpus.
 
@@ -68,6 +72,12 @@ def cell(row: dict[str, str], column: str) -> str:
     return value
 
 
+def reported_on(row: dict[str, str]) -> str | None:
+    """The day the vote was cast: `voted_at` in the current export, `created_at` in an older one."""
+    stamp = (row.get("voted_at") or row.get("created_at") or "").strip()
+    return stamp[:10] or None
+
+
 def draft_cases(rows: Iterable[dict[str, str]]) -> list[dict[str, Any]]:
     """One draft per down-vote that has a question and an expected answer; duplicates by question dropped."""
     cases: dict[str, dict[str, Any]] = {}
@@ -88,7 +98,7 @@ def draft_cases(rows: Iterable[dict[str, str]]) -> list[dict[str, Any]]:
                 "draft": {
                     "expected_answer": expected,
                     "reason": (row.get("reason") or "").strip() or None,
-                    "reported": (row.get("created_at") or "").strip()[:10] or None,
+                    "reported": reported_on(row),
                 },
             },
         )
@@ -112,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True, help="where to write the draft cases")
     args = parser.parse_args(argv)
     # utf-8-sig: the export starts with a BOM (for Excel), which plain utf-8 would
-    # leave glued to the first header, so `created_at` never matched.
+    # leave glued to the first header, so the first column never matched.
     with args.csv.open(encoding="utf-8-sig", newline="") as handle:
         cases = draft_cases(csv.DictReader(handle))
     args.out.write_text(render(cases), encoding="utf-8")
