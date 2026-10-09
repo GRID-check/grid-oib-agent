@@ -91,3 +91,14 @@ describe('AppShellChrome — overlay routes keep the chrome of the covered page'
     expect(screen.queryByTestId('rail')).not.toBeInTheDocument()
   })
 })
+
+describe('AppShellChrome — height', () => {
+  test('the frame follows the visual viewport while the iOS keyboard is up, 100dvh otherwise', () => {
+    // useVisualViewport publishes the variable only while the keyboard
+    // occludes the layout viewport; the fallback is what every other browser
+    // gets. A bare `h-dvh` here puts the composer behind the iOS keyboard.
+    const { container } = render(<AppShellChrome {...baseProps}>page</AppShellChrome>)
+    const frame = container.querySelector('.overflow-hidden')
+    expect(frame?.className).toContain('h-[var(--visual-viewport-height,100dvh)]')
+  })
+})

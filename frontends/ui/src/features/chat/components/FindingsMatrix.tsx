@@ -105,7 +105,7 @@ const FindingRow: FC<{
             {expandable && (
               <ChevronDown
                 className={cn(
-                  'text-muted-foreground mt-0.5 size-3.5 shrink-0 transition-transform',
+                  'text-muted-foreground mt-0.5 size-3.5 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
                   open && 'rotate-180'
                 )}
                 aria-hidden="true"

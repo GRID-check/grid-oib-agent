@@ -25,8 +25,10 @@ vi.mock('@/lib/citations/service', () => ({
   getCitationExport: vi.fn().mockResolvedValue({
     schema: 'grid.citation-health.export/v1',
     generatedAt: '2026-07-28T12:00:00.000Z',
+    scope: { from: '2026-06-29', to: '2026-07-28', organizationIds: [], projectIds: [] },
     windowDays: 30,
     windowStart: '2026-06-29T00:00:00.000Z',
+    windowEnd: '2026-07-29T00:00:00.000Z',
     truncated: false,
     glossary: { answer_ungrounded: 'explained' },
     summary: { turns: 10, findings: [] },
@@ -67,20 +69,40 @@ describe('GET /api/platform/citation-health/export', () => {
     expect(body.turns[0].turnId).toBe('turn_1')
   })
 
-  it('takes the default window for every non-window value', async () => {
+  it('names the file after the scope range, not the day it was generated', async () => {
     isOwner.value = true
-    // Blank and non-positive must mean "unspecified" — Number('') and
-    // Number(null) are both 0, which would otherwise clamp to a 1-DAY window
-    // and silently show the operator a near-empty dashboard.
-    for (const query of ['', '?days=', '?days=abc', '?days=0', '?days=-5']) {
-      await GET(request(`http://localhost/api/platform/citation-health/export${query}`))
-      expect(getCitationExport).toHaveBeenLastCalledWith({ days: undefined })
-    }
+    vi.mocked(getCitationExport).mockResolvedValueOnce({
+      scope: { from: '2026-09-01', to: '2026-09-30', organizationIds: ['org_1'], projectIds: [] },
+      turns: [],
+    } as never)
+    const res = await GET(request())
+    expect(res.headers.get('Content-Disposition')).toBe(
+      'attachment; filename="citation-health-2026-09-01-to-2026-09-30.json"'
+    )
   })
 
-  it('passes a valid window through untouched', async () => {
+  it('passes the same scope as the dashboard through to the export', async () => {
     isOwner.value = true
-    await GET(request('http://localhost/api/platform/citation-health/export?days=7'))
-    expect(getCitationExport).toHaveBeenLastCalledWith({ days: 7 })
+    await GET(
+      request(
+        'http://localhost/api/platform/citation-health/export?from=2026-09-01&to=2026-09-30&org=org_2&project=p_1&project=p_2'
+      )
+    )
+    expect(getCitationExport).toHaveBeenLastCalledWith({
+      from: '2026-09-01',
+      to: '2026-09-30',
+      organizationIds: ['org_2'],
+      projectIds: ['p_1', 'p_2'],
+    })
+  })
+
+  it('answers a bad range with 400 instead of exporting a different window', async () => {
+    isOwner.value = true
+    const res = await GET(
+      request('http://localhost/api/platform/citation-health/export?from=2026-10-01&to=2026-09-01')
+    )
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ details: { scope: 'range_inverted' } })
+    expect(getCitationExport).not.toHaveBeenCalled()
   })
 })

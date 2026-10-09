@@ -203,7 +203,7 @@ describe('VectorMaintenance', () => {
     await runSweep(user)
 
     // The dialog stays open and locked so the sweep cannot be double-fired.
-    await waitFor(() => expect(confirmButton()).toBeDisabled())
+    await waitFor(() => expect(confirmButton()).toHaveAttribute('aria-disabled', 'true'))
     expect(screen.getByRole('button', { name: /cancel/i })).toBeDisabled()
     // Queried by test id, not role: the open dialog aria-hides the page behind it.
     expect(screen.getByTestId('reconcile-trigger')).toBeDisabled()

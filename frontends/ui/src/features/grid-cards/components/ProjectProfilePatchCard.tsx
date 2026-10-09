@@ -7,6 +7,7 @@ import { selectCardConversationId, useCardDecision } from '../hooks/use-card-dec
 import { useChatStore } from '@/features/chat/store'
 import { invalidateProjectFacts } from '@/features/chat/hooks/use-project-facts'
 import { ProposalShell } from './ProposalShell'
+import { StackedLabel } from './StackedLabel'
 import { buildPatchPreviewRows } from '@/lib/project-profile/patch-preview'
 import type { ProjectProfile, ProjectProfilePatchOperation } from '@/lib/project-profile/types'
 
@@ -79,6 +80,9 @@ export function ProjectProfilePatchCard({
   const rows = useMemo(() => buildPatchPreviewRows(patch, profile), [patch, profile])
 
   const handleAccept = async () => {
+    // A second press while the first is in flight is ignored, not refused by
+    // `disabled` — see the buttons below.
+    if (isSubmitting) return
     if (!projectId) {
       setError(t('profilePatchCard.noProject'))
       return
@@ -112,6 +116,7 @@ export function ProjectProfilePatchCard({
   }
 
   const handleReject = () => {
+    if (isSubmitting) return
     decide('rejected')
     setError(null)
   }
@@ -174,15 +179,34 @@ export function ProjectProfilePatchCard({
           {!projectId && (
             <p className="min-w-[16rem] flex-1 text-xs text-muted-foreground">{t('profilePatchCard.noProject')}</p>
           )}
+          {/* Without a project there is nothing to apply to: that one IS
+              disabled, and says why beside it. In flight it is only busy —
+              `disabled` dropped the reader's focus to <body> and the label
+              swap changed the button's width; `aria-disabled` keeps the focus
+              and `StackedLabel` keeps the width. */}
           <Button
             type="button"
             size="sm"
             onClick={handleAccept}
-            disabled={!projectId || isSubmitting}
+            disabled={!projectId}
+            aria-disabled={isSubmitting || undefined}
+            aria-busy={isSubmitting || undefined}
+            className="aria-disabled:cursor-default"
           >
-            {isSubmitting ? t('profilePatchCard.applying') : t('profilePatchCard.accept')}
+            <StackedLabel
+              busy={isSubmitting}
+              idle={t('profilePatchCard.accept')}
+              working={t('profilePatchCard.applying')}
+            />
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={handleReject}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleReject}
+            aria-disabled={isSubmitting || undefined}
+            className="aria-disabled:cursor-default aria-disabled:opacity-50"
+          >
             {t('profilePatchCard.reject')}
           </Button>
         </div>

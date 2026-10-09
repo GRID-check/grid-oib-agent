@@ -2,6 +2,7 @@ import { act, render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { PlatformAccessProvider } from '@/features/platform/platform-access'
+import type { QualityScope } from '@/lib/quality/scope'
 import { CitationHealth } from './citation-health'
 
 vi.mock('sonner', () => ({
@@ -25,7 +26,25 @@ const finding = (
   metrics,
 })
 
+/** A scope of UTC days, every organization and project unless named. */
+const scopeOf = (from: string, to: string, more: Partial<QualityScope> = {}): QualityScope => ({
+  from,
+  to,
+  organizationIds: [],
+  projectIds: [],
+  ...more,
+})
+const SEPTEMBER = scopeOf('2026-09-01', '2026-09-30')
+const LAST_WEEK = scopeOf('2026-09-24', '2026-09-30')
+/**
+ * English range labels as Testing Library reads them: ICU sets thin spaces
+ * around the dash, and the default matcher normalizes them to plain ones.
+ */
+const SEPTEMBER_LABEL = 'Sep 1 – 30, 2026'
+const LAST_WEEK_LABEL = 'Sep 24 – 30, 2026'
+
 const snapshot = {
+  scope: SEPTEMBER,
   windowDays: 30,
   totals: {
     turns: 200,
@@ -156,7 +175,7 @@ describe('CitationHealth', () => {
   test('leads with the clean rate and the defect headline numbers', async () => {
     vi.stubGlobal('fetch', okFetch())
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
     expect(await screen.findByText('88%')).toBeDefined()
     expect(screen.getByText('176 of 200 turns without a finding')).toBeDefined()
@@ -164,32 +183,71 @@ describe('CitationHealth', () => {
     expect(screen.getByText('61')).toBeDefined()
   })
 
-  test('requests the window it is given and refetches when the page changes it', async () => {
+  test('requests the scope it is given and refetches when the page changes it', async () => {
     const fetchSpy = okFetch()
     vi.stubGlobal('fetch', fetchSpy)
 
-    const { rerender } = render(<CitationHealth days={30} />)
+    const { rerender } = render(<CitationHealth scope={SEPTEMBER} />)
     await screen.findByText('88%')
     expect(fetchSpy).toHaveBeenCalledWith(
-      '/api/platform/citation-health?days=30',
+      '/api/platform/citation-health?from=2026-09-01&to=2026-09-30',
       expect.anything()
     )
 
-    rerender(<CitationHealth days={7} />)
+    const narrowed = { ...LAST_WEEK, organizationIds: ['org_1', 'org_2'], projectIds: ['p_1'] }
+    rerender(<CitationHealth scope={narrowed} />)
+    const query = 'from=2026-09-24&to=2026-09-30&org=org_1&org=org_2&project=p_1'
     expect(fetchSpy).toHaveBeenLastCalledWith(
-      '/api/platform/citation-health?days=7',
+      `/api/platform/citation-health?${query}`,
       expect.anything()
     )
+    // The export downloads exactly what the screen is asked to show.
     expect(screen.getByRole('link', { name: /Export diagnostics/ }).getAttribute('href')).toBe(
-      '/api/platform/citation-health/export?days=7'
+      `/api/platform/citation-health/export?${query}`
     )
+  })
+
+  test('does not refetch for a new object describing the same scope', async () => {
+    const fetchSpy = okFetch()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const { rerender } = render(<CitationHealth scope={SEPTEMBER} />)
+    await screen.findByText('88%')
+    rerender(<CitationHealth scope={{ ...SEPTEMBER, organizationIds: [] }} />)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('labels the trend with the range and what narrows it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      okFetch({ ...snapshot, scope: { ...SEPTEMBER, organizationIds: ['org_1', 'org_2'] } })
+    )
+
+    render(<CitationHealth scope={{ ...SEPTEMBER, organizationIds: ['org_1', 'org_2'] }} />)
+    expect(
+      await screen.findByText(
+        `Citation findings per UTC day, ${SEPTEMBER_LABEL} · 2 organizations. One turn can carry several findings, so the bars count findings, not turns.`
+      )
+    ).toBeDefined()
+    expect(screen.queryByTestId('citation-health-project-caveat')).toBeNull()
+  })
+
+  test('says what a project filter leaves out', async () => {
+    const inProject = { ...SEPTEMBER, projectIds: ['p_1'] }
+    vi.stubGlobal('fetch', okFetch({ ...snapshot, scope: inProject }))
+
+    render(<CitationHealth scope={inProject} />)
+    expect((await screen.findByTestId('citation-health-project-caveat')).textContent).toContain(
+      'Turns with no recorded conversation are left out'
+    )
+    expect(screen.getByText(new RegExp(`${SEPTEMBER_LABEL} · 1 project\\.`))).toBeDefined()
   })
 
   test('keeps the loaded content on a refetch instead of collapsing it into skeletons', async () => {
     const { fn, pending } = deferredFetch()
     vi.stubGlobal('fetch', fn)
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
     expect(screen.getByTestId('citation-health-loading')).toBeDefined()
     await act(async () => pending[0].resolve(json(snapshot)))
     expect(await screen.findByText('88%')).toBeDefined()
@@ -203,46 +261,55 @@ describe('CitationHealth', () => {
     const { fn, pending } = deferredFetch()
     vi.stubGlobal('fetch', fn)
 
-    const { rerender } = render(<CitationHealth days={90} />)
-    rerender(<CitationHealth days={7} />)
+    const { rerender } = render(<CitationHealth scope={SEPTEMBER} />)
+    rerender(<CitationHealth scope={LAST_WEEK} />)
     expect(pending.map((request) => request.url)).toEqual([
-      '/api/platform/citation-health?days=90',
-      '/api/platform/citation-health?days=7',
+      '/api/platform/citation-health?from=2026-09-01&to=2026-09-30',
+      '/api/platform/citation-health?from=2026-09-24&to=2026-09-30',
     ])
 
     await act(async () =>
       pending[1].resolve(
-        json({ ...snapshot, windowDays: 7, totals: { ...snapshot.totals, cleanRate: 0.5 } })
+        json({
+          ...snapshot,
+          scope: LAST_WEEK,
+          windowDays: 7,
+          totals: { ...snapshot.totals, cleanRate: 0.5 },
+        })
       )
     )
     expect(await screen.findByText('50%')).toBeDefined()
-    // The 90-day answer lands last; it must not replace the 7-day one.
+    // September's answer lands last; it must not replace the week's.
     await act(async () => pending[0].resolve(json(snapshot)))
     expect(screen.getByText('50%')).toBeDefined()
     expect(screen.queryByText('88%')).toBeNull()
   })
 
-  test('says so when a window switch fails, instead of passing the old window off as the new one', async () => {
+  test('says so when a scope switch fails, instead of passing the old scope off as the new one', async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValueOnce(json(snapshot))
       .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) })
     vi.stubGlobal('fetch', fetchSpy)
 
-    const { rerender } = render(<CitationHealth days={30} />)
+    const { rerender } = render(<CitationHealth scope={SEPTEMBER} />)
     await screen.findByText('88%')
-    rerender(<CitationHealth days={7} />)
+    rerender(<CitationHealth scope={{ ...LAST_WEEK, organizationIds: ['org_1'] }} />)
 
     expect(
-      await screen.findByText('Could not load the last 7 days. Still showing the last 30 days.')
+      await screen.findByText(
+        `Could not load ${LAST_WEEK_LABEL} · 1 organization. Still showing ${SEPTEMBER_LABEL}.`
+      )
     ).toBeDefined()
     expect(screen.getByText('88%')).toBeDefined()
+    // The trend still names what it shows, not what was asked for.
+    expect(screen.getByText(new RegExp(`per UTC day, ${SEPTEMBER_LABEL}\\.`))).toBeDefined()
   })
 
   test('ranks findings by severity, shows three, and reveals the rest and the next step on demand', async () => {
     vi.stubGlobal('fetch', okFetch())
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
     const card = await screen.findByTestId('citation-findings')
     const rows = within(card).getAllByRole('listitem')
     expect(rows).toHaveLength(3)
@@ -269,7 +336,7 @@ describe('CitationHealth', () => {
       })
     )
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
     const card = await screen.findByTestId('citation-findings')
     expect(within(card).getByRole('status').textContent).toContain('Nothing needs your attention')
@@ -292,7 +359,7 @@ describe('CitationHealth', () => {
       })
     )
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
     expect(
       await screen.findByText(
@@ -307,7 +374,7 @@ describe('CitationHealth', () => {
       okFetch({ ...snapshot, missingSourcesTotal: 31, organizationsTotal: 70 })
     )
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
     expect(
       await within(await screen.findByTestId('citation-missing-sources')).findByText(
@@ -322,7 +389,7 @@ describe('CitationHealth', () => {
   test('translates known removal reasons and falls back to the raw key for new ones', async () => {
     vi.stubGlobal('fetch', okFetch())
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
     expect(await screen.findByText('URL not among the retrieved sources')).toBeDefined()
     expect(screen.getByText('Summary line, not a citable source')).toBeDefined()
@@ -332,7 +399,7 @@ describe('CitationHealth', () => {
   test('tabulates organizations with their urgent turns, sortable by rate', async () => {
     vi.stubGlobal('fetch', okFetch())
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
     const card = await screen.findByTestId('citation-organizations')
     expect(within(card).getByText('Unattributed')).toBeDefined()
@@ -348,7 +415,7 @@ describe('CitationHealth', () => {
   test('lists recent findings with a copyable turn id and a link into the timing view', async () => {
     vi.stubGlobal('fetch', okFetch())
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
     const card = await screen.findByTestId('citation-recent')
     expect(within(card).getByRole('button', { name: 'Copy turn id turn-abc-123' })).toBeDefined()
@@ -356,7 +423,7 @@ describe('CitationHealth', () => {
       within(card)
         .getByRole('link', { name: 'Open conversation in the timing view' })
         .getAttribute('href')
-    ).toBe('/app/platform/quality?view=timing&conversation=conv-1')
+    ).toBe('/app/platform/quality?view=timing&from=2026-09-01&to=2026-09-30&conversation=conv-1')
     // The buckets are UTC days, so the exact moment is stated in UTC.
     const times = within(card).getAllByText((_, node) => node?.tagName === 'TIME')
     expect(times[0].getAttribute('title')).toBe('Jul 28, 2026, 11:41 PM UTC')
@@ -365,7 +432,7 @@ describe('CitationHealth', () => {
   test('offers the add actions to a viewer who may manage settings', async () => {
     vi.stubGlobal('fetch', okFetch())
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
     const card = await screen.findByTestId('citation-missing-sources')
     expect(
@@ -380,7 +447,7 @@ describe('CitationHealth', () => {
       <PlatformAccessProvider
         permissions={['platform:organizations:view', 'platform:settings:view']}
       >
-        <CitationHealth days={30} />
+        <CitationHealth scope={SEPTEMBER} />
       </PlatformAccessProvider>
     )
 
@@ -409,7 +476,7 @@ describe('CitationHealth', () => {
       })
     )
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
     const card = await screen.findByTestId('citation-missing-sources')
     expect(within(card).getByText(/platform inventory could not be checked/)).toBeDefined()
@@ -421,9 +488,14 @@ describe('CitationHealth', () => {
   test('shows an empty state when no turns were observed', async () => {
     vi.stubGlobal('fetch', okFetch(emptySnapshot))
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
-    expect(await screen.findByText('No research turns recorded yet')).toBeDefined()
+    expect(await screen.findByText('No research turns in this period')).toBeDefined()
+    expect(
+      screen.getByText(
+        `Every research turn is recorded. Nothing recorded in ${SEPTEMBER_LABEL} means nothing to review.`
+      )
+    ).toBeDefined()
     expect(screen.queryByTestId('citation-defect-chart')).toBeNull()
   })
 
@@ -434,7 +506,7 @@ describe('CitationHealth', () => {
       .mockResolvedValueOnce(json(snapshot))
     vi.stubGlobal('fetch', fetchSpy)
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Could not load citation health.')
@@ -446,7 +518,7 @@ describe('CitationHealth', () => {
   test('renders the defect trend chart once data is present', async () => {
     vi.stubGlobal('fetch', okFetch())
 
-    render(<CitationHealth days={30} />)
+    render(<CitationHealth scope={SEPTEMBER} />)
 
     const root = await screen.findByTestId('citation-health')
     expect(await within(root).findByTestId('citation-defect-chart')).toBeDefined()

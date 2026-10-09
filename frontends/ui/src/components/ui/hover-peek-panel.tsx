@@ -28,8 +28,20 @@
  */
 
 import type { FC, ReactNode } from 'react'
+import { cn } from '@/lib/utils'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import type { HoverPopover } from '@/hooks/use-hover-popover'
+
+/**
+ * The gutter a peek keeps from the viewport edge, matching the phone's 12px
+ * page inset. Radix's default is 0, so a 320px panel anchored to a marker near
+ * the right edge of a 390px screen was pushed flush against the glass, and one
+ * wider than the screen was cut off. Applied twice: as `collisionPadding`, so
+ * Radix shifts the panel in from the edge, and as the `max-w` cap, so a panel
+ * wider than the viewport shrinks to fit instead of being shifted off the
+ * other side.
+ */
+const VIEWPORT_GUTTER_PX = 12
 
 export const HoverPeekPanel: FC<{
   peek: HoverPopover
@@ -41,7 +53,20 @@ export const HoverPeekPanel: FC<{
   return (
     <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
       <PopoverAnchor virtualRef={peek.anchorRef} />
-      <PopoverContent align={align} className={className} {...peek.contentProps}>
+      <PopoverContent
+        align={align}
+        collisionPadding={VIEWPORT_GUTTER_PX}
+        className={cn(
+          'max-w-[calc(100vw-24px)]',
+          className,
+          // Replaced by the next peek (see `useHoverPopover`): gone in the
+          // frame the next one arrives, rather than fading out underneath it.
+          // Important, because `animate-out` sits under the same variant and
+          // wins the cascade otherwise.
+          peek.skipExit && 'data-[state=closed]:animate-none!'
+        )}
+        {...peek.contentProps}
+      >
         {children}
       </PopoverContent>
     </Popover>
