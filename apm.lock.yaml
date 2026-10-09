@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-10-09T09:59:42.785834+00:00'
+generated_at: '2026-10-09T10:01:00.347626+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -182,42 +182,6 @@ dependencies:
     .claude/skills/aiq-piloti-riso/SKILL.md: sha256:acec4db24ff995f54647b2307865c772fd603d7cf128f9a0dda9be6a32e9b056
   source: local
   local_path: ./skills/aiq-piloti-riso
-- repo_url: _local/aiq-prepare-pr
-  name: aiq-prepare-pr
-  version: 0.0.0
-  package_type: claude_skill
-  deployed_files:
-  - .agents/skills/aiq-prepare-pr
-  - .agents/skills/aiq-prepare-pr/SKILL.md
-  - .agents/skills/aiq-prepare-pr/references/pr-checklist.md
-  - .claude/skills/aiq-prepare-pr
-  - .claude/skills/aiq-prepare-pr/SKILL.md
-  - .claude/skills/aiq-prepare-pr/references/pr-checklist.md
-  deployed_file_hashes:
-    .agents/skills/aiq-prepare-pr/SKILL.md: sha256:7bb17082ecbd8ace4254e44efda09312e0157db7c1f0eba6abf33830ab582400
-    .agents/skills/aiq-prepare-pr/references/pr-checklist.md: sha256:3f64140f2df3e09df2f7f681e965fa0d9d68f35480ddee2f9e944be86ec73225
-    .claude/skills/aiq-prepare-pr/SKILL.md: sha256:7bb17082ecbd8ace4254e44efda09312e0157db7c1f0eba6abf33830ab582400
-    .claude/skills/aiq-prepare-pr/references/pr-checklist.md: sha256:3f64140f2df3e09df2f7f681e965fa0d9d68f35480ddee2f9e944be86ec73225
-  source: local
-  local_path: ./skills/aiq-prepare-pr
-- repo_url: _local/aiq-release-qa
-  name: aiq-release-qa
-  version: 0.0.0
-  package_type: claude_skill
-  deployed_files:
-  - .agents/skills/aiq-release-qa
-  - .agents/skills/aiq-release-qa/SKILL.md
-  - .agents/skills/aiq-release-qa/references/validation-matrix.md
-  - .claude/skills/aiq-release-qa
-  - .claude/skills/aiq-release-qa/SKILL.md
-  - .claude/skills/aiq-release-qa/references/validation-matrix.md
-  deployed_file_hashes:
-    .agents/skills/aiq-release-qa/SKILL.md: sha256:510b054480072d80334349bcb4309f4f3b894256b8b6e7a329aae30a7fec627c
-    .agents/skills/aiq-release-qa/references/validation-matrix.md: sha256:2a125dc9c84a048427b5910cbcdf2d1cd8e17aebd106b923dd64461b074b7281
-    .claude/skills/aiq-release-qa/SKILL.md: sha256:510b054480072d80334349bcb4309f4f3b894256b8b6e7a329aae30a7fec627c
-    .claude/skills/aiq-release-qa/references/validation-matrix.md: sha256:2a125dc9c84a048427b5910cbcdf2d1cd8e17aebd106b923dd64461b074b7281
-  source: local
-  local_path: ./skills/aiq-release-qa
 - repo_url: _local/aiq-research
   name: aiq-research
   version: 0.0.0
@@ -1001,60 +965,6 @@ deployments:
   - ./skills/aiq-piloti-riso
   active_owner: ./skills/aiq-piloti-riso
   content_hash: sha256:acec4db24ff995f54647b2307865c772fd603d7cf128f9a0dda9be6a32e9b056
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-prepare-pr
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-prepare-pr
-  active_owner: ./skills/aiq-prepare-pr
-  content_hash: null
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-prepare-pr/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-prepare-pr
-  active_owner: ./skills/aiq-prepare-pr
-  content_hash: sha256:7bb17082ecbd8ace4254e44efda09312e0157db7c1f0eba6abf33830ab582400
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-prepare-pr/references/pr-checklist.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-prepare-pr
-  active_owner: ./skills/aiq-prepare-pr
-  content_hash: sha256:3f64140f2df3e09df2f7f681e965fa0d9d68f35480ddee2f9e944be86ec73225
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-release-qa
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-release-qa
-  active_owner: ./skills/aiq-release-qa
-  content_hash: null
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-release-qa/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-release-qa
-  active_owner: ./skills/aiq-release-qa
-  content_hash: sha256:510b054480072d80334349bcb4309f4f3b894256b8b6e7a329aae30a7fec627c
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-release-qa/references/validation-matrix.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-release-qa
-  active_owner: ./skills/aiq-release-qa
-  content_hash: sha256:2a125dc9c84a048427b5910cbcdf2d1cd8e17aebd106b923dd64461b074b7281
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-research
@@ -2018,60 +1928,6 @@ deployments:
   - ./skills/aiq-piloti-riso
   active_owner: ./skills/aiq-piloti-riso
   content_hash: sha256:acec4db24ff995f54647b2307865c772fd603d7cf128f9a0dda9be6a32e9b056
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-prepare-pr
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-prepare-pr
-  active_owner: ./skills/aiq-prepare-pr
-  content_hash: null
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-prepare-pr/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-prepare-pr
-  active_owner: ./skills/aiq-prepare-pr
-  content_hash: sha256:7bb17082ecbd8ace4254e44efda09312e0157db7c1f0eba6abf33830ab582400
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-prepare-pr/references/pr-checklist.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-prepare-pr
-  active_owner: ./skills/aiq-prepare-pr
-  content_hash: sha256:3f64140f2df3e09df2f7f681e965fa0d9d68f35480ddee2f9e944be86ec73225
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-release-qa
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-release-qa
-  active_owner: ./skills/aiq-release-qa
-  content_hash: null
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-release-qa/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-release-qa
-  active_owner: ./skills/aiq-release-qa
-  content_hash: sha256:510b054480072d80334349bcb4309f4f3b894256b8b6e7a329aae30a7fec627c
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-release-qa/references/validation-matrix.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-release-qa
-  active_owner: ./skills/aiq-release-qa
-  content_hash: sha256:2a125dc9c84a048427b5910cbcdf2d1cd8e17aebd106b923dd64461b074b7281
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-research

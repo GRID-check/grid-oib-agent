@@ -102,6 +102,18 @@ Example: `ci: replace SonarQube + CodeQL with a free in-CI security stack`. A PR
 opened from the GitHub UI keeps whatever title it was given — fix the title, not
 just the commits.
 
+## Opening a pull request
+
+- Base it on `develop`, carrying only the files this change needs.
+  `git diff --name-only origin/develop...HEAD` is the list a reviewer will see.
+- Fill every section of the
+  [template](.github/pull_request_template.md). **Validation** holds the
+  commands you ran and their output, or the closing checklist from the
+  [definition of done](docs/contributing/definition-of-done.md); "ran the
+  tests" is not evidence. A UI change carries its captures as attachments
+  ([docs/ux/visual-screenshots.md](docs/ux/visual-screenshots.md)).
+- CI runs on the pull request itself, and every push updates its checks.
+
 ## CI and the merge gate
 
 - The single required status check is **CI OK**
