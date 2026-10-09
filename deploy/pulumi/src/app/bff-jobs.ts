@@ -5,6 +5,7 @@ import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedContainerSecurityContext } from "../platform/security";
 import { agentWorkerRollout, gracefulShutdown, secretChecksumAnnotations, surgeRollout } from "../platform/rollout";
+import { withLangfuseKeysChecksum } from "../platform/langfuse";
 import { AppSecrets, AppWiring, BFF_QUEUE_DSN_KEY, SCALER_SECRET_NAME, bffJobsEnv } from "./config";
 import { installQueueScaledObject, installTriggerAuth, queueDepthQuery } from "./keda-scaling";
 import { PORT, UID } from "../constants";
@@ -72,7 +73,7 @@ export function installBffJobs(
         selector: { matchLabels: labels },
         ...surgeRollout(profile),
         template: {
-          metadata: { labels, annotations: secretChecksumAnnotations(secrets.checksum) },
+          metadata: { labels, annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)) },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
             imagePullSecrets: w.imagePullSecrets,

@@ -319,6 +319,11 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     ...(cfg.langfuse.enabled
       ? [{ name: "GRID_TRACE_IDENTITY_ATTRIBUTES", value: "true" }]
       : []),
+    // The agent writes its answer checks as Langfuse scores (ADR-0089) through
+    // the public API, on the in-cluster Service: `allow-backend-to-langfuse`
+    // opens it to the chat, api and agent-worker pods. The keys are a
+    // capability only: the prompt store stays off until LANGFUSE_PROMPTS_ENABLED.
+    ...langfuseApiEnv(cfg),
     // Admission control (bounds concurrent heavy work — §4.2).
     { name: "GRID_MAX_ACTIVE_JOBS_PER_ORG", value: String(cfg.backend.maxActiveJobsPerOrg) },
     { name: "GRID_MAX_QUEUED_JOBS_PER_ORG", value: String(cfg.backend.maxQueuedJobsPerOrg) },
@@ -408,6 +413,14 @@ export function workerEnv(w: AppWiring): EnvVar[] {
 }
 
 /**
+ * What the ingest worker does not get of the backend env: the Langfuse API
+ * keys. Ingestion writes no scores and serves no prompt, and no NetworkPolicy
+ * lets it reach the Langfuse web tier, so the keys would be a credential with
+ * nothing to do but leak.
+ */
+const INGEST_WITHHELD_ENV = new Set(["LANGFUSE_HOST", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"]);
+
+/**
  * Ingest worker (ADR-0076) environment: the full backend env (it builds the same
  * ingestor: summary model, shared Chroma, object store, DSNs) plus the role, its
  * per-process concurrency.
@@ -415,7 +428,9 @@ export function workerEnv(w: AppWiring): EnvVar[] {
 export function ingestWorkerEnv(w: AppWiring, livenessFile: string): EnvVar[] {
   const overridden = new Set(["AIQ_INGEST_MAX_WORKERS"]);
   return [
-    ...backendEnv(w, "grid-ingest-worker").filter((e) => !(typeof e.name === "string" && overridden.has(e.name))),
+    ...backendEnv(w, "grid-ingest-worker").filter(
+      (e) => !(typeof e.name === "string" && (overridden.has(e.name) || INGEST_WITHHELD_ENV.has(e.name))),
+    ),
     { name: "GRID_ROLE", value: "ingest-worker" },
     { name: "AIQ_INGEST_MAX_WORKERS", value: String(w.cfg.ingestWorker.concurrency) },
     { name: "GRID_INGEST_WORKER_DRAIN_SECONDS", value: String(w.cfg.ingestWorker.drainSeconds) },
@@ -591,9 +606,13 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
  * no-op, which is also what a deployment without Langfuse has to do.
  *
  * The Secret is Langfuse's own rather than a copy in `grid-secrets`, so a key
- * rotation has one place to happen. The cost: a pod reads it at start, and the
- * workers' checksum annotation covers `grid-secrets` only, so a rotated key
- * reaches them on their next restart.
+ * rotation has one place to happen. A pod reads it at start, so every pod that
+ * carries this env folds the keys into its rollout checksum
+ * (`withLangfuseKeysChecksum`) and a rotation rolls it.
+ *
+ * Also on the backend tiers (`backendEnv`), which write the answer pipeline's
+ * checks as scores (ADR-0089, `aiq_agent/observability/langfuse_scores.py`)
+ * and, once `LANGFUSE_PROMPTS_ENABLED` is set, read the platform prompt.
  */
 export function langfuseApiEnv(cfg: GridConfig): EnvVar[] {
   if (!cfg.langfuse.enabled) return [];
