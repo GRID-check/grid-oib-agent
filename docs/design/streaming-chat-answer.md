@@ -708,7 +708,12 @@ until the answer settles. At the settle the label does not change: the dot in
 the icon slot becomes a check on `iconSwapTransition` (scale 0.7 → 1 on
 `springSnap`, opacity on a tween), and the timer freezes on the answer's own
 duration, never below the last live figure. There is no „Fertig": swapping
-the label for it at the settle moved the summary across the row. A turn that
+the label for it at the settle moved the summary across the row. A label
+change never blanks the line: at the first word the activity phrase rolls up
+out of a one-line clip as the summary rolls in beneath it, both travelling on
+the entrance easing so they stay one line apart; when only the count changes
+(9 → 11 sources at the settle) the words stay and just the digits roll, and
+the count's box glides to its new width so „Quellen" slides rather than jumps. A turn that
 did not simply finish says how it ended in a word on the right, with a neutral
 glyph: „Gestoppt", „Fehlgeschlagen", „Auftrag angelegt" (a run was
 commissioned, `handed_off`) or „Nicht bearbeitet" (refused). A turn that took

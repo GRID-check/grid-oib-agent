@@ -19,7 +19,9 @@ import {
   forwardRef,
   memo,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from 'react'
@@ -454,6 +456,15 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
   // and moved the summary from the left of the row to the right.
   const shimmer = status === 'live' && !answering
   const label = shimmer ? activityLabel : summaryLabel
+  // The summary around its count: a new count (9 → 11 Quellen at the settle)
+  // changes the digits and keeps the words. A change of the words themselves
+  // (no sources → some, one source → two: the plural) re-keys the whole label.
+  const countParts = shimmer ? null : splitCount(summaryLabel)
+  const labelKey = shimmer
+    ? `live:${label}`
+    : countParts
+      ? `summary:${countParts.before}#${countParts.after}`
+      : `summary:${label}`
   // The phase in a word: what the trigger is named by and what is announced.
   const phaseWord = statusLabel[status]
   // An ending that is not „done" says so in a word on the right, beside the
@@ -472,15 +483,24 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
       : elapsedSeconds
   const showElapsed = sawLive && shownSeconds > 2
 
-  // Every state swap in the header is a cross-fade on the house pair, entrance
-  // in and exit easing out, overlapping (`popLayout`) so a new activity phrase
-  // is never held back behind the old one's exit. Reduced motion: instant.
+  // Every state swap in the header runs on the house pair, entrance easing in
+  // and exit easing out: the icon and the right-hand words cross-fade, the
+  // label and its count roll. Reduced motion: instant.
   const enter = reducedMotion ? motionInstant : motionQuick
   const leave = reducedMotion ? motionInstant : motionQuickExit
   const swap = {
     initial: { opacity: 0 },
     animate: { opacity: 1, transition: enter },
     exit: { opacity: 0, transition: leave },
+  }
+  // The label's and the count's swap: a vertical roll. The old text fades on
+  // the exit easing, but both TRAVEL on the entrance one, in lockstep, so they
+  // stay exactly one line apart. On its own exit easing the old one barely
+  // moved while the new one, already most of the way in, slid up under it.
+  const roll: RollMotion = {
+    initial: { opacity: 0, y: ROLL_OFFSET },
+    animate: { opacity: 1, y: 0, transition: enter },
+    exit: { opacity: 0, y: `-${ROLL_OFFSET}`, transition: { ...leave, y: enter } },
   }
 
   // No entrance of its own: it mounts with its question, and the thread row
@@ -509,24 +529,46 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
               <AnimatePresence mode="popLayout" initial={false}>
                 <StatusIcon key={status} status={status} t={t} enter={enter} leave={leave} />
               </AnimatePresence>
-              {/* `wait`: the old phrase leaves before the new one arrives. Two
-                  phrases of different widths cross-fading at one origin read
-                  as one garbled word for a few frames („Fertigtung"). */}
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.span
-                  key={label}
-                  className={cn(
-                    'min-w-0 text-sm font-semibold',
-                    shimmer ? undefined : 'text-foreground'
-                  )}
-                  {...swap}
-                >
-                  {/* The one ambient loop before the answer: the shimmer, on an
-                      inner element that moves by transform only, since the
-                      cross-fade owns this span's opacity. */}
-                  {shimmer ? <ShimmerText className="block">{label}</ShimmerText> : label}
-                </motion.span>
-              </AnimatePresence>
+              {/* The label rolls: the old one leaves upward, fading, while the
+                  new one rises into its place from below, overlapping
+                  (`popLayout`) inside a clip one line tall. Neither `wait` nor
+                  a cross-fade at one origin: `wait` left the header with no
+                  label for a few frames at the fold and the settle, and two
+                  phrases superimposed at one origin read as one garbled word
+                  („Fertigtung"). Offset vertically, they never share a
+                  position while both are legible.
+
+                  Keyed by the label's WORDS, not its count: when only the
+                  source count changes (it often does at the settle), this
+                  node stays and only the digits roll (`RollingCount`). */}
+              <span className="relative min-w-0 overflow-y-clip">
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span
+                    key={labelKey}
+                    data-herleitung-label
+                    className={cn(
+                      'block text-sm font-semibold',
+                      shimmer ? undefined : 'text-foreground'
+                    )}
+                    {...roll}
+                  >
+                    {/* The one ambient loop before the answer: the shimmer, on an
+                        inner element that moves by transform only, since the
+                        roll owns this span's opacity. */}
+                    {shimmer ? (
+                      <ShimmerText className="block">{label}</ShimmerText>
+                    ) : countParts ? (
+                      <>
+                        {countParts.before}
+                        <RollingCount value={countParts.count} roll={roll} />
+                        {countParts.after}
+                      </>
+                    ) : (
+                      label
+                    )}
+                  </motion.span>
+                </AnimatePresence>
+              </span>
             </span>
 
             <span className="relative flex shrink-0 items-center gap-2" aria-hidden="true">
@@ -723,6 +765,78 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
         </div>
       ) : null}
     </div>
+  )
+}
+
+/**
+ * How far a rolling label or count travels: its own height, one line, inside a
+ * clip one line tall. The old text leaves the window as the new one enters it,
+ * so the two never cover each other. A shorter travel (0.4em was tried, phone
+ * recording 2026-10) kept both wholly inside the window, half-transparent and
+ * a few pixels apart: „9" over „11" read as one smudged number.
+ */
+const ROLL_OFFSET = '100%'
+
+interface RollMotion {
+  initial: { opacity: number; y: string | number }
+  animate: { opacity: number; y: number; transition: Transition }
+  exit: { opacity: number; y: string; transition: Transition }
+}
+
+/** The first number in `text` (grouping separators included), and the text around it. */
+const splitCount = (text: string): { before: string; count: string; after: string } | null => {
+  const match = /\d+(?:[.,\u00a0\u202f]\d{3})*/.exec(text)
+  if (!match) return null
+  return {
+    before: text.slice(0, match.index),
+    count: match[0],
+    after: text.slice(match.index + match[0].length),
+  }
+}
+
+/**
+ * A count whose digits roll when it changes: the old number leaves upward and
+ * the new one rises from below, overlapping, clipped to the line.
+ *
+ * When the number gains or loses a digit its box glides between the two widths
+ * on the roll's own easing, so the words after it slide over rather than jump
+ * a digit in the first frame (9 → 11 at the settle). An absolute sizer measures
+ * the new number; between changes the box is `auto` again, so a late web font
+ * cannot leave it clipped. `align-top` with the inherited line height keeps
+ * its digits on the text's baseline: a clipping inline box would otherwise sit
+ * on its bottom edge.
+ */
+const RollingCount: FC<{ value: string; roll: RollMotion }> = ({ value, roll }) => {
+  const sizer = useRef<HTMLSpanElement>(null)
+  const lastWidth = useRef<number | null>(null)
+  const [glide, setGlide] = useState<{ from: number; to: number } | null>(null)
+  useLayoutEffect(() => {
+    const next = sizer.current?.getBoundingClientRect().width ?? 0
+    const previous = lastWidth.current
+    lastWidth.current = next
+    if (previous !== null && Math.abs(previous - next) > 0.5) setGlide({ from: previous, to: next })
+  }, [value])
+  return (
+    <motion.span
+      className="relative inline-grid overflow-hidden align-top tabular-nums"
+      style={glide ? { width: glide.from } : undefined}
+      animate={glide ? { width: glide.to } : { width: 'auto' }}
+      transition={roll.animate.transition}
+      onAnimationComplete={() => setGlide(null)}
+    >
+      {/* Generated content, so the sizer's digits are not in the label's text. */}
+      <span
+        ref={sizer}
+        aria-hidden="true"
+        data-text={value}
+        className="invisible absolute whitespace-nowrap before:content-[attr(data-text)]"
+      />
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.span key={value} data-herleitung-count className="col-start-1 row-start-1" {...roll}>
+          {value}
+        </motion.span>
+      </AnimatePresence>
+    </motion.span>
   )
 }
 

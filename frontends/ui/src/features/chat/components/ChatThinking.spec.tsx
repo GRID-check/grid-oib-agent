@@ -6,6 +6,9 @@ import { useLayoutStore } from '@/features/layout/store'
 import { storedStep } from '@/test-utils/wire-v2-steps'
 import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 
+const motionPref = vi.hoisted(() => ({ reduced: false }))
+vi.mock('@/hooks/use-reduced-motion', () => ({ useReducedMotion: () => motionPref.reduced }))
+
 /** A running tool this build has no name for: it speaks on no line and earns no chip. */
 const createStep = (overrides: Partial<StoredThinkingStep> = {}): StoredThinkingStep => ({
   id: 'step-1',
@@ -49,6 +52,7 @@ describe('ChatThinking', () => {
     vi.clearAllMocks()
     // Default experience: technical steps hidden unless the profile opts in.
     useLayoutStore.setState({ showTechnicalReasoning: false })
+    motionPref.reduced = false
   })
 
   describe('technical reasoning preference', () => {
@@ -484,7 +488,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={false} />)
 
-      expect(screen.getByText('Trace · 1 source')).toBeInTheDocument()
+      expect(header().getByText(/^Trace ·/)).toHaveTextContent('Trace · 1 source')
 
       await user.click(screen.getByText(/^Trace( ·|$)/))
 
@@ -789,6 +793,81 @@ describe('ChatThinking', () => {
       await expandChain(user)
 
       expect(screen.queryByText('Backed by')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('header label roll', () => {
+    /** One source step naming `n` distinct OIB documents: `n` source cards. */
+    const withSources = (n: number) => [
+      oibSources(Array.from({ length: n }, (_, i) => ({ name: `OIB-RL_${i + 1}.pdf`, detail: 'p.1' }))),
+    ]
+    const labels = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('[data-herleitung-label]'))
+    const counts = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('[data-herleitung-count]')).map((n) => n.textContent)
+
+    test('a new count keeps the words and rolls only the digits', async () => {
+      // At the settle the count often moves (9 → 11 Quellen). Re-keying the
+      // whole label for it blanked the header for a few frames at the peak.
+      const { container, rerender } = render(
+        <ChatThinking steps={withSources(2)} isThinking answering />
+      )
+      const words = labels(container)[0]
+      expect(words).toHaveTextContent('Trace · 2 sources')
+
+      rerender(<ChatThinking steps={withSources(3)} isThinking={false} answering />)
+
+      expect(labels(container)).toEqual([words])
+      // Both numbers during the roll: the old one leaving, the new one arriving.
+      expect(counts(container)).toEqual(expect.arrayContaining(['2', '3']))
+      await waitFor(() => expect(counts(container)).toEqual(['3']))
+      expect(labels(container)).toEqual([words])
+      expect(words).toHaveTextContent('Trace · 3 sources')
+    })
+
+    test('the plural is worded for one source and for several', () => {
+      const { container, rerender } = render(<ChatThinking steps={withSources(1)} isThinking={false} />)
+      expect(labels(container)[0]).toHaveTextContent(/^Trace · 1 source$/)
+
+      rerender(<ChatThinking steps={withSources(2)} isThinking={false} />)
+      expect(labels(container).at(-1)).toHaveTextContent(/^Trace · 2 sources$/)
+    })
+
+    test('a new label rolls in while the old one leaves: never zero labels', async () => {
+      // The fold: the activity phrase gives way to the summary. With `wait`
+      // the header showed no label between the two.
+      const { container, rerender } = render(<ChatThinking steps={withSources(2)} isThinking />)
+      expect(labels(container)).toHaveLength(1)
+      expect(labels(container)[0]).toHaveTextContent('Working on a response …')
+
+      rerender(<ChatThinking steps={withSources(2)} isThinking answering />)
+
+      const during = labels(container).map((n) => n.textContent)
+      expect(during).toHaveLength(2)
+      expect(during).toEqual(expect.arrayContaining(['Working on a response …', 'Trace · 2 sources']))
+      await waitFor(() => expect(labels(container)).toHaveLength(1))
+      expect(labels(container)[0]).toHaveTextContent('Trace · 2 sources')
+    })
+
+    test('the shimmer runs on the live phrase only', () => {
+      const { container, rerender } = render(<ChatThinking steps={withSources(2)} isThinking />)
+      expect(labels(container)[0].querySelector('.animate-shimmer-window')).not.toBeNull()
+
+      rerender(<ChatThinking steps={withSources(2)} isThinking={false} />)
+      const summary = labels(container).find((n) => n.textContent === 'Trace · 2 sources')
+      expect(summary?.querySelector('.animate-shimmer-window')).toBeNull()
+    })
+
+    test('reduced motion: the label and the count change at once', async () => {
+      motionPref.reduced = true
+      const { container, rerender } = render(<ChatThinking steps={withSources(2)} isThinking />)
+
+      rerender(<ChatThinking steps={withSources(3)} isThinking={false} />)
+
+      // Instant transitions still leave the exit to a frame; it is gone on the next.
+      await waitFor(() => expect(labels(container)).toHaveLength(1), { timeout: 100 })
+      expect(labels(container)[0]).toHaveTextContent('Trace · 3 sources')
+      expect(counts(container)).toEqual(['3'])
     })
   })
 })
