@@ -37,7 +37,11 @@ export const THEME_COLOR = { light: '#f6f6f4', dark: '#191816' } as const
  * preference, never break the page. Same rule as `useThemeEffect` in
  * providers.tsx: anything that is not an explicit 'light' or 'dark' is
  * 'system', which follows the OS.
+ *
+ * A literal, with `LAYOUT_STORE_KEY` written into it rather than interpolated:
+ * nothing is built into this source at runtime, so nothing can be injected
+ * into a script that runs before everything else. `theme-boot.spec.ts` holds
+ * the literal and the constant to the same key.
  */
-export const THEME_BOOT_SCRIPT = `(function(){var t;try{var s=JSON.parse(localStorage.getItem(${JSON.stringify(
-  LAYOUT_STORE_KEY
-)})||"null");t=s&&s.state&&s.state.theme}catch(e){}var dark=t==="dark"||(t!=="light"&&!!window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",dark)})()`
+export const THEME_BOOT_SCRIPT =
+  '(function(){var t;try{var s=JSON.parse(localStorage.getItem("grid-layout")||"null");t=s&&s.state&&s.state.theme}catch(e){}var dark=t==="dark"||(t!=="light"&&!!window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",dark)})()'

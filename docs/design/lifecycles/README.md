@@ -7,7 +7,7 @@ not have one: [`../../contributing/lifecycle-matrix.md`](../../contributing/life
 
 | Target | Owner area | Fixture routes | Last QA pass |
 |---|---|---|---|
-| [Chat turn](chat-turn.md): question, Herleitung, streamed answer, settle, post-answer stages | `frontends/ui/src/features/chat/` | `/dev/stream-socket?scenario=…`, `/dev/turn-outcomes?scenario=…`, `/dev/herleitung`, `/dev/chat-turn`, `/dev/shared-thread` | 2026-10-09 (fixtures and checks reconciled; no full harness pass yet) |
+| [Chat turn](chat-turn.md): question, Herleitung, streamed answer, settle, post-answer stages | `frontends/ui/src/features/chat/` | `/dev/stream-socket?scenario=…`, `/dev/turn-outcomes?scenario=…`, `/dev/herleitung`, `/dev/chat-turn`, `/dev/shared-thread` | 2026-10-09 |
 
 ## The bar for adding one
 

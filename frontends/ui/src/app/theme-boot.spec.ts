@@ -42,6 +42,10 @@ describe('THEME_BOOT_SCRIPT', () => {
     document.documentElement.classList.remove('dark')
   })
 
+  test('names the layout store key literally (nothing is interpolated into the script)', () => {
+    expect(THEME_BOOT_SCRIPT).toContain(`localStorage.getItem(${JSON.stringify(LAYOUT_STORE_KEY)})`)
+  })
+
   test('reads the key the layout store actually persists under', () => {
     persistTheme('dark')
     expect(localStorage.getItem(LAYOUT_STORE_KEY)).toContain('"theme":"dark"')
