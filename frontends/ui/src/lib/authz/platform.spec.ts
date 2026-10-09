@@ -128,6 +128,17 @@ describe('platform tier', () => {
           })
         )
       ).toBe(true)
+      // An analyst holding only the edge-checked Langfuse permission has no
+      // platform surface here, so the area stays closed (ADR-0089).
+      expect(
+        await isPlatformStaff(
+          session({
+            organizationId: PLATFORM_ORG,
+            role: 'member',
+            permissions: ['platform:observability:view'],
+          })
+        )
+      ).toBe(false)
       // Membership in the platform org without a platform role or claim is NOT
       // enough — the org is not a permission.
       expect(await isPlatformStaff(session({ organizationId: PLATFORM_ORG, role: 'member' }))).toBe(

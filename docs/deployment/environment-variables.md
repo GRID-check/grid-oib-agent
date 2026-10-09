@@ -438,8 +438,10 @@ rendered with no network touched at all.
 The keys are the SAME Langfuse project keys the trace exporter already uses
 (`public-key` / `secret-key` in the Langfuse Secret,
 `deploy/pulumi/src/platform/langfuse.ts`), under Langfuse's own env names
-because its SDK reads them. The agent tiers do not receive them today — a
-deployment that wants prompt management injects them from that Secret.
+because its SDK reads them. Pulumi injects them into the chat, api and
+agent-worker tiers wherever the Langfuse tier is deployed, for the agent's
+scores ("Agent evaluation scores" below). That supplies the capability only: the prompt
+store stays on the bundled file until `LANGFUSE_PROMPTS_ENABLED` is set.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -481,8 +483,12 @@ the traces are found through `GET /api/public/v2/observations`, which answers
 Every thumbs-up or thumbs-down a user leaves on an answer is also written to
 Langfuse, by the frontend (BFF) server side, as a `user-feedback` score on the
 trace that produced the answer (ADR-0044, Amendment 3;
-`frontends/ui/src/lib/langfuse/`). A retracted vote deletes its score. The
-platform answer-feedback view links each rated turn to its trace.
+`frontends/ui/src/lib/langfuse/`). A down-vote adds a categorical
+`user-feedback-reason` score (the reason key, `other` when none was chosen) and
+puts the trace in the `answer-review` annotation queue, if `task
+langfuse:provision` has created it. A retracted vote deletes its scores, and a
+re-vote to up deletes the reason score. The platform answer-feedback view links
+each rated turn to its trace.
 
 Capability only, read per call, and a silent no-op when anything is missing.
 Pulumi injects all five into the frontend only where the Langfuse tier is
@@ -495,6 +501,43 @@ the keys by reference to the `langfuse-secrets` Secret; Compose sets none.
 | `LANGFUSE_HOST` | No | unset | The Langfuse API the BFF writes scores to: the in-cluster web Service (`http://langfuse-web:3000`), which the `allow-frontend-to-langfuse` NetworkPolicy opens to the frontend pods. Not the public host: that one sits behind the edge's OIDC gate. Frontend. |
 | `LANGFUSE_PUBLIC_URL` | No | unset | Browser-facing origin of the Langfuse UI (`https://langfuse.<domain>`), for the trace and project links in the platform answer-feedback view (`turns[].langfuseTraceUrl`, `langfuse.projectUrl`). Without it, or without `LANGFUSE_PROJECT_ID`, both are null. Frontend. |
 | `LANGFUSE_PROJECT_ID` | No | unset | The Langfuse project id the traces and scores live in; Pulumi passes `langfuseProjectId` (default `grid-oib`), the id headless initialisation created. Frontend. |
+
+## Agent evaluation scores (Langfuse, ADR-0089)
+
+The agent writes the checks every answer passes through (citation
+verification, the quote check, card repair, the confidence cap) as scores on
+the turn's trace, through `POST /api/public/scores`
+(`src/aiq_agent/observability/langfuse_scores.py`). Capability only: without the
+host and both keys every call is a no-op. Pulumi injects all three into the chat
+(`aiq-agent`), api (`aiq-api`) and research-worker (`agent-worker`) tiers only
+where the Langfuse tier is deployed (`langfuseApiEnv` in
+`deploy/pulumi/src/app/config.ts`), the keys by reference to the
+`langfuse-secrets` Secret, and folds the keys into those pods' rollout checksum
+so a rotation restarts them. The ingest worker gets none of them. Compose sets
+none.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGFUSE_HOST` | No | unset | The in-cluster web Service (`http://langfuse-web:3000`), which the `allow-backend-to-langfuse` NetworkPolicy opens to the three backend tiers. Also the host the prompt store uses (section above). aiq-agent, aiq-api, agent-worker. |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | No | unset | The project keys the trace exporter and the BFF use (`public-key` / `secret-key` in `langfuse-secrets`). aiq-agent, aiq-api, agent-worker. |
+
+## Langfuse web tier: default membership (Kubernetes/Pulumi-injected)
+
+Set on `langfuse-web` only, by `langfuseDefaultMembershipEnv` in
+`deploy/pulumi/src/platform/langfuse.ts`. Upstream's automated access
+provisioning
+(<https://langfuse.com/self-hosting/administration/automated-access-provisioning>):
+when Langfuse creates an account, or first links an SSO identity to one, it adds
+the user to these with these roles. Existing memberships are never changed, so a
+promotion made in the Langfuse UI survives every deploy. Compose sets none (it
+has no SSO).
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGFUSE_DEFAULT_ORG_ID` | No | Pulumi: `langfuseOrgId` (`grid`) | The seeded organization a new user joins. |
+| `LANGFUSE_DEFAULT_ORG_ROLE` | No | Pulumi: `langfuseDefaultRole` (`VIEWER`) | `OWNER`, `ADMIN`, `MEMBER`, `VIEWER` or `NONE`; Langfuse refuses to start on anything else, so `loadConfig` refuses it first. In OSS Langfuse this is the role that decides access, because project-level roles are an Enterprise entitlement. |
+| `LANGFUSE_DEFAULT_PROJECT_ID` | No | Pulumi: `langfuseProjectId` (`grid-oib`) | The seeded project a new user joins. Not set when the role is `NONE`. |
+| `LANGFUSE_DEFAULT_PROJECT_ROLE` | No | Pulumi: same as the org role | `OWNER`, `ADMIN`, `MEMBER` or `VIEWER` (no `NONE`). Only takes effect with the Enterprise project-roles entitlement; not set when the role is `NONE`. |
 
 ## Data-tier authentication (Kubernetes/Pulumi-injected)
 

@@ -29,6 +29,12 @@ const LANGFUSE_WORKER = LANGFUSE.worker;
 const CLICKHOUSE = LANGFUSE.clickhouse;
 
 /**
+ * The backend roles that carry the Langfuse API keys (`backendEnv`, less the
+ * ingest worker) and so are named callers of the web tier in rule 11d.
+ */
+export const LANGFUSE_BACKEND_CALLERS = ["aiq-agent", "aiq-api", "agent-worker"] as const;
+
+/**
  * Namespace-scoped NetworkPolicies for `grid`: a **default-deny for ingress**
  * plus the minimum set of allows the stack actually needs. This contains lateral
  * movement — a compromised pod in another namespace can't reach the app/data
@@ -302,8 +308,7 @@ export function installNetworkPolicies(
   //     ones past retention (ADR-0044; `workers/langfuse-traces.js`). Rule 2
   //     withholds the web tier from the wholesale allow, so each caller is named,
   //     as the collector is in rule 11. Deleting traces is theirs alone: the BFF
-  //     writes scores (rule 11c) but deletes nothing, and the agent never calls
-  //     Langfuse's API.
+  //     (rule 11c) and the agent (rule 11d) write scores but delete nothing.
   const workersToLangfuse = cfg.langfuse.enabled
     ? mk("allow-workers-to-langfuse", {
         podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WEB } },
@@ -323,8 +328,8 @@ export function installNetworkPolicies(
   //      answer-feedback vote as a score on its trace (ADR-0044, Amendment 3)
   //      through `LANGFUSE_HOST`, the in-cluster Service: the public host sits
   //      behind the edge's OIDC gate, which a server-side call cannot pass.
-  //      Named by caller, like the collector, and the frontend is the only one
-  //      of the app pods that holds the keys.
+  //      Named by caller, like the collector; the backend tiers have their own
+  //      rule (11d).
   const frontendToLangfuse = cfg.langfuse.enabled
     ? mk("allow-frontend-to-langfuse", {
         podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WEB } },
@@ -332,6 +337,28 @@ export function installNetworkPolicies(
         ingress: [
           {
             from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } }],
+            ports: [{ protocol: "TCP", port: PORT.langfuseWeb }],
+          },
+        ],
+      })
+    : undefined;
+
+  // 11d. The backend tiers → Langfuse web public API. The agent writes the
+  //      answer pipeline's checks as scores on each turn's trace (ADR-0089,
+  //      `aiq_agent/observability/langfuse_scores.py`) through `LANGFUSE_HOST`,
+  //      the in-cluster Service, for the reason rule 11c gives. The three roles
+  //      that run answers or serve them: chat (`aiq-agent`), api (`aiq-api`)
+  //      and the research worker (`agent-worker`). The ingest worker is not
+  //      named and does not get the keys (`ingestWorkerEnv`): it writes none.
+  const backendToLangfuse = cfg.langfuse.enabled
+    ? mk("allow-backend-to-langfuse", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WEB } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: LANGFUSE_BACKEND_CALLERS.map((name) => ({
+              podSelector: { matchLabels: { "app.kubernetes.io/name": name } },
+            })),
             ports: [{ protocol: "TCP", port: PORT.langfuseWeb }],
           },
         ],
@@ -444,6 +471,7 @@ export function installNetworkPolicies(
     ...(collectorToLangfuse ? [collectorToLangfuse] : []),
     ...(workersToLangfuse ? [workersToLangfuse] : []),
     ...(frontendToLangfuse ? [frontendToLangfuse] : []),
+    ...(backendToLangfuse ? [backendToLangfuse] : []),
     ...(langfuseToClickhouse ? [langfuseToClickhouse] : []),
     ...(gotenberg ? [gotenberg] : []),
   ];

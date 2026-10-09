@@ -10,6 +10,7 @@ import {
   secretChecksumAnnotations,
   surgeRollout,
 } from "../platform/rollout";
+import { withLangfuseKeysChecksum } from "../platform/langfuse";
 import { AppSecrets, AppWiring, workerEnv } from "./config";
 import { JOBS_QUEUE_AUTH } from "./jobs-queue-auth";
 import { installQueueScaledObject, queueDepthQuery } from "./keda-scaling";
@@ -82,7 +83,7 @@ export function installAgentWorker(
             labels,
             // Rotating an LLM key or the job-payload KEK must actually reach the
             // workers; secretKeyRef alone would not restart them (rollout.ts).
-            annotations: secretChecksumAnnotations(secrets.checksum),
+            annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
           },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions

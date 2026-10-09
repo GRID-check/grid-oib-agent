@@ -55,12 +55,20 @@ vulnerabilities:
   # langfuse-worker, not a package this repo references. Langfuse 4.54.0
   # cleared the rest of this block (fast-uri, js-yaml, nanoid, sharp, undici,
   # next, nodemailer, and the Go standard library in `usr/bin/migrate`); the
-  # entry below is the one it did not.
+  # entry below is the one it did not, and 4.56.0 (the current pin) does not
+  # either.
+  #
+  # 4.56.0 also moved both images from node:24-alpine to UBI 9 micro. Every
+  # Alpine package finding is gone with that base, and any UBI 9 (RHEL)
+  # finding is new to this file: scan the 4.56.0 digests with the Langfuse
+  # entries removed before boxing anything against the new base.
   #
   # Shared context: the Langfuse UI is reachable only through the Envoy
-  # Gateway behind an OIDC flow gated on `platform:organizations:view`, and its
-  # OTLP receiver is cluster-internal with a NetworkPolicy admitting only
-  # otel-collector. There is no unauthenticated surface.
+  # Gateway behind an OIDC flow gated on `platform:organizations:view` or
+  # `platform:observability:view`, and its in-cluster API (OTLP receiver and
+  # public API) is reachable only from the pods a NetworkPolicy names: the
+  # collector, the BFF, the backend tiers, the purger and the scheduler. There
+  # is no unauthenticated surface.
 
   - id: CVE-2026-40345
     expired_at: 2026-11-09
@@ -73,8 +81,12 @@ vulnerabilities:
       Three copies, every one pulled in by `@prisma/config` 6.19.3, which pins
       `"deepmerge-ts": "7.1.5"` exactly: `usr/local/lib/node_modules/prisma` and
       `app/node_modules/.pnpm` in langfuse, `app/worker/node_modules/.pnpm` in
-      langfuse-worker (scan of PR #855, 2026-10-09). The 8.0.2 copy beside them
-      in both images scans clean.
+      langfuse-worker (scan of PR #855, 2026-10-09, against 4.54.0). The 8.0.2
+      copy beside them in both images scans clean. Still present in 4.56.0:
+      its pnpm-lock.yaml resolves `@prisma/config@6.19.3` and
+      `deepmerge-ts@7.1.5`, and its web Dockerfile still installs the CLI as
+      `prisma@6.19.3` under `/usr/local` (read from the v4.56.0 tag, not from a
+      scan of the new digests).
 
       Not exploitable here, and this one is structural: the Prisma CLI runs only
       from the web image's entrypoint (`prisma db execute`, `prisma migrate
@@ -88,9 +100,9 @@ vulnerabilities:
       2026-10-09) waited on a Langfuse release; none can clear it yet. Every
       stable `@prisma/config` through 7.10.0 (2026-08-25, `latest` on npm) pins
       7.1.5, the first to take 8.x is 8.1.0-dev.5 (2026-09-01), and Langfuse
-      4.55.0 (2026-10-08, the newest image) still ships Prisma 6.19.3, read from
-      its layers. Boxed a month because the exit is a Prisma major, then
-      Langfuse adopting it.
+      4.55.0 (2026-10-08) still shipped Prisma 6.19.3, read from its layers, as
+      does 4.56.0 (2026-10-09, the current pin), read from its lockfile. Boxed a
+      month because the exit is a Prisma major, then Langfuse adopting it.
 
       Drop as soon as a Langfuse image ships `@prisma/config` >= 8 (deepmerge-ts
       >= 8.0.0).
@@ -118,7 +130,8 @@ vulnerabilities:
       authorization server it should not trust. The defect lives in the
       client-side OAuth discovery flow; Langfuse here makes no outbound MCP
       OAuth connections, and its UI sits behind the Envoy Gateway's OIDC flow.
-      Fixed in 1.31.0; drop when a Langfuse image ships it.
+      Fixed in 1.31.0; drop when a Langfuse image ships it. Langfuse 4.56.0 (the
+      current pin) does not: its pnpm-lock.yaml still resolves 1.29.0.
 
   # err2issue (debian 12.15 base). Perl and PCRE2 come from the Debian base
   # image; the Python service never shells out to perl and takes no

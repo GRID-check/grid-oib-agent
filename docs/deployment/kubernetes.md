@@ -1933,6 +1933,9 @@ One-time setup, in the WorkOS dashboard under **Connect**:
 3. Sign-in callback: `https://<otelDomain>/oauth2/callback`.
 4. Under **Scopes**, assign the `platform:organizations:view` permission — the
    SecurityPolicy requests it and gates on it, so without this nobody is let in.
+   Where Langfuse is deployed, assign `platform:observability:view` too: its
+   route requests that one as well, and an unassigned scope fails the login
+   (§9b, "Giving analysts read-only access").
 
 Then point the stack at it (all three are part of the tier's capability gate,
 so a stack missing any of them deploys no dashboard rather than one nobody can
@@ -2083,10 +2086,73 @@ to sign in."* Omit it and the edge gate passes, then Langfuse's SSO button dies
 at `/oauth2/authorize`, leaving only the break-glass password account working.
 That reads as "SSO is broken" rather than "a URI is missing".
 
-Access requires the `platform:organizations:view` permission, enforced at the
-edge exactly as in §9. Langfuse's own SSO alone would admit anyone who can sign
-in to the WorkOS environment at all — the narrowing is the Envoy SecurityPolicy,
-so do not remove it on the grounds that "Langfuse has its own login".
+Access requires `platform:organizations:view` (the operator permission, as in
+§9) **or** `platform:observability:view` (read-only observability), enforced at
+the edge. Langfuse's own SSO alone would admit anyone who can sign in to the
+WorkOS environment at all — the narrowing is the Envoy SecurityPolicy, so do not
+remove it on the grounds that "Langfuse has its own login". The Aspire dashboard
+(§9) accepts the operator permission only.
+
+### Giving analysts read-only access
+
+Business analysts and the Fachbereich get Langfuse without the platform-operator
+permission. Who holds what (`frontends/ui/src/lib/authz/catalog.ts`):
+
+| WorkOS role (GRID Platform org) | `platform:observability:view` | Also |
+|---|---|---|
+| `org-platform-owner` | yes | every platform permission |
+| `org-platform-support` | yes | the read-only platform views |
+| `platform-observability-analyst` ("Observability Analyst") | yes | nothing else |
+
+**Once per environment, in this order:**
+
+1. Provision the permission and the role: `task fe:provision:authz` shows the
+   drift, `task fe:provision:authz -- --apply` writes it (ask first; it writes
+   to WorkOS).
+2. Assign `platform:observability:view` to the **Connect application** as a
+   scope (WorkOS dashboard → the Connect application → Scopes), next to
+   `platform:organizations:view`. Do this **before** the `npm run up` that ships
+   the widened policy: the Langfuse route now requests that scope, and WorkOS
+   answers a request for an unassigned scope with `invalid_scope`, so every
+   Langfuse login fails, operators' included, until it is assigned.
+3. Check the gate refuses who it should. Sign in to `https://langfuse.<baseDomain>`
+   as a user who holds neither permission (a tenant user): the edge must answer
+   `403 RBAC: access denied`. WorkOS's Connect documentation says scopes "do not
+   enforce the user's role-based permissions", which contradicts what this gate
+   relies on (`platform-oidc.ts`). If that user gets through, the gate admits
+   every WorkOS user to cross-tenant traces: stop, and take the route down
+   (`langfuseEnabled: false`) until it gates on something the user's role decides.
+
+**Per analyst:**
+
+1. Add them to the GRID Platform organization with the Observability Analyst
+   role.
+2. They open `https://langfuse.<baseDomain>`, pick the GRID Platform
+   organization at the WorkOS sign-in (the permission is issued for the selected
+   organization only), then use Langfuse's **WorkOS** button.
+3. That first sign-in creates their Langfuse account inside the seeded org and
+   project (`langfuseOrgId` / `langfuseProjectId`) as **VIEWER**
+   (`LANGFUSE_DEFAULT_*`, `grid-oib:langfuseDefaultRole`): traces, sessions,
+   scores, dashboards, read-only.
+
+**Promotion is Langfuse's, not WorkOS's.** An owner (the break-glass init
+account, or anyone promoted since) raises a person to MEMBER (may annotate,
+score and edit datasets) or ADMIN in Langfuse → Organization settings → Members.
+The default applies only when an account is created or first linked to SSO and
+never overwrites an existing membership, so deploys do not revert a promotion,
+and changing `langfuseDefaultRole` affects only accounts created afterwards.
+Anyone who signed in **before** the default existed has an account with no
+membership; add them by hand once. OSS Langfuse has no per-project roles (an
+Enterprise entitlement), so the organization role is the one that counts.
+
+**Revoking** is the WorkOS role: without the permission the edge refuses the
+next token, within the five-minute access-token lifetime. The Langfuse account
+stays behind, unreachable; remove it in Langfuse to keep the member list honest.
+
+Analysts in the platform org also pass the app's platform-staff check
+(`isPlatformStaff`), so Piloti shows them the platform area and its nav. Every
+section's data route requires its own permission and answers them 403; hiding
+the area from observability-only staff is an open UI follow-up.
 
 ### Configuration
 
@@ -2146,7 +2212,7 @@ depends on §9, whose guard already refuses `networkPolicies=false`.
 - **Web and worker images must be the same Langfuse version.** They are two
   config keys because upstream publishes two images; digests are opaque, so
   nothing can verify it for you. Both defaults are pinned from the same tag
-  (4.54.0). Bump them together.
+  (4.56.0). Bump them together.
 - **ClickHouse must run UTC.** On any other server timezone Langfuse's queries
   return empty or shifted results — a dashboard reporting "no data" for a system
   that is plainly running. `TZ=UTC` is pinned on the container; do not override.
@@ -2163,10 +2229,10 @@ depends on §9, whose guard already refuses `networkPolicies=false`.
 
 ### Upgrading to Langfuse v4
 
-The defaults moved from 3.225.11 to **4.48.0**, because no 3.x release fixes
-the `next/og` remote code execution in Next 16.2.11 (GHSA-vcvr-r3jv-pc5j). v4
-changes the ClickHouse data model, so the upgrade is upstream's three-stage
-migration ([guide](https://langfuse.com/self-hosting/upgrade/upgrade-guides/upgrade-v3-to-v4)),
+The defaults moved from 3.225.11 to v4 (first 4.48.0, now **4.56.0**), because
+no 3.x release fixes the `next/og` remote code execution in Next 16.2.11
+(GHSA-vcvr-r3jv-pc5j). v4 changes the ClickHouse data model, so the upgrade is
+upstream's three-stage migration ([guide](https://langfuse.com/self-hosting/upgrade/upgrade-guides/upgrade-v3-to-v4)),
 and the first stage runs on the next `npm run up`.
 
 What the program already does:
@@ -2203,9 +2269,11 @@ migrations run, short of a restore:
 you need (new traces at once, history only if you turn the backfill on and have
 the disk), set `langfuseV4WriteMode: events_only` and `up`. From then on v3's
 tables are no longer written and the legacy public APIs (`/api/public/traces`,
-`/observations`, `/sessions`, `/scores`, `/metrics`) answer 404. Nothing in
-this repo reads them: traces arrive over OTLP, and the Python SDK only reads
-prompts. Rollback before the cutover is upstream's `migrate … goto 37` from the
+`/observations`, `/sessions`, `/scores`, `/metrics`) answer 404 to reads.
+Nothing in this repo reads them: traces arrive over OTLP, the Python SDK only
+reads prompts, and score WRITES (`POST /api/public/scores`, from the BFF and
+the agent, ADR-0089) are not switched off in any write mode, checked against
+the 4.56.0 source. Rollback before the cutover is upstream's `migrate … goto 37` from the
 v4 web container, then the v3 digests. After it, only the backups.
 
 ### Signals and attribution
