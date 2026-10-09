@@ -672,6 +672,10 @@ const MAX_READ_SOURCES = 8
  * counts the same entries — otherwise the details trigger opens onto an empty
  * section.
  */
+/** The `[N]` the structured wire sources carry. */
+const wireCitationNumbers = (citations: CitationSource[] | undefined): number[] =>
+  (citations ?? []).flatMap((citation) => (typeof citation.number === 'number' ? [citation.number] : []))
+
 function readSourceLabel(source: CitationSource): string | undefined {
   return source.fileName ?? source.title ?? source.citationKey
 }
@@ -1104,7 +1108,16 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // The numbers keep one identity while they stay the same: the split makes a
   // new set for every reveal step, and a new set is a new plugin list, which
   // re-parses every block of the answer instead of the one that grew.
-  const citationNumbersKey = [...splitNumbers].join(',')
+  // The numbers a `[N]` links to are the written „## Quellen" list's AND the
+  // numbered wire sources'. The list alone was not enough: a stopped answer
+  // keeps its resolved `[N]` and its sources but is cut before the list
+  // (`stopped-answer.ts`), so its markers settled to plain „[1][2]…", wider
+  // than the pills they had been; on a phone the line re-wrapped 26 px under
+  // the reader just after Stop, and a reload showed bare brackets. A number the
+  // scope cannot resolve still falls back (`CitationMarker`).
+  const citationNumbersKey = [...new Set([...splitNumbers, ...wireCitationNumbers(citations)])]
+    .sort((a, b) => a - b)
+    .join(',')
   const citationNumbers = useMemo(
     (): ReadonlySet<number> => new Set(citationNumbersKey ? citationNumbersKey.split(',').map(Number) : []),
     [citationNumbersKey]

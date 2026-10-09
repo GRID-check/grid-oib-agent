@@ -117,6 +117,27 @@ describe('an inline citation marker', () => {
     vi.unstubAllGlobals()
   })
 
+  // A stopped answer keeps its resolved `[N]` and its sources but is cut
+  // before its written list (`stopped-answer.ts`). Its markers must still
+  // resolve from the numbered wire sources, or they settle to plain "[1]",
+  // wider than the pills they were, and the line re-wraps under the reader.
+  test.each([
+    ['as it stops', true],
+    ['read back after a reload', false],
+  ])('an answer cut before its Quellen list keeps its markers as citations, %s', (_, stopped) => {
+    render(
+      <AgentResponse
+        content="Zwei Fluchtwege sind erforderlich [1][2]."
+        messageId={`m-cut-${String(stopped)}`}
+        citations={citations}
+        routingDecision="deep"
+        stopped={stopped}
+      />
+    )
+    expect(screen.queryByText(/\[1\]/)).toBeNull()
+    expect(document.querySelectorAll('a[href*="cite-pending"]').length).toBe(0)
+  })
+
   test('says which source it is, without moving the reader anywhere', async () => {
     const user = userEvent.setup()
     renderAnswer()
