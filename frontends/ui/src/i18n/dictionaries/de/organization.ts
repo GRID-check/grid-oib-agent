@@ -115,8 +115,10 @@ export const organization: typeof en.organization = {
       ownList: 'Eigene Zugriffsliste',
       projectGone: 'Projekt existiert nicht mehr',
       folderGone: 'Ordner existiert nicht mehr',
+      folderWithheld: 'ein Ordner, den Sie nicht lesen dürfen',
     },
     unknownPerson: 'Nicht mehr in der Organisation',
+    nameWithheld: 'Name ausgeblendet: Sie dürfen diesen Ordner nicht lesen',
     version: 'Version {id}',
     empty: 'Für diese Filter ist nichts protokolliert.',
     emptyHint: 'Downloads werden überall protokolliert, das Öffnen eines Dokuments nur in Ordnern mit eigener Zugriffsliste.',
@@ -249,6 +251,10 @@ export const organization: typeof en.organization = {
         'Nach dem Löschen passen diese Listen auf niemanden mehr: Nur Organisations-Admins können die Ordner lesen, bis eine gültige Rolle eingetragen ist. Die Projekteinstellungen führen sie unter „Ordner ohne gültige Rolle“ auf.',
       foldersMore: 'und {count} weitere',
       foldersNamesHidden: 'Welche Ordner das sind, sehen nur Organisations-Admins.',
+      folderInBin: 'im Papierkorb',
+      folderProjectDeleted: 'Projekt gelöscht',
+      foldersDeletedNote:
+        'Ein Ordner im Papierkorb oder in einem gelöschten Projekt steht nicht im Ordnerbaum. Wird er wiederhergestellt, kommt er mit dieser Liste zurück; passen Sie die Liste dann an.',
       confirmAnyway: 'Trotzdem löschen',
       usageError: 'Welche Ordner diese Rolle nutzen, konnte nicht geprüft werden. Bitte versuchen Sie es erneut.',
       usedByFoldersNow: 'Inzwischen nutzen Ordner diese Rolle. Prüfen Sie die Liste und bestätigen Sie erneut.',
@@ -699,6 +705,10 @@ export const organization: typeof en.organization = {
     whereSession: 'Chat-Anhang',
     reasonsLabel: 'Gründe',
     noReason: 'Grund nicht lesbar',
+    unscreened:
+      'Nicht geprüft: Die Datei ließ sich nicht zu Ende lesen. Sie bleibt zurückgehalten, bis jemand sie freigibt.',
+    open: 'Ansehen',
+    openTitle: '„{name}“ dort öffnen, wo sie abgelegt ist',
     release: 'Freigeben',
     releaseTitle: '„{name}“ freigeben?',
     releaseDescription:

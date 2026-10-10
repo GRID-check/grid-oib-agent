@@ -18,6 +18,7 @@
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PROJECT_CLOSED_SQLSTATE } from './project-status'
+import { REVIEWER_READER } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 
@@ -114,6 +115,7 @@ describe.skipIf(!url)('a closed project against Postgres', () => {
     const folderAccess = await access.getProjectFolderAccess(session(who), projectId, COLLECTION)
     const page = await documentsRepo.listProjectDocumentPage(projectId, ORG, {
       hiddenFolderIds: [...folderAccess.hiddenFolderIds],
+      reader: REVIEWER_READER,
     })
     return page.rows.map((row) => row.filename).sort()
   }

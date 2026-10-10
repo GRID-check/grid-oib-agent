@@ -13,9 +13,15 @@ vi.mock('./repository', () => ({
 }))
 
 const loadCustomFolderTree = vi.fn()
+const clearanceOf = vi.fn()
+const readableFoldersOfRestrictedProjects = vi.fn()
+const seesEveryFolder = vi.fn()
 vi.mock('@/lib/authz/folder-access', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/authz/folder-access-rule')>()),
   loadCustomFolderTree: (...args: unknown[]) => loadCustomFolderTree(...args),
+  clearanceOf: (...args: unknown[]) => clearanceOf(...args),
+  readableFoldersOfRestrictedProjects: (...args: unknown[]) => readableFoldersOfRestrictedProjects(...args),
+  seesEveryFolder: (...args: unknown[]) => seesEveryFolder(...args),
 }))
 
 const recordAuditEvent = vi.fn()
@@ -90,6 +96,9 @@ beforeEach(() => {
   recordAuditEvent.mockResolvedValue(undefined)
   getOrgSettings.mockResolvedValue({ displayName: null, defaultLocale: 'de', settings: {} })
   resolvePeople.mockResolvedValue(new Map())
+  // An organization admin: clears every folder.
+  clearanceOf.mockResolvedValue({ roles: ['admin'], seesEverything: true })
+  seesEveryFolder.mockResolvedValue(true)
 })
 
 describe('recordDocumentAccess: what is recorded', () => {
@@ -322,6 +331,168 @@ describe('the admin view', () => {
 
     expect(page.entries.map((entry) => entry.access)).toEqual(['download', 'open'])
     expect(page.retentionDays).toBe(90)
+  })
+
+  describe('a viewer the permission does not clear for every folder (a custom role given org:downloads:view)', () => {
+    const viewer = () => session(['org:downloads:view'])
+    const openRow = () => ({ ...row(3), folderId: OPEN_FOLDER, folderPath: 'Allgemein', documentName: 'Plan.pdf', ownList: false })
+    const restrictedRow = () => ({ ...row(2), folderId: CHILD, folderPath: 'Verträge/Anhänge', documentName: 'Gehaltsliste.xlsx' })
+    beforeEach(() => {
+      clearanceOf.mockResolvedValue({ roles: ['org-revision'], seesEverything: false })
+      seesEveryFolder.mockResolvedValue(false)
+    })
+
+    it('names neither the document nor the folder of a row logged in a folder they may not read', async () => {
+      listAccessLog.mockResolvedValue([openRow(), restrictedRow()])
+
+      const page = await listDownloadLog(viewer(), {}, request())
+
+      expect(page.entries.map((entry) => [entry.documentName, entry.folderPath, entry.nameWithheld])).toEqual([
+        ['Plan.pdf', 'Allgemein', false],
+        [null, null, true],
+      ])
+      // Who, when, what and which id stay: the log still answers for the hand-over.
+      expect(page.entries[1]).toMatchObject({ documentId: 'doc-1', kind: 'preview', folderId: CHILD, ownList: true })
+    })
+
+    it('names it once a role on the list clears them, and reads the folder tree once per project', async () => {
+      clearanceOf.mockResolvedValue({ roles: ['org-gf'], seesEverything: false })
+      listAccessLog.mockResolvedValue([openRow(), restrictedRow()])
+
+      const page = await listDownloadLog(viewer(), {}, request())
+
+      expect(page.entries.map((entry) => entry.documentName)).toEqual(['Plan.pdf', 'Gehaltsliste.xlsx'])
+      expect(loadCustomFolderTree).toHaveBeenCalledTimes(1)
+    })
+
+    it('decides each row by the clearance in its own project: a closed one clears an outsider as a member with no role', async () => {
+      const CLOSED = '77777777-7777-4777-8777-777777777777'
+      // The Geschäftsführung role, which Verträge grants. In the closed project
+      // the viewer reads only because it is closed, so it clears no list there (ADR-0090).
+      clearanceOf.mockImplementation(async (_session: AuthorizedSession, projectId: string) =>
+        projectId === CLOSED ? { roles: [], seesEverything: false } : { roles: ['org-gf'], seesEverything: false }
+      )
+      listAccessLog.mockResolvedValue([restrictedRow(), { ...restrictedRow(), projectId: CLOSED, projectName: 'Altbau' }])
+
+      const page = await listDownloadLog(viewer(), {}, request())
+
+      expect(page.entries.map((entry) => [entry.projectName, entry.documentName, entry.nameWithheld])).toEqual([
+        ['Neubau', 'Gehaltsliste.xlsx', false],
+        ['Altbau', null, true],
+      ])
+      expect(clearanceOf.mock.calls.map(([, projectId]) => projectId)).toEqual([PROJECT, CLOSED])
+    })
+
+    it('withholds the name of a folder the tree no longer holds', async () => {
+      listAccessLog.mockResolvedValue([{ ...restrictedRow(), folderId: '66666666-6666-4666-8666-666666666666' }])
+
+      expect((await listDownloadLog(viewer(), {}, request())).entries[0]).toMatchObject({ documentName: null, nameWithheld: true })
+    })
+
+    it('lets a name filter match only names they may read, so typing a name does not probe a restricted folder', async () => {
+      readableFoldersOfRestrictedProjects.mockResolvedValue([OPEN_FOLDER])
+      listAccessLog.mockResolvedValue([openRow()])
+
+      const page = await listDownloadLog(viewer(), { document: 'a' }, request())
+
+      expect(page.entries.map((entry) => entry.documentName)).toEqual(['Plan.pdf'])
+      expect(readableFoldersOfRestrictedProjects).toHaveBeenCalledWith(viewer())
+      expect(listAccessLog.mock.calls[0][0]).toMatchObject({
+        documentName: 'a',
+        readable: { folderIds: [OPEN_FOLDER], recordedListReadable: false },
+      })
+    })
+
+    it('narrows a name filter before the page limit, so the rows it leaves out shape neither the page nor its cursor', async () => {
+      // The newest hit is in a folder they may not read. The database, as the
+      // double plays it, applies `readable` before the limit, as it does `documentName`.
+      const hits = [
+        restrictedRow(),
+        { ...openRow(), ...row(2), folderId: OPEN_FOLDER, folderPath: 'Allgemein', documentName: 'Plan.pdf', ownList: false },
+        { ...openRow(), ...row(1), folderId: OPEN_FOLDER, folderPath: 'Allgemein', documentName: 'Plan alt.pdf', ownList: false },
+      ]
+      listAccessLog.mockImplementation(async (filter: { readable?: { folderIds: string[] } }, _cursor: unknown, limit: number) =>
+        hits.filter((hit) => !filter.readable || filter.readable.folderIds.includes(hit.folderId)).slice(0, limit)
+      )
+      readableFoldersOfRestrictedProjects.mockResolvedValue([OPEN_FOLDER])
+
+      const page = await listDownloadLog(viewer(), { document: 'Plan', limit: 1 }, request())
+
+      // A full page and a cursor that points past a readable row: the
+      // restricted hit took no slot, and the cursor names no row of it.
+      expect(page.entries.map((entry) => [entry.documentName, entry.nameWithheld])).toEqual([['Plan.pdf', false]])
+      expect(decodeCursor(page.nextCursor as string)).toEqual(row(2).cursor)
+    })
+
+    it('opens a name filter to the rows of a purged project logged under their own list only for someone who sees every folder', async () => {
+      readableFoldersOfRestrictedProjects.mockResolvedValue([])
+      listAccessLog.mockResolvedValue([])
+      await listDownloadLog(viewer(), { document: 'Gehalt' }, request())
+      seesEveryFolder.mockResolvedValue(true)
+      await listDownloadLog(viewer(), { document: 'Gehalt' }, request())
+
+      expect(listAccessLog.mock.calls.map(([filter]) => filter.readable.recordedListReadable)).toEqual([false, true])
+    })
+
+    it('narrows nothing without a name filter: every row is listed, a restricted one without its name', async () => {
+      listAccessLog.mockResolvedValue([openRow(), restrictedRow()])
+
+      const page = await listDownloadLog(viewer(), {}, request())
+
+      expect(listAccessLog.mock.calls[0][0].readable).toBeUndefined()
+      expect(readableFoldersOfRestrictedProjects).not.toHaveBeenCalled()
+      expect(page.entries.map((entry) => entry.nameWithheld)).toEqual([false, true])
+    })
+
+    it('withholds the name of a row whose project is gone, by the list it was logged under', async () => {
+      // A purged project leaves no folder rows: no tree, no project name, no path.
+      loadCustomFolderTree.mockResolvedValue(null)
+      const purged = { ...restrictedRow(), projectName: null, folderPath: null }
+      listAccessLog.mockResolvedValue([purged, { ...openRow(), projectName: null, folderPath: null }])
+
+      const page = await listDownloadLog(viewer(), {}, request())
+
+      expect(page.entries.map((entry) => [entry.documentName, entry.nameWithheld])).toEqual([
+        [null, true],
+        ['Plan.pdf', false],
+      ])
+
+      clearanceOf.mockResolvedValue({ roles: ['admin'], seesEverything: true })
+      expect((await listDownloadLog(viewer(), {}, request())).entries[0]).toMatchObject({
+        documentName: 'Gehaltsliste.xlsx',
+        nameWithheld: false,
+      })
+    })
+
+    it('asks nobody about clearance when no project on the page has a folder with its own list', async () => {
+      loadCustomFolderTree.mockResolvedValue(null)
+      listAccessLog.mockResolvedValue([restrictedRow()])
+
+      const page = await listDownloadLog(viewer(), {}, request())
+
+      expect(page.entries[0]).toMatchObject({ documentName: 'Gehaltsliste.xlsx', nameWithheld: false })
+      expect(clearanceOf).not.toHaveBeenCalled()
+    })
+  })
+
+  it('names every document to an organization admin', async () => {
+    listAccessLog.mockResolvedValue([row(3)])
+
+    const page = await listDownloadLog(admin(), {}, request())
+
+    expect(page.entries[0]).toMatchObject({ documentName: 'Werkvertrag.pdf', folderPath: 'Verträge', nameWithheld: false })
+  })
+
+  it('records that a name filter was set, never the text, which may be a restricted document’s name', async () => {
+    listAccessLog.mockResolvedValue([])
+
+    await listDownloadLog(admin(), { document: 'Gehaltsliste' }, request())
+    await listDownloadLog(admin(), {}, request())
+
+    const [filtered, unfiltered] = recordAuditEventOrThrow.mock.calls.map(([event]) => event.metadata)
+    expect(filtered.nameFiltered).toBe(true)
+    expect(JSON.stringify(filtered)).not.toContain('Gehaltsliste')
+    expect(unfiltered.nameFiltered).toBeUndefined()
   })
 
   it.each(['not-base64!!', Buffer.from('["2026-10-01","x"]').toString('base64url'), Buffer.from('{}').toString('base64url')])(

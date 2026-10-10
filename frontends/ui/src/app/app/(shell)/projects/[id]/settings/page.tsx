@@ -3,9 +3,10 @@ import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { can } from '@/lib/authz/decide'
 import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
-import { getHiddenFolderIds } from '@/lib/authz/folder-access'
+import { projectOverviewReader } from '@/lib/projects/service'
 import { listFoldersWithoutValidRole } from '@/lib/projects/folder-access-settings'
 import { ProjectSettings } from '@/features/projects/components/project-settings'
 import { getSteckbrief } from '@/lib/projects/steckbrief-service'
@@ -37,9 +38,8 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
 
     const { role, closed } = await requireProjectAccess(session, id, 'project:view')
 
-    const data = await getProjectOverviewData(id, session.organizationId, {
-      hiddenFolderIds: await getHiddenFolderIds(session, id),
-    })
+    // The same reader the overview route uses: hidden folders and quarantine (ADR-0087, ADR-0086).
+    const data = await getProjectOverviewData(id, session.organizationId, await projectOverviewReader(session, id))
     if (!data) {
       notFound()
     }
@@ -52,6 +52,9 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
     // project manager, who is the one who can set a role again.
     const foldersWithoutRole = canManageProject ? await listFoldersWithoutValidRole(session, id) : []
     const steckbrief = await getSteckbrief(session, id)
+    // The closing debrief writes project memory, so it asks for that permission,
+    // not for the role that may close: a custom role can hold one without the other.
+    const canWriteMemory = await can(session, 'project:memory:write', { type: 'project', id })
     // The organization's people, to link a Steckbrief person to their account;
     // asked only of someone who may edit it. Names only, never e-mail.
     const accounts = steckbrief.canEdit
@@ -70,6 +73,7 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
         canManageProject={canManageProject}
         canManageMembers={managesProject}
         canChangeStatus={managesProject}
+        canWriteMemory={canWriteMemory}
         // Knowledge left the top-level nav (spec §5) but stays reachable from
         // Settings while its feature flag is on.
         showKnowledgeLink={isProjectKnowledgePageEnabled(session)}

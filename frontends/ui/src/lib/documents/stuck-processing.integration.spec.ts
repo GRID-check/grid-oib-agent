@@ -21,6 +21,7 @@
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { emptySkillSnapshot } from '@/lib/jobs/types'
+import { internalRead } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 
@@ -202,7 +203,7 @@ describe.skipIf(!url)('background-work sweeps against live Postgres', () => {
   it('remembers the job on a row that is processing, and only then', async () => {
     const jobId = await seedJob(ORG, 'queued')
     const read = (name: string) =>
-      context.withTenant({ organizationId: ORG }, () => documents.findDocumentInOrg(docs[name], ORG))
+      context.withTenant({ organizationId: ORG }, () => documents.findDocumentInOrg(docs[name], ORG, internalRead('ingest')))
 
     await context.withTenant({ organizationId: ORG }, () => documents.setDocumentBackgroundJob(docs['no-job'], ORG, jobId))
     await context.withTenant({ organizationId: ORG }, () => documents.setDocumentBackgroundJob(docs.finished, ORG, jobId))

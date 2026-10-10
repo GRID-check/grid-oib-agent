@@ -5,6 +5,7 @@ vi.mock('./folder-access-repository', () => ({
   projectHasCustomOrBinnedFolders: vi.fn(),
   listProjectFolderTree: vi.fn(),
   listCustomFolderNames: vi.fn(),
+  listProjectsWithCustomOrBinnedFolders: vi.fn(),
 }))
 vi.mock('./projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn() }))
@@ -38,8 +39,11 @@ import {
   readRestrictingFoldersOnPath,
   readableByEveryMember,
   readableFolderIdsFor,
+  readableFoldersOfRestrictedProjects,
+  RESTRICTED_PROJECT_READS_AT_ONCE,
   requireFolderWrite,
   restrictedCollectionName,
+  unreadableFolderIds,
   unreadableFoldersBelow,
   withProjectCeiling,
   type AccessFolder,
@@ -48,7 +52,11 @@ import {
   type FolderGrant,
   type FolderLevel,
 } from './folder-access'
-import { listProjectFolderTree, projectHasCustomOrBinnedFolders } from './folder-access-repository'
+import {
+  listProjectFolderTree,
+  listProjectsWithCustomOrBinnedFolders,
+  projectHasCustomOrBinnedFolders,
+} from './folder-access-repository'
 import { requireProjectAccess } from './projects'
 import { checkResourcePermission } from './resource-check'
 import { findProjectTenancy } from '@/lib/projects/repository'
@@ -278,6 +286,22 @@ describe('the helpers derived from the rule', () => {
     expect(readRestrictingFoldersOnPath(tree, null)).toEqual([])
   })
 
+  it('unreadableFolderIds: what the clearance may not read, not a folder hidden only by the bin', () => {
+    const access = (roles: string[], seesEverything = false) =>
+      unreadableFolderIds(computeFolderAccess(TREE, who(roles, seesEverything), COLLECTION)).sort()
+    // Archiviert is in the bin and lists GF: hidden from GF, but GF could read it.
+    expect(access([GF])).toEqual([F.waise])
+    expect(access(['member'])).toEqual([F.vertraege, F.honorare, F.waise, F.archiviert].sort())
+    expect(access([], true)).toEqual([])
+    // A bin with no own list anywhere hides its folder from everyone and keeps it from no one.
+    const open = TREE.filter((folder) => folder.id !== F.waise).map((folder) => ({
+      ...folder,
+      accessMode: 'inherit' as const,
+      grants: [],
+    }))
+    expect(unreadableFolderIds(computeFolderAccess(open, who(['member']), COLLECTION))).toEqual([])
+  })
+
   it('names restricted collections as `_r` and twelve hex digits of the folder id', () => {
     const name = restrictedCollectionName(COLLECTION, F.vertraege)
     expect(name).toBe(`${COLLECTION}_r22222222aaaa`)
@@ -430,6 +454,46 @@ describe('a closed project (ADR-0090): closing opens no restricted folder', () =
     expect((await clearanceOf(session(['admin']), 'proj-1')).seesEverything).toBe(true)
     expect((await clearanceOfMember('org-1', 'user-admin', 'proj-1')).seesEverything).toBe(true)
     expect(checkResourcePermission).not.toHaveBeenCalled()
+  })
+
+  it('the folders a name filter may match are decided per project: a closed one clears an outsider by no list', async () => {
+    const active = { organizationId: 'org-1', deletedAt: null, status: 'active' as const }
+    const shut = { vertraege: 'c1111111-aaaa-4bbb-8ccc-000000000001', plaene: 'c2222222-aaaa-4bbb-8ccc-000000000002' }
+    vi.mocked(listProjectsWithCustomOrBinnedFolders).mockResolvedValue(['proj-active', 'proj-closed'])
+    vi.mocked(findProjectTenancy).mockImplementation(async (projectId) => (projectId === 'proj-closed' ? closed : active))
+    vi.mocked(listProjectFolderTree).mockImplementation(async (_org, projectId) =>
+      projectId === 'proj-closed'
+        ? [custom(shut.vertraege, null, [{ role: GF, level: 'write' }]), inherit(shut.plaene, null)]
+        : TREE
+    )
+    vi.mocked(checkResourcePermission).mockResolvedValue(false)
+
+    const readable = await readableFoldersOfRestrictedProjects(session([GF]))
+
+    // GF reads Verträge where the role was matched before, and in the closed project only what every member reads.
+    expect(readable).toContain(F.vertraege)
+    expect(readable).toContain(shut.plaene)
+    expect(readable).not.toContain(shut.vertraege)
+  })
+
+  it('reads the restricted projects a few at a time, never one by one nor all at once, and answers in their order', async () => {
+    const projectIds = Array.from({ length: 10 }, (_, index) => `proj-${index}`)
+    vi.mocked(listProjectsWithCustomOrBinnedFolders).mockResolvedValue(projectIds)
+    vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org-1', deletedAt: null, status: 'active' })
+    let inFlight = 0
+    let mostInFlight = 0
+    vi.mocked(listProjectFolderTree).mockImplementation(async (_org, projectId) => {
+      inFlight += 1
+      mostInFlight = Math.max(mostInFlight, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5 - (Number(projectId.slice(5)) % 3)))
+      inFlight -= 1
+      return [inherit(`folder-of-${projectId}`, null)]
+    })
+
+    const readable = await readableFoldersOfRestrictedProjects(session([GF]))
+
+    expect(mostInFlight).toBe(RESTRICTED_PROJECT_READS_AT_ONCE)
+    expect(readable).toEqual(projectIds.map((projectId) => `folder-of-${projectId}`))
   })
 
   it('an active project never asks whether someone is a member: the roles decide as before', async () => {

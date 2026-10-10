@@ -54,6 +54,9 @@ CHAT_MODEL = re.compile(
 )
 CHAT_MODEL_HOMES = {
     "src/aiq_agent/common/llm_factory.py": "get_langchain_llm, the one place a chat model is taken from NAT",
+    "scripts/backfill_permit_records.py": (
+        "runs outside NAT; its model goes through enforce_chat_request_contract, the slot seam"
+    ),
 }
 
 #: Building an embedding client by hand. Its HTTP client must come from the seam.

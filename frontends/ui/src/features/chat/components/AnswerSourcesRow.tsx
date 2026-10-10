@@ -36,6 +36,8 @@ import {
   type CitationRef,
   type CitedDocument,
 } from '../lib/citations'
+import { useChatStore } from '../store'
+import { isPrecedent } from '../lib/precedent'
 import { SourcePreviewChip } from './SourcePreview'
 import { CopyCitationsMenu } from './CopyCitation'
 import { useCitationScope } from './CitationScope'
@@ -77,18 +79,45 @@ const MAX_ANSWER_SOURCES = 8
 
 /**
  * The quiet meta line after a chip: which pages, or which host. A project file
- * cited in a closed project's chat also names the project and that it is
- * closed (ADR-0090): a project chat cites its own project's files.
+ * from a closed project also names the project and that it is closed
+ * (ADR-0090): the chat's own project's file when the chat's project is closed,
+ * or a file a cross-project lookup found in another project that is
+ * (ADR-0094), by that project's own status, whatever the chat's.
  */
-const useClosedProjectNote = (): string | null => {
+const useClosedProjectNote = (): ((doc: CitedDocument) => string | null) => {
   const tProjects = useTranslations('projects')
-  const project = useCurrentProject()
-  return project?.status === 'closed' ? tProjects('lifecycle.fileChip', { name: project.name }) : null
+  const current = useCurrentProject()
+  return (doc) => {
+    if (doc.kind !== 'projekt') return null
+    // The chip's label already names another project's file's project.
+    if (doc.project) return doc.project.status === 'closed' ? tProjects('lifecycle.fileChipNoName') : null
+    return current?.status === 'closed' ? tProjects('lifecycle.fileChip', { name: current.name }) : null
+  }
+}
+
+/**
+ * The meta line of a precedent (ADR-0094): its project by name, that project's
+ * own status, and the Land the agent stated for it, warning included.
+ */
+const usePrecedentNote = (): ((doc: CitedDocument) => string | null) => {
+  const t = useTranslations('chat')
+  // The same chat project the chip's popover compares against (SourcePreviewChip).
+  const chatProjectId = useChatStore((s) => s.projectId)
+  return (doc) => {
+    if (!doc.project || !isPrecedent(doc, chatProjectId)) return null
+    const { name, status, landNote } = doc.project
+    const named = t('answerSources.precedentProject', {
+      name,
+      status: t(`answerSources.projectStatus.${status}`),
+    })
+    return landNote ? `${named} · ${landNote}` : named
+  }
 }
 
 const useSourceMeta = (): ((doc: CitedDocument) => string | undefined) => {
   const t = useTranslations('chat')
-  const closedNote = useClosedProjectNote()
+  const closedNoteFor = useClosedProjectNote()
+  const precedentNoteFor = usePrecedentNote()
   return (doc) => {
     const pages = documentPages(doc)
     const base =
@@ -97,8 +126,9 @@ const useSourceMeta = (): ((doc: CitedDocument) => string | undefined) => {
         : pages.length > 1
           ? t('answerSources.pages', { pages: pages.join(', ') })
           : refHost({ document: doc })
-    if (!closedNote || doc.kind !== 'projekt') return base
-    return base ? `${base} · ${closedNote}` : closedNote
+    const note = precedentNoteFor(doc) ?? closedNoteFor(doc)
+    if (!note) return base
+    return base ? `${base} · ${note}` : note
   }
 }
 
@@ -111,7 +141,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
 }) => {
   const t = useTranslations('chat')
   const metaFor = useSourceMeta()
-  const closedNote = useClosedProjectNote()
+  const closedNoteFor = useClosedProjectNote()
   const scope = useCitationScope()
 
   const [expanded, setExpanded] = useState(false)
@@ -232,10 +262,10 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
               ))}
             <SourcePreviewChip citation={{ document: doc }} meta={metaFor(doc)} />
             {/* On the face too, not only in the popover: a closed project's file. */}
-            {closedNote && doc.kind === 'projekt' && (
-              <span className="text-muted-foreground ml-1 inline-flex items-center align-middle" title={closedNote}>
+            {closedNoteFor(doc) && (
+              <span className="text-muted-foreground ml-1 inline-flex items-center align-middle" title={closedNoteFor(doc) ?? undefined}>
                 <Lock className="size-3" aria-hidden />
-                <span className="sr-only">{closedNote}</span>
+                <span className="sr-only">{closedNoteFor(doc)}</span>
               </span>
             )}
             </span>

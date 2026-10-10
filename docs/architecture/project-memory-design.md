@@ -297,8 +297,11 @@ carries the source FOLDERS it depends on (`restricted_folder_ids`, migration
 0112; the agent decides in collections and the BFF maps each to its folder),
 and only a session that may read **all** of them now is served it or shown it.
 
-**Deciding the restriction** — one function, `aiq_agent/memory/restriction.py`
-`decide_restrictions`, called by the `remember` tool and the reflection stage:
+**Deciding the restriction** — one module, `aiq_agent/memory/restriction.py`.
+The `remember` tool and the reflection stage both call `restriction_decisions`,
+which returns each memory's restriction together with the judge's verdict when
+the judge was asked; the writers send the verdict with every write, stored or
+refused (see "Auditing the judge" below):
 1. `R` empty → open.
 2. The turn cited or read sources from collections in `R` (its captures, its
    cited and read-uncited sources, and the conversation's citation registry,
@@ -330,6 +333,26 @@ and only a session that may read **all** of them now is served it or shown it.
 5. **Fail closed**: no judge model, a timeout, an error, an unparseable or
    partial reply, more than 150 unread restricted entries, or an unknown
    inventory → restricted to every restricted collection of the evidence.
+
+**Auditing the judge.** The writer sends the verdict with the write
+(`restrictionJudge` on `POST /api/internal/memory`: `drawn`, `none` or
+`failed`, the collections the judge was shown and the ones it named). The BFF
+records it as `project.memory.restriction_judged`, acted by
+`system:memory_judge` (`lib/projects/memory-judge-audit.ts`): the note by id,
+its folders, never its text, `outcome: stored`. A "none" is what leaves a note
+open, so it is the verdict the trail exists for. That includes a `remember`
+with scope organization that the deployment refuses
+(`GRID_ALLOW_AGENT_ORG_MEMORY` unset, the default): no item exists, but the
+"none" decided that the agent offers the finding as a card that writes it
+open, organization-wide at the widest. The BFF records that verdict against
+the organization (`outcome: refused`) before it refuses, when the organization
+is one it knows. Only that refusal offers the card (`_failure_result` in
+`memory/register.py`): an organization write that failed otherwise (a 500, a
+timeout) reached no audit, so it gets the honest "not saved" and no card that
+would write the finding open past the trail. A failure to assemble the audit line never fails the write. A note that ends up restricted also keeps the verdict
+(`restriction_judge`, migration 0118) and the panel's lock says a model helped
+decide („von KI mitbestimmt"); an open note never does (CHECK), because its
+readers may not know a restricted folder exists.
 
 **What earlier turns were shown** — `aiq_agent/memory/shown_notes.py`. The
 digest is re-ranked per turn and capped at 1,800 characters, so a restricted
@@ -367,7 +390,8 @@ nobody could be served.
   A restricted note is then served when the asker may read every one of its
   folders, AND the conversation admits them against everyone it is shared with
   (`admitSourceFolders`): a restricted note in the prompt is use of its
-  folders, recorded in `conversation_restricted_folders`, and the response's
+  folders, recorded in `conversation_restricted_folders` (with the turn's
+  `answerMessageId` marked in the same transaction, ADR-0093), and the response's
   `restrictedFoldersServed` tells the agent the conversation is confined. Deep
   research, scheduled runs and the job worker send none and get open notes,
   including those whose folders every member may read again;

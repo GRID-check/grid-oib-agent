@@ -9,7 +9,8 @@
 
 import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
-import { requireProjectAccess } from '@/lib/authz/projects'
+import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projects'
+import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { checkResourcePermission } from '@/lib/authz/resource-check'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -28,8 +29,11 @@ import type {
   ProjectMemoryItem,
   ProjectMemoryKind,
 } from '@/lib/db/schema'
-import { getProjectOverviewData } from './overview-query'
-import { isProjectClosed, type ProjectStatus } from './project-status'
+import { getProjectOverviewData, type ProjectOverviewReader } from './overview-query'
+import { isProjectClosed, keptWhenClosed, openToOrganizationWhenClosed, type ProjectStatus } from './project-status'
+import { shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
+import { memberReader } from '@/lib/documents/visibility'
+import { withServedEvidence } from './memory-evidence'
 import {
   clearanceOf,
   customFolderNames,
@@ -74,26 +78,56 @@ export async function listProjects(
   session: AuthorizedSession,
   order: 'newest' | 'oldest' = 'newest'
 ): Promise<Project[]> {
+  return listProjectsHolding(session, ['project:view'], order)
+}
+
+/**
+ * The projects the caller may CHAT in: the reach of the cross-project lookups
+ * (ADR-0094). Pointing the agent at a project's corpus is chatting in it, which
+ * the turn scope gates on `project:chat` (or the legacy `project:edit`) and not
+ * on `project:view` (`collection-scope-request.ts`): a reader gets a project's
+ * documents through the documents API, not the agent. Same bypass, same
+ * fail-closed checks as {@link listProjects}.
+ */
+export async function listChatProjects(
+  session: AuthorizedSession,
+  order: 'newest' | 'oldest' = 'newest'
+): Promise<Project[]> {
+  return listProjectsHolding(session, CHAT_PERMISSIONS, order)
+}
+
+/** The organization's projects on which the caller holds ANY of `permissions`; see {@link listProjects}. */
+async function listProjectsHolding(
+  session: AuthorizedSession,
+  permissions: readonly ProjectPermission[],
+  order: 'newest' | 'oldest'
+): Promise<Project[]> {
   const projects = await listProjectsInOrg(session.organizationId, { order })
   // The same permission-gated bypass `requireProjectAccess` applies, checked the
   // same way — if these two ever disagreed the grid would list projects the
   // detail view then refuses, or hide ones it would have opened.
   if (hasPermission(session, ORG_PERMISSIONS.projectsAdminister)) return projects
 
-  const visible = await Promise.all(
-    projects.map(async (project) => {
-      // Every member reads a closed project (ADR-0090), and so finds it here.
-      if (isProjectClosed(project)) return project
+  const holds = async (project: Project): Promise<boolean> => {
+    // A closed project (ADR-0090), decided as `requireProjectAccess` decides it:
+    // only what a closed project still allows is asked, and what is open to the
+    // whole organization (reading, chatting) every member holds.
+    const asked = isProjectClosed(project) ? keptWhenClosed(permissions) : permissions
+    if (asked.length === 0) return false
+    if (isProjectClosed(project) && openToOrganizationWhenClosed(asked)) return true
+    for (const permissionSlug of asked) {
       const allowed = await checkResourcePermission({
         organizationMembershipId: session.organizationMembershipId,
         organizationId: session.organizationId,
-        permissionSlug: 'project:view',
+        permissionSlug,
         resourceExternalId: project.id,
         resourceTypeSlug: 'project',
       })
-      return allowed ? project : null
-    })
-  )
+      if (allowed) return true
+    }
+    return false
+  }
+  const visible = await Promise.all(projects.map(async (project) => ((await holds(project)) ? project : null)))
   return visible.filter((project): project is Project => project !== null)
 }
 
@@ -128,8 +162,16 @@ export async function getProjectsGridData(
   // A card's number counts what the project's own list shows this viewer, so
   // the documents in folders they may not read are left out of it (ADR-0088).
   const hiddenFolderIds = (await Promise.all(visibleIds.map((id) => getHiddenFolderIds(session, id)))).flat()
+  // Nor does it count a held file the viewer neither uploaded nor reviews
+  // (ADR-0086); each project asks its own reviewers.
+  const readers = await Promise.all(visibleIds.map((projectId) => shelfReaderFor(session, { scope: 'project', projectId })))
+  const reviewedProjectIds = visibleIds.filter((_, index) => readers[index].kind === 'reviewer')
   const [documentCounts, viewerActivity] = await Promise.all([
-    countDocumentsByProject(session.organizationId, visibleIds, hiddenFolderIds),
+    countDocumentsByProject(session.organizationId, visibleIds, hiddenFolderIds, {
+      kind: 'projects',
+      userId: session.userId,
+      reviewedProjectIds,
+    }),
     lastProjectActivityByUser(session.organizationId, session.userId, visibleIds),
   ])
   return { projects: visible, documentCounts, viewerActivity }
@@ -351,11 +393,26 @@ export async function restoreProject(
   })
 }
 
+/**
+ * What the overview's count, size and recent list leave out for this session:
+ * the folders hidden from it (ADR-0087) and the held files it neither
+ * uploaded nor reviews (ADR-0086). One answer for every page that renders the
+ * overview data, so a second reader dimension cannot reach one and miss the other.
+ */
+export async function projectOverviewReader(
+  session: AuthorizedSession,
+  projectId: string
+): Promise<ProjectOverviewReader> {
+  return {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+    reader: await shelfReaderFor(session, { scope: 'project', projectId }),
+  }
+}
+
 export async function getProjectOverview(session: AuthorizedSession, projectId: string) {
   await requireProjectAccess(session, projectId, 'project:view')
-  const data = await getProjectOverviewData(projectId, session.organizationId, {
-    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
-  })
+  const reader = await projectOverviewReader(session, projectId)
+  const data = await getProjectOverviewData(projectId, session.organizationId, reader)
   if (!data) throw new NotFoundError('Project not found')
   return data
 }
@@ -434,10 +491,15 @@ export async function getProjectMemory(
 ): Promise<ProjectMemoryListItem[]> {
   await requireProjectAccess(session, projectId, 'project:view')
   const { cleared } = await memoryClearance(session, projectId)
-  const items = await listProjectMemory(projectId, {
+  const listed = await listProjectMemory(projectId, {
     ...options,
     organizationId: session.organizationId,
     readableFolderIds: cleared,
+  })
+  // An item's evidence names only the files this person may open now (memory-evidence.ts).
+  const items = await withServedEvidence(session.organizationId, listed, {
+    reader: memberReader(session.userId),
+    clearanceIn: () => cleared,
   })
   return labelRestrictions(session, projectId, items)
 }

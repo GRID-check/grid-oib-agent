@@ -110,7 +110,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, answer-feedback, restricted memory, download-log, Papierkorb, closed-project, Steckbrief and Ausmisten suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, restricted-use, cross-project use, run-reconciler, usage-ledger, answer-feedback, restricted memory, download-log, Papierkorb, closed-project, Steckbrief, Ausmisten, upload batches, quarantine decisions, restricted-feedback, revision-subject, the hold on a document and permit-record suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -120,6 +120,8 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/projects/memory-restricted.integration.spec.ts \
     src/lib/documents/document-versions.integration.spec.ts \
     src/lib/documents/list-page.integration.spec.ts \
+    src/lib/documents/quarantine-listing.integration.spec.ts \
+    src/lib/documents/visibility.integration.spec.ts \
     src/lib/upload-batches/upload-batches.integration.spec.ts \
     src/lib/authz/folder-access.integration.spec.ts \
     src/lib/projects/collection-placement.integration.spec.ts \
@@ -131,6 +133,13 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/compliance/legal-hold.integration.spec.ts \
     src/lib/conversations/erasure-queue.integration.spec.ts \
     src/lib/conversations/restricted-use.integration.spec.ts \
+    src/lib/feedback/restricted-feedback.integration.spec.ts \
+    src/lib/tasks/subject-access.integration.spec.ts \
+    src/lib/conversations/cross-project-use.integration.spec.ts \
+    src/lib/cross-project/decisions-repository.integration.spec.ts \
+    src/lib/permits/repository.integration.spec.ts \
+    src/lib/project-experience/readable-files.integration.spec.ts \
+    src/lib/projects/memory-evidence.integration.spec.ts \
     src/lib/download-log/download-log.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts \
     src/lib/budgets/service.integration.spec.ts \
@@ -394,7 +403,7 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migrations 0111 to 0115: each on a database of its own.
+# Migrations 0111 to 0115 and 0118 to 0124: each on a database of its own.
 #
 # `migrate_until <db> <tag>` creates <db> and applies the journal up to and
 # including <tag>, so every section below starts from exactly the chain it
@@ -656,6 +665,383 @@ apply_in grid_bin 0115_folder_bin.sql
 check_in grid_bin "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110')::text || ',' || (SELECT (purged_at IS NOT NULL)::text FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000110')" "true,true" "0114 re-applies"
 
 echo "==> 0115 backfill, triggers and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0118: a restricted note records the memory judge's verdict
+# (ADR-0087), and its DOWN. Only a restricted note carries one, and only a
+# verdict the judge gives; the down drops the column and its CHECK, and 0117
+# re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0118 restriction judge column, its CHECK and the down migration on grid_judge"
+migrate_until grid_judge 0118_project_memory_restriction_judge
+check_in grid_judge "SELECT count(*) FROM pg_constraint WHERE conname = 'project_memory_restriction_judge_check'" "1" "the verdict is checked"
+check_in grid_judge "SELECT pg_get_constraintdef(oid) LIKE '%restricted_folder_ids IS NOT NULL%' FROM pg_constraint WHERE conname = 'project_memory_restriction_judge_check'" "t" "only a restricted note carries a verdict"
+apply_in grid_judge 0118_project_memory_restriction_judge.down.sql
+check_in grid_judge "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restriction_judge'" "0" "down dropped the column"
+apply_in grid_judge 0118_project_memory_restriction_judge.sql
+check_in grid_judge "SELECT count(*) FROM pg_constraint WHERE conname = 'project_memory_restriction_judge_check'" "1" "0117 re-applies"
+
+echo "==> 0118 restriction judge and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0119: the content gate's quarantine decisions, owed to the audit
+# trail (ADR-0086), and its DOWN. The repository's claims (one decision per
+# dispatch, owed until marked once, outliving the document, deleted once spent
+# by the platform role alone) are proved through
+# the runtime role by upload-batches.integration.spec.ts above; here, what the
+# database itself refuses, and that the down and a re-apply run clean.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0119 quarantine decisions, their guard and the down migration on grid_quarantine"
+migrate_until grid_quarantine 0119_document_quarantine_decisions
+check_in grid_quarantine "SELECT relrowsecurity FROM pg_class WHERE relname = 'document_quarantine_decisions'" "t" "the decisions are inside the tenant boundary"
+check_in grid_quarantine "SELECT count(*) FROM pg_indexes WHERE tablename = 'document_quarantine_decisions'" "3" "the primary key, the dispatch key and the partial index of what is owed"
+sql_in grid_quarantine <<<"INSERT INTO document_quarantine_decisions (id, organization_id, document_id, job_id, scope, filename, uploaded_by) VALUES ('f1f1f1f1-f1f1-4000-8000-000000000117', 'org_0117', 'f2f2f2f2-f2f2-4000-8000-000000000117', 'job-1', 'archiv', 'Lohn.pdf', 'u');"
+refused_in grid_quarantine "INSERT INTO document_quarantine_decisions (organization_id, document_id, job_id, scope, filename, uploaded_by) VALUES ('org_0117', 'f2f2f2f2-f2f2-4000-8000-000000000117', 'job-1', 'archiv', 'Lohn.pdf', 'u');" "document_quarantine_decisions_dispatch_key" "one dispatch is one decision"
+refused_in grid_quarantine "INSERT INTO document_quarantine_decisions (organization_id, document_id, job_id, scope, filename, uploaded_by) VALUES ('org_0117', gen_random_uuid(), 'job-1', 'project', 'x', 'u');" "document_quarantine_decisions_scope_project" "a project shelf needs a project"
+refused_in grid_quarantine "UPDATE document_quarantine_decisions SET reasons = 'iban' WHERE id = 'f1f1f1f1-f1f1-4000-8000-000000000117';" "only marked audited once" "a decision is never rewritten"
+sql_in grid_quarantine <<<"UPDATE document_quarantine_decisions SET audited_at = now() WHERE id = 'f1f1f1f1-f1f1-4000-8000-000000000117';"
+refused_in grid_quarantine "UPDATE document_quarantine_decisions SET audited_at = now() WHERE id = 'f1f1f1f1-f1f1-4000-8000-000000000117';" "only marked audited once" "a decision is marked audited once"
+refused_in grid_quarantine "DELETE FROM document_quarantine_decisions;" "deleted only by the platform role" "only the platform role deletes"
+apply_in grid_quarantine 0119_document_quarantine_decisions.down.sql
+check_in grid_quarantine "SELECT to_regclass('public.document_quarantine_decisions') IS NULL" "t" "down dropped the decisions"
+check_in grid_quarantine "SELECT to_regprocedure('grid_document_quarantine_decisions_guard()') IS NULL" "t" "down dropped the guard function"
+apply_in grid_quarantine 0119_document_quarantine_decisions.sql
+check_in grid_quarantine "SELECT count(*) FROM document_quarantine_decisions" "0" "0118 re-applies, empty"
+
+echo "==> 0119 quarantine decisions and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0120: what the lessons pipeline took from a restricted
+# conversation before OUTSIDE_RESTRICTED_USE, withdrawn, and its DOWN.
+#
+# On a database of its own (grid_lessons), migrated through 0118 and seeded
+# as a sweep before the rule left it:
+# an ACTIVE lesson created from a vote on a conversation with a
+# conversation_restricted_folders row, a lesson created from an open vote with
+# a restricted one LINKED to it, a restricted vote skipped with a summary, and
+# a lesson created from a restricted vote that was already retired. Every
+# restricted report loses its summary, the open one keeps it; the restricted
+# lessons lose their text, and only the live one is retired, with one event;
+# the open lesson stays active. The down changes nothing, and 0119 re-applies
+# without a second event.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0120 lesson withdrawal and its down migration on grid_lessons"
+migrate_until grid_lessons 0119_document_quarantine_decisions
+sql_in grid_lessons <<'SQL'
+INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id) VALUES
+  ('org_0107', 's_0118_restricted', 'a1a1a1a1-a1a1-4000-8000-000000000107');
+INSERT INTO answer_feedback (id, organization_id, conversation_id, message_id, user_id, verdict, reason, comment) VALUES
+  ('f1f1f1f1-0000-4000-8000-000000000118', 'org_0107', 's_0118_restricted', 'm_0118_1', 'user_1', 'down', 'inaccurate', 'Honorar Zimmerer falsch'),
+  ('f2f2f2f2-0000-4000-8000-000000000118', 'org_0107', 's_0118_restricted', 'm_0118_2', 'user_1', 'down', 'inaccurate', 'Honorar Dachdecker falsch'),
+  ('f3f3f3f3-0000-4000-8000-000000000118', 'org_0107', 's_0118_restricted', 'm_0118_3', 'user_1', 'down', 'other', 'Gehalt falsch'),
+  ('f4f4f4f4-0000-4000-8000-000000000118', 'org_0107', 's_0118_open', 'm_0118_4', 'user_1', 'down', 'inaccurate', 'Brüstung falsch'),
+  ('f5f5f5f5-0000-4000-8000-000000000118', 'org_0107', 's_0118_restricted', 'm_0118_5', 'user_1', 'down', 'inaccurate', 'Angebot falsch');
+INSERT INTO platform_lessons (id, content, category, status, activated_at, activated_by, retired_at, retired_by, retired_reason) VALUES
+  ('11111111-0000-4000-8000-000000000118', 'Honorare aus Angeboten nur mit Quelle nennen 0119', 'inaccurate', 'active', now(), 'system:distiller', NULL, NULL, NULL),
+  ('22222222-0000-4000-8000-000000000118', 'Brüstungshöhen nach OIB-RL 4 prüfen 0119', 'inaccurate', 'active', now(), 'system:distiller', NULL, NULL, NULL),
+  ('33333333-0000-4000-8000-000000000118', 'Angebotssummen nicht runden 0119', 'inaccurate', 'retired', now(), 'system:distiller', now(), 'system:distiller', 'evicted_capacity');
+INSERT INTO platform_lesson_reports (feedback_id, lesson_id, outcome, skip_reason, org_hash, canonical_summary) VALUES
+  ('f1f1f1f1-0000-4000-8000-000000000118', '11111111-0000-4000-8000-000000000118', 'created', NULL, 'hash_0118', 'Zimmerer-Honorar 48.000 EUR falsch genannt'),
+  ('f2f2f2f2-0000-4000-8000-000000000118', '22222222-0000-4000-8000-000000000118', 'linked', NULL, 'hash_0118', 'Dachdecker-Honorar falsch genannt'),
+  ('f3f3f3f3-0000-4000-8000-000000000118', NULL, 'skipped', 'not_generalizable', 'hash_0118', 'Gehalt der Bauleiterin falsch'),
+  ('f4f4f4f4-0000-4000-8000-000000000118', '22222222-0000-4000-8000-000000000118', 'created', NULL, 'hash_0118', 'Brüstungshöhe falsch genannt'),
+  ('f5f5f5f5-0000-4000-8000-000000000118', '33333333-0000-4000-8000-000000000118', 'created', NULL, 'hash_0118', 'Angebotssumme gerundet');
+SQL
+apply_in grid_lessons 0120_withdraw_restricted_lesson_reports.sql
+check_in grid_lessons "SELECT string_agg(feedback_id::text, ',' ORDER BY feedback_id) FROM platform_lesson_reports WHERE org_hash = 'hash_0118' AND canonical_summary IS NOT NULL" "f4f4f4f4-0000-4000-8000-000000000118" "only the open report keeps its summary, whatever the outcome"
+check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || retired_by || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '11111111-0000-4000-8000-000000000118'" "retired,restricted_source,system:migration-0120,true" "a live lesson created from a restricted report is retired, its text replaced"
+check_in grid_lessons "SELECT status || ',' || content FROM platform_lessons WHERE id = '22222222-0000-4000-8000-000000000118'" "active,Brüstungshöhen nach OIB-RL 4 prüfen 0119" "a lesson only LINKED to a restricted report stays as it was"
+check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '33333333-0000-4000-8000-000000000118'" "retired,evicted_capacity,true" "an already retired one loses its text and keeps its retirement"
+check_in grid_lessons "SELECT string_agg(lesson_id::text || ':' || action || ':' || (detail->>'reason'), ',') FROM platform_lesson_events WHERE actor = 'system:migration-0120'" "11111111-0000-4000-8000-000000000118:retired:restricted_source" "one retirement event, for the lesson that was live"
+apply_in grid_lessons 0120_withdraw_restricted_lesson_reports.down.sql
+check_in grid_lessons "SELECT status FROM platform_lessons WHERE id = '11111111-0000-4000-8000-000000000118'" "retired" "the down changes nothing"
+apply_in grid_lessons 0120_withdraw_restricted_lesson_reports.sql
+check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0120'" "1" "0120 re-applies without a second event"
+
+echo "==> 0120 lesson withdrawal and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0121: a vote keeps its conversation's restricted use after the
+# record goes, and its DOWN.
+#
+# On grid_lessons, after 0119: the backfill marks the votes on the 0119
+# restricted conversation (it has a record) and not the open one; a vote cast
+# after 0120 on a conversation whose record is then deleted is marked by the
+# trigger, and a vote on another conversation is not. The down drops the
+# column, the trigger and the function; 0120 re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0121 feedback marker, its trigger and its down migration on grid_lessons"
+apply_in grid_lessons 0121_answer_feedback_restricted_source.sql
+check_in grid_lessons "SELECT string_agg(conversation_id || ':' || restricted_source::text, ',' ORDER BY conversation_id) FROM (SELECT DISTINCT conversation_id, restricted_source FROM answer_feedback WHERE message_id LIKE 'm_0118_%') v" "s_0118_open:false,s_0118_restricted:true" "the backfill marks the votes on a recorded conversation only"
+sql_in grid_lessons <<'SQL'
+INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id) VALUES
+  ('org_0107', 's_0119_deleted', 'a1a1a1a1-a1a1-4000-8000-000000000107');
+INSERT INTO answer_feedback (organization_id, conversation_id, message_id, user_id, verdict, reason, comment) VALUES
+  ('org_0107', 's_0119_deleted', 'm_0119_1', 'user_1', 'down', 'inaccurate', 'Honorar Spengler falsch'),
+  ('org_0107', 's_0119_other', 'm_0119_2', 'user_1', 'down', 'inaccurate', 'Brüstung falsch');
+SQL
+check_in grid_lessons "SELECT string_agg(restricted_source::text, ',' ORDER BY message_id) FROM answer_feedback WHERE message_id LIKE 'm_0119_%'" "false,false" "a new vote starts unmarked; the record holds it back while it exists"
+sql_in grid_lessons <<<"DELETE FROM conversation_restricted_folders WHERE conversation_id = 's_0119_deleted';"
+check_in grid_lessons "SELECT string_agg(conversation_id || ':' || restricted_source::text, ',' ORDER BY message_id) FROM answer_feedback WHERE message_id LIKE 'm_0119_%'" "s_0119_deleted:true,s_0119_other:false" "deleting the record marks the votes on that conversation, and only those"
+apply_in grid_lessons 0121_answer_feedback_restricted_source.down.sql
+check_in grid_lessons "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name = 'answer_feedback' AND column_name = 'restricted_source') + (SELECT count(*) FROM pg_trigger WHERE tgname = 'conversation_restricted_folders_mark_feedback') + (SELECT count(*) FROM pg_proc WHERE proname = 'grid_feedback_keeps_restricted_source')" "0" "down dropped the column, the trigger and the function"
+apply_in grid_lessons 0121_answer_feedback_restricted_source.sql
+check_in grid_lessons "SELECT count(*) FILTER (WHERE restricted_source) FROM answer_feedback WHERE message_id LIKE 'm_0118_%' OR message_id LIKE 'm_0119_%'" "4" "0120 re-applies; the marker set by a delete before the down is gone with its column"
+
+echo "==> 0121 feedback marker, trigger and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migrations 0122 and 0123: the one exit from quarantine, and a verdict bound
+# to the bytes it judged (ADR-0086, amended 2026-10-08), and their DOWNs.
+#
+# On a database of its own, migrated to 0120 and seeded with a screened upload,
+# a Piloti document and a quarantined upload. 0121: a quarantined row refuses
+# every UPDATE out of quarantine but a release of the bytes it holds; its down
+# lets one through. 0122: the backfill binds each person's verdict to the
+# bytes the row holds now, Piloti's own documents get none; its down drops the
+# column and 0122 re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0122 quarantine exit, the 0123 screened hash and their down migrations on grid_hold"
+migrate_until grid_hold 0121_answer_feedback_restricted_source
+sql_in grid_hold <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000120', 'org_0120', 'Hold 0120', 'user_1', 'proj_0120');
+INSERT INTO documents (id, organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, content_hash, screening_outcome) VALUES
+  ('d1d1d1d1-0000-4000-8000-000000000120', 'org_0120', 'user_1', 'plan.pdf', 'k/0120/plan', 'proj_0120', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000120', 'sha256:plan', 'clean'),
+  ('d3d3d3d3-0000-4000-8000-000000000120', 'org_0120', 'user_1', 'lohn.pdf', 'k/0120/lohn', 'proj_0120', 'quarantined', 'project', 'aaaaaaaa-0000-4000-8000-000000000120', 'sha256:lohn', 'quarantined');
+INSERT INTO documents (id, organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, content_hash,
+                       authored_by, authored_by_producer, authored_by_ref, authored_by_ref_kind) VALUES
+  ('d2d2d2d2-0000-4000-8000-000000000120', 'org_0120', 'user_1', 'piloti/d2/bericht.md', 'k/0120/bericht', 'proj_0120', 'stored', 'project', 'aaaaaaaa-0000-4000-8000-000000000120', 'sha256:bericht',
+   'agent', 'deep_research', 'run-0120', 'backend_job');
+SQL
+apply_in grid_hold 0122_document_quarantine_exit.sql
+refused_in grid_hold "UPDATE documents SET status = 'pending' WHERE id = 'd3d3d3d3-0000-4000-8000-000000000120';" "only a release takes it out of quarantine" "a re-dispatch cannot move a quarantined row"
+refused_in grid_hold "UPDATE documents SET status = 'uploaded', screening_outcome = 'released', screening_released_hash = 'sha256:other', screening_released_by = 'user_2', screening_released_at = now() WHERE id = 'd3d3d3d3-0000-4000-8000-000000000120';" "only a release takes it out of quarantine" "a release of other bytes is refused"
+sql_in grid_hold <<<"UPDATE documents SET error_message = 'noted' WHERE id = 'd3d3d3d3-0000-4000-8000-000000000120';"
+check_in grid_hold "SELECT status FROM documents WHERE id = 'd3d3d3d3-0000-4000-8000-000000000120'" "quarantined" "a write that keeps it quarantined is not refused"
+apply_in grid_hold 0122_document_quarantine_exit.down.sql
+check_in grid_hold "SELECT (SELECT count(*) FROM pg_trigger WHERE tgname = 'documents_hold_quarantine') + (SELECT count(*) FROM pg_proc WHERE proname = 'grid_documents_hold_quarantine')" "0" "down dropped the trigger and its function"
+apply_in grid_hold 0122_document_quarantine_exit.sql
+refused_in grid_hold "UPDATE documents SET status = 'pending' WHERE id = 'd3d3d3d3-0000-4000-8000-000000000120';" "only a release takes it out of quarantine" "0121 re-applies"
+
+apply_in grid_hold 0123_document_screened_hash.sql
+check_in grid_hold "SELECT string_agg(filename || '=' || coalesce(screened_hash, '-'), ',' ORDER BY filename) FROM documents WHERE organization_id = 'org_0120'" "lohn.pdf=sha256:lohn,piloti/d2/bericht.md=-,plan.pdf=sha256:plan" "the backfill binds each person's verdict to the bytes the row holds, and no Piloti document"
+apply_in grid_hold 0123_document_screened_hash.down.sql
+check_in grid_hold "SELECT count(*) FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'screened_hash'" "0" "down dropped the column"
+apply_in grid_hold 0123_document_screened_hash.sql
+apply_in grid_hold 0123_document_screened_hash.sql
+check_in grid_hold "SELECT count(*) FROM documents WHERE organization_id = 'org_0120' AND screened_hash = content_hash" "2" "0122 re-applies, twice, to the same binding"
+
+echo "==> 0122 quarantine exit, 0123 screened hash and their down migrations verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0124: the server marks the message, the votes and lessons from
+# before are withdrawn by that mark, and its DOWN.
+#
+# On grid_lessons, after 0120 (and 0121, 0122, which touch nothing here),
+# seeded with a recorded conversation whose answer was voted on with ANOTHER
+# conversation's id, a lesson created from that vote with an owner's edit
+# keeping the old text in `previousContent`, the same kind of edit on the
+# lesson 0119 withdrew, and an open conversation with its own lesson and edit,
+# a vote naming the recorded conversation whose message id names no row, and
+# vectors on every lesson. The backfill marks every message of the recorded
+# conversation, the fabricated id, and the messages 0120 had marked by vote;
+# the lesson from the marked answer is retired with its text replaced and one
+# event; every withdrawn lesson loses its vector and its events lose
+# `previousContent`, the open one keeps both. The trigger marks a message
+# written into the recorded conversation and not one written into the open
+# one, and the mark outlives the conversation. A first admission marks the
+# messages its conversation already holds and the votes naming it; a vote
+# naming a recorded conversation marks its id. The runtime role may not delete
+# or change a mark. A revision thread is not restricted while its document
+# sits at the project's root; moving the document into a folder of a project
+# with an access list marks the thread's messages and votes, and the marks
+# keep the thread answering yes after the document moves back and after the
+# thread is deleted. The down brings 0120's column back from the marks and
+# drops the rule's functions, triggers and index; 0123 re-applies, twice,
+# without a second event, and the column it reads back names no conversation.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0124 message mark, its withdrawal and its down migration on grid_lessons"
+apply_in grid_lessons 0122_document_quarantine_exit.sql
+apply_in grid_lessons 0123_document_screened_hash.sql
+sql_in grid_lessons <<'SQL'
+INSERT INTO conversations (id, organization_id, created_by) VALUES
+  ('s_0122_restricted', 'org_0107', 'user_1'),
+  ('s_0122_open', 'org_0107', 'user_1');
+INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id) VALUES
+  ('org_0107', 's_0122_restricted', 'a1a1a1a1-a1a1-4000-8000-000000000107');
+INSERT INTO messages (id, conversation_id, organization_id, role, content) VALUES
+  ('c1c1c1c1-0000-4000-8000-000000000122', 's_0122_restricted', 'org_0107', 'user', 'Was kostet der Zimmerer?'),
+  ('c2c2c2c2-0000-4000-8000-000000000122', 's_0122_restricted', 'org_0107', 'assistant', 'Laut Angebot 48.000 EUR.'),
+  ('c3c3c3c3-0000-4000-8000-000000000122', 's_0122_open', 'org_0107', 'assistant', 'Die Brüstung ist 1,00 m hoch.');
+INSERT INTO answer_feedback (id, organization_id, conversation_id, message_id, user_id, verdict, reason, comment) VALUES
+  ('f6f6f6f6-0000-4000-8000-000000000122', 'org_0107', 's_0122_open', 'c2c2c2c2-0000-4000-8000-000000000122', 'user_1', 'down', 'inaccurate', 'Zimmerer falsch'),
+  ('f7f7f7f7-0000-4000-8000-000000000122', 'org_0107', 's_0122_open', 'c3c3c3c3-0000-4000-8000-000000000122', 'user_1', 'down', 'inaccurate', 'Brüstung falsch'),
+  ('f8f8f8f8-0000-4000-8000-000000000122', 'org_0107', 's_0122_restricted', 'd8d8d8d8-0000-4000-8000-000000000122', 'user_1', 'down', 'inaccurate', 'Erwartet Spengler 31.000 EUR');
+INSERT INTO platform_lessons (id, content, category, status, activated_at, activated_by, embedding, embedding_model, embedded_at) VALUES
+  ('44444444-0000-4000-8000-000000000122', 'Honorare nur mit Angebotsdatum nennen 0123', 'inaccurate', 'active', now(), 'system:distiller', '{0.1,0.2}', 'model_0122', now()),
+  ('55555555-0000-4000-8000-000000000122', 'Brüstungshöhen mit Quelle nennen 0123', 'inaccurate', 'active', now(), 'system:distiller', '{0.3,0.4}', 'model_0122', now());
+UPDATE platform_lessons SET embedding = '{0.5,0.6}', embedding_model = 'model_0122', embedded_at = now()
+WHERE id = '11111111-0000-4000-8000-000000000118';
+INSERT INTO platform_lesson_reports (feedback_id, lesson_id, outcome, org_hash, canonical_summary) VALUES
+  ('f6f6f6f6-0000-4000-8000-000000000122', '44444444-0000-4000-8000-000000000122', 'created', 'hash_0122', 'Zimmerer-Honorar falsch genannt'),
+  ('f7f7f7f7-0000-4000-8000-000000000122', '55555555-0000-4000-8000-000000000122', 'created', 'hash_0122', 'Brüstungshöhe falsch genannt');
+INSERT INTO platform_lesson_events (lesson_id, action, actor, detail) VALUES
+  ('44444444-0000-4000-8000-000000000122', 'edited', 'user_owner', '{"previousContent": "Zimmerer 48.000 EUR nennen"}'),
+  ('11111111-0000-4000-8000-000000000118', 'edited', 'user_owner', '{"previousContent": "Zimmerer-Honorar 48.000 EUR"}'),
+  ('55555555-0000-4000-8000-000000000122', 'edited', 'user_owner', '{"previousContent": "Brüstung 1,00 m"}');
+SQL
+apply_in grid_lessons 0124_message_restricted_use.sql
+check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE conversation_id LIKE 's_0122_%'" "c1c1c1c1-0000-4000-8000-000000000122,c2c2c2c2-0000-4000-8000-000000000122,d8d8d8d8-0000-4000-8000-000000000122" "the backfill marks every message of a recorded conversation and the id of a vote naming it, and none of an open one"
+check_in grid_lessons "SELECT string_agg(id::text || '=' || (embedding IS NULL)::text || '/' || coalesce(embedding_model, '-') || '/' || (embedded_at IS NULL)::text, ',' ORDER BY id) FROM platform_lessons WHERE id IN ('11111111-0000-4000-8000-000000000118', '44444444-0000-4000-8000-000000000122', '55555555-0000-4000-8000-000000000122')" "11111111-0000-4000-8000-000000000118=true/-/true,44444444-0000-4000-8000-000000000122=true/-/true,55555555-0000-4000-8000-000000000122=false/model_0122/false" "every withdrawn lesson, 0119's included, loses the vector of its old text; the open one keeps it"
+check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE message_id LIKE 'm_01%'" "m_0118_1,m_0118_2,m_0118_3,m_0118_5" "every vote 0120 marked marks its message"
+check_in grid_lessons "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name = 'answer_feedback' AND column_name = 'restricted_source') + (SELECT count(*) FROM pg_trigger WHERE tgname = 'conversation_restricted_folders_mark_feedback') + (SELECT count(*) FROM pg_proc WHERE proname = 'grid_feedback_keeps_restricted_source')" "0" "0120's column, trigger and function are folded into marks and gone"
+check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || retired_by || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '44444444-0000-4000-8000-000000000122'" "retired,restricted_source,system:migration-0124,true" "a lesson created from a vote on a marked answer is retired, its text replaced, whatever conversation the vote named"
+check_in grid_lessons "SELECT status || ',' || content FROM platform_lessons WHERE id = '55555555-0000-4000-8000-000000000122'" "active,Brüstungshöhen mit Quelle nennen 0123" "the open lesson stays as it was"
+check_in grid_lessons "SELECT string_agg(feedback_id::text || '=' || coalesce(canonical_summary, '-'), ',' ORDER BY feedback_id) FROM platform_lesson_reports WHERE org_hash = 'hash_0122'" "f6f6f6f6-0000-4000-8000-000000000122=-,f7f7f7f7-0000-4000-8000-000000000122=Brüstungshöhe falsch genannt" "the marked report loses its summary, the open one keeps it"
+check_in grid_lessons "SELECT string_agg(lesson_id::text || '=' || coalesce(detail->>'previousContent', '-') || '/' || coalesce(detail->>'previousContentWithdrawn', '-'), ',' ORDER BY lesson_id) FROM platform_lesson_events WHERE action = 'edited'" "11111111-0000-4000-8000-000000000118=-/true,44444444-0000-4000-8000-000000000122=-/true,55555555-0000-4000-8000-000000000122=Brüstung 1,00 m/-" "every withdrawn lesson's edits lose previousContent, 0119's included; the open one keeps it"
+check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0124'" "1" "one retirement event, for the lesson that was live"
+sql_in grid_lessons <<'SQL'
+INSERT INTO messages (id, conversation_id, organization_id, role, content) VALUES
+  ('c4c4c4c4-0000-4000-8000-000000000122', 's_0122_restricted', 'org_0107', 'assistant', 'Und der Dachdecker 31.000 EUR.'),
+  ('c5c5c5c5-0000-4000-8000-000000000122', 's_0122_open', 'org_0107', 'assistant', 'Die Treppe hat 18 Stufen.');
+DELETE FROM conversations WHERE id = 's_0122_restricted';
+SQL
+check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE conversation_id LIKE 's_0122_%'" "c1c1c1c1-0000-4000-8000-000000000122,c2c2c2c2-0000-4000-8000-000000000122,c4c4c4c4-0000-4000-8000-000000000122,d8d8d8d8-0000-4000-8000-000000000122" "the trigger marks a message written into a recorded conversation only, and the marks outlive it"
+sql_in grid_lessons <<'SQL'
+INSERT INTO conversations (id, organization_id, created_by) VALUES ('s_0122_late', 'org_0107', 'user_1');
+INSERT INTO messages (id, conversation_id, organization_id, role, content) VALUES
+  ('e1e1e1e1-0000-4000-8000-000000000122', 's_0122_late', 'org_0107', 'assistant', 'Die Fluchtweglänge beträgt 40 m.');
+INSERT INTO answer_feedback (id, organization_id, conversation_id, message_id, user_id, verdict) VALUES
+  ('fafafafa-0000-4000-8000-000000000122', 'org_0107', 's_0122_late', 'e2e2e2e2-0000-4000-8000-000000000122', 'user_1', 'down');
+SQL
+check_in grid_lessons "SELECT count(*) FROM message_restricted_use WHERE conversation_id = 's_0122_late'" "0" "nothing in a conversation before its first admission is marked"
+sql_in grid_lessons <<'SQL'
+INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id) VALUES
+  ('org_0107', 's_0122_late', 'a1a1a1a1-a1a1-4000-8000-000000000107');
+INSERT INTO answer_feedback (id, organization_id, conversation_id, message_id, user_id, verdict, comment) VALUES
+  ('fbfbfbfb-0000-4000-8000-000000000122', 'org_0107', 's_0122_open', 'e1e1e1e1-0000-4000-8000-000000000122', 'user_2', 'down', 'Falsch, laut Angebot 48.000 EUR'),
+  ('fcfcfcfc-0000-4000-8000-000000000122', 'org_0107', 's_0122_late', 'e3e3e3e3-0000-4000-8000-000000000122', 'user_1', 'down', 'Erwartet Spengler 31.000 EUR');
+SQL
+check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE conversation_id = 's_0122_late'" "e1e1e1e1-0000-4000-8000-000000000122,e2e2e2e2-0000-4000-8000-000000000122,e3e3e3e3-0000-4000-8000-000000000122" "a first admission marks the messages and the votes already there, and a vote naming the conversation, or on its message, marks its id"
+check_in grid_lessons "SELECT count(*) FROM message_restricted_use WHERE conversation_id = 's_0122_open'" "0" "a vote naming an open conversation on a recorded one's message does not make the open one read as restricted"
+check_in grid_lessons "SELECT has_table_privilege('grid_app_rw', 'message_restricted_use', 'INSERT')::text || ',' || has_table_privilege('grid_app_rw', 'message_restricted_use', 'UPDATE')::text || ',' || has_table_privilege('grid_app_rw', 'message_restricted_use', 'DELETE')::text" "true,false,false" "the runtime role may add a mark and may neither change nor delete one"
+sql_in grid_lessons <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name) VALUES
+  ('b0b0b0b0-0000-4000-8000-000000000123', 'org_0107', 'Revision', 'user_1', 'proj_rev_0123');
+WITH folder AS (
+  INSERT INTO project_folders (id, organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+  VALUES ('b1b1b1b1-0000-4000-8000-000000000123', 'org_0107', 'b0b0b0b0-0000-4000-8000-000000000123', 'Honorare', 'Honorare', 'custom', 'user_1', now())
+  RETURNING id, project_id
+), grants AS (
+  INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+  SELECT 'org_0107', project_id, id, 'org-buchhaltung', 'read' FROM folder
+)
+SELECT 1 FROM folder;
+INSERT INTO documents (id, organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id) VALUES
+  ('b2b2b2b2-0000-4000-8000-000000000123', 'org_0107', 'user_1', 'angebot.md', 'k/rev/0123', 'proj_rev_0123', 'completed', 'project', 'b0b0b0b0-0000-4000-8000-000000000123', NULL);
+INSERT INTO conversations (id, organization_id, created_by) VALUES ('s_0123_thread', 'org_0107', 'user_1');
+INSERT INTO task_runs (organization_id, project_id, kind, title, plan, requester_user_id, trigger, status, skill_snapshot, conversation_id) VALUES
+  ('org_0107', 'b0b0b0b0-0000-4000-8000-000000000123', 'revision', 'Überarbeitung',
+   '{"prompt": "x", "skill": {}, "dataSources": null, "subject": {"documentId": "b2b2b2b2-0000-4000-8000-000000000123", "versionId": "b2b2b2b2-0000-4000-8000-000000000123"}}',
+   'user_1', 'delegated', 'succeeded', '{}', 's_0123_thread');
+INSERT INTO messages (id, conversation_id, organization_id, role, content) VALUES
+  ('b3b3b3b3-0000-4000-8000-000000000123', 's_0123_thread', 'org_0107', 'assistant', 'Entwurf: Zimmerer 48.000 EUR');
+INSERT INTO answer_feedback (id, organization_id, conversation_id, message_id, user_id, verdict, comment) VALUES
+  ('b4b4b4b4-0000-4000-8000-000000000123', 'org_0107', NULL, 'b3b3b3b3-0000-4000-8000-000000000123', 'user_1', 'down', 'Zimmerer falsch');
+SQL
+check_in grid_lessons "SELECT grid_feedback_restricted_use('org_0107', 'b3b3b3b3-0000-4000-8000-000000000123', NULL)::text || ',' || (SELECT count(*) FROM message_restricted_use WHERE conversation_id = 's_0123_thread')" "false,0" "a revision thread whose document sits at the project's root is not restricted, and nothing is marked"
+sql_in grid_lessons <<'SQL'
+UPDATE documents SET folder_id = 'b1b1b1b1-0000-4000-8000-000000000123' WHERE id = 'b2b2b2b2-0000-4000-8000-000000000123';
+SQL
+check_in grid_lessons "SELECT string_agg(message_id, ',') FROM message_restricted_use WHERE conversation_id = 's_0123_thread'" "b3b3b3b3-0000-4000-8000-000000000123" "moving the document into a folder of a project with an access list marks the thread's messages and votes"
+sql_in grid_lessons <<'SQL'
+UPDATE documents SET folder_id = NULL WHERE id = 'b2b2b2b2-0000-4000-8000-000000000123';
+SQL
+check_in grid_lessons "SELECT grid_conversation_restricted_use('org_0107', 's_0123_thread')::text" "true" "the marks keep the thread restricted after the document moves back"
+sql_in grid_lessons <<'SQL'
+DELETE FROM conversations WHERE id = 's_0123_thread';
+SQL
+check_in grid_lessons "SELECT grid_feedback_restricted_use('org_0107', 'b3b3b3b3-0000-4000-8000-000000000123', NULL)::text || ',' || grid_conversation_restricted_use('org_0107', 's_0123_thread')::text || ',' || (SELECT count(*) FROM task_runs WHERE conversation_id = 's_0123_thread')" "true,true,0" "the vote stays out after the thread is deleted, though its task no longer names it"
+apply_in grid_lessons 0124_message_restricted_use.down.sql
+check_in grid_lessons "SELECT to_regclass('public.message_restricted_use') IS NULL" "t" "down dropped the marks"
+check_in grid_lessons "SELECT string_agg(message_id || ':' || restricted_source::text, ',' ORDER BY message_id) FROM answer_feedback WHERE id IN ('f6f6f6f6-0000-4000-8000-000000000122', 'f7f7f7f7-0000-4000-8000-000000000122')" "c2c2c2c2-0000-4000-8000-000000000122:true,c3c3c3c3-0000-4000-8000-000000000122:false" "down brings 0120's column back from the marks"
+check_in grid_lessons "SELECT count(*) FROM pg_trigger WHERE tgname = 'conversation_restricted_folders_mark_feedback'" "1" "down restores 0120's trigger"
+check_in grid_lessons "SELECT (SELECT count(*) FROM pg_proc WHERE proname IN ('grid_uuid_or_null', 'grid_conversation_restricted_use', 'grid_feedback_restricted_use', 'grid_mark_conversation_restricted_use', 'grid_mark_conversation_messages', 'grid_mark_feedback_restricted_use', 'grid_mark_revision_thread', 'grid_mark_revision_thread_of_task', 'grid_mark_revision_threads_of_document', 'grid_mark_revision_threads_of_folder')) + (SELECT count(*) FROM pg_trigger WHERE tgname IN ('conversation_restricted_folders_mark_messages', 'answer_feedback_mark_restricted_use', 'task_runs_mark_revision_thread', 'documents_mark_revision_threads', 'project_folders_mark_revision_threads')) + (SELECT count(*) FROM pg_indexes WHERE indexname IN ('idx_task_runs_revision_conversation', 'idx_task_runs_revision_subject'))" "0" "down drops the rule's functions, triggers and indexes"
+apply_in grid_lessons 0124_message_restricted_use.sql
+apply_in grid_lessons 0124_message_restricted_use.sql
+check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0124'" "1" "0124 re-applies, twice, without a second event"
+check_in grid_lessons "SELECT count(*) FROM message_restricted_use WHERE message_id IN ('c2c2c2c2-0000-4000-8000-000000000122', 'm_0118_1')" "2" "the re-applied backfill marks again from the restored column"
+check_in grid_lessons "SELECT conversation_id = '' FROM message_restricted_use WHERE message_id = 'c2c2c2c2-0000-4000-8000-000000000122'" "t" "a mark read back from the restored column names no conversation: the column names the chat a vote claimed"
+check_in grid_lessons "SELECT (SELECT count(*) FROM message_restricted_use WHERE message_id = 'c3c3c3c3-0000-4000-8000-000000000122')::text || ',' || (SELECT status FROM platform_lessons WHERE id = '55555555-0000-4000-8000-000000000122')" "0,active" "so the open chat a vote claimed does not read as restricted, and its answer and lesson stay as they were"
+
+echo "==> 0124 message mark, withdrawal and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0125: the cross-project record, and its DOWN.
+#
+# On a database of its own, migrated to 0125: a conversation that drew on
+# another project. The down must not make it shareable: it leaves a nil-folder
+# row in conversation_restricted_folders, which the older build reads as a
+# folder nobody may read. 0125 re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0125 cross-project record and its down migration on grid_cross_project"
+migrate_until grid_cross_project 0125_conversation_source_projects
+sql_in grid_cross_project <<'SQL'
+INSERT INTO conversation_source_projects (organization_id, conversation_id, project_id)
+VALUES ('org_0125', 's_xp_0125', 'aaaaaaaa-0000-4000-8000-000000000125');
+SQL
+refused_in grid_cross_project "UPDATE conversation_source_projects SET last_at = first_at - interval '1 day' WHERE conversation_id = 's_xp_0125';" "conversation_source_projects_order" "a record cannot end before it began"
+apply_in grid_cross_project 0125_conversation_source_projects.down.sql
+check_in grid_cross_project "SELECT to_regclass('public.conversation_source_projects') IS NULL" "t" "down dropped the table"
+check_in grid_cross_project "SELECT folder_id::text FROM conversation_restricted_folders WHERE conversation_id = 's_xp_0125'" "00000000-0000-0000-0000-000000000000" "down leaves the chat recorded on a folder nobody may read"
+apply_in grid_cross_project 0125_conversation_source_projects.sql
+check_in grid_cross_project "SELECT count(*) FROM conversation_source_projects" "0" "0125 re-applies, empty"
+check_in grid_cross_project "SELECT relrowsecurity FROM pg_class WHERE relname = 'conversation_source_projects'" "t" "0125 re-applies under row-level security"
+
+echo "==> 0125 cross-project record and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0126: permitting memory, and its DOWN.
+#
+# On grid_cross_project, after 0125: both tables come up under row-level
+# security, the down drops them (they are derived, re-read from the
+# documents), and 0126 re-applies empty.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0126 permit records and their down migration on grid_cross_project"
+apply_in grid_cross_project 0126_permit_records.sql
+check_in grid_cross_project "SELECT string_agg(relrowsecurity::text, ',' ORDER BY relname) FROM pg_class WHERE relname IN ('permit_records', 'permit_requirements')" "true,true" "0126 brings both tables up under row-level security"
+apply_in grid_cross_project 0126_permit_records.down.sql
+check_in grid_cross_project "SELECT count(*) FROM information_schema.tables WHERE table_name IN ('permit_records', 'permit_requirements')" "0" "down dropped both tables"
+apply_in grid_cross_project 0126_permit_records.sql
+check_in grid_cross_project "SELECT count(*) FROM permit_records" "0" "0126 re-applies, empty"
+echo "==> 0126 permit records and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0127: the evidence a drafted decision was read from (ADR-0096),
+# and its DOWN.
+#
+# On grid_cross_project, after 0126: project_memory is already secured, so the
+# column adds nothing to the boundary; what 0127 owns is its CHECK (an array
+# when set). The down drops the column and its CHECK and keeps the note, and
+# 0127 re-applies with the evidence gone (NULL), the lossy direction.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0127 memory evidence, its CHECK and the down migration on grid_cross_project"
+apply_in grid_cross_project 0127_project_memory_evidence.sql
+sql_in grid_cross_project <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000127', 'org_0127', 'Evidenz', 'user_1', 'proj_0127');
+INSERT INTO project_memory (scope, project_id, organization_id, kind, content, provenance_type, verification, evidence)
+VALUES ('project', 'aaaaaaaa-0000-4000-8000-000000000127', 'org_0127', 'decision', 'Fassade hinterlüftet 0127', 'distillation', 'source_grounded',
+        '[{"fileName": "Baubeschreibung.pdf", "page": "4"}]');
+SQL
+refused_in grid_cross_project "UPDATE project_memory SET evidence = '{\"fileName\": \"a.pdf\"}' WHERE organization_id = 'org_0127';" "project_memory_evidence_check" "evidence is an array when it is set"
+check_in grid_cross_project "SELECT relrowsecurity FROM pg_class WHERE relname = 'project_memory'" "t" "the column sits on a table under row-level security"
+apply_in grid_cross_project 0127_project_memory_evidence.down.sql
+check_in grid_cross_project "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'evidence')::text || ',' || (SELECT count(*) FROM pg_constraint WHERE conname = 'project_memory_evidence_check')::text || ',' || (SELECT count(*) FROM project_memory WHERE organization_id = 'org_0127')::text" "0,0,1" "down drops the column and its CHECK, and keeps the note"
+apply_in grid_cross_project 0127_project_memory_evidence.sql
+check_in grid_cross_project "SELECT (evidence IS NULL)::text || ',' || (SELECT count(*) FROM pg_constraint WHERE conname = 'project_memory_evidence_check')::text FROM project_memory WHERE organization_id = 'org_0127'" "true,1" "0127 re-applies, the evidence gone"
+echo "==> 0127 memory evidence and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

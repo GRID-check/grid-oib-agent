@@ -57,6 +57,7 @@ export const chat = {
       baurecht: 'Building law & guidelines',
       buero: 'Office filing',
       projekt: 'Project knowledge',
+      praezedenz: 'Precedent',
       web: 'Web source',
     },
     // Origin line in the info popover (no openable document).
@@ -252,6 +253,9 @@ export const chat = {
     sourceNumber: 'Source {number}',
     page: 'p. {page}',
     pages: 'pp. {pages}',
+    // The meta line of a precedent from another project: project, status, then the Land.
+    precedentProject: '{name} · {status}',
+    projectStatus: { active: 'active', closed: 'closed' },
     // Sources past the eight chips fold behind the same control the read
     // sources use: the count first, every name on expand.
     more: '+{count} more',
@@ -808,6 +812,7 @@ export const chat = {
         web: 'the web',
         documents: 'your documents',
         ifc: 'the building model',
+        otherProjects: 'other projects',
       },
       // Joins two corpora in one line. Grammar, so it lives here too.
       corpusJoin: ' and ',
@@ -1257,6 +1262,12 @@ export const chat = {
    * Sensitive data in chat (ADR-0086): what the composer reports before sending.
    * The placeholders themselves are domain data and come from `content-screen.ts`.
    */
+  /** The notice once a chat's answers drew on another project (ADR-0094). */
+  otherProjects: {
+    title: 'This chat draws on other projects: {projects}.',
+    gone: 'a project that no longer exists',
+    body: 'It can be shared only with people who may open those projects. Nothing from it goes into project memory, tasks, deep research or the project’s files.',
+  },
   screening: {
     title: 'Contains {items} (Sensitive data).',
     body: 'Piloti does not send this to the answering model.',

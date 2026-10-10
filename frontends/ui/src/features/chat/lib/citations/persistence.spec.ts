@@ -57,6 +57,17 @@ describe('citation persistence', () => {
     expect(doc!.loci[0]!.regions).toEqual(regions)
   })
 
+  it('keeps a precedent’s Land across a reload, so the reloaded chip still says where it applies (ADR-0094)', () => {
+    const project = {
+      id: 'p9',
+      name: 'Wohnbau Graz',
+      status: 'closed' as const,
+      landNote: 'Steiermark — nicht das Bundesland dieses Projekts',
+    }
+    const [restored] = decodeCitations(encodeCitations([{ ...source(3, 1), project }]), WHEN)!
+    expect(restored!.project).toEqual(project)
+  })
+
   it('carries the version explicitly rather than leaving it to be guessed', () => {
     expect(encodeCitations([source(5, 1)])!.v).toBe(CITATIONS_PAYLOAD_VERSION)
   })

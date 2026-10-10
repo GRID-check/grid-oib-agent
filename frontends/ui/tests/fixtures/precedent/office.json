@@ -1,0 +1,1439 @@
+{
+  "$comment": "The precedent eval's fixture office (docs/roadmap/office-experience.md, step A). Invented projects with realistic Austrian permitting content. office.json is the source; rendered.json is written from it by the real TypeScript renderers (reference-brief.fixture.spec.ts) and served by scripts/turn_census/fixture_bff.py. A project's `decisions` are its project memory's decision and constraint items: served by the search like the BFF's recorded decisions.",
+  "organizationId": "org_precedent_eval",
+  "userId": "user_precedent_eval",
+  "current": {
+    "id": "a0000000-0000-4000-8000-000000000001",
+    "name": "Wohnhaus Perchtoldsdorf, Hochstraße",
+    "collection": "proj_eval_current",
+    "status": "active",
+    "startedOn": "2026-03-01",
+    "facts": {
+      "bundesland": "niederoesterreich",
+      "gebaeudeklasse": 4,
+      "bauweise": [
+        "holzbau"
+      ],
+      "nutzungen": [
+        "wohnen"
+      ],
+      "vorhabensart": [
+        "neubau"
+      ],
+      "standort_adresse": "Hochstraße 12, 2380 Perchtoldsdorf",
+      "geschosse_oberirdisch": 4
+    },
+    "summary": "Viergeschoßiger Holzwohnbau mit 14 Wohnungen, Stiegenhaus zentral, Einreichplanung läuft."
+  },
+  "projects": [
+    {
+      "id": "b0000000-0000-4000-8000-000000000002",
+      "name": "Holzwohnbau Baden, Wiener Straße",
+      "collection": "proj_eval_baden",
+      "status": "closed",
+      "startedOn": "2020-01-01",
+      "endedOn": "2022-09-01",
+      "facts": {
+        "bundesland": "niederoesterreich",
+        "gebaeudeklasse": 4,
+        "bauweise": [
+          "holzbau"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Wiener Straße 40, 2500 Baden"
+      },
+      "summary": "Viergeschoßiger Holzwohnbau (CLT) mit Stiegenhaus in Stahlbeton; Brandschutz über Gutachten mit Kapselung.",
+      "documents": [
+        {
+          "documentId": "doc-baden-gutachten",
+          "filename": "Brandschutzgutachten_Baden.pdf",
+          "title": "Brandschutzgutachten Holzwohnbau Baden",
+          "page": 4,
+          "tags": [
+            "Gutachten",
+            "Brandschutz"
+          ],
+          "text": "Für die tragenden und aussteifenden Holzbauteile (Brettsperrholz) der Gebäudeklasse 4 wird REI 60 nachgewiesen. Abweichend von OIB-Richtlinie 2, Ausgabe 2019, Tabelle 1b, werden die Wände und Decken nicht in A2 ausgeführt; die Gleichwertigkeit nach Punkt 0.2 der Richtlinie wird durch eine Kapselung K2 60 aus zwei Lagen Gipsfaserplatten (je 18 mm) auf allen Decken und Wänden der Aufenthaltsräume erreicht. Das Stiegenhaus wird als Fluchtweg in Stahlbeton (REI 90, A2) ausgeführt. Die Baubehörde hat das Gutachten als Bestandteil der Bewilligung übernommen."
+        },
+        {
+          "documentId": "doc-baden-traufe",
+          "filename": "Detail_Traufe_Holzbau.pdf",
+          "title": "Detail Traufe hinterlüftet",
+          "page": 2,
+          "tags": [
+            "Detail",
+            "Brandschutz"
+          ],
+          "text": "Traufe der hinterlüfteten Holzfassade: Konterlattung 5/8 cm, Insektenschutzgitter an der Zuluftöffnung, Brandsperre im Hinterlüftungsraum je Geschoß aus verzinktem Stahlblech 1 mm mit 20 cm Auskragung, damit ein Brand in der Hinterlüftung nicht über mehr als ein Geschoß weiterläuft. Ausgeführt 2021, abgenommen ohne Mängel."
+        },
+        {
+          "documentId": "doc-baden-bescheid",
+          "filename": "Baubescheid_Baden_2020.pdf",
+          "title": "Baubescheid Stadtgemeinde Baden",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Stadtgemeinde Baden, Baubehörde erster Instanz – Die Baubewilligung wird am 14. September 2020 unter folgenden Auflagen erteilt: 1. Das Brandschutzgutachten vom 3. Juli 2020 ist Bestandteil dieser Bewilligung und bei der Ausführung einzuhalten. 2. Mit der Fertigstellungsanzeige ist eine Bestätigung des Brandschutzplaners über die plan- und gutachtensgemäße Ausführung der Kapselung vorzulegen. 3. Die Brandsperren der Fassade sind vor dem Schließen der Fassade fotografisch zu dokumentieren. Eingereicht am 2. März 2020."
+        },
+        {
+          "documentId": "doc-baden-energie",
+          "filename": "Energieausweis_Wohnanlage.pdf",
+          "title": "Energieausweis Wohnanlage",
+          "page": 1,
+          "tags": [
+            "Sonstiges",
+            "Energieeinsparung/Wärmeschutz"
+          ],
+          "text": "Heizwärmebedarf HWB Ref,SK 24 kWh/m²a, Gesamtenergieeffizienz-Faktor fGEE 0,71. Fernwärmeanschluss, kontrollierte Wohnraumlüftung mit Wärmerückgewinnung 85 %, Fenster Uw 0,9 W/m²K mit Dreifachverglasung."
+        },
+        {
+          "documentId": "doc-baden-schall",
+          "filename": "Detail_Wohnungstrennwand.pdf",
+          "title": "Detail Wohnungstrennwand",
+          "page": 3,
+          "tags": [
+            "Detail",
+            "Schallschutz"
+          ],
+          "text": "Wohnungstrennwand aus Brettsperrholz 14 cm mit beidseitiger Vorsatzschale auf Federschiene, 6 cm Mineralwolle im Hohlraum; Prognose R'w 60 dB. Decken mit schwimmendem Estrich auf 30 mm Trittschalldämmplatte, Fugen elastisch entkoppelt."
+        },
+        {
+          "documentId": "doc-baden-statik",
+          "filename": "Statik_Deckenschwingung.pdf",
+          "title": "Statik Brettsperrholzdecken",
+          "page": 5,
+          "tags": [
+            "Gutachten",
+            "Standsicherheit"
+          ],
+          "text": "Decken aus Brettsperrholz 20 cm, größte Spannweite 5,4 m, Durchbiegung quasi-ständig L/300 nachgewiesen. Schwingungsnachweis nach ÖNORM B 1995-1-1 mit Eigenfrequenz über 8 Hz, Steifigkeit unter Einzellast 0,5 mm."
+        }
+      ],
+      "decisions": [
+        {
+          "kind": "decision",
+          "confirmed": true,
+          "recordedAt": "2020-06-18T09:00:00.000Z",
+          "restricted": false,
+          "content": "Für die Kapselung K2 60 wurden Gipsfaserplatten statt Gipskartonplatten gewählt, weil nur für den Gipsfaser-Aufbau 2 × 18 mm ein Prüfbericht vorlag, den die Baubehörde ohne Einzelnachweis anerkannte; Mehrkosten rund 6 € je m²."
+        }
+      ]
+    },
+    {
+      "id": "c0000000-0000-4000-8000-000000000003",
+      "name": "Wohnhausanlage Mödling, Brunner Gasse",
+      "collection": "proj_eval_moedling",
+      "status": "closed",
+      "startedOn": "2019-03-01",
+      "endedOn": "2021-06-01",
+      "facts": {
+        "bundesland": "niederoesterreich",
+        "gebaeudeklasse": 4,
+        "bauweise": [
+          "mauerwerk_massivbau"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Brunner Gasse 7, 2340 Mödling"
+      },
+      "summary": "Wohnhausanlage in Massivbau mit außenliegender Fluchttreppe; Mängelbehebungsauftrag der Baubehörde zur Fluchtwegbreite.",
+      "documents": [
+        {
+          "documentId": "doc-moedling-nachforderung",
+          "filename": "Maengelbehebung_Baubehoerde_Moedling.pdf",
+          "title": "Mängelbehebungsauftrag Stadtgemeinde Mödling",
+          "page": 1,
+          "tags": [
+            "Bescheid",
+            "Brandschutz"
+          ],
+          "text": "Stadtgemeinde Mödling, Baubehörde erster Instanz – Mängelbehebungsauftrag gemäß § 13 Abs. 3 AVG vom 18. Juni 2019: Die Einreichunterlagen sind binnen vier Wochen zu ergänzen um a) den Nachweis der lichten Breite der Fluchtwege im Stiegenhaus von mindestens 1,20 m, bemaßt in den Grundrissen aller Geschoße, b) die Darstellung der Rauchabzugsöffnung an der obersten Stelle des Stiegenhauses mit mindestens 1 m² geometrisch freier Fläche, c) eine Bestätigung über die Erreichbarkeit der außenliegenden Fluchttreppe von jeder Wohnung."
+        },
+        {
+          "documentId": "doc-moedling-bescheid",
+          "filename": "Baubescheid_Moedling_2019.pdf",
+          "title": "Baubescheid Stadtgemeinde Mödling",
+          "page": 2,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Stadtgemeinde Mödling, Baubehörde erster Instanz – Die Baubewilligung wird am 9. Oktober 2019 unter folgenden Auflagen erteilt: 1. Vor Baubeginn ist ein Brandschutzkonzept eines befugten Fachplaners vorzulegen. 2. Die außenliegende Fluchttreppe ist nichtbrennbar (A2) herzustellen. 3. Die Stellplatzverpflichtung ist durch 18 Stellplätze am Bauplatz zu erfüllen. Eingereicht am 12. April 2019."
+        },
+        {
+          "documentId": "doc-moedling-fluchttreppe",
+          "filename": "Detail_Fluchttreppe_aussen.pdf",
+          "title": "Detail außenliegende Fluchttreppe",
+          "page": 1,
+          "tags": [
+            "Detail",
+            "Brandschutz"
+          ],
+          "text": "Außenliegende Fluchttreppe als Stahlkonstruktion, feuerverzinkt, Gitterroststufen, lichte Laufbreite 1,20 m, Baustoffklasse A2, über Laubengang an jede Wohnung angeschlossen; bemessen nach OIB-Richtlinie 2, Ausgabe 2015."
+        },
+        {
+          "documentId": "doc-moedling-kanal",
+          "filename": "Benuetzungsbewilligung_Moedling.pdf",
+          "title": "Benützungsbewilligung Stadtgemeinde Mödling",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Stadtgemeinde Mödling, Baubehörde erster Instanz – Die Benützung der Wohnhausanlage wird am 21. April 2021 bewilligt. Auflagen: 1. Die Prüfbefunde der Aufzugsanlage und der Blitzschutzanlage sind innerhalb von vier Wochen nachzureichen. 2. Die Regenwässer sind auf Eigengrund zu versickern, der Anschluss an den Mischwasserkanal ist aufzulassen."
+        },
+        {
+          "documentId": "doc-moedling-statik",
+          "filename": "Statik_Flachdecken.pdf",
+          "title": "Statik Flachdecken",
+          "page": 4,
+          "tags": [
+            "Gutachten",
+            "Standsicherheit"
+          ],
+          "text": "Stahlbeton-Flachdecken 25 cm, Betongüte C25/30, Expositionsklasse XC1. Durchstanznachweis an den Innenstützen mit Durchstanzbewehrung, Bewehrungsgrad im Feld 0,35 %, Rissbreitenbeschränkung auf 0,3 mm."
+        },
+        {
+          "documentId": "doc-moedling-grundriss",
+          "filename": "Grundriss_Regelgeschoss.pdf",
+          "title": "Grundriss Regelgeschoß",
+          "page": 2,
+          "tags": [
+            "Grundriss"
+          ],
+          "text": "Regelgeschoß mit vier Wohnungen von 52 bis 78 m², Erschließung über Laubengang an der Nordseite, Loggien nach Süden mit 2,2 m Tiefe, Abstellräume im Kellergeschoß."
+        }
+      ],
+      "decisions": [
+        {
+          "kind": "constraint",
+          "confirmed": true,
+          "recordedAt": "2019-07-02T09:00:00.000Z",
+          "restricted": false,
+          "content": "Die Baubehörde Mödling akzeptiert die Fluchtwegbreite nur bemaßt in jedem einzelnen Grundriss, nicht als Verweis auf ein Regeldetail."
+        }
+      ]
+    },
+    {
+      "id": "d0000000-0000-4000-8000-000000000004",
+      "name": "Bürogebäude Wien 22, Wagramer Straße",
+      "collection": "proj_eval_wien22",
+      "status": "closed",
+      "startedOn": "2017-05-01",
+      "endedOn": "2020-02-01",
+      "facts": {
+        "bundesland": "wien",
+        "gebaeudeklasse": 5,
+        "bauweise": [
+          "stahlbeton"
+        ],
+        "nutzungen": [
+          "buero"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Wagramer Straße 150, 1220 Wien"
+      },
+      "summary": "Achtgeschoßiges Bürogebäude, Fluchtniveau 24,5 m, Sicherheitstreppenhaus mit Druckbelüftung.",
+      "documents": [
+        {
+          "documentId": "doc-wien22-sicherheitstreppenhaus",
+          "filename": "Brandschutzkonzept_Sicherheitstreppenhaus.pdf",
+          "title": "Brandschutzkonzept Sicherheitstreppenhaus",
+          "page": 6,
+          "tags": [
+            "Gutachten",
+            "Brandschutz"
+          ],
+          "text": "Bei einem Fluchtniveau von 24,5 m wird das Treppenhaus als Sicherheitstreppenhaus mit Druckbelüftungsanlage ausgeführt. Die Druckbelüftung hält im Brandfall einen Überdruck gegenüber den Geschoßen, die Türen sind selbstschließend in EI2 30-C, die Anlage wird über die Brandmeldeanlage angesteuert."
+        },
+        {
+          "documentId": "doc-wien22-ma37",
+          "filename": "MA37_Nachforderung_Druckbelueftung.pdf",
+          "title": "Nachforderung MA 37",
+          "page": 1,
+          "tags": [
+            "Bescheid",
+            "Brandschutz"
+          ],
+          "text": "Magistrat der Stadt Wien, Magistratsabteilung 37 – Baupolizei – Die MA 37 fordert für das Sicherheitstreppenhaus vor Erteilung der Baubewilligung einen rechnerischen Nachweis der Druckbelüftung samt Prüfbericht einer akkreditierten Stelle sowie die Darstellung der Zuluft- und Abströmöffnungen. Eingelangt am 4. Dezember 2017."
+        },
+        {
+          "documentId": "doc-wien22-raum",
+          "filename": "Raumprogramm_Regelgeschoss.pdf",
+          "title": "Raumprogramm Regelgeschoß",
+          "page": 2,
+          "tags": [
+            "Grundriss"
+          ],
+          "text": "Regelgeschoß mit 1.050 m² Nutzfläche in Kernbauweise, Achsraster 8,1 m, Doppelboden 15 cm, Kühldecken in den Büroflächen, zwei Teeküchen je Geschoß."
+        },
+        {
+          "documentId": "doc-wien22-energie",
+          "filename": "Energieausweis_Buerogebaeude.pdf",
+          "title": "Energieausweis Bürogebäude",
+          "page": 1,
+          "tags": [
+            "Sonstiges",
+            "Energieeinsparung/Wärmeschutz"
+          ],
+          "text": "Heizwärmebedarf 18 kWh/m²a, Kühlbedarf 12 kWh/m²a, Betonkernaktivierung mit Grundwassernutzung über zwei Entnahmebrunnen, Fassade mit Sonnenschutz außen liegend."
+        },
+        {
+          "documentId": "doc-wien22-baulaerm",
+          "filename": "Baulaerm_Konzept.pdf",
+          "title": "Baulärm- und Erschütterungskonzept",
+          "page": 3,
+          "tags": [
+            "Sonstiges",
+            "Schallschutz"
+          ],
+          "text": "Arbeiten mit starker Lärmentwicklung werktags nur von 8 bis 17 Uhr; Erschütterungsmessung an den Nachbargebäuden mit Grenzwert 5 mm/s Schwinggeschwindigkeit, Messprotokolle wöchentlich."
+        }
+      ]
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000005",
+      "name": "Schule Linz, Hybridbau",
+      "collection": "proj_eval_linz",
+      "status": "active",
+      "startedOn": "2025-02-01",
+      "facts": {
+        "bundesland": "oberoesterreich",
+        "gebaeudeklasse": 3,
+        "bauweise": [
+          "holzbau",
+          "stahlbeton"
+        ],
+        "nutzungen": [
+          "bildung"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Hafenstraße 3, 4020 Linz"
+      },
+      "summary": "Dreigeschoßige Volksschule als Holz-Hybridbau, in Ausführungsplanung.",
+      "documents": [
+        {
+          "documentId": "doc-linz-decke",
+          "filename": "Detail_HBV_Decke.pdf",
+          "title": "Detail Holz-Beton-Verbunddecke",
+          "page": 3,
+          "tags": [
+            "Detail"
+          ],
+          "text": "Holz-Beton-Verbunddecke aus Brettsperrholz 16 cm mit 12 cm Aufbeton, schubfest verbunden über eingeklebte Kerven, Feuerwiderstand REI 90 nachgewiesen nach ÖNORM EN 1995-1-2, Trittschall über schwimmenden Estrich."
+        },
+        {
+          "documentId": "doc-linz-raumbuch",
+          "filename": "Raumbuch_Klassen.pdf",
+          "title": "Raumbuch Klassenräume",
+          "page": 2,
+          "tags": [
+            "Grundriss"
+          ],
+          "text": "Zwölf Klassenräume zu je 62 m², Raumhöhe 3,2 m, Gruppenräume zwischen je zwei Klassen, Garderoben am Gang, Nachhallzeit in den Klassen 0,5 s."
+        },
+        {
+          "documentId": "doc-linz-pv",
+          "filename": "PV_Konzept_Schule.pdf",
+          "title": "Photovoltaikkonzept",
+          "page": 1,
+          "tags": [
+            "Sonstiges",
+            "Energieeinsparung/Wärmeschutz"
+          ],
+          "text": "Photovoltaikanlage 48 kWp auf dem Flachdach, Aufständerung Ost-West mit 10° Neigung, Eigenverbrauch über den Schulbetrieb, Notstrom nicht vorgesehen."
+        },
+        {
+          "documentId": "doc-linz-turnsaal",
+          "filename": "Schallschutz_Turnsaal.pdf",
+          "title": "Schallschutz Turnsaal",
+          "page": 4,
+          "tags": [
+            "Gutachten",
+            "Schallschutz"
+          ],
+          "text": "Der Turnsaal wird mit Akustikdecke und Wandabsorbern auf eine Nachhallzeit von 1,6 s ausgelegt; die Trennwand zum Musikraum erreicht R'w 55 dB."
+        }
+      ]
+    },
+    {
+      "id": "f0000000-0000-4000-8000-000000000006",
+      "name": "Einfamilienhaus Gänserndorf",
+      "collection": "proj_eval_gaenserndorf",
+      "status": "closed",
+      "startedOn": "2021-04-01",
+      "endedOn": "2022-03-01",
+      "facts": {
+        "bundesland": "niederoesterreich",
+        "gebaeudeklasse": 1,
+        "bauweise": [
+          "holzbau"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ]
+      },
+      "summary": "Freistehendes Einfamilienhaus in Holzriegelbauweise.",
+      "documents": [
+        {
+          "documentId": "doc-gaenserndorf-plan",
+          "filename": "Einreichplan_Gaenserndorf.pdf",
+          "title": "Einreichplan Einfamilienhaus",
+          "page": 1,
+          "tags": [
+            "Grundriss"
+          ],
+          "text": "Einreichplan Erdgeschoß und Obergeschoß, Holzriegelbau, Wohnnutzfläche 142 m², freistehend, ein Stellplatz im Carport."
+        },
+        {
+          "documentId": "doc-gaenserndorf-energie",
+          "filename": "Energieausweis_EFH.pdf",
+          "title": "Energieausweis Einfamilienhaus",
+          "page": 1,
+          "tags": [
+            "Sonstiges",
+            "Energieeinsparung/Wärmeschutz"
+          ],
+          "text": "HWB Ref,SK 31 kWh/m²a, Luft-Wasser-Wärmepumpe mit Fußbodenheizung, Photovoltaikanlage 6 kWp auf dem Satteldach."
+        },
+        {
+          "documentId": "doc-gaenserndorf-bescheid",
+          "filename": "Baubescheid_Einfamilienhaus.pdf",
+          "title": "Baubescheid Einfamilienhaus",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Stadtgemeinde Gänserndorf, Baubehörde erster Instanz – Die Baubewilligung wird am 17. Juni 2021 erteilt. Auflage: Die Einfriedung zur Straße darf eine Gesamthöhe von 1,5 m nicht überschreiten; die Zufahrt ist mit Rasengittersteinen zu befestigen."
+        },
+        {
+          "documentId": "doc-gaenserndorf-boden",
+          "filename": "Bodengutachten_Gaenserndorf.pdf",
+          "title": "Bodengutachten",
+          "page": 2,
+          "tags": [
+            "Gutachten",
+            "Standsicherheit"
+          ],
+          "text": "Sandiger Kies unter 0,5 m Humus, Grundwasser nicht angetroffen; Streifenfundamente 50 cm breit, zulässige Bodenpressung 200 kN/m²."
+        }
+      ]
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "Dachgeschoßausbau Wien 7, Neubaugasse",
+      "collection": "proj_eval_wien7",
+      "status": "closed",
+      "startedOn": "2018-02-01",
+      "endedOn": "2019-11-01",
+      "facts": {
+        "bundesland": "wien",
+        "gebaeudeklasse": 4,
+        "bauweise": [
+          "stahlbau",
+          "holzbau"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
+        "vorhabensart": [
+          "zubau"
+        ]
+      },
+      "summary": "Dachgeschoßausbau mit zwei Geschoßen auf einem Gründerzeithaus.",
+      "documents": [
+        {
+          "documentId": "doc-wien7-bescheid",
+          "filename": "Bescheid_MA37_Dachgeschossausbau.pdf",
+          "title": "Bescheid MA 37 Dachgeschoßausbau",
+          "page": 2,
+          "tags": [
+            "Bescheid",
+            "Brandschutz"
+          ],
+          "text": "Magistrat der Stadt Wien, Magistratsabteilung 37 – Baupolizei – Auflage: Zwischen dem Dachgeschoßausbau und dem Bestand ist eine brandabschnittsbildende Decke in REI 90 herzustellen; die bestehende Holzbalkendecke ist von unten mit einer Bekleidung K2 60 zu versehen. Bewilligt am 22. Mai 2018."
+        },
+        {
+          "documentId": "doc-wien7-statik",
+          "filename": "Statik_Dachgeschoss.pdf",
+          "title": "Statik Dachgeschoßausbau",
+          "page": 3,
+          "tags": [
+            "Gutachten",
+            "Standsicherheit"
+          ],
+          "text": "Stahlrahmen aus HEB 200 auf den bestehenden Gründerzeit-Mittelmauern, Lastabtrag über Roste auf Ziegelmauerwerk; zulässige Mauerwerksdruckspannung nach Bestandsaufnahme 1,2 N/mm² nicht überschritten."
+        },
+        {
+          "documentId": "doc-wien7-dachstuhl",
+          "filename": "Foto_Bestand_Dachstuhl.pdf",
+          "title": "Bestandsaufnahme Dachstuhl",
+          "page": 1,
+          "tags": [
+            "Foto"
+          ],
+          "text": "Pfetten und Sparren aus Fichte, Querschnitt 12/16 cm, an der Traufseite Befall durch Hausbock; befallene Hölzer wurden ausgetauscht, der Rest mit Holzschutzmittel behandelt."
+        }
+      ]
+    },
+    {
+      "id": "a2000000-0000-4000-8000-000000000008",
+      "name": "Altprojekt Hinterbrühl",
+      "collection": "proj_eval_hinterbruehl",
+      "status": "closed",
+      "facts": {},
+      "summary": null,
+      "documents": [
+        {
+          "documentId": "doc-hinterbruehl-bescheid",
+          "filename": "Bescheid_Hinterbruehl_2012.pdf",
+          "title": "Bescheid Marktgemeinde Hinterbrühl",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Marktgemeinde Hinterbrühl, Baubehörde erster Instanz – Baubewilligung vom 3. März 2012 für den Zubau eines Wintergartens; Auflage: Ausführung der Verglasung in Sicherheitsglas."
+        }
+      ]
+    },
+    {
+      "id": "a4000000-0000-4000-8000-00000000000a",
+      "name": "Reihenhausanlage Wolfurt, Kirchstraße",
+      "collection": "proj_eval_wolfurt",
+      "status": "closed",
+      "startedOn": "2020-09-01",
+      "endedOn": "2022-04-01",
+      "facts": {
+        "bundesland": "vorarlberg",
+        "gebaeudeklasse": 2,
+        "bauweise": [
+          "holzbau"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Kirchstraße 18, 6922 Wolfurt"
+      },
+      "summary": "Vier Reihenhäuser in Holzbauweise mit gemeinsamer Erdwärmepumpe.",
+      "documents": [
+        {
+          "documentId": "doc-wolfurt-boden",
+          "filename": "Geotechnischer_Bericht_Wolfurt.pdf",
+          "title": "Geotechnischer Bericht Baugrund",
+          "page": 3,
+          "tags": [
+            "Gutachten",
+            "Standsicherheit"
+          ],
+          "text": "Unter 0,4 m Humus liegt steifer bis weicher Seeton-Schluff, der Grundwasserspiegel wurde bei 2,1 m unter Gelände angetroffen. Empfohlen wird eine Flachgründung auf durchgehender Bodenplatte mit 40 cm Schottertragschicht, zulässige Bodenpressung 150 kN/m²."
+        },
+        {
+          "documentId": "doc-wolfurt-energie",
+          "filename": "Energieausweis_Reihenhaeuser.pdf",
+          "title": "Energieausweis Reihenhäuser",
+          "page": 1,
+          "tags": [
+            "Sonstiges",
+            "Energieeinsparung/Wärmeschutz"
+          ],
+          "text": "Heizwärmebedarf HWB Ref,SK 28 kWh/m²a, fGEE 0,62. Wärmeversorgung über Erdwärmepumpe mit zwei Tiefensonden, Warmwasser mit thermischer Solaranlage auf dem Pultdach."
+        },
+        {
+          "documentId": "doc-wolfurt-bescheid",
+          "filename": "Baubescheid_Reihenhaeuser.pdf",
+          "title": "Baubescheid Marktgemeinde",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Marktgemeinde Wolfurt, Bürgermeister als Baubehörde – Die Baubewilligung für vier Reihenhäuser wird am 5. Mai 2021 mit folgenden Auflagen erteilt: 1. Die Dachwässer sind auf dem Grundstück zu versickern, der Nachweis der Sickerfähigkeit ist vor Baubeginn vorzulegen. 2. Die Photovoltaikanlage ist mit einem Feuerwehrschalter auszuführen. 3. Vier standortgerechte Laubbäume sind nachweislich zu pflanzen."
+        }
+      ],
+      "decisions": [
+        {
+          "kind": "decision",
+          "confirmed": true,
+          "recordedAt": "2020-11-10T09:00:00.000Z",
+          "restricted": false,
+          "content": "Die Photovoltaikanlage wurde im Pultdach integriert statt aufgeständert, weil die Gemeinde die ruhige Dachfläche im Ortsbild verlangte; Minderertrag rund 8 %."
+        }
+      ]
+    },
+    {
+      "id": "a5000000-0000-4000-8000-00000000000b",
+      "name": "Wohnanlage Salzburg-Lehen, Ignaz-Harrer-Straße",
+      "collection": "proj_eval_salzburg-lehen",
+      "status": "closed",
+      "startedOn": "2016-04-01",
+      "endedOn": "2018-10-01",
+      "facts": {
+        "bundesland": "salzburg",
+        "gebaeudeklasse": 4,
+        "bauweise": [
+          "stahlbeton"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Ignaz-Harrer-Straße 30, 5020 Salzburg"
+      },
+      "summary": "Wohnanlage mit 48 Wohnungen in Stahlbeton, zwei Stiegenhäuser, Fernwärme.",
+      "documents": [
+        {
+          "documentId": "doc-lehen-schall",
+          "filename": "Bauakustik_Abnahmemessung.pdf",
+          "title": "Bauakustische Abnahmemessung",
+          "page": 5,
+          "tags": [
+            "Gutachten",
+            "Schallschutz"
+          ],
+          "text": "In sechs Wohnungen gemessen: bewerteter Standard-Trittschallpegel L'nT,w 44 dB, bewertete Standard-Schallpegeldifferenz DnT,w zwischen den Wohnungen 58 dB. Die Anforderungen der OIB-Richtlinie 5 sind eingehalten, die Haustechnik ist körperschallentkoppelt aufgestellt."
+        },
+        {
+          "documentId": "doc-lehen-barriere",
+          "filename": "Barrierefreiheit_Konzept.pdf",
+          "title": "Barrierefreiheitskonzept",
+          "page": 2,
+          "tags": [
+            "Sonstiges",
+            "Nutzungssicherheit/Barrierefreiheit"
+          ],
+          "text": "Alle Wohnungen sind stufenlos über zwei Personenaufzüge mit der Kabinengröße 1,10 × 2,10 m erreichbar. Zwölf Wohnungen sind als anpassbarer Wohnbau nach OIB-Richtlinie 4 ausgeführt: Türbreiten 90 cm, Bewegungsflächen 150 × 150 cm im Bad."
+        },
+        {
+          "documentId": "doc-lehen-bescheid",
+          "filename": "Bescheid_Magistrat_Salzburg.pdf",
+          "title": "Bescheid Magistrat der Stadt Salzburg",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Magistrat der Stadt Salzburg, Baubehörde – Bescheid vom 12. Februar 2016: Die Bewilligung wird mit folgenden Auflagen erteilt: 1. Die Kinderspielfläche von mindestens 120 m² ist vor der Benützungsbewilligung herzustellen. 2. Für die 36 Stellplätze am Bauplatz ist die Entwässerung über einen Leichtflüssigkeitsabscheider nachzuweisen. 3. Die Fassadenbegrünung ist durch eine Pflegevereinbarung zu sichern."
+        }
+      ]
+    },
+    {
+      "id": "a6000000-0000-4000-8000-00000000000c",
+      "name": "Hotel Seefeld, Münchner Straße",
+      "collection": "proj_eval_seefeld",
+      "status": "closed",
+      "startedOn": "2015-05-01",
+      "endedOn": "2017-12-01",
+      "facts": {
+        "bundesland": "tirol",
+        "gebaeudeklasse": 3,
+        "bauweise": [
+          "stahlbeton"
+        ],
+        "nutzungen": [
+          "beherbergung"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Münchner Straße 22, 6100 Seefeld in Tirol"
+      },
+      "summary": "Hotel mit 38 Zimmern auf 1.180 m Seehöhe.",
+      "documents": [
+        {
+          "documentId": "doc-seefeld-brand",
+          "filename": "Brandschutzkonzept_Hotel.pdf",
+          "title": "Brandschutzkonzept Beherbergungsstätte",
+          "page": 4,
+          "tags": [
+            "Gutachten",
+            "Brandschutz"
+          ],
+          "text": "Beherbergungsstätte mit 38 Gästezimmern in Gebäudeklasse 3: Brandmeldeanlage mit automatischer Alarmweiterleitung an die Landesleitzentrale, zwei bauliche Fluchtwege je Geschoß mit höchstens 40 m Weglänge, Sicherheitsbeleuchtung in allen Gängen nach ÖNORM EN 1838."
+        },
+        {
+          "documentId": "doc-seefeld-schnee",
+          "filename": "Schneelast_Nachweis.pdf",
+          "title": "Schneelastnachweis",
+          "page": 2,
+          "tags": [
+            "Gutachten",
+            "Standsicherheit"
+          ],
+          "text": "Schneelast auf dem Boden sk = 3,45 kN/m² für 1.180 m Seehöhe nach ÖNORM EN 1991-1-3; das Pultdach ist für Schneeanhäufung am Dachsprung mit μ2 = 2,0 nachgewiesen, Schneefanggitter an der Traufkante."
+        },
+        {
+          "documentId": "doc-seefeld-bescheid",
+          "filename": "Baubescheid_Seefeld.pdf",
+          "title": "Baubescheid Gemeinde Seefeld",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Gemeinde Seefeld in Tirol, Bürgermeister als Baubehörde – Die Baubewilligung wird am 20. Juni 2016 mit folgenden Auflagen erteilt: 1. Die Außenbeleuchtung ist nach unten abstrahlend mit höchstens 3.000 Kelvin auszuführen. 2. Das Oberflächenwasser der Zufahrt ist über einen Ölabscheider zu leiten. 3. Die Dachfarbe ist matt dunkelgrau auszuführen."
+        }
+      ]
+    },
+    {
+      "id": "a7000000-0000-4000-8000-00000000000d",
+      "name": "Produktionshalle Wels, Pernauer Straße",
+      "collection": "proj_eval_wels",
+      "status": "closed",
+      "startedOn": "2016-09-01",
+      "endedOn": "2017-11-01",
+      "facts": {
+        "bundesland": "oberoesterreich",
+        "gebaeudeklasse": 3,
+        "bauweise": [
+          "stahlbau"
+        ],
+        "nutzungen": [
+          "produktion"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Pernauer Straße 4, 4600 Wels"
+      },
+      "summary": "Produktionshalle mit Büroanbau, Stahlbau mit Sandwichpaneelen.",
+      "documents": [
+        {
+          "documentId": "doc-wels-brand",
+          "filename": "Brandschutzkonzept_Halle.pdf",
+          "title": "Brandschutzkonzept Produktionshalle",
+          "page": 3,
+          "tags": [
+            "Gutachten",
+            "Brandschutz"
+          ],
+          "text": "Die Produktionshalle erhält eine Sprinkleranlage nach TRVB S 127 und Rauch- und Wärmeabzugsgeräte mit 2 % der Grundfläche als aerodynamisch wirksame Fläche. Die Brandwand zum Büroanbau wird in REI 90 und A2 ausgeführt, Durchführungen mit geprüften Abschottungen."
+        },
+        {
+          "documentId": "doc-wels-kran",
+          "filename": "Statik_Kranbahn.pdf",
+          "title": "Statik Kranbahn",
+          "page": 6,
+          "tags": [
+            "Gutachten",
+            "Standsicherheit"
+          ],
+          "text": "Kranbahnträger für einen Brückenkran mit 10 t Hublast, Spannweite 12 m; Ermüdungsnachweis nach ÖNORM EN 1993-6 für 2 · 10⁶ Lastspiele, Schienenbefestigung mit elastischer Zwischenlage."
+        },
+        {
+          "documentId": "doc-wels-bescheid",
+          "filename": "Baubescheid_Wels.pdf",
+          "title": "Baubescheid Magistrat Wels",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Magistrat der Stadt Wels, Baubehörde – Die Baubewilligung wird am 9. Jänner 2017 mit folgenden Auflagen erteilt: 1. Die Lüftungsanlage auf dem Dach darf am nächstgelegenen Nachbarfenster 45 dB tags und 35 dB nachts nicht überschreiten. 2. Betriebsabwässer sind vor der Einleitung zu neutralisieren. 3. Die Einfahrt ist mit einer Schmutzschleuse auszustatten."
+        }
+      ]
+    },
+    {
+      "id": "a8000000-0000-4000-8000-00000000000e",
+      "name": "Zubau Volksschule Leoben, Franz-Josef-Straße",
+      "collection": "proj_eval_leoben",
+      "status": "closed",
+      "startedOn": "2018-03-01",
+      "endedOn": "2019-09-01",
+      "facts": {
+        "bundesland": "steiermark",
+        "gebaeudeklasse": 3,
+        "bauweise": [
+          "stahlbeton"
+        ],
+        "nutzungen": [
+          "bildung"
+        ],
+        "vorhabensart": [
+          "zubau"
+        ],
+        "standort_adresse": "Franz-Josef-Straße 11, 8700 Leoben"
+      },
+      "summary": "Zubau mit vier Klassen und Ganztagesbetreuung an eine bestehende Volksschule.",
+      "documents": [
+        {
+          "documentId": "doc-leoben-schall",
+          "filename": "Raumakustik_Klassen.pdf",
+          "title": "Raumakustik Klassenräume",
+          "page": 2,
+          "tags": [
+            "Gutachten",
+            "Schallschutz"
+          ],
+          "text": "Die Klassenräume erhalten eine Akustikdecke mit Absorptionsklasse A, die Soll-Nachhallzeit beträgt 0,5 s nach ÖNORM B 8115-3; die Trennwand zur Betreuungsgruppe erreicht R'w 50 dB."
+        },
+        {
+          "documentId": "doc-leoben-bescheid",
+          "filename": "Baubescheid_Leoben.pdf",
+          "title": "Baubescheid Stadtgemeinde Leoben",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Stadtgemeinde Leoben, Baubehörde – Die Baubewilligung für den Zubau wird am 23. August 2018 erteilt. Auflagen: 1. Die Absturzsicherungen der Fensterbrüstungen müssen in Klassenräumen eine Höhe von mindestens 1,00 m aufweisen. 2. Die Bauarbeiten sind außerhalb der Unterrichtszeiten lärmintensiv nicht auszuführen. 3. Die Erdwärmesonden sind der Wasserrechtsbehörde anzuzeigen."
+        },
+        {
+          "documentId": "doc-leoben-grundriss",
+          "filename": "Grundriss_Zubau.pdf",
+          "title": "Grundriss Zubau",
+          "page": 1,
+          "tags": [
+            "Grundriss"
+          ],
+          "text": "Erdgeschoß und Obergeschoß mit je zwei Klassen zu 60 m², gemeinsame Garderobe, Verbindungsgang zum Altbau mit Niveauausgleich über eine Rampe mit 6 % Neigung."
+        }
+      ]
+    },
+    {
+      "id": "a9000000-0000-4000-8000-00000000000f",
+      "name": "Pflegeheim Villach, Draustraße",
+      "collection": "proj_eval_villach",
+      "status": "closed",
+      "startedOn": "2017-02-01",
+      "endedOn": "2019-06-01",
+      "facts": {
+        "bundesland": "kaernten",
+        "gebaeudeklasse": 3,
+        "bauweise": [
+          "stahlbeton"
+        ],
+        "nutzungen": [
+          "gesundheit"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Draustraße 61, 9500 Villach"
+      },
+      "summary": "Pflegeheim mit 64 Betten in drei Wohngruppen je Geschoß.",
+      "documents": [
+        {
+          "documentId": "doc-villach-brand",
+          "filename": "Brandschutz_Pflegeheim.pdf",
+          "title": "Brandschutzkonzept Pflegeheim",
+          "page": 5,
+          "tags": [
+            "Gutachten",
+            "Brandschutz"
+          ],
+          "text": "Evakuierung durch horizontale Räumung in den benachbarten Brandabschnitt, Bettenaufzug als Teil des Evakuierungskonzepts mit eigener Notstromversorgung; Brandmeldeanlage flächendeckend mit Aufschaltung auf die Feuerwehr."
+        },
+        {
+          "documentId": "doc-villach-hygiene",
+          "filename": "Hygienekonzept_Pflegeheim.pdf",
+          "title": "Hygienekonzept",
+          "page": 2,
+          "tags": [
+            "Sonstiges",
+            "Hygiene/Gesundheit/Umweltschutz"
+          ],
+          "text": "Trennung von reiner und unreiner Seite im Entsorgungsraum, Handwaschbecken mit berührungsloser Armatur in jedem Bewohnerzimmer, Trinkwasseranlage mit Legionellenprüfung vor Inbetriebnahme."
+        },
+        {
+          "documentId": "doc-villach-verbesserung",
+          "filename": "Verbesserungsauftrag_Villach.pdf",
+          "title": "Verbesserungsauftrag Stadt Villach",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Magistrat der Stadt Villach, Baubehörde – Verbesserungsauftrag gemäß § 13 Abs. 3 AVG vom 3. Mai 2017: Der Antrag ist binnen drei Wochen zu ergänzen um a) den Nachweis über die Barrierefreiheit der Gemeinschaftsräume mit Bewegungsflächen, b) den Energieausweis des Gebäudes, c) den Lageplan mit Darstellung der Bepflanzung."
+        },
+        {
+          "documentId": "doc-villach-bescheid",
+          "filename": "Baubescheid_Villach.pdf",
+          "title": "Baubescheid Stadt Villach",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Magistrat der Stadt Villach, Baubehörde – Die Baubewilligung wird am 28. Juli 2017 mit folgenden Auflagen erteilt: 1. Die Notstromanlage ist halbjährlich auf ihre Funktion zu prüfen und das Prüfbuch bereitzuhalten. 2. Die Bettenaufzüge sind vor der Benützung von einer akkreditierten Stelle abzunehmen."
+        }
+      ]
+    },
+    {
+      "id": "aa000000-0000-4000-8000-000000000010",
+      "name": "Zubau Kindergarten Oberwart, Hauptplatz",
+      "collection": "proj_eval_oberwart",
+      "status": "closed",
+      "startedOn": "2019-06-01",
+      "endedOn": "2020-08-01",
+      "facts": {
+        "bundesland": "burgenland",
+        "gebaeudeklasse": 2,
+        "bauweise": [
+          "holzbau"
+        ],
+        "nutzungen": [
+          "bildung"
+        ],
+        "vorhabensart": [
+          "zubau"
+        ],
+        "standort_adresse": "Hauptplatz 6, 7400 Oberwart"
+      },
+      "summary": "Eingeschoßiger Zubau mit zwei Gruppenräumen in Holzbauweise.",
+      "documents": [
+        {
+          "documentId": "doc-oberwart-spiel",
+          "filename": "Spielplatz_Fallschutz.pdf",
+          "title": "Außenanlage und Fallschutz",
+          "page": 2,
+          "tags": [
+            "Sonstiges",
+            "Nutzungssicherheit/Barrierefreiheit"
+          ],
+          "text": "Spielgeräte mit Fallhöhe bis 1,5 m auf Fallschutz aus Holzhackschnitzeln 30 cm, Prüfung der Geräte nach ÖNORM EN 1176 vor Eröffnung, Zaun mit selbstschließendem Gartentor ohne Quetschstellen."
+        },
+        {
+          "documentId": "doc-oberwart-bescheid",
+          "filename": "Baubescheid_Kindergarten.pdf",
+          "title": "Baubescheid Stadtgemeinde Oberwart",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Stadtgemeinde Oberwart, Baubehörde – Die Baubewilligung wird am 10. Oktober 2019 erteilt. Auflagen: 1. Die Gruppenräume sind mit je zwei Fluchtmöglichkeiten ins Freie auszuführen. 2. Die Steckdosen in den Gruppenräumen sind mit Kindersicherung auszustatten. 3. Der Nachweis der Wärmedämmung nach OIB-Richtlinie 6 ist beim Fertigstellungsakt vorzulegen."
+        },
+        {
+          "documentId": "doc-oberwart-energie",
+          "filename": "Energieausweis_Kindergarten.pdf",
+          "title": "Energieausweis Kindergarten",
+          "page": 1,
+          "tags": [
+            "Sonstiges",
+            "Energieeinsparung/Wärmeschutz"
+          ],
+          "text": "HWB Ref,SK 22 kWh/m²a, Anschluss an das Nahwärmenetz, Dach mit 30 cm Zellulosedämmung, Fenster nach Süden mit außen liegendem Sonnenschutz."
+        }
+      ]
+    },
+    {
+      "id": "ab000000-0000-4000-8000-000000000011",
+      "name": "Sanierung Wohnhaus Graz, Annenstraße",
+      "collection": "proj_eval_graz-annen",
+      "status": "closed",
+      "startedOn": "2017-07-01",
+      "endedOn": "2019-03-01",
+      "facts": {
+        "bundesland": "steiermark",
+        "gebaeudeklasse": 5,
+        "bauweise": [
+          "mauerwerk_massivbau"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
+        "vorhabensart": [
+          "umbau"
+        ],
+        "standort_adresse": "Annenstraße 28, 8020 Graz"
+      },
+      "summary": "Generalsanierung eines Gründerzeithauses mit 32 Wohnungen.",
+      "documents": [
+        {
+          "documentId": "doc-graz-bestand",
+          "filename": "Bestandsaufnahme_Gruenderzeit.pdf",
+          "title": "Bestandsaufnahme",
+          "page": 3,
+          "tags": [
+            "Gutachten",
+            "Standsicherheit"
+          ],
+          "text": "Ziegelmauerwerk 60 cm im Erdgeschoß, Tramdecken mit Schüttung, Hofflügel mit gewölbten Kellerdecken; Kernbohrungen zeigen Druckfestigkeiten des Ziegels von 12 bis 18 N/mm²."
+        },
+        {
+          "documentId": "doc-graz-bescheid",
+          "filename": "Baubescheid_Graz.pdf",
+          "title": "Baubescheid Baurechtsamt Graz",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Stadt Graz, Baurechtsamt – Die Baubewilligung wird am 14. November 2017 mit folgenden Auflagen erteilt: 1. Die Straßenfassade ist nach den Vorgaben der Altstadtsachverständigenkommission in Putzgliederung und Fensterteilung zu erhalten. 2. Das Dachgeschoß darf nicht ausgebaut werden. 3. Asbesthaltige Bauteile sind vor dem Abbruch durch einen Fachbetrieb zu entfernen."
+        },
+        {
+          "documentId": "doc-graz-schall",
+          "filename": "Schallschutz_Tramdecken.pdf",
+          "title": "Schallschutz Tramdecken",
+          "page": 4,
+          "tags": [
+            "Detail",
+            "Schallschutz"
+          ],
+          "text": "Aufdoppelung der Tramdecken mit 8 cm Schüttung und schwimmendem Estrich, Unterdecke an Federbügeln; erreichter Trittschallpegel L'nT,w 52 dB in der Bestandsdecke."
+        }
+      ]
+    },
+    {
+      "id": "ac000000-0000-4000-8000-000000000012",
+      "name": "Fassadensanierung Wohnhausanlage Wien 14, Hütteldorfer Straße",
+      "collection": "proj_eval_wien14",
+      "status": "closed",
+      "startedOn": "2019-01-01",
+      "endedOn": "2020-10-01",
+      "facts": {
+        "bundesland": "wien",
+        "gebaeudeklasse": 3,
+        "bauweise": [
+          "mauerwerk_massivbau"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
+        "vorhabensart": [
+          "sanierung"
+        ],
+        "standort_adresse": "Hütteldorfer Straße 140, 1140 Wien"
+      },
+      "summary": "Thermische Sanierung einer Wohnhausanlage der Nachkriegszeit.",
+      "documents": [
+        {
+          "documentId": "doc-wien14-ma37",
+          "filename": "MA37_Bescheid_Fassade.pdf",
+          "title": "Bescheid MA 37 Fassadensanierung",
+          "page": 2,
+          "tags": [
+            "Bescheid",
+            "Brandschutz",
+            "Energieeinsparung/Wärmeschutz"
+          ],
+          "text": "Magistrat der Stadt Wien, Magistratsabteilung 37 – Baupolizei – Auflagen: Das Wärmedämmverbundsystem mit EPS ist mit umlaufenden Brandriegeln aus Mineralwolle in jedem zweiten Geschoß auszuführen. Die Gerüstaufstellung im Gehsteigbereich ist mit der MA 46 abzustimmen. Bewilligt am 6. September 2019."
+        },
+        {
+          "documentId": "doc-wien14-wdvs",
+          "filename": "Detail_WDVS.pdf",
+          "title": "Detail Wärmedämmverbundsystem",
+          "page": 1,
+          "tags": [
+            "Detail",
+            "Energieeinsparung/Wärmeschutz"
+          ],
+          "text": "EPS-F 16 cm auf Putzträger, Sockel mit XPS-Perimeterdämmung bis 30 cm unter Gelände, Fensterleibungen mit 3 cm Dämmung, Fensteranschluss mit vorkomprimiertem Dichtband."
+        },
+        {
+          "documentId": "doc-wien14-bestand",
+          "filename": "Bestand_Balkone.pdf",
+          "title": "Balkonsanierung",
+          "page": 5,
+          "tags": [
+            "Gutachten",
+            "Standsicherheit"
+          ],
+          "text": "Auskragende Stahlbetonbalkone mit Bewehrungskorrosion an der Unterseite, Betonüberdeckung teilweise unter 10 mm; Instandsetzung mit Reprofilierung und Korrosionsschutz der Bewehrung."
+        }
+      ],
+      "decisions": [
+        {
+          "kind": "decision",
+          "confirmed": true,
+          "recordedAt": "2019-03-12T09:00:00.000Z",
+          "restricted": false,
+          "content": "Die Balkonplatten wurden nicht abgebrochen, sondern instandgesetzt, weil der Abbruch Schallschutzmaßnahmen für die Nachbarn erfordert hätte; Kostenersparnis rund 20 %."
+        }
+      ]
+    },
+    {
+      "id": "ad000000-0000-4000-8000-000000000013",
+      "name": "Gemeindezentrum Pettenbach, Marktplatz",
+      "collection": "proj_eval_pettenbach",
+      "status": "closed",
+      "startedOn": "2014-03-01",
+      "endedOn": "2015-06-01",
+      "facts": {
+        "bundesland": "oberoesterreich",
+        "gebaeudeklasse": 2,
+        "bauweise": [
+          "stahlbeton"
+        ],
+        "nutzungen": [
+          "versammlung"
+        ],
+        "vorhabensart": [
+          "zubau"
+        ],
+        "standort_adresse": "Marktplatz 2, 4643 Pettenbach"
+      },
+      "summary": "Zubau eines Veranstaltungssaales an das Gemeindeamt.",
+      "documents": [
+        {
+          "documentId": "doc-pettenbach-saal",
+          "filename": "Veranstaltungssaal_Konzept.pdf",
+          "title": "Veranstaltungsstättenkonzept",
+          "page": 3,
+          "tags": [
+            "Sonstiges",
+            "Brandschutz"
+          ],
+          "text": "Saal für 220 Personen mit zwei Ausgängen direkt ins Freie, Bestuhlungsplan nach der Oö. Veranstaltungsstättenverordnung, Sicherheitsbeleuchtung und beleuchtete Rettungszeichen."
+        },
+        {
+          "documentId": "doc-pettenbach-bescheid",
+          "filename": "Baubescheid_Pettenbach.pdf",
+          "title": "Baubescheid Gemeinde Pettenbach",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Gemeinde Pettenbach, Bürgermeister als Baubehörde – Baubewilligung vom 8. Mai 2014. Auflagen: 1. Die Lärmemissionen des Saales sind durch einen Schallpegelbegrenzer auf 85 dB(A) zu beschränken. 2. Die Zahl der Besucher ist mit 220 Personen zu begrenzen und im Saal anzuschlagen."
+        }
+      ]
+    },
+    {
+      "id": "ae000000-0000-4000-8000-000000000014",
+      "name": "Einkaufsmarkt Lienz, Südtiroler Platz",
+      "collection": "proj_eval_lienz",
+      "status": "closed",
+      "startedOn": "2018-08-01",
+      "endedOn": "2019-05-01",
+      "facts": {
+        "bundesland": "tirol",
+        "gebaeudeklasse": 2,
+        "bauweise": [
+          "stahlbau"
+        ],
+        "nutzungen": [
+          "handel"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Südtiroler Platz 5, 9900 Lienz"
+      },
+      "summary": "Lebensmittelmarkt in Stahlbauweise mit Parkdeck.",
+      "documents": [
+        {
+          "documentId": "doc-lienz-verbesserung",
+          "filename": "Verbesserungsauftrag_Lienz.pdf",
+          "title": "Verbesserungsauftrag Stadtgemeinde Lienz",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Stadtgemeinde Lienz, Bürgermeister als Baubehörde – Verbesserungsauftrag gemäß § 13 Abs. 3 AVG vom 15. Oktober 2018 zum Bauansuchen für den Neubau des Lebensmittelmarktes: Das Ansuchen ist binnen vier Wochen zu ergänzen um a) den Nachweis der Versickerungsfähigkeit des Untergrundes, b) die Bemessung der Rückhaltung für ein zehnjährliches Regenereignis, c) die Pläne der Entwässerungsanlage."
+        },
+        {
+          "documentId": "doc-lienz-kaelte",
+          "filename": "Kaelteanlage_Gutachten.pdf",
+          "title": "Gutachten Kälteanlage",
+          "page": 2,
+          "tags": [
+            "Gutachten",
+            "Hygiene/Gesundheit/Umweltschutz"
+          ],
+          "text": "Die Kälteanlage arbeitet mit CO₂ als Kältemittel (R744), Füllmenge 120 kg; Maschinenraum mit Gaswarnanlage und Notlüftung nach ÖNORM EN 378."
+        },
+        {
+          "documentId": "doc-lienz-bescheid",
+          "filename": "Baubescheid_Lienz.pdf",
+          "title": "Baubescheid Stadtgemeinde Lienz",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Stadtgemeinde Lienz, Bürgermeister als Baubehörde – Die Baubewilligung wird am 12. Dezember 2018 mit folgenden Auflagen erteilt: 1. Die Anlieferung ist werktags auf 6 bis 20 Uhr zu beschränken. 2. Die Werbeanlagen sind in Größe und Leuchtdichte mit der Ortsbildschutzkommission abzustimmen."
+        }
+      ]
+    },
+    {
+      "id": "af000000-0000-4000-8000-000000000015",
+      "name": "Bürogebäude Klagenfurt, Völkermarkter Straße",
+      "collection": "proj_eval_klagenfurt",
+      "status": "closed",
+      "startedOn": "2013-10-01",
+      "endedOn": "2015-02-01",
+      "facts": {
+        "bundesland": "kaernten",
+        "gebaeudeklasse": 3,
+        "bauweise": [
+          "stahlbeton"
+        ],
+        "nutzungen": [
+          "buero"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Völkermarkter Straße 90, 9020 Klagenfurt"
+      },
+      "summary": "Dreigeschoßiges Bürogebäude mit Flachdach und Grünfläche.",
+      "documents": [
+        {
+          "documentId": "doc-klagenfurt-dach",
+          "filename": "Gruendach_Detail.pdf",
+          "title": "Detail Gründach",
+          "page": 2,
+          "tags": [
+            "Detail",
+            "Energieeinsparung/Wärmeschutz"
+          ],
+          "text": "Extensives Gründach auf Flachdach, Substrat 10 cm, Wurzelschutzbahn, Drainagematte; Gefälledämmung 20 cm, Attika mit Anschlussblech. Dachbegrünung als Rückhalt mit Drosselabfluss 5 l/s·ha."
+        },
+        {
+          "documentId": "doc-klagenfurt-bescheid",
+          "filename": "Baubescheid_Klagenfurt.pdf",
+          "title": "Baubescheid Magistrat Klagenfurt",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Magistrat der Landeshauptstadt Klagenfurt, Baubehörde – Die Baubewilligung wird am 27. März 2014 erteilt. Auflagen: 1. Für die Dachbegrünung ist ein Pflegekonzept vorzulegen. 2. Die 22 Stellplätze sind mit Leerverrohrung für Ladestationen auszuführen."
+        },
+        {
+          "documentId": "doc-klagenfurt-grundriss",
+          "filename": "Grundriss_Regelgeschoss_Buero.pdf",
+          "title": "Grundriss Regelgeschoß",
+          "page": 2,
+          "tags": [
+            "Grundriss"
+          ],
+          "text": "Regelgeschoß mit Zellenbüros beidseits eines Mittelgangs, Achsraster 1,35 m, Teeküche und Besprechungsraum am Kopf der Erschließung."
+        }
+      ]
+    },
+    {
+      "id": "b0000000-0000-4000-8000-000000000016",
+      "name": "Aufstockung Schule Dornbirn, Marktstraße",
+      "collection": "proj_eval_dornbirn",
+      "status": "closed",
+      "startedOn": "2021-05-01",
+      "endedOn": "2022-09-01",
+      "facts": {
+        "bundesland": "vorarlberg",
+        "gebaeudeklasse": 3,
+        "bauweise": [
+          "stahlbeton"
+        ],
+        "nutzungen": [
+          "bildung"
+        ],
+        "vorhabensart": [
+          "zubau"
+        ],
+        "standort_adresse": "Marktstraße 14, 6850 Dornbirn"
+      },
+      "summary": "Aufstockung einer Mittelschule um ein Geschoß mit Fachklassen.",
+      "documents": [
+        {
+          "documentId": "doc-dornbirn-statik",
+          "filename": "Statik_Aufstockung.pdf",
+          "title": "Statik Aufstockung",
+          "page": 3,
+          "tags": [
+            "Gutachten",
+            "Standsicherheit"
+          ],
+          "text": "Zusätzliche Last aus dem Fachklassengeschoß 9 kN/m² auf die bestehenden Stahlbetonstützen; Verstärkung von elf Stützen durch Stahlmanschetten, Fundamentverbreiterung an vier Punkten."
+        },
+        {
+          "documentId": "doc-dornbirn-bescheid",
+          "filename": "Baubescheid_Dornbirn.pdf",
+          "title": "Baubescheid Stadt Dornbirn",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Stadt Dornbirn, Bürgermeister als Baubehörde – Die Baubewilligung wird am 2. Juli 2021 erteilt. Auflage: Der Schulbetrieb ist während der Bauzeit durch eine Staubschutzwand und getrennte Zugänge aufrechtzuerhalten; die Absturzsicherung der Baustelle ist täglich zu kontrollieren."
+        }
+      ]
+    },
+    {
+      "id": "b1000000-0000-4000-8000-000000000017",
+      "name": "Sporthalle Steyr, Sportzentrum",
+      "collection": "proj_eval_steyr",
+      "status": "closed",
+      "startedOn": "2015-09-01",
+      "endedOn": "2016-12-01",
+      "facts": {
+        "bundesland": "oberoesterreich",
+        "gebaeudeklasse": 2,
+        "bauweise": [
+          "stahlbau"
+        ],
+        "nutzungen": [
+          "versammlung"
+        ],
+        "vorhabensart": [
+          "neubau"
+        ],
+        "standort_adresse": "Sportzentrum 1, 4400 Steyr"
+      },
+      "summary": "Dreifachturnhalle mit Zuschauergalerie.",
+      "documents": [
+        {
+          "documentId": "doc-steyr-boden",
+          "filename": "Sportboden_Aufbau.pdf",
+          "title": "Aufbau Sportboden",
+          "page": 2,
+          "tags": [
+            "Detail"
+          ],
+          "text": "Punktelastischer Sportboden auf Lagerhölzern mit Schwingungsentkopplung, Gesamtaufbau 12 cm, Flächenelastizität 55 %, Linierung für Hand- und Volleyball."
+        },
+        {
+          "documentId": "doc-steyr-bescheid",
+          "filename": "Baubescheid_Sporthalle.pdf",
+          "title": "Baubescheid Magistrat Steyr",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Magistrat der Stadt Steyr, Baubehörde – Die Baubewilligung wird am 18. Februar 2016 mit Auflagen erteilt: 1. Die Flutlichtanlage ist ab 22 Uhr abzuschalten. 2. Für Veranstaltungen über 200 Personen ist ein Sicherheitskonzept vorzulegen."
+        }
+      ]
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000018",
+      "name": "Arztpraxis Spittal, Tiroler Straße",
+      "collection": "proj_eval_spittal",
+      "status": "closed",
+      "startedOn": "2020-02-01",
+      "endedOn": "2020-11-01",
+      "facts": {
+        "bundesland": "kaernten",
+        "gebaeudeklasse": 2,
+        "bauweise": [
+          "holzbau"
+        ],
+        "nutzungen": [
+          "gesundheit"
+        ],
+        "vorhabensart": [
+          "sanierung"
+        ],
+        "standort_adresse": "Tiroler Straße 9, 9800 Spittal an der Drau"
+      },
+      "summary": "Umbau einer Praxis mit Barrierefreiheit und neuer Lüftung.",
+      "documents": [
+        {
+          "documentId": "doc-spittal-barriere",
+          "filename": "Barrierefreiheit_Praxis.pdf",
+          "title": "Barrierefreie Erschließung",
+          "page": 1,
+          "tags": [
+            "Sonstiges",
+            "Nutzungssicherheit/Barrierefreiheit"
+          ],
+          "text": "Stufenloser Zugang über eine Rampe mit 6 % Neigung und Handlauf beidseits, WC für Menschen mit Behinderung mit 150 × 150 cm Bewegungsfläche, taktile Leitlinie zum Empfang."
+        },
+        {
+          "documentId": "doc-spittal-lueftung",
+          "filename": "Lueftung_Praxis.pdf",
+          "title": "Lüftungskonzept",
+          "page": 2,
+          "tags": [
+            "Sonstiges",
+            "Hygiene/Gesundheit/Umweltschutz"
+          ],
+          "text": "Behandlungsräume mit Zu- und Abluft, 6-facher Luftwechsel im Eingriffsraum, Wärmerückgewinnung mit Kreuzstromtauscher, Filterklasse F7 in der Zuluft."
+        }
+      ]
+    },
+    {
+      "id": "b3000000-0000-4000-8000-000000000019",
+      "name": "Altprojekt Eisenstadt",
+      "collection": "proj_eval_eisenstadt",
+      "status": "closed",
+      "facts": {
+        "bundesland": "burgenland"
+      },
+      "summary": null,
+      "documents": [
+        {
+          "documentId": "doc-eisenstadt-bescheid",
+          "filename": "Bescheid_Eisenstadt_2011.pdf",
+          "title": "Bescheid Magistrat Eisenstadt",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Magistrat der Freistadt Eisenstadt, Baubehörde – Baubewilligung vom 21. April 2011 für den Zubau eines Carports. Auflage: Die Entwässerung ist an den Regenwasserkanal anzuschließen, eine Versickerung am Grundstück ist nicht zulässig."
+        }
+      ]
+    },
+    {
+      "id": "b4000000-0000-4000-8000-00000000001a",
+      "name": "Altprojekt Hallein",
+      "collection": "proj_eval_hallein",
+      "status": "closed",
+      "facts": {
+        "bundesland": "salzburg"
+      },
+      "summary": null,
+      "documents": [
+        {
+          "documentId": "doc-hallein-bescheid",
+          "filename": "Bescheid_Hallein_2013.pdf",
+          "title": "Bescheid Stadtgemeinde Hallein",
+          "page": 1,
+          "tags": [
+            "Bescheid"
+          ],
+          "text": "Stadtgemeinde Hallein, Baubehörde – Baubewilligung vom 7. Juni 2013 für die Errichtung eines Geräteschuppens. Auflage: Die Dacheindeckung ist in dunkler Farbe auszuführen, die Traufenhöhe von 3,0 m darf nicht überschritten werden."
+        },
+        {
+          "documentId": "doc-hallein-plan",
+          "filename": "Lageplan_Hallein.pdf",
+          "title": "Lageplan",
+          "page": 1,
+          "tags": [
+            "Sonstiges"
+          ],
+          "text": "Lageplan 1:500 mit Grundgrenzen, Abstandsflächen von 3 m zur Nachbargrenze und eingetragener Zufahrt über das Nachbargrundstück mit Dienstbarkeit."
+        }
+      ]
+    }
+  ],
+  "scenarios": {
+    "wien-bestand": {
+      "$comment": "The chat sits in a Vienna office building being converted: another Land, use and kind of work than the default project.",
+      "current": {
+        "id": "a3000000-0000-4000-8000-000000000009",
+        "name": "Bürohaus Wien 3, Landstraßer Hauptstraße",
+        "collection": "proj_eval_wien",
+        "status": "active",
+        "startedOn": "2026-05-01",
+        "facts": {
+          "bundesland": "wien",
+          "gebaeudeklasse": 5,
+          "bauweise": [
+            "mauerwerk_massivbau"
+          ],
+          "nutzungen": [
+            "buero"
+          ],
+          "vorhabensart": [
+            "umbau"
+          ],
+          "standort_adresse": "Landstraßer Hauptstraße 70, 1030 Wien",
+          "geschosse_oberirdisch": 6
+        },
+        "summary": "Umbau eines Gründerzeit-Bürohauses, sechs Geschoße, neues Stiegenhaus im Hof, Bestand Ziegelmauerwerk."
+      }
+    },
+    "leeres-buero": {
+      "$comment": "An office with no other project in Piloti: no catalog, nothing to find, nothing to invent.",
+      "projects": []
+    }
+  }
+}

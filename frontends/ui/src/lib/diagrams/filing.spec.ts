@@ -69,6 +69,7 @@ vi.mock('@/lib/projects/folder-service', () => ({
 const recordedRestrictedFolders = vi.fn(async (): Promise<string[]> => [])
 vi.mock('@/lib/conversations/restricted-use', () => ({
   recordedRestrictedFolders: (...args: unknown[]) => recordedRestrictedFolders(...(args as [])),
+  recordedSourceProjects: async () => [],
 }))
 vi.mock('@/lib/authz/folder-access-repository', () => ({ listProjectFolderTree: vi.fn(async () => []) }))
 

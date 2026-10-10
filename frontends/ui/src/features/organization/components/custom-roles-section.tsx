@@ -249,6 +249,13 @@ const RoleUsageNotice: FC<{ usage: RoleUsage | null; failed: boolean }> = ({ usa
             <li key={folder.folderId} data-testid="role-usage-folder">
               <span className="font-medium">{folder.folderName}</span>
               <span className="text-muted-foreground"> · {folder.projectName}</span>
+              {folder.deleted && (
+                <Badge variant="outline" className="ml-2" data-testid="role-usage-folder-deleted">
+                  {folder.deleted === 'project'
+                    ? t('customRoles.deleteDialog.folderProjectDeleted')
+                    : t('customRoles.deleteDialog.folderInBin')}
+                </Badge>
+              )}
             </li>
           ))}
           {more > 0 && (
@@ -259,6 +266,11 @@ const RoleUsageNotice: FC<{ usage: RoleUsage | null; failed: boolean }> = ({ usa
         <p className="text-muted-foreground">{t('customRoles.deleteDialog.foldersNamesHidden')}</p>
       )}
       <p className="text-muted-foreground">{t('customRoles.deleteDialog.foldersEffect')}</p>
+      {usage.folders.some((folder) => folder.deleted) && (
+        <p className="text-muted-foreground" data-testid="role-usage-deleted-note">
+          {t('customRoles.deleteDialog.foldersDeletedNote')}
+        </p>
+      )}
     </div>
   )
 }

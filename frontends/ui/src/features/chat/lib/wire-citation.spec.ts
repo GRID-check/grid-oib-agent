@@ -8,6 +8,7 @@ import {
   dedupeBufferedCitations,
   mergeCitation,
   normalizeOrigin,
+  projectFromWire,
   sameCitation,
 } from './wire-citation'
 import type { WireCitationSource } from '../types'
@@ -171,5 +172,31 @@ describe('citationsFromWireList', () => {
   test('an empty or absent list yields undefined', () => {
     expect(citationsFromWireList([])).toBeUndefined()
     expect(citationsFromWireList(undefined)).toBeUndefined()
+  })
+})
+
+describe('projectFromWire (ADR-0094)', () => {
+  test('carries the Land the agent stated, verbatim, warning included', () => {
+    const landNote = 'Steiermark — nicht das Bundesland dieses Projekts: dort gilt eine andere Bauordnung'
+
+    expect(projectFromWire({ id: 'p9', name: 'Wohnbau Graz', status: 'closed', landNote })).toEqual({
+      id: 'p9',
+      name: 'Wohnbau Graz',
+      status: 'closed',
+      landNote,
+    })
+  })
+
+  test('reads an absent land note as null, as on messages from before it was sent', () => {
+    expect(projectFromWire({ id: 'p9', name: 'Wohnbau Graz', status: 'active' })).toEqual({
+      id: 'p9',
+      name: 'Wohnbau Graz',
+      status: 'active',
+      landNote: null,
+    })
+  })
+
+  test('a blank land note is no land note', () => {
+    expect(projectFromWire({ id: 'p9', name: 'Wohnbau Graz', status: 'active', landNote: '  ' })?.landNote).toBeNull()
   })
 })

@@ -566,6 +566,7 @@ export const files = {
     destinationFiles: 'The files go into “{folder}”.',
     close: 'Close',
     compareError: 'Could not compare with what is already here. Nothing was uploaded.',
+    planChanged: 'The preview has changed. Nothing was uploaded. Please review it and confirm again.',
     single: {
       updateTitle: 'Upload a new version of “{name}”?',
       updateExplain:
@@ -732,6 +733,10 @@ export const files = {
     // upload dialog, such as a chat attachment.
     screenedOut: '{count} file(s) not uploaded because your office marks them as sensitive: {files}',
     screenedOutFile: '“{name}” ({reason})',
+    // The office's list could not be read: without it nothing is sent, not
+    // even against Piloti's suggestion (ADR-0086).
+    screeningPolicyUnavailable:
+      "Your office's list of sensitive data could not be loaded. Nothing was uploaded. Please try again.",
     validation: {
       duplicateInBatch: '“{name}” is in this selection more than once',
       duplicateExisting: '“{name}” has already been added',
@@ -989,6 +994,8 @@ export const files = {
     errors: {
       /** The compare-and-swap lost: somebody decided first, so re-read. */
       conflict: 'This has moved on — reloading the current state.',
+      /** The file has not passed its upload screening yet (ADR-0086). */
+      held: 'This file is still being checked. It can be submitted once the check has cleared it.',
       actionFailed: 'That did not go through. Nothing has changed.',
       loadFailed: 'The version history could not be loaded.',
     },

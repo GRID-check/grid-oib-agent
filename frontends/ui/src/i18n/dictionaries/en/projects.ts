@@ -142,6 +142,70 @@ export const projects = {
       description:
         'Afterwards nobody can change its files, folders, brief or project memory, and deep research and tasks stop running. Everyone in the office can read it and ask about it. You can reopen it at any time. If the project profile has no completion yet, the current month is entered.',
     },
+    debrief: {
+      intro:
+        'What this project learned can serve every future project in the office: Piloti offers it when a similar question comes up. Take a moment before closing to check what stays.',
+      fingerprint: {
+        heading: 'How Piloti finds it again',
+        description: 'Piloti finds comparable projects by these facts. Add missing ones in the brief.',
+        missing: '{count, plural, one {# fact missing} other {# facts missing}}',
+        complete: 'Complete',
+        open: 'open',
+        notApplicable: 'does not apply',
+        derivedOpen: 'open (not set in the brief)',
+        edit: 'Add in the brief',
+        period: 'Period',
+        periodOpen: '{start} to now',
+        periodNone: 'open; enter it in the Steckbrief',
+        suggested: 'Suggestion from the documents',
+        accept: 'Accept',
+        oibEdition: 'OIB-Richtlinien {edition}',
+        labels: {
+          bundesland: 'Federal state',
+          gebaeudeklasse: 'Building class',
+          bauweise: 'Construction',
+          nutzungen: 'Uses',
+          vorhabensart: 'Kind of work',
+          oibEdition: 'OIB edition',
+        },
+      },
+      extract: {
+        action: 'Read from the documents',
+        pending: 'Piloti is reading the documents …',
+        result:
+          '{suggested, plural, one {# fact} other {# facts}} suggested, {drafted, plural, one {# decision} other {# decisions}} drafted from {documents, plural, one {# document} other {# documents}}.',
+        none: 'Piloti found nothing new in the documents.',
+        errors: {
+          backendUnavailable: 'Piloti could not read the documents just now. Please try again later.',
+          noDocuments: 'There are no readable documents in the open folders yet.',
+          failed: 'The reading did not work. Please try again later.',
+        },
+      },
+      decisions: {
+        heading: 'What the office should keep',
+        description:
+          'Decisions and constraints from the project memory. Piloti cites confirmed ones in other projects as “confirmed by a person”.',
+        empty: 'Piloti has not recorded any decisions for this project yet.',
+        confirm: 'Confirm',
+        confirmed: 'Confirmed',
+        dismiss: 'Dismiss',
+        grounded: 'Drawn from the documents',
+        evidencePage: '{file}, p. {page}',
+        kind: { decision: 'Decision', constraint: 'Constraint' },
+      },
+      lesson: {
+        label: 'Record a lesson',
+        placeholder: 'e.g. “The authority required the escape-route width dimensioned in every floor plan.”',
+        add: 'Record',
+        added: 'Lesson recorded.',
+      },
+      readOnly:
+        'Only people who may edit the project memory can confirm decisions and record lessons. You can still close the project.',
+      errors: {
+        load: 'The project memory could not be loaded.',
+        save: 'That could not be saved.',
+      },
+    },
     reopenDialog: {
       title: 'Reopen this project?',
       description: 'The project becomes editable again, and only its members will see it.',
@@ -409,6 +473,10 @@ export const projects = {
       title:
         'Drawn from restricted folders ({folders}). Only people cleared for all of them see this note, and only their chats are given it.',
       titleUnknown: 'Drawn from restricted folders. Only people cleared for all of them see this note.',
+      judgedBadge: 'decided with AI',
+      judged: 'A language model helped decide who may read this note.',
+      judgeFailed:
+        'The language model that decides who may read this note gave no usable answer, so the note is restricted to every restricted folder of the chat.',
     },
     time: {
       justNow: 'just now',

@@ -16,6 +16,7 @@
 
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { REVIEWER_READER } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 // Project access is FGA (WorkOS), which is not this suite's subject: the shelf's
@@ -233,8 +234,8 @@ describe.skipIf(!url)('shelf folders against Postgres', () => {
     await insertDocument('00000000-0000-4000-8000-0000000f0022', 'project', { lifecycle: 'archived' })
     await insertDocument('00000000-0000-4000-8000-0000000f0023', 'project', { agent: true })
 
-    const archiv = (options = {}) => repo.listDocumentPage(shelf.ARCHIV_SHELF, ORG, options)
-    const project = (options = {}) => repo.listDocumentPage(shelf.projectShelf(projectId), ORG, options)
+    const archiv = (options = {}) => repo.listDocumentPage(shelf.ARCHIV_SHELF, ORG, { reader: REVIEWER_READER, ...options })
+    const project = (options = {}) => repo.listDocumentPage(shelf.projectShelf(projectId), ORG, { reader: REVIEWER_READER, ...options })
     const ids = async (page: ReturnType<typeof archiv>) => (await page).rows.map((row) => row.id.slice(-2)).sort()
 
     // The working set by default, both shelves alike.

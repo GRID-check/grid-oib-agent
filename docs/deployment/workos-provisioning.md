@@ -333,6 +333,32 @@ drown the admin trail.
   `intent: 'audit_logs'`); exports (CSV) and SIEM **streaming** (Datadog,
   Splunk, S3, …) are configured via the existing audit-log-streaming widget
   (`widgets:audit-log-streaming:manage` on the Admin role).
+- **What a viewer reads.** `org:audit:view` opens the viewer, and roles that
+  are not organization admins hold it (`org-auditor`, `org-compliance-officer`,
+  any custom role given it). So an event emitted about a document filed, at
+  that moment, under a folder not every project member may read leaves its name
+  out (ADR-0087): for the actions in `DOCUMENT_NAME_ACTIONS`
+  (`lib/audit/document-names.ts`) the emitter drops `filename`, `previousName`
+  and `displayName`, and the screening `terms` (the name-gate words that
+  matched a piece of the name on an override, the office's words the content
+  check found in the text on a quarantine release; the release's `reasons` keep
+  only the kinds), and sets `nameWithheld: true`; the
+  target id still says
+  which document, and someone cleared for the folder opens it in Piloti. Folder
+  events carry the folder id, never its name. A folder rule that cannot be read
+  withholds the name too.
+- **What it does not cover.** The decision is taken once, when the event is
+  emitted, and WorkOS events cannot be changed afterwards. A viewer still reads
+  the name in: events emitted before this release; events emitted while the
+  folder was open (an upload or rename), after which the folder got its own list
+  (`project.folder.access_changed` removes nothing); and the earlier events of a
+  document moved into a restricted folder (a move emits no audit event). If such
+  names must not be read, limit `org:audit:view` to people cleared for those
+  folders. `nameWithheld` is
+  registered on those actions (and `terms` on `document.quarantine_released`);
+  the deploy's schema job reconciles them, and an
+  environment reconciled by hand needs `npm run provision:audit-schemas -- --apply`
+  before this release, or WorkOS rejects the event.
 
 ### 6. Feature Flags (native WorkOS product)
 

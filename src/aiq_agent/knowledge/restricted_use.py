@@ -31,6 +31,16 @@ agent's side of that, and the one place it is decided:
 
 Every failure fails closed: no drawable collection, the conversation counted
 as confined, a result withheld.
+
+Content from OTHER projects (ADR-0094) takes a different road to the same
+record. A cross-project lookup is answered by the BFF, which records the
+projects and restricted folders an answer draws on before it returns it,
+searching only what every reader of the conversation may open (its audience)
+and refusing when that audience changed mid-lookup. The tool then notes what
+it was handed (:func:`note_cross_project_hand_out`) on the turn's
+:class:`CrossProjectTurn`, and the admission lets exactly those collections
+through. A restricted collection of another project the turn was not handed is
+withheld like any other.
 """
 
 from __future__ import annotations
@@ -85,6 +95,11 @@ class RestrictedUse:
     #: The restricted collections admitted for the conversation this turn: what
     #: may be named to the model from here on (:func:`may_name`).
     admitted: set[str] = field(default_factory=set)
+    #: The id of the answer this turn writes (``turn.response.answer_message_id``).
+    #: Sent with every question, so the BFF marks that answer when the
+    #: conversation drew on a restricted folder, before the model reads anything
+    #: (ADR-0093). ``None`` when the caller has no turn to name.
+    answer_message_id: str | None = None
 
     def allows(self, collection: str) -> bool:
         """Whether a restricted ``collection`` may stay in this turn's scope."""
@@ -116,6 +131,75 @@ def reset_restricted_use(token: contextvars.Token) -> None:
     _turn_use.reset(token)
 
 
+@dataclass
+class CrossProjectTurn:
+    """What one chat turn knows about the conversation's use of OTHER projects (ADR-0094).
+
+    Bound for every turn (:func:`bind_cross_project_turn`), so a tool can note
+    a hand-out on the one object every reader of the turn sees: ContextVar
+    values set inside a tool call die with its context, a mutated object does
+    not.
+    """
+
+    #: The conversation drew on another project in a way that narrows its
+    #: readers (an active project, or a restricted folder of ANY other project,
+    #: a closed one included): an earlier turn did (the BFF says so at turn
+    #: start, from the conversation's record, ``drewOnOtherProjects``) or a
+    #: lookup of this turn did. Every door a whole project reads is shut, memory
+    #: included. A closed project's open folders never set it.
+    drew_on_others: bool = False
+    #: The collections of other projects whose content the BFF recorded and
+    #: handed to this turn: what the admission lets through, and what may be
+    #: named.
+    admitted: set[str] = field(default_factory=set)
+
+
+_cross_turn: contextvars.ContextVar[CrossProjectTurn | None] = contextvars.ContextVar(
+    "grid_cross_project_turn", default=None
+)
+
+
+def current_cross_project_turn() -> CrossProjectTurn | None:
+    """The bound turn's cross-project state, or ``None`` outside a chat turn."""
+    return _cross_turn.get()
+
+
+def bind_cross_project_turn(turn: CrossProjectTurn | None) -> contextvars.Token:
+    """Bind ``turn`` for the turn; the caller resets with the token when the turn ends."""
+    return _cross_turn.set(turn)
+
+
+def reset_cross_project_turn(token: contextvars.Token) -> None:
+    _cross_turn.reset(token)
+
+
+def drew_on_other_projects() -> bool:
+    """Whether this turn's conversation drew on another project; False outside a chat turn."""
+    turn = current_cross_project_turn()
+    return turn is not None and turn.drew_on_others
+
+
+def note_cross_project_hand_out(collections: Iterable[str | None], *, restricting: bool) -> None:
+    """A lookup was handed content from these collections of other projects, recorded by the BFF.
+
+    Called by the cross-project tool with the collections of the answer it got,
+    and only with those: the BFF recorded their projects and restricted folders
+    before it answered. Outside a bound turn there is nothing to admit into, and
+    the admission then withholds a restricted one.
+
+    ``restricting`` says whether any of it narrows who may read the
+    conversation: content from an ACTIVE other project, or from a restricted
+    folder. Content from a closed project's open folders does not (every office
+    member reads it, ADR-0090), so it is admitted without shutting a door.
+    """
+    turn = current_cross_project_turn()
+    if turn is None:
+        return
+    if restricting:
+        turn.drew_on_others = True
+    turn.admitted.update(name for name in collections if isinstance(name, str) and name)
+
+
 def without_restricted(entries: Sequence[Any]) -> list[Any]:
     """``entries`` (scoped collections) without restricted ones: what may be LISTED to the model."""
     return [entry for entry in entries if not is_restricted_collection(getattr(entry, "collection", None))]
@@ -135,6 +219,8 @@ def _post(use: RestrictedUse, body: dict[str, Any]) -> dict[str, Any] | None:
     payload = {"organizationId": use.organization_id, "userId": use.user_id, **body}
     if use.project_id:
         payload["projectId"] = use.project_id
+    if use.answer_message_id:
+        payload["answerMessageId"] = use.answer_message_id
     conversation = urllib.parse.quote(use.conversation_id, safe="")
     request = urllib.request.Request(
         f"{_base_url()}/api/internal/conversations/{conversation}/restricted-use",
@@ -195,10 +281,15 @@ def admit(use: RestrictedUse, collections: Sequence[str]) -> set[str]:
     return admitted
 
 
-async def begin_restricted_use(request: Any, conversation_id: str | None) -> RestrictedUse | None:
+async def begin_restricted_use(
+    request: Any, conversation_id: str | None, *, answer_message_id: str | None = None
+) -> RestrictedUse | None:
     """The turn's restricted use, asked of the BFF; ``None`` when its scope holds no restricted collection.
 
     ``request`` is the turn's :class:`aiq_agent.project_context.GridRequestContext`.
+    ``answer_message_id`` is the answer the turn writes: the BFF marks it now
+    when an earlier turn already drew on a restricted folder, and at every
+    admission later in the turn.
     Only a VERIFIED envelope counts: a restricted collection in a scope read
     from the unsigned header fallback vouches for nothing, so the turn gets a
     use with nothing drawable and counts as confined, without asking.
@@ -214,6 +305,7 @@ async def begin_restricted_use(request: Any, conversation_id: str | None) -> Res
         conversation_id=conversation_id or "",
         project_id=getattr(request, "project_id", None),
         confined=True,
+        answer_message_id=answer_message_id,
     )
     if not getattr(request, "envelope_header", None):
         logger.warning("Restricted collections in an unsigned scope: nothing drawable")
@@ -341,8 +433,13 @@ async def admit_tool_results(messages: list[Any]) -> list[Any]:
     if not wanted:
         return messages
     use = current_restricted_use()
-    admissible = [name for name in wanted if use is not None and use.allows(name)]
+    cross = current_cross_project_turn()
+    # Another project's collection the BFF recorded and handed to this turn
+    # (ADR-0094): admitted already; nothing to ask.
+    handed = {name for name in wanted if cross is not None and name in cross.admitted}
+    admissible = [name for name in wanted if name not in handed and use is not None and use.allows(name)]
     admitted = await asyncio.to_thread(admit, use, admissible) if use is not None and admissible else set()
+    admitted = admitted | handed
     if admitted.issuperset(wanted):
         return messages
     refused = set(wanted) - admitted
@@ -363,7 +460,8 @@ def may_name(collection: str | None) -> bool:
     if not is_restricted_collection(collection):
         return True
     use = current_restricted_use()
-    return use is not None and collection in use.admitted
+    cross = current_cross_project_turn()
+    return (use is not None and collection in use.admitted) or (cross is not None and collection in cross.admitted)
 
 
 def _withheld(message: Any) -> Any:

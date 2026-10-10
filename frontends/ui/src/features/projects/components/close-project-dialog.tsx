@@ -8,9 +8,11 @@
  * pre-selected, and lets the person deselect any of them. Only what is still
  * selected goes to the Papierkorb, and only when they confirm; then the
  * project closes. When the proposal cannot be had, closing stays possible.
+ * The card puts the closing debrief (`closing-debrief.tsx`) above the
+ * proposal as `children`: what the project leaves the office.
  */
 
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useState, type JSX, type ReactNode } from 'react'
 import { Sparkles } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -27,11 +29,13 @@ export interface CloseProjectDialogProps {
   onOpenChange: (open: boolean) => void
   /** Close the project; resolves true when it closed. */
   onClose: () => Promise<boolean>
+  /** Shown above the proposal: the closing debrief. */
+  children?: ReactNode
 }
 
 type Load = { state: 'loading' } | { state: 'ready'; proposal: CleanupProposal } | { state: 'failed' }
 
-export function CloseProjectDialog({ projectId, open, onOpenChange, onClose }: CloseProjectDialogProps): JSX.Element {
+export function CloseProjectDialog({ projectId, open, onOpenChange, onClose, children }: CloseProjectDialogProps): JSX.Element {
   const t = useTranslations('projects')
   const { locale } = useLocale()
   const [load, setLoad] = useState<Load>({ state: 'loading' })
@@ -112,6 +116,8 @@ export function CloseProjectDialog({ projectId, open, onOpenChange, onClose }: C
           <DialogTitle>{t('cleanup.title')}</DialogTitle>
           <DialogDescription>{t('lifecycle.closeDialog.description')}</DialogDescription>
         </DialogHeader>
+
+        {children}
 
         <div className="space-y-3 text-sm">
           <p className="text-muted-foreground">{t('cleanup.intro')}</p>

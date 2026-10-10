@@ -58,6 +58,7 @@ import {
   type JobSubmitPayload,
 } from './backend-client'
 import * as repository from '@/lib/tasks/repository'
+import { requireMaySeeSubject } from '@/lib/tasks/subject-access'
 import { previousDecisionsBlock } from '@/lib/tasks/service'
 import { taskThreadConversationId } from '@/lib/tasks/task-thread'
 import { isActiveTaskRunStatus, submittedRunStatus } from '@/lib/tasks/task-vocabulary'
@@ -313,6 +314,7 @@ export async function getJob(
   await requireProjectAccess(session, projectId, 'project:view')
   const definition = await repository.findDefinition(jobId, session.organizationId)
   if (!definition || definition.projectId !== projectId) throw new NotFoundError('Job not found.')
+  await requireMaySeeSubject(session, projectId, definition, 'Job not found.')
   return toJobView(definition)
 }
 
@@ -452,6 +454,7 @@ export async function listJobRuns(
 
   const definition = await repository.findDefinition(jobId, session.organizationId)
   if (!definition || definition.projectId !== projectId) throw new NotFoundError('Job not found.')
+  await requireMaySeeSubject(session, projectId, definition, 'Job not found.')
   const runs = await repository.listRunsForDefinition(jobId, session.organizationId, { limit, offset })
   return { runs: runs.map(toJobRunView) }
 }

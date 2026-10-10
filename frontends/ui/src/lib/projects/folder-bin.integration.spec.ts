@@ -26,6 +26,7 @@ import { sql } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { restrictedCollectionName } from '@/lib/authz/folder-access-rule'
+import { REVIEWER_READER } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:8000' }))
@@ -225,7 +226,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
 
   async function visibleDocumentNames(session: AuthorizedSession): Promise<string[]> {
     const hidden = await access.getHiddenFolderIds(session, projectId)
-    const rows = await inOrg(() => docsRepo.listProjectDocuments(projectId, ORG, { hiddenFolderIds: hidden }))
+    const rows = await inOrg(() => docsRepo.listProjectDocuments(projectId, ORG, { hiddenFolderIds: hidden, reader: REVIEWER_READER }))
     return rows.map((row) => row.filename).sort()
   }
 
@@ -645,6 +646,22 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
       expect((await queueRow(folder.verwaltung))[0]?.status).toBe('restored')
     })
 
+    it("counts a colleague's held upload only for the people who may see it (ADR-0086)", async () => {
+      // Still being screened, uploaded by somebody else: not the project's yet.
+      await inOrg(() =>
+        db.execute(sql`
+          INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id)
+          VALUES (${ORG}, 'user_colleague', 'Lohnzettel.pdf', 'k/Lohnzettel.pdf', ${COLLECTION}, 'processing', 'project', ${projectId}::uuid, ${folder.verwaltung}::uuid)
+        `)
+      )
+      await bin.moveFolderToBin(gf, { projectId, folderId: folder.verwaltung })
+      const countFor = async (session: typeof gf) =>
+        (await bin.listFolderBin(session, projectId)).entries.find((entry) => entry.folderId === folder.verwaltung)?.documents
+      expect(await countFor(gf)).toBe(3)
+      // The project's admin reviews its quarantine and counts it.
+      expect(await countFor(manager)).toBe(4)
+    })
+
     it('marks the documents processing in the restore itself, so a restore cut off never leaves one reading indexed', async () => {
       const quarantined = await insertDocument('Gesperrt.pdf', folder.archiv)
       await inOrg(() => db.execute(sql`UPDATE documents SET status = 'quarantined' WHERE id = ${quarantined}::uuid`))
@@ -808,15 +825,24 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
   describe('a binned document is not handed to anyone (the download log’s readers all ask the folder rule first)', () => {
     it('refuses every reader, admins included, and a capability URL’s re-check, as not found', async () => {
       const documents = inTenant(await import('@/lib/documents/access'))
+      // Screened, with a verdict about the bytes it holds (ADR-0086).
+      await inOrg(() => db.execute(sql`UPDATE documents SET screening_outcome = 'clean' WHERE id = ${doc.archiv}::uuid`))
       await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
       for (const session of [pl, gf, manager, admin]) {
         await expect(documents.getAccessibleDocument(session, doc.archiv)).rejects.toMatchObject({ status: 404 })
         await expect(documents.getAccessibleDocument(session, doc.plan, 'write')).rejects.toMatchObject({ status: 404 })
       }
       expect(await access.isFolderVisibleToMember(ORG, projectId, folder.archiv, 'user_admin')).toBe(false)
-      // Restored, it is handed over again.
+      // Restored, it is handed over again: at once when a verdict on record
+      // judged its bytes, though the restore reads it again.
       await bin.restoreFolderFromBin(pl, { projectId, folderId: folder.plaene })
       await expect(documents.getAccessibleDocument(pl, doc.archiv)).resolves.toMatchObject({ id: doc.archiv })
+      // One with no verdict passes the hold only at rest (ADR-0086), so it is
+      // its uploader's and its reviewers' while it is read again, and everyone's after.
+      await expect(documents.getAccessibleDocument(pl, doc.plan)).rejects.toMatchObject({ status: 404 })
+      await expect(documents.getAccessibleDocument(manager, doc.plan)).resolves.toMatchObject({ id: doc.plan })
+      await inOrg(() => db.execute(sql`UPDATE documents SET status = 'completed' WHERE id = ${doc.plan}::uuid`))
+      await expect(documents.getAccessibleDocument(pl, doc.plan)).resolves.toMatchObject({ id: doc.plan })
     })
   })
 

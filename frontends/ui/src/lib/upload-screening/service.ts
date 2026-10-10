@@ -12,6 +12,7 @@
 import 'server-only'
 import { ApiError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { filedInOf } from '@/lib/audit/document-names'
 import { getCached, invalidateCached } from '@/lib/cache'
 import { getOrgSettings, writeDedicatedOrgSetting } from '@/lib/organizations/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -42,8 +43,11 @@ export async function getUploadScreeningPolicy(organizationId: string): Promise<
 }
 
 /**
- * The policy for a GATE, which must decide even when the settings row cannot
- * be read. It decides with Piloti's suggestion then: the gates fail closed.
+ * The policy for the CHAT, which must mask something even when the settings
+ * row cannot be read: masking has no "send nothing", so it masks with Piloti's
+ * suggestion then. The upload gates do not use this. A file that matches only
+ * a term the office added would pass the suggestion, so they refuse instead
+ * ({@link ScreeningPolicyUnavailableError}, a failed ingest).
  */
 async function policyOrSuggestion(organizationId: string): Promise<UploadScreeningPolicy> {
   try {
@@ -102,6 +106,27 @@ export class ScreenedUploadError extends ApiError {
   }
 }
 
+/**
+ * 503 for an upload while the office's policy cannot be read. Nothing is
+ * stored: screening with Piloti's suggestion instead would store a file that
+ * matches only a term the office added.
+ */
+export class ScreeningPolicyUnavailableError extends ApiError {
+  constructor() {
+    super(503, 'UPLOAD_SCREENING_UNAVAILABLE', 'The organization’s upload screening could not be read; nothing was stored')
+  }
+}
+
+/** The office's own policy, for an upload gate; {@link ScreeningPolicyUnavailableError} when it cannot be read. */
+async function gatePolicy(organizationId: string): Promise<UploadScreeningPolicy> {
+  try {
+    return await getUploadScreeningPolicy(organizationId)
+  } catch (error) {
+    console.error('[upload-screening] policy unreadable, refusing the upload:', error)
+    throw new ScreeningPolicyUnavailableError()
+  }
+}
+
 export interface NameGateResult {
   /** The rules the uploader overrode for this file; empty when nothing matched. */
   overridden: NameMatch[]
@@ -123,7 +148,7 @@ export async function assertUploadNameAllowed(
   name: ScreenedName,
   released: boolean
 ): Promise<NameGateResult> {
-  const policy = await policyOrSuggestion(organizationId)
+  const policy = await gatePolicy(organizationId)
   const verdict = screenUploadName(policy, name)
   if (!verdict.blocked) return { overridden: [] }
   if (!released) throw new ScreenedUploadError(verdict.matches)
@@ -133,7 +158,7 @@ export async function assertUploadNameAllowed(
 /** The audit event for an override, once the document exists. Best-effort, like every audit emit. */
 export async function auditScreeningOverride(
   session: AuthorizedSession,
-  input: { documentId: string; projectId: string | null; filename: string; overridden: NameMatch[] },
+  input: { documentId: string; projectId: string | null; folderId: string | null; filename: string; overridden: NameMatch[] },
   request: Request
 ): Promise<void> {
   if (input.overridden.length === 0) return
@@ -143,6 +168,7 @@ export async function auditScreeningOverride(
     action: 'document.screening_overridden',
     targetType: 'document',
     targetId: input.documentId,
+    filedIn: filedInOf(input),
     metadata: {
       projectId: input.projectId ?? '',
       filename: input.filename.slice(0, 200),
@@ -161,16 +187,19 @@ export function readScreeningRelease(value: FormDataEntryValue | null): boolean 
  * The `screening` field for one `/v1/ingest` call: the office's content rules,
  * or `null` when this document's current bytes were released by a reviewer.
  *
- * Fails CLOSED. A policy that cannot be read screens with Piloti's suggestion,
- * and a row that cannot be read is not released — the worst outcome of either
- * is a file waiting in quarantine, which a reviewer can undo; the opposite
- * error sends a payroll slip to a model, which nobody can.
+ * Fails CLOSED. A policy that cannot be read rejects with
+ * {@link ScreeningPolicyUnavailableError}, and the dispatch is recorded as
+ * failed with a retry offered: Piloti's suggestion would let through a
+ * document that matches only a term the office added. A row that cannot be
+ * read is not released. The worst outcome of either is a file waiting for a
+ * retry or a reviewer, which can be undone; the opposite error sends a
+ * payroll slip to a model, which nobody can.
  */
 export async function ingestScreeningFor(
   organizationId: string,
   row: { contentHash: string | null; screeningReleasedHash: string | null } | null
 ): Promise<IngestScreening | null> {
-  const policy = await policyOrSuggestion(organizationId)
+  const policy = await gatePolicy(organizationId)
   const released = Boolean(row?.contentHash && row.screeningReleasedHash === row.contentHash)
   return toIngestScreening(policy, { released })
 }

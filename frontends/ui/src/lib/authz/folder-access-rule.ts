@@ -320,6 +320,17 @@ export function computeFolderAccess(
   }
 }
 
+/**
+ * The folders `access` hides because its clearance may not read them, tombstones
+ * included, as against the ones hidden from everyone only because they are in
+ * the Papierkorb ({@link ProjectFolderAccess.hiddenFolderIds} holds both). A
+ * reader who may read a binned folder learns nothing about it from a count that
+ * includes its files; one who may not would. Empty for an organization admin.
+ */
+export function unreadableFolderIds(access: ProjectFolderAccess): string[] {
+  return [...access.hiddenFolderIds].filter((folderId) => !atLeast(access.levelOf(folderId), 'read'))
+}
+
 /** The machine-readable reason a move is refused because the subtree holds a folder the mover cannot read. */
 export const FOLDER_SUBTREE_UNREADABLE_REASON = 'folder-subtree-unreadable'
 

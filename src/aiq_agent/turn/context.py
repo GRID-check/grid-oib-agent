@@ -20,7 +20,9 @@ from aiq_agent.auth import get_current_principal
 from aiq_agent.common.platform_lessons import get_platform_lessons_digest
 from aiq_agent.knowledge.project_memory import fetch_memory_digest
 from aiq_agent.knowledge.restricted_collections import restricted_collections_in
+from aiq_agent.knowledge.restricted_use import current_cross_project_turn
 from aiq_agent.knowledge.restricted_use import current_restricted_use
+from aiq_agent.knowledge.restricted_use import drew_on_other_projects
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.project_context import compose_project_context
 from aiq_agent.project_context import get_user_message_id_from_context
@@ -55,6 +57,10 @@ class TurnContext:
     #: approval the job queue would refuse. True on every failure path: see
     #: :class:`aiq_agent.stages.flags.TurnFlags`.
     deep_research_allowed: bool = True
+    #: The office's reference projects (closed, most like this one), one line
+    #: each: rendered as ``<referenzprojekte>`` so the agent looks there unasked
+    #: (docs/design/cross-project-escalation.md). None: none, or not loaded.
+    reference_projects: str | None = None
     #: Whether this turn may hand work over (`create_task`). Its own flag, see
     #: :class:`aiq_agent.stages.flags.TurnFlags`.
     tasks_allowed: bool = True
@@ -143,7 +149,9 @@ def settle_restriction(context: TurnContext, request: GridRequestContext) -> Tur
     """
     use = current_restricted_use()
     drawable = tuple(signed_restricted_collections(request))
-    recorded = bool(use is not None and use.confined)
+    # A conversation that drew on another project (ADR-0094) is confined the same
+    # way: nothing it holds may reach what a whole project reads.
+    recorded = bool(use is not None and use.confined) or drew_on_other_projects()
     if not drawable and not recorded:
         return context
     return replace(
@@ -273,10 +281,15 @@ async def _load_turn_context(
         _context_blocks(request, query_text),
         _turn_flags(request, resolve_stages),
     )
+    if blocks.drew_on_other_projects and (cross := current_cross_project_turn()) is not None:
+        # An earlier turn drew on another project (ADR-0094): this one starts
+        # with every door a whole project reads shut (`settle_restriction`).
+        cross.drew_on_others = True
     return TurnContext(
         project_context=compose_project_context(blocks.project_context, blocks.project_memory),
         platform_lessons=platform_lessons,
         org_instructions=blocks.org_instructions,
+        reference_projects=blocks.reference_projects,
         # The restriction is settled after the whole setup gather
         # (`settle_restriction`): the digest and the subject can each confine.
         deep_research_allowed=turn_flags.deep_research_allowed,

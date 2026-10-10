@@ -197,12 +197,16 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   // (every page, every filter). The filters are named, not their values' hits:
   // the event says who looked for whom, never what they found. The emitter is
   // `recordAuditEventOrThrow`: a read that cannot be recorded is not served.
+  // A typed name filter is recorded as `nameFiltered`, not its text, which may
+  // be a restricted document's name. `documentName` is no longer sent; it stays
+  // registered so a pod of the previous release is not rejected mid-rollout.
   'download_log.viewed': {
     targets: [{ type: 'organization' }],
     metadata: {
       userId: 'string',
       documentId: 'string',
       documentName: 'string',
+      nameFiltered: 'boolean',
       kind: 'string',
       from: 'string',
       to: 'string',
@@ -373,26 +377,55 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'project' }],
     metadata: { organizationMembershipId: 'string', roleSlug: 'string' },
   },
+  // `nameWithheld` (every action in `DOCUMENT_NAME_ACTIONS`, `service.ts`):
+  // the document is filed under a folder not every project member may read,
+  // so its name keys were left out (ADR-0087). The target id still says which.
   'document.uploaded': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', fileSize: 'number' },
+    metadata: { projectId: 'string', filename: 'string', fileSize: 'number', nameWithheld: 'boolean' },
   },
   // A file the name gate would have excluded, uploaded anyway because its
   // uploader released it in the upload dialog (ADR-0086): the Bauvertrag in a
-  // folder called „Verträge". The terms say which rule was overridden.
+  // folder called „Verträge". The terms say which rule was overridden; they
+  // matched a piece of the name, so they are withheld with it.
   'document.screening_overridden': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', terms: 'string' },
+    metadata: { projectId: 'string', filename: 'string', terms: 'string', nameWithheld: 'boolean' },
+  },
+  // The content gate's own decision to hold a document back (ADR-0086): rule
+  // based, before any model reads it. Its actor is `system:upload_screening`,
+  // not a person, and `uploadedBy` names whose upload it was. The reasons are
+  // kinds and terms (`term:Lohnzettel,iban`), never a matched sample or text;
+  // `checked` is `full` or `partial` (some pages had no text layer). `jobId`
+  // is the dispatch that decided: one job, one decision, one event. Sent at
+  // least once from `document_quarantine_decisions`, under an idempotency key,
+  // with the time of the decision rather than of the send. Like every action
+  // that names a document, it leaves the name out under a folder not every
+  // project member may read (`nameWithheld`).
+  'document.quarantined': {
+    targets: [{ type: 'document' }],
+    metadata: {
+      projectId: 'string',
+      filename: 'string',
+      scope: 'string',
+      reasons: 'string',
+      checked: 'string',
+      uploadedBy: 'string',
+      jobId: 'string',
+      nameWithheld: 'boolean',
+    },
   },
   // A quarantined document a reviewer released for indexing (ADR-0086). The
-  // reasons are the content gate's verdict as stored on the row.
+  // reasons are the kinds of the content gate's verdict as stored on the row;
+  // the terms are the office's words it found in the text, which say what the
+  // document holds, so they are withheld with the name.
   'document.quarantine_released': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', reasons: 'string' },
+    metadata: { projectId: 'string', filename: 'string', reasons: 'string', terms: 'string', nameWithheld: 'boolean' },
   },
   'document.deleted': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', collectionName: 'string' },
+    metadata: { projectId: 'string', filename: 'string', collectionName: 'string', nameWithheld: 'boolean' },
   },
   // A deliverable Piloti wrote, filed into the project on a human's authority
   // (agent-authored-documents design, decision 4 — the BFF writes it in the
@@ -520,7 +553,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   // The bytes and every version stay; the chunks go.
   'document.archived': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', collectionName: 'string' },
+    metadata: { projectId: 'string', filename: 'string', collectionName: 'string', nameWithheld: 'boolean' },
   },
   'document.generated': {
     targets: [{ type: 'document' }, { type: 'agent_run' }, { type: 'answer_artifact' }],
@@ -529,7 +562,13 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     // one, and the emit for this action throws rather than swallowing — so an
     // unregistered key does not lose an audit line, it unfiles the document the
     // line was about.
-    metadata: { projectId: 'string', producer: 'string', filename: 'string', fileSize: 'number' },
+    metadata: {
+      projectId: 'string',
+      producer: 'string',
+      filename: 'string',
+      fileSize: 'number',
+      nameWithheld: 'boolean',
+    },
   },
   // A rename changes what a document is CALLED, never which file it is, so the
   // trail records both: `filename` is the unchanged identity, the other two are
@@ -541,6 +580,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       previousName: 'string',
       displayName: 'string',
       collectionName: 'string',
+      nameWithheld: 'boolean',
     },
   },
   'archiv.document.uploaded': {
@@ -570,6 +610,33 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       previousName: 'string',
       displayName: 'string',
       collectionName: 'string',
+    },
+  },
+  // The restricted-memory judge's verdict on one note (ADR-0087), a language
+  // model deciding who may read it: `drawn` (it named folders the note draws
+  // on), `none` (it named none, so they add no restriction) or `failed` (no
+  // usable answer; restricted to every folder in scope). Actor
+  // `system:memory_judge`. The note by id, never its text. `judgedFolders` were
+  // shown to the judge, `drawnFolders` it named, `restrictedFolders` the note
+  // was stored with; each a folder id, or the collection name when it no
+  // longer resolves to one, comma-separated, cut at 500 characters (the counts
+  // say when). `projectId` is empty for organization memory. `outcome` is
+  // `stored`, the target the note, or `refused`, the target the organization:
+  // an organization-wide finding this deployment does not let the agent store
+  // (the default), which the agent then offers the user as a card.
+  'project.memory.restriction_judged': {
+    targets: [{ type: 'project_memory_item' }, { type: 'organization' }],
+    metadata: {
+      projectId: 'string',
+      verdict: 'string',
+      outcome: 'string',
+      judgedFolders: 'string',
+      judgedCount: 'number',
+      drawnFolders: 'string',
+      drawnCount: 'number',
+      restrictedFolders: 'string',
+      provenance: 'string',
+      conversationId: 'string',
     },
   },
   // Sharing (ADR-0032). Access-control changes on a resource are privileged

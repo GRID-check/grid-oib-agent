@@ -70,6 +70,7 @@ import {
 import type { AccessFolder } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
 import { findProjectDocumentsByFilenames, type DocumentListRow } from '@/lib/documents/repository'
+import { internalRead } from '@/lib/documents/document-reader'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -793,7 +794,8 @@ describe('addRunDocument', () => {
           'project-1',
           'org_1',
           ['Abmahnung_Meier_2026.pdf'],
-          { includeArchived: true }
+          // Held rows too: the answer is only ever a refusal (ADR-0086).
+          { includeArchived: true, reader: internalRead('identity') }
         )
         expect(addDocumentToBackendJob).not.toHaveBeenCalled()
       }

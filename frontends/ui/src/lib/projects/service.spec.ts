@@ -207,7 +207,11 @@ describe('getProjectsGridData', () => {
     const data = await getProjectsGridData(session())
 
     expect(lastProjectActivityByUser).toHaveBeenCalledWith('org_1', 'user_1', ['proj_beta'])
-    expect(countDocumentsByProject).toHaveBeenCalledWith('org_1', ['proj_beta'], [])
+    expect(countDocumentsByProject).toHaveBeenCalledWith('org_1', ['proj_beta'], [], {
+      kind: 'projects',
+      userId: 'user_1',
+      reviewedProjectIds: [],
+    })
     expect(data.projects.map((project) => project.id)).toEqual(['proj_beta'])
     expect(data.viewerActivity).toEqual({ proj_beta: '2026-08-05T09:00:00.000Z' })
     expect(data.documentCounts).toEqual({ proj_beta: 4 })

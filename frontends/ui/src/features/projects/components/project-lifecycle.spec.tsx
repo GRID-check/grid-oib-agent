@@ -59,16 +59,18 @@ describe('ProjectLifecycleCard', () => {
     refresh.mockClear()
   })
 
-  test('closing goes through Ausmisten: with nothing chosen, it only closes, and refreshes the page', async () => {
-    const fetchMock = vi.fn(async (url: string) =>
-      url.includes('/cleanup')
-        ? new Response(JSON.stringify({ items: [], considered: 3, aiUsed: true, aiError: null }), { status: 200 })
-        : new Response(JSON.stringify({ status: 'closed' }), { status: 200 })
-    )
+  test('closing goes through Ausmisten with the debrief: with nothing chosen, it only closes, and refreshes the page', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/cleanup')) return Response.json({ items: [], considered: 3, aiUsed: true, aiError: null })
+      if (url.endsWith('/memory')) return Response.json({ items: [] })
+      return Response.json({ status: 'closed' })
+    })
     vi.stubGlobal('fetch', fetchMock)
     render(<ProjectLifecycleCard projectId="p1" status="active" closedAt={null} />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Close project' }))
+    // The dialog asks with the closing debrief, and changes nothing before the confirmation.
+    expect(await screen.findByTestId('closing-debrief')).toBeInTheDocument()
     expect(await screen.findByText('Piloti proposes nothing to remove.')).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalledWith('/api/projects/p1/status', expect.anything())
     await userEvent.click(screen.getByRole('button', { name: 'Close without removing anything' }))
@@ -87,6 +89,7 @@ describe('ProjectLifecycleCard', () => {
 
     expect(screen.getByText('Closed on October 6, 2026')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Reopen project' }))
+    expect(screen.queryByTestId('closing-debrief')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Reopen' }))
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/projects/p1/status',

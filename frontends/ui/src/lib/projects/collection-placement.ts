@@ -113,8 +113,10 @@ async function moveDocument(organizationId: string, row: PlacementRow, target: s
   if (ref && !(await purgeIngestedChunks(getBackendUrl(), ref, PURGE_TIMEOUT_MS))) return 'failed'
   // A row that owned no chunks (a draft Piloti wrote, never indexed) only needs
   // the pointer, and so does a machine's published document (see the module
-  // comment). A person's document with stored bytes is read again, by the job.
-  const reingest = Boolean(ref && row.storageKey && row.authoredBy === 'user')
+  // comment). A person's document with stored bytes is read again, by the job,
+  // unless it is quarantined: only a release takes it out of quarantine
+  // (ADR-0086), and the release dispatches it into the collection it is in.
+  const reingest = Boolean(ref && row.storageKey && row.authoredBy === 'user' && row.status !== 'quarantined')
   if (!(await repointPlacementRow(organizationId, row, target, { reingest }))) return 'failed'
   return reingest ? 'handed-off' : 'repointed'
 }

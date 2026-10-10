@@ -44,6 +44,7 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
+from aiq_agent.common.grounding_block import PROJECT_STATUS_LABELS
 from aiq_agent.common.grounding_block import GroundingHit
 from aiq_agent.common.grounding_block import SourceRegion
 from aiq_agent.common.grounding_block import get_grounding_block
@@ -137,6 +138,18 @@ class SourceEntry:
     # locates by matching ``chunk_text`` instead. Several chunks of one page
     # merge their boxes on dedup, so a page cited for two depictions marks both.
     regions: list[SourceRegion] = field(default_factory=list)
+    # The OTHER project a cross-project lookup found this passage in (ADR-0094),
+    # as the knowledge layer's ``Projekt:`` line states it. None for every
+    # source of the turn's own scope. The chip names it, and the preview opens
+    # the document in that project rather than in the chat's own.
+    project_id: str | None = None
+    project_name: str | None = None
+    project_status: str | None = None
+    # The Bundesland line of that project's hit, as the producer states it
+    # (``SourceProject.land_note``): the label, plus the warning when the
+    # project is in another Land than the chat's. Carried to the precedent
+    # chip's meta line; None when the producer stated none.
+    project_land_note: str | None = None
 
 
 @dataclass
@@ -675,6 +688,10 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                                 for region in map(SourceRegion.from_cached, item.get("regions") or [])
                                 if region is not None
                             ],
+                            project_id=item.get("project_id"),
+                            project_name=item.get("project_name"),
+                            project_status=item.get("project_status"),
+                            project_land_note=item.get("project_land_note"),
                         )
                     )
                 except Exception:
@@ -1017,6 +1034,10 @@ def _entry_from_hit(hit: GroundingHit, tool_name: str) -> SourceEntry:
         punkt=(hit.punkt or "").strip() or None,
         score=hit.score,
         regions=list(hit.regions[:_MAX_REGIONS_PER_SOURCE]),
+        project_id=hit.project.id if hit.project else None,
+        project_name=hit.project.name if hit.project else None,
+        project_status=hit.project.status if hit.project else None,
+        project_land_note=hit.project.land_note if hit.project else None,
     )
 
 
@@ -1158,7 +1179,11 @@ _KL_PROVENANCE_RE = re.compile(r"^Herkunft:\s*(.+)$", re.MULTILINE)
 # rest of the line, not one token: the corpus form is ``3.5.2``, a RIS passage
 # states its locus the way a lawyer reads it, ``§ 63 Abs 1``, and squeezing that
 # to ``§63Abs1`` to fit a one-token rule put an unreadable locus on every chip.
+#: ``Projekt: Name — abgeschlossen (project_id …)`` (``grounding_block._project_line``, ADR-0094).
+_KL_PROJECT_RE = re.compile(r"^Projekt:\s*(.+?)\s+—\s+(\S+)\s+\(project_id\s+([^\s)]+)\)\s*$", re.MULTILINE)
 _KL_PUNKT_RE = re.compile(r"^Punkt:\s*(.+?)\s*$", re.MULTILINE)
+#: ``Bundesland: …`` under the ``Projekt:`` line (``grounding_block._header_lines``), when the project's Land is stated.
+_KL_LAND_RE = re.compile(r"^Bundesland:\s*(.+?)\s*$", re.MULTILINE)
 # The retrieval score ``_format_results`` prints, a true cosine similarity since
 # the audit's F6 fix. Parsed from the WHOLE block rather than the header region:
 # the header is defined as everything above this very line. A body could in
@@ -1288,9 +1313,15 @@ def _kl_entry(
     tool_name: str,
     punkt: str | None = None,
     score: float | None = None,
+    project: tuple[str, str, str] | None = None,
+    project_land_note: str | None = None,
 ) -> SourceEntry:
-    """Build a knowledge-layer :class:`SourceEntry` from one hit's fields."""
+    """Build a knowledge-layer :class:`SourceEntry` from one hit's fields.
+
+    ``project`` is the ``Projekt:`` line read back, ``(name, status label, id)``.
+    """
     parsed_shelf = parse_shelf(shelf)
+    project_name, status_label, project_id = project if project else (None, None, None)
     return SourceEntry(
         citation_key=citation_key.strip(),
         title=title,
@@ -1303,7 +1334,21 @@ def _kl_entry(
         chunk_text=chunk_text or None,
         punkt=(punkt or "").strip() or None,
         score=score,
+        project_id=project_id,
+        project_name=project_name,
+        project_status=_PROJECT_STATUS_BY_LABEL.get(status_label, status_label) if status_label else None,
+        project_land_note=project_land_note,
     )
+
+
+#: The ``Projekt:`` line's status labels back to the wire's status.
+_PROJECT_STATUS_BY_LABEL = {label: status for status, label in PROJECT_STATUS_LABELS.items()}
+
+
+def _parse_kl_project(header: str) -> tuple[str, str, str] | None:
+    """The ``Projekt:`` line of one block's header, or None when the hit named no project."""
+    match = _KL_PROJECT_RE.search(header)
+    return (match.group(1).strip(), match.group(2), match.group(3)) if match else None
 
 
 def _parse_kl_score(value: str | None) -> float | None:
@@ -1359,6 +1404,8 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                     chunk_text=_kl_block_body(block),
                     tool_name=tool_name,
                     punkt=_first(_KL_PUNKT_RE, header),
+                    project=_parse_kl_project(header),
+                    project_land_note=_first(_KL_LAND_RE, header),
                     # The score line is the header's last line by definition of
                     # ``_kl_block_header``, so it is read off the whole block.
                     score=_parse_kl_score(_first(_KL_SCORE_RE, block)),
@@ -1412,6 +1459,10 @@ register_source_parser(lambda name: "ris_lookup" in name, _parse_knowledge_layer
 # structured path reads its block by hash and would otherwise recover passages
 # the text path cannot (ADR-0061).
 register_source_parser(lambda name: "read_passage" in name, _parse_knowledge_layer)
+# The cross-project lookup (ADR-0094) renders its search hits in the same
+# grammar, with a ``Projekt:`` line. A replayed turn reads them back here; its
+# find and brief answers carry no ``Citation:`` line and so state no source.
+register_source_parser(lambda name: "project_lookup" in name, _parse_knowledge_layer)
 # ``list_files`` is an INDEX, never evidence: a row proves a file exists, not
 # what it says. It sits in the knowledge data source, so its output is captured
 # like a search result, and with no parser it fell to the non-URL fallback and
@@ -2441,6 +2492,11 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
     page: int | None = None
     if entry.citation_key:
         parsed_name, page = _parse_citation_key(entry.citation_key)
+        # A cross-project key names its project after the file (ADR-0094):
+        # „Plan.pdf (Wohnbau Graz), p.3". The file is called Plan.pdf.
+        project_qualifier = f" ({entry.project_name})" if entry.project_name else None
+        if project_qualifier and parsed_name.endswith(project_qualifier):
+            parsed_name = parsed_name[: -len(project_qualifier)].rstrip()
         # Only surface filenames that look like documents (extension present).
         if parsed_name and "." in parsed_name.rsplit("/", 1)[-1]:
             file_name = parsed_name
@@ -2537,8 +2593,28 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         # viewer draws over the page (issue #433). Absent for running text,
         # which the viewer finds by matching ``snippet`` instead.
         "regions": [region.to_wire() for region in entry.regions] or None,
+        # The OTHER project a cross-project lookup found this passage in
+        # (ADR-0094): the chip names it, and the preview opens the document in
+        # that project. Absent for every source of the chat's own scope.
+        "project": _wire_project(entry),
     }
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def _wire_project(entry: SourceEntry) -> dict[str, str] | None:
+    """``{id, name, status[, landNote]}`` of the other project an entry came from, or None.
+
+    ``landNote`` is the project's Bundesland line verbatim, warning included.
+    It is omitted when the producer stated none (older messages, a replayed
+    turn whose text carries no ``Bundesland:`` line), and the browser reads
+    absence as null.
+    """
+    if not entry.project_id:
+        return None
+    project = {"id": entry.project_id, "name": entry.project_name or "", "status": entry.project_status or "active"}
+    if entry.project_land_note:
+        project["landNote"] = entry.project_land_note
+    return project
 
 
 #: The wire keys a READ-BUT-UNCITED source keeps: identity (which document,
@@ -2562,6 +2638,9 @@ _READ_SOURCE_WIRE_KEYS = frozenset(
         "lane_label",
         "title",
         "url",
+        # Which project a read-but-uncited passage of another project came
+        # from: identity, like the collection (ADR-0094).
+        "project",
     }
 )
 

@@ -29,6 +29,8 @@ export const uploadBatches = {
       label: 'At a glance',
       unchanged: 'Unchanged',
       excluded: 'Not uploaded',
+      changed: 'Changed',
+      protected: 'Protected',
     },
     uploadFailed:
       '{count, plural, one {# file did not arrive. Upload it again.} other {# files did not arrive. Upload them again.}}',
@@ -53,6 +55,13 @@ export const uploadBatches = {
       reasonsLabel: 'Why it is held back',
       openInFiles: 'Open in Files',
       openInArchiv: 'Open in Office filing',
+      changedHint: 'A new version of a document that was already here. The previous one stays under Versions.',
+      protectedHint: 'Filed in a folder with its own access list. The lock on the folder shows who may open and change it.',
+      requestRelease: 'Ask for release',
+      releaseRequested: 'Release requested',
+      releaseRequestedToast: 'The people who may release “{name}” have been notified.',
+      releaseRequestNobody: 'Nobody but you may release “{name}”. You find it under Organization → Quarantine.',
+      releaseRequestError: 'Could not send the request. Please try again.',
     },
     notFound: {
       title: 'Summary not found',
@@ -77,5 +86,7 @@ export const uploadBatches = {
       description: 'Uploads to this project appear here with what became of each file.',
     },
     error: 'The upload history could not be loaded.',
+    more: 'Load older uploads',
+    moreError: 'The older uploads could not be loaded. Try again.',
   },
 }

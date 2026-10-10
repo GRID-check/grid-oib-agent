@@ -34,6 +34,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { filedInOf } from '@/lib/audit/document-names'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
 import { findProjectInOrg } from '@/lib/projects/repository'
@@ -66,7 +67,8 @@ import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import { assertNoActiveHold } from '@/lib/compliance/holds'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document, DocumentAuthor } from '@/lib/db/schema'
-import { reconcileDocumentStatuses, describeBackendIngestState } from './reconcile-status'
+import { onDocumentsSettled } from '@/lib/upload-batches/settle'
+import { reconcileDocumentStatuses, describeBackendIngestState, extractIngestJobId } from './reconcile-status'
 import { toListedDocuments, toListedPage, type ListedDocument } from './shelf-listing'
 import { projectShelf } from './shelf'
 import { uploadToShelf, type UploadDocumentResult } from './shelf-upload'
@@ -116,7 +118,9 @@ import {
   type ReindexProjectPayload,
   type ReingestFailedPayload,
 } from '@/lib/jobs-queue/types'
-import { getAccessibleDocument } from './access'
+import { findDocumentForSession, getAccessibleDocument } from './access'
+import { hasPassedScreening, internalRead, SCREENED_ONLY } from './document-reader'
+import { maySeeHeld, shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { recordDocumentAccess } from '@/lib/download-log/service'
 import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
@@ -448,11 +452,18 @@ export async function dispatchIngest(
   // the organization: the document's project and the member who put it there.
   // Read from the row rather than threaded through every caller; a failed read
   // books the spend to the organization alone, never fails the dispatch.
-  const attribution = await findDocumentInOrg(documentId, organizationId).catch(() => null)
+  const attribution = await findDocumentInOrg(documentId, organizationId, internalRead('ingest')).catch(() => null)
   // The content gate's rules (ADR-0086). Every path into the index passes this
   // line — upload, re-ingest, re-index, Archiv, chat, the IFC digest — so the
-  // gate is not something a new caller has to remember.
-  const screening = await ingestScreeningFor(organizationId, attribution)
+  // gate is not something a new caller has to remember. A policy that cannot
+  // be read sends nothing: the row fails with a retry offered.
+  let screening: Awaited<ReturnType<typeof ingestScreeningFor>>
+  try {
+    screening = await ingestScreeningFor(organizationId, attribution)
+  } catch {
+    await markDocumentIngestFailed(documentId, organizationId, INGEST_DISPATCH_FAILED_MESSAGE)
+    return { jobId: null, status: 'failed' }
+  }
 
   const body = JSON.stringify({
     file_ref: presignedUrl,
@@ -549,15 +560,18 @@ export async function listDocumentsPage(
 
   // `limit` is deliberately not passed: the repository's own default is the
   // page size, and a second copy of it here could drift from the real one.
+  // A file in quarantine is listed for its uploader and its reviewers only (ADR-0086).
+  const reader = await shelfReaderFor(session, { scope: 'project', projectId })
   const page = await listProjectDocumentPage(projectId, session.organizationId, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+    reader,
     authoredBy: options.authoredBy,
     // Archived documents have LEFT the working set, so they are absent unless
     // the caller says otherwise (ADR-0054).
     includeArchived: options.includeArchived,
     cursor: options.cursor,
   })
-  return toListedPage(session, page)
+  return toListedPage(session, page, reader)
 }
 
 /**
@@ -576,10 +590,12 @@ export async function resolveProjectDocumentsByName(
   filenames: readonly string[]
 ): Promise<ListedDocument[]> {
   await requireProjectAccess(session, projectId, 'project:view')
+  const reader = await shelfReaderFor(session, { scope: 'project', projectId })
   const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+    reader,
   })
-  return toListedDocuments(session, rows)
+  return toListedDocuments(session, rows, reader)
 }
 
 /**
@@ -611,9 +627,12 @@ export async function probeProjectDocumentNames(
 ): Promise<DocumentNameMatchRow[]> {
   await requireProjectAccess(session, projectId, 'project:view')
   // A name taken in a hidden folder is not reported: the upload refuses it
-  // without saying where (`assertNameFreeInProject`).
+  // without saying where (`assertNameFreeInProject`). Nor is one held by
+  // somebody else's quarantined file (ADR-0086): the upload refuses it as a
+  // taken name (`assertMayReplaceQuarantined`).
   return findProjectDocumentsByNames(projectId, session.organizationId, names, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+    reader: await shelfReaderFor(session, { scope: 'project', projectId }),
   })
 }
 
@@ -682,7 +701,9 @@ export function deriveSearchTopK(topKFiles: number): number {
 export async function fetchSemanticHits(
   collectionName: string,
   query: string,
-  topKFiles: number
+  topKFiles: number,
+  /** Longer than the backend's 300 only where the snippet is the evidence (the cross-project lookups, ADR-0094). */
+  snippetMaxChars?: number
 ): Promise<BackendSearchHit[]> {
   const scopeHeaders = buildGridRequestContextWireHeaders(
     { collectionScope: [collectionName] },
@@ -694,7 +715,12 @@ export async function fetchSemanticHits(
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...scopeHeaders },
-        body: JSON.stringify({ query, top_k: deriveSearchTopK(topKFiles), top_k_files: topKFiles }),
+        body: JSON.stringify({
+          query,
+          top_k: deriveSearchTopK(topKFiles),
+          top_k_files: topKFiles,
+          ...(snippetMaxChars ? { snippet_max_chars: snippetMaxChars } : {}),
+        }),
         signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
       }
     )
@@ -809,12 +835,18 @@ export function joinHitsToFiles<
  * The rows are looked up BY THE HIT NAMES, as `searchArchivDocuments` does,
  * never read from the listing: the listing is paged, and a hit on a document
  * past its first page used to be dropped as if the search had not found it.
+ *
+ * `forModel`: the hits go to a model, not to this person (the cross-project
+ * lookups hand them to the agent). They are joined to screened rows only
+ * (`SCREENED_ONLY`, ADR-0086): the person's own held uploads, and a reviewer's
+ * view of the quarantine, stay with the person.
  */
 export async function searchProjectDocuments(
   session: AuthorizedSession,
   projectId: string,
   query: string,
-  topK = 20
+  topK = 20,
+  options: { snippetMaxChars?: number; forModel?: boolean } = {}
 ): Promise<{ hits: Array<SearchedDocument<ListedDocument>> }> {
   await requireProjectAccess(session, projectId, 'project:view')
 
@@ -825,13 +857,18 @@ export async function searchProjectDocuments(
   // cleared for (ADR-0087); one ranking across them, cut to `topK`.
   const access = await getProjectFolderAccess(session, projectId, project.collectionName)
   const collections = [project.collectionName, ...access.clearedRestrictedCollections]
-  const hits = (await Promise.all(collections.map((collection) => fetchSemanticHits(collection, query, topK))))
+  const hits = (
+    await Promise.all(
+      collections.map((collection) => fetchSemanticHits(collection, query, topK, options.snippetMaxChars))
+    )
+  )
     .flat()
     .sort((a, b) => b.score - a.score)
     .slice(0, topK)
   if (hits.length === 0) return { hits: [] }
   // The canonical rows, hydrated exactly as the listing hydrates them, so a
   // semantic result is always a real, visible document with its live status.
+  const reader = options.forModel ? SCREENED_ONLY : await shelfReaderFor(session, { scope: 'project', projectId })
   // The lookup is by project and name, so it returns the same-named rows of the
   // project's own collection and of every cleared restricted folder alike (a
   // hidden folder's rows are left out); the join then picks, per hit, the row of
@@ -840,9 +877,9 @@ export async function searchProjectDocuments(
     projectId,
     session.organizationId,
     hits.map((hit) => hit.file_name),
-    { hiddenFolderIds: [...access.hiddenFolderIds] }
+    { hiddenFolderIds: [...access.hiddenFolderIds], reader }
   )
-  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows)) }
+  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows, reader)) }
 }
 
 export interface UploadDocumentInput {
@@ -997,8 +1034,10 @@ export interface DispatchDocumentResult {
   /**
    * `processing` is a detached path: an IFC model ({@link beginModelExtraction})
    * or an office file converting first ({@link beginRenditionIngest}).
+   * `quarantined` is a row nothing was dispatched for: it waits on a reviewer
+   * (ADR-0086), and only a release sends it on.
    */
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
+  status: 'pending' | 'uploaded' | 'failed' | 'processing' | 'quarantined'
 }
 
 /**
@@ -1080,7 +1119,7 @@ export async function dispatchDocument(
    * be cheaper and weaker: the next caller would simply be able to get it
    * wrong, which is exactly what happened.
    */
-  const row = await findDocumentInOrg(input.documentId, input.organizationId)
+  const row = await findDocumentInOrg(input.documentId, input.organizationId, internalRead('ingest'))
   // An allow-list on a row that must EXIST. `if (row && …)` read a missing row
   // as permission to ingest, which is the one default this guard was moved here
   // to stop making: the argument for reading the row is "never trust the
@@ -1090,6 +1129,15 @@ export async function dispatchDocument(
   if (!row || !mayBeIndexed(row, input.versionId ?? null)) {
     throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
   }
+  // A quarantined row (ADR-0086) reaches the index through a reviewer's release
+  // and no other way: the release moves it to `uploaded` before it dispatches
+  // (`markScreeningReleased`). Every other caller re-reads a whole folder or
+  // project — a restore from the Papierkorb, a placement move when a folder's
+  // access changes, „Projekt neu indizieren" — and a dispatch sets the row
+  // `pending`, which lifted the hold for every reader and screened the bytes
+  // again under whatever the rules had become. Asked of the row here, so the
+  // next such caller cannot forget it.
+  if (row.status === 'quarantined') return { jobId: null, status: 'quarantined' }
 
   if (isIfcFilename(input.filename)) {
     return beginModelExtraction(input)
@@ -1237,9 +1285,7 @@ async function queueDocumentWork(
  * A restart no longer strands the model at `extracting`: the claim goes back to
  * the queue and the next worker parses it again.
  */
-export async function beginModelExtraction(
-  input: BeginModelExtractionInput
-): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' | 'processing' }> {
+export async function beginModelExtraction(input: BeginModelExtractionInput): Promise<DispatchDocumentResult> {
   await markDocumentProcessing(input.documentId, input.organizationId)
   return queueDocumentWork('bim_extract', input, documentWorkPayload(input))
 }
@@ -1323,7 +1369,7 @@ function dispatchInputOf(organizationId: string, payload: BimExtractPayload): Di
  * superseded while it waited.
  */
 async function jobStillOwnsRow(input: DispatchDocumentInput): Promise<boolean> {
-  const row = await findDocumentInOrg(input.documentId, input.organizationId)
+  const row = await findDocumentInOrg(input.documentId, input.organizationId, internalRead('ingest'))
   if (!row) return false
   if (row.storageKey !== input.storageKey || row.status !== 'processing') return false
   return mayBeIndexed(row, input.versionId ?? null)
@@ -1473,7 +1519,7 @@ async function signedRenditionRef(input: DispatchDocumentInput, fileName: string
 
 export interface ReingestDocumentResult {
   id: string
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
+  status: DispatchDocumentResult['status']
   jobId: string | null
 }
 
@@ -1559,8 +1605,18 @@ export async function reingestDocument(
       // Heal the row either way. A success is not re-dispatched: the reader
       // clicked "retry" on what looked stuck, and it is done. A failure is
       // what they were retrying, so it goes on to the dispatch below.
-      await setDocumentReconciledStatus(doc.id, session.organizationId, knowledge.resolution)
+      const moved = await setDocumentReconciledStatus(doc.id, session.organizationId, knowledge.resolution, {
+        status: doc.status,
+        jobId: extractIngestJobId(doc.metadata),
+      })
       if (knowledge.resolution.status !== 'failed') {
+        // Came to rest here rather than on a listing read: settle it as
+        // reconciliation would, or a quarantine is never audited and its
+        // reviewers never told. Only if this write moved the row: a listing
+        // read that got there first has settled it. Never throws.
+        if (moved) {
+          await onDocumentsSettled(session.organizationId, [{ id: doc.id, status: knowledge.resolution.status }])
+        }
         throw new ConflictError(`Ingestion already ${knowledge.resolution.status} for this document`, {
           status: knowledge.resolution.status,
           code: INGEST_ALREADY_DONE,
@@ -1714,7 +1770,9 @@ async function redispatchForReindex(
   const doc = await getAccessibleDocument(session, row.id, 'write')
   // Mid-flight rows are skipped: a second dispatch would double the work of
   // one that is running. Every in-flight spelling, not just two of them.
-  if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status)) return 'skipped'
+  // So is a quarantined one: it waits on a reviewer, and `dispatchDocument`
+  // would leave it alone anyway (ADR-0086).
+  if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status) || doc.status === 'quarantined') return 'skipped'
 
   // Belt to the query's braces. The listing already asks for `'user'` only, so
   // this is never null in practice; a row that somehow arrives here
@@ -1772,7 +1830,10 @@ export async function runReindexSlice(
     return { done: true, payload }
   }
 
+  // Every row, held ones too: a re-index is an ingest, and a held file is read
+  // again through the same gate (a quarantined one is dispatched for nobody).
   const { rows, nextCursor } = await listProjectDocumentPage(payload.projectId, session.organizationId, {
+    reader: internalRead('ingest'),
     authoredBy: 'user',
     cursor: payload.cursor ?? undefined,
     limit: REINDEX_SLICE_DOCUMENTS,
@@ -1962,7 +2023,7 @@ export async function redispatchStuckDocument(
   organizationId: string,
   documentId: string
 ): Promise<StuckDocumentOutcome> {
-  const doc = await findDocumentInOrg(documentId, organizationId)
+  const doc = await findDocumentInOrg(documentId, organizationId, internalRead('ingest'))
   // Gone, or moved on since the sweep read it.
   if (!doc || doc.status !== 'processing') return 'gone'
 
@@ -2129,6 +2190,8 @@ export async function renameDocument(
         : 'document.renamed',
     targetType: 'document',
     targetId: documentId,
+    // A document under a folder not every member may read is not named (ADR-0087).
+    filedIn: filedInOf(doc),
     metadata: {
       filename: doc.filename.slice(0, 200),
       previousName: documentDisplayName(doc).slice(0, 200),
@@ -2219,7 +2282,9 @@ export async function deleteDocument(
   documentId: string,
   request: Request
 ): Promise<void> {
-  const doc = await findDocumentInOrg(documentId, session.organizationId)
+  // Through the hold (ADR-0086): a member who may not see a held file is told
+  // it does not exist, rather than allowed to delete it.
+  const doc = await findDocumentForSession(session, documentId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
   // A delete is a write in the document's folder (ADR-0088): the project's
@@ -2238,6 +2303,7 @@ export async function deleteDocument(
     actor: { userId: session.userId, email: session.email },
     action: 'document.deleted',
     targetType: 'document',
+    filedIn: filedInOf(doc),
     // Filename is user-controlled — cap it before it reaches the trail.
     metadata: {
       projectId: doc.projectId,
@@ -2482,9 +2548,16 @@ export async function getDocumentPreview(
   // optimizer can actually process — this is what lets `next/image` resize a
   // full-size upload down to the box it is rendered in. Null for PDFs, SVGs and
   // the exotic formats above, whose callers fall back to `url` unoptimized.
-  const imageUrl = OPTIMIZABLE_IMAGE_CONTENT_TYPES.includes(contentType)
-    ? buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'original')
-    : null
+  //
+  // Null for a held file too (ADR-0086). That URL is a bearer capability the
+  // optimizer fetches without a session, so `streamDocumentImage` serves only
+  // screened files through it: the session that minted it (a reviewer, the
+  // uploader) is not there to be asked again. The pane falls back to `url`,
+  // which this session's own check just presigned.
+  const imageUrl =
+    OPTIMIZABLE_IMAGE_CONTENT_TYPES.includes(contentType) && hasPassedScreening(doc)
+      ? buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'original')
+      : null
 
   return { url, contentType, filename: doc.filename, imageUrl, rendition: false, sourceContentType: null }
 }
@@ -2647,6 +2720,10 @@ export async function getDocumentThumbnail(
 ): Promise<{ url: string | null }> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) return { url: null }
+  // No derivative of a held file (ADR-0086), for its uploader and its reviewers
+  // too: the ingest draws one only after the screen passes, and one left from
+  // earlier bytes or an earlier verdict is not this file's to show.
+  if (!hasPassedScreening(doc)) return { url: null }
 
   const thumbnailKey = buildThumbnailStorageKey(doc.storageKey)
   if (!thumbnailKey) return { url: null }
@@ -2703,6 +2780,11 @@ export async function getDocumentThumbnail(
  * full-size original when it was issued for a thumbnail. The org id is taken
  * from the signed claims rather than the caller, so the row lookup stays
  * tenant-scoped exactly as the session path is.
+ *
+ * What may have changed since the mint is asked again: the folder, and the
+ * hold (ADR-0086). A re-upload keeps the document's id, so a URL minted for a
+ * member before the new bytes were held would otherwise go on serving their
+ * thumbnail, or for an image the image itself, until it expired.
  */
 export async function streamDocumentImage(
   documentId: string,
@@ -2719,7 +2801,13 @@ export async function streamDocumentImage(
   }
 
   const { organizationId, userId, variant } = verified.claims
-  const doc = await findDocumentInOrg(documentId, organizationId)
+  // Screened files only, whatever the variant and whoever the URL names
+  // (ADR-0086). The claims carry a person, not their standing: a reviewer's or
+  // an uploader's right to a held file is a session check this sessionless
+  // fetch cannot repeat, so neither `getDocumentPreview` nor
+  // `getDocumentThumbnail` mints one of these URLs for a held file, and one
+  // minted before the file was held (a re-upload, a quarantine) stops working.
+  const doc = await findDocumentInOrg(documentId, organizationId, SCREENED_ONLY)
   if (!doc?.storageKey) throw new NotFoundError()
   // The URL outlives the moment it was minted, and the optimizer's fetch has no
   // session, so the person it names is asked again: a folder they can no longer
@@ -2781,6 +2869,10 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   const [reconciled] = await reconcileDocumentStatuses([doc], session.organizationId)
+  // The rule again, on the row the reconcile handed back (ADR-0086): a file
+  // re-read under an earlier pass can come back `quarantined`, and the read
+  // above only let it through on that earlier verdict.
+  if (!hasPassedScreening(reconciled) && !(await maySeeHeld(session, reconciled))) throw new NotFoundError()
   const [openVersion, [versionSummary]] = await Promise.all([
     findOpenVersion(reconciled.id, session.organizationId),
     listDocumentVersionSummaries([reconciled.id], session.organizationId),

@@ -385,6 +385,64 @@ Open the **Data Sources** panel (right sidebar) to enable or disable knowledge c
 
 Enabled data source IDs are tracked per conversation in `enabledDataSourceIds` and sent with every chat message as `enabledDataSources` metadata.
 
+## Searching other projects
+
+Piloti knows the office's finished projects and looks into them on its own
+when your question calls for it: „Wie haben wir die Fluchttreppe beim letzten
+GK4-Holzbau gelöst?", „Was hat die Behörde bei ähnlichen Projekten verlangt?",
+or a question this project's own documents do not answer. You do not have to
+ask it to search there. At the start of every answer it sees a short list of
+the closed projects most like this one (same Bundesland first, then
+Gebäudeklasse, Bauweise and use), and it can search their documents (by topic,
+optionally by document type such as Detail or Gutachten, by OIB discipline,
+and by the project's period), find a project by name or address, and read a
+project's brief. While it searches, the status line says „in anderen
+Projekten". Piloti also finds what other projects **decided**: the decisions and
+constraints their project memory recorded while they ran („Stiegenhaus in
+Stahlbeton, weil das Gutachten nur so die Abweichung zuließ"). These often
+say why, which a document rarely does. They come first in the answer, cited
+as „Projektgedächtnis · ‹Projekt›". Every source from another project names
+that project on its chip
+(„Detail Traufe · Wohnbau Graz"), and opens the document in that project. Its
+preview labels it „Präzedenzfall" rather than „Projektwissen", with that project's
+status („laufend" or „abgeschlossen") and its Bundesland, and warns when the Land
+is not this project's. Piloti treats such a source as a precedent, not as a
+rule, and says when the regulations may have changed since.
+
+What it may look at is decided by Piloti's server, never by the model, and by
+**everyone who reads the chat**, not just by you:
+
+- in a chat only you can see: every project you may chat in, and inside each,
+  exactly what that project's own search would show you (folders with their
+  own access list only if you may read them);
+- in a chat shared with colleagues: the closed projects, and the running ones
+  every one of them may open; no folder with its own access list;
+- in a chat the whole project can see: the closed projects;
+- never the project this chat belongs to (Piloti searches that one anyway);
+- one search covers up to eight projects; Piloti continues when it needs to.
+
+So everything Piloti shows in a chat is something everyone already in it may
+read.
+
+**Closed projects change nothing about your chat.** The whole office may read a
+closed project, so a chat that drew on one stays as it was: shareable with
+anyone in the office, able to remember, start a Tiefenrecherche or an Auftrag.
+
+**A chat that used a running project, or a restricted folder of any project,
+stays with the people who may open it.** From then on the chat:
+
+- can be shared only with colleagues who may open every such project and read
+  every such folder; it cannot be made visible to the whole project;
+- starts no deep research and no task, changes no project brief, files nothing
+  into the project, and adds nothing to project or office memory.
+
+A notice below the text field, above the row of controls, names the other
+projects that restrict the chat right now and says what that closes: a running
+project, or a project whose folder with its own access list the chat drew on,
+even when that project is closed. If a running project is closed later, the
+chat opens up; if a closed one is reopened, the restriction comes back; the
+notice follows within a turn.
+
 ## Project-scoped chat
 
 Set a `projectId` on the store to scope the conversation context to a specific project's documents. The `buildCollectionScopeFromRequest()` function builds an ordered scope header from the session's organization, project, and conversation IDs. Project access is enforced by `requireProjectAccess()` before requests reach the backend.

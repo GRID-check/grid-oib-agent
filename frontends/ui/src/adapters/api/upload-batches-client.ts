@@ -3,7 +3,7 @@
  * project's uploads over time.
  *
  *   - summary → `GET /api/upload-batches/[id]`       (the uploader's only; 404 for anyone else)
- *   - history → `GET /api/projects/[id]/uploads`      (project:view)
+ *   - history → `GET /api/projects/[id]/uploads`      (project:view; keyset pages, `?cursor=`)
  *   - place   → `GET /api/projects/[id]`              (the project's name, for the summary's header)
  *
  * The server types (`UploadSummary`, `UploadHistoryEntry`) live in
@@ -40,6 +40,10 @@ const UploadSummaryDocumentSchema = z.object({
   summary: z.string().nullable(),
   tags: z.array(z.string()),
   pageCount: z.number().nullable(),
+  /** A new version of a document already there („geändert"). */
+  replaced: z.boolean().default(false),
+  /** Filed in a folder not every project member may read („geschützt"). */
+  restricted: z.boolean().default(false),
 })
 
 const UploadSummarySchema = z.object({
@@ -76,7 +80,10 @@ const UploadHistoryEntrySchema = z.object({
   }),
 })
 
-const UploadHistorySchema = z.object({ uploads: z.array(UploadHistoryEntrySchema) })
+const UploadHistorySchema = z.object({
+  uploads: z.array(UploadHistoryEntrySchema),
+  nextCursor: z.string().nullable().default(null),
+})
 
 const ProjectNameSchema = z.object({ name: z.string() })
 
@@ -84,6 +91,7 @@ export type UploadSummary = z.infer<typeof UploadSummarySchema>
 export type UploadSummaryDocument = z.infer<typeof UploadSummaryDocumentSchema>
 export type UploadScope = UploadSummary['scope']
 export type UploadHistoryEntry = z.infer<typeof UploadHistoryEntrySchema>
+export type UploadHistoryPage = z.infer<typeof UploadHistorySchema>
 
 async function requestError(response: Response, fallback: string): Promise<ApiRequestError> {
   const body: unknown = await response.json().catch(() => null)
@@ -101,11 +109,15 @@ export async function getUploadSummary(batchId: string, signal?: AbortSignal): P
   return UploadSummarySchema.parse(await response.json())
 }
 
-/** A project's uploads, newest first. */
-export async function listProjectUploads(projectId: string, signal?: AbortSignal): Promise<UploadHistoryEntry[]> {
-  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/uploads`, { signal })
+/** One page of a project's uploads, newest first; `cursor` is the previous page's `nextCursor`. */
+export async function listProjectUploads(
+  projectId: string,
+  { cursor, signal }: { cursor?: string; signal?: AbortSignal } = {}
+): Promise<UploadHistoryPage> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/uploads${query}`, { signal })
   if (!response.ok) throw await requestError(response, 'Failed to load the upload history')
-  return UploadHistorySchema.parse(await response.json()).uploads
+  return UploadHistorySchema.parse(await response.json())
 }
 
 /** The project's name, or `null` when it cannot be read (deleted, or no longer this reader's). */

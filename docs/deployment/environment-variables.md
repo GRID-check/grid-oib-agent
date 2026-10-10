@@ -242,6 +242,9 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 |----------|----------|---------|-------------|
 | `REC_OUT` | Set by the census | — | Path of the JSON-lines file `scripts/turn_census/sitecustomize.py` appends one record per model call to. `census.py` sets it for the agent process it starts; do not set it by hand. Empty or unset, nothing is recorded. The application never reads it. |
 | `STARTUP_PROBE_IN_TREE` | Set by the startup probe | — | Marks the process `scripts/turn_census/startup_probe.py` re-executed with this checkout first on `PYTHONPATH`, so it does not re-execute again. Do not set it by hand. |
+| `GRID_EVAL_ENVELOPE` | Set by the suite | — | The signed `X-Grid-Request-Context` envelope `scripts/turn_census/suite.py` mints for each run of the precedent eval (`--set precedent`). `scripts/turn_census/sitecustomize.py` hands it to the agent's `project_context` as the header a chat turn carries, so the turn reads the fixture office as the BFF would send it. Never set in a deployment; the agent reads the real header from the request. |
+| `GRID_EVAL_ENVELOPE_SIG` | Set by the suite | — | The signature over `GRID_EVAL_ENVELOPE`, made with the run's `GRID_INTERNAL_API_TOKEN`, read by the same `sitecustomize.py` patch as the signature header. Set together with `GRID_EVAL_ENVELOPE`; the agent verifies it as it would a real one. Never set in a deployment. |
+| `SUITE_JUDGE_MODEL` | No | `openai/gpt-6-luna` | The OpenRouter model `scripts/turn_census/judge.py` asks for the precedent eval's meaning checks (`says_none`, `caveat`): one yes/no question per check about what the answer means. Read once at import. Changing it changes the judge, so re-validate the rubric on captured answers before trusting a new score. Development and eval runs only. |
 
 ---
 

@@ -150,6 +150,7 @@ import {
 } from './folder-derived-repository'
 import { buildFolderPath } from './folders'
 import { findProjectInOrg } from './repository'
+import { shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 
 /** The machine-readable reason a delete is refused because the folder holds content the person may not delete. */
 export const FOLDER_CONTENTS_PROTECTED_REASON = 'folder-contents-protected'
@@ -562,7 +563,7 @@ export async function listFolderBin(session: AuthorizedSession, projectId: strin
   const { closed } = await requireProjectAccess(session, projectId, 'project:view')
   const project = await projectFor(session.organizationId, projectId)
   const [rows, folders, projectWrite, canPurge, directory] = await Promise.all([
-    listBinEntries(session.organizationId, project.id),
+    listBinEntries(session.organizationId, project.id, await shelfReaderFor(session, { scope: 'project', projectId: project.id })),
     listProjectFolderTree(session.organizationId, project.id),
     mayRestoreInProject(session, project.id, closed),
     mayManageProject(session, project.id),

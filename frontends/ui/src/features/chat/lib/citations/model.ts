@@ -32,7 +32,7 @@
 
 import { mergePageRegions, type PageRegion } from '@/features/knowledge/lib/page-region'
 import type { SourceTint } from '@/features/layout/lib/source-presets'
-import type { CitationSource } from '../../types'
+import type { CitationProject, CitationSource } from '../../types'
 import {
   KIND_TO_SIGNAL,
   accentForLane,
@@ -183,6 +183,8 @@ export interface CitedDocument {
    * undefined upstream so it renders as no badge.
    */
   bindingStatus?: string
+  /** The other project a cross-project lookup found it in (ADR-0094); the chip names it. */
+  project?: CitationProject
   /** Backend origin token, when one was stamped. */
   origin?: CitationOrigin
   /** Tool that produced the hit. */
@@ -766,6 +768,7 @@ export class CitationAccumulator {
     laneLabel?: string | null
     bindingNote?: string | null
     bindingStatus?: string | null
+    project?: CitationProject
     origin?: string | null
     tool?: string | null
     snippet?: string | null
@@ -838,6 +841,7 @@ export class CitationAccumulator {
     doc.tool = doc.tool ?? (observation.tool?.trim() || undefined)
     doc.bindingNote = doc.bindingNote ?? (observation.bindingNote?.trim() || undefined)
     doc.bindingStatus = doc.bindingStatus ?? (observation.bindingStatus?.trim() || undefined)
+    doc.project = doc.project ?? observation.project
     doc.snippet = doc.snippet ?? (observation.snippet?.trim() || undefined)
     doc.laneLabel = doc.laneLabel ?? (observation.laneLabel?.trim() || undefined)
     const origin = observation.origin?.trim().toLowerCase()

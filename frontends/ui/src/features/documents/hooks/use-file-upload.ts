@@ -33,6 +33,7 @@ import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
 import { screenUploadName, type NameMatch } from '@/lib/upload-screening/name-screen'
 import { describeScreenedOut } from '@/lib/upload-screening/quarantine'
+import type { UploadScreeningPolicy } from '@/lib/upload-screening/policy'
 import { exclusionsByTerm, openUploadBatch, sealUploadBatch } from '../lib/upload-batch'
 
 /**
@@ -143,6 +144,13 @@ export interface UploadFilesOptions {
    * summary can say why something is missing; never sent by name.
    */
   excludedByScreening?: ReadonlyArray<readonly NameMatch[]>
+  /**
+   * The office's policy, when the caller has just read it for this upload
+   * (the upload dialog settles its plan against a fresh read). Screened with
+   * as given; absent, it is read here. Never a kept copy: a stale list is the
+   * one this gate exists to refuse.
+   */
+  screeningPolicy?: UploadScreeningPolicy
 }
 
 interface UseFileUploadReturn {
@@ -333,9 +341,16 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
        * back and took their releases; this is the gate for every path that
        * does not pass the dialog (a chat attachment, a direct pick that met
        * nothing) and the backstop for the ones that do. What it holds back is
-       * not sent at all.
+       * not sent at all. Neither is anything else while the policy cannot be
+       * read: an unknown list holds back nothing it should.
        */
-      const policy = await loadUploadScreeningPolicy()
+      let policy: UploadScreeningPolicy
+      try {
+        policy = options?.screeningPolicy ?? (await loadUploadScreeningPolicy())
+      } catch {
+        setError(t('errors.screeningPolicyUnavailable'))
+        return
+      }
       const screenedOut: Array<{ file: File; matches: NameMatch[] }> = []
       const validFiles = validationResult.validFiles.filter((file) => {
         if (options?.screeningReleased?.(file)) return true

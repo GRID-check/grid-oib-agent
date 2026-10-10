@@ -3,6 +3,9 @@
 /**
  * Close a project, or reopen it (ADR-0090) — the settings card for whoever
  * holds `project:manage`. Both directions ask once; neither deletes anything.
+ * Closing asks in the „Ausmisten" dialog (`close-project-dialog.tsx`), with
+ * the closing debrief inside it (`closing-debrief.tsx`): what the project
+ * leaves the office, while its memory can still be written.
  * The server decides and audits (`PUT /api/projects/[id]/status`); this card
  * only asks and then refreshes the page, whose every section reads the new
  * status from the server.
@@ -17,17 +20,33 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { RaisedCard, RaisedCardBody } from '@/components/ui/raised-card'
 import { ProjectStatusChip } from '@/components/projects/project-status'
 import { useLocale, useTranslations } from '@/i18n'
-import { CloseProjectDialog } from './close-project-dialog'
+import type { ProjectProfile } from '@/lib/project-profile/types'
+import type { Month } from '@/lib/projects/month'
 import type { ProjectStatus } from '@/lib/projects/project-status'
+import { CloseProjectDialog } from './close-project-dialog'
+import { ClosingDebrief } from './closing-debrief'
 
 export interface ProjectLifecycleCardProps {
   projectId: string
   status: ProjectStatus
   /** ISO timestamp; set when closed. */
   closedAt: string | null
+  /** The profile, for the debrief's fingerprint. */
+  profile?: ProjectProfile | null
+  /** The Steckbrief's Beginn, for the debrief. */
+  startedOn?: Month | null
+  /** Whether the closer may confirm decisions and record a lesson in the debrief. */
+  canWriteMemory?: boolean
 }
 
-export function ProjectLifecycleCard({ projectId, status, closedAt }: ProjectLifecycleCardProps): JSX.Element {
+export function ProjectLifecycleCard({
+  projectId,
+  status,
+  closedAt,
+  profile = null,
+  startedOn = null,
+  canWriteMemory = false,
+}: ProjectLifecycleCardProps): JSX.Element {
   const t = useTranslations('projects')
   const tCommon = useTranslations('common')
   const { locale } = useLocale()
@@ -78,7 +97,18 @@ export function ProjectLifecycleCard({ projectId, status, closedAt }: ProjectLif
           {closed ? t('lifecycle.card.reopen') : t('lifecycle.card.close')}
         </Button>
         {/* Closing goes through „Ausmisten" first (ADR-0092); reopening asks once. */}
-        {!closed && <CloseProjectDialog projectId={projectId} open={open} onOpenChange={setOpen} onClose={submit} />}
+        {!closed && (
+          <CloseProjectDialog projectId={projectId} open={open} onOpenChange={setOpen} onClose={submit}>
+            {open && (
+              <ClosingDebrief
+                projectId={projectId}
+                profile={profile}
+                startedOn={startedOn}
+                canWriteMemory={canWriteMemory}
+              />
+            )}
+          </CloseProjectDialog>
+        )}
         <ConfirmDialog
           open={closed && open}
           onOpenChange={setOpen}

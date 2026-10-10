@@ -760,6 +760,7 @@ class TestRestrictedReflection:
             memory_digest=None,
             restriction=evidence,
         )
+        self.verdicts = {k["content"]: k["restriction_judge"] for k in recorded}
         return {k["content"]: k["restricted_collections"] for k in recorded}
 
     @pytest.mark.asyncio
@@ -771,6 +772,11 @@ class TestRestrictedReflection:
             "Flachdach extensiv begrünt.": None,
         }
         assert len(llm.calls) == 2, "one judge call for the whole batch"
+        # AI Act: each finding's verdict goes with its write, for the audit trail.
+        assert {content: verdict["verdict"] for content, verdict in self.verdicts.items()} == {
+            "Honorar LP 5-8 ist pauschal 184.000 EUR.": "drawn",
+            "Flachdach extensiv begrünt.": "none",
+        }
 
     @pytest.mark.asyncio
     async def test_a_read_folder_restricts_every_finding_without_a_judge(self, monkeypatch):

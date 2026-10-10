@@ -1224,6 +1224,7 @@ export const platform: typeof en.platform = {
     copyId: '{id} kopieren',
     copied: 'Kopiert',
     copyFailed: 'Kopieren in die Zwischenablage fehlgeschlagen',
+    titleWithheld: 'Titel zurückgehalten: eingeschränkter Ordner',
   },
   /**
    * Zitations-Qualität (citation_events-Ledger): wie oft die Quellenprüfung in

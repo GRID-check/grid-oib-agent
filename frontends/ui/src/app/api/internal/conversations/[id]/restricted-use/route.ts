@@ -18,7 +18,16 @@
  *     audience (`admitRestrictedUse`). A refused collection's content is
  *     dropped from the turn.
  *
- * `POST` with `{ organizationId, userId, projectId?, candidates?, admit? }` →
+ * Both carry `answerMessageId`, the id of the answer the turn is writing (the
+ * agent derives it from the conversation and the turn, and streams and persists
+ * the answer under it). The server marks that id (`message_restricted_use`,
+ * ADR-0093) when the conversation drew on a restricted folder: at admission, in
+ * the transaction that records the folder, and at turn start when an earlier
+ * turn already had. So a vote on the answer is judged by the server's own
+ * record even when the answer is never persisted and whatever conversation id
+ * the vote is sent with.
+ *
+ * `POST` with `{ organizationId, userId, projectId?, candidates?, admit?, answerMessageId? }` →
  * `{ drawable, admitted, refused, recorded }`. Token-guarded
  * (`internalApiRoute`); everything runs in the organization the body states,
  * and the organization, asker and project are what the BFF signed into the
@@ -35,6 +44,7 @@ import {
   ADMISSION_MAX_COLLECTIONS,
   admitRestrictedUse,
   drawableRestrictedCollections,
+  markTurnAnswer,
   recordedRestrictedFolders,
 } from '@/lib/conversations/restricted-use'
 
@@ -50,6 +60,10 @@ const restrictedUseSchema = z.object({
   projectId: z.string().min(1).max(128).nullish(),
   candidates: collectionList,
   admit: collectionList,
+  // The answer this turn writes (`answer_message_id(conversation, turn)` on the
+  // agent's side): marked here when the conversation drew on a restricted
+  // folder, before the model reads anything (ADR-0093).
+  answerMessageId: z.string().uuid().nullish(),
 })
 
 /** The id is written into the record, so it is bounded like every other id the agent sends. */
@@ -65,10 +79,14 @@ export const POST = internalApiRoute<Params>(
       conversationId: params.id,
       userId: body.userId,
       projectId: body.projectId ?? null,
+      answerMessageId: body.answerMessageId ?? null,
     }
     return withTenant({ organizationId: body.organizationId }, async () => {
       const drawable = await drawableRestrictedCollections(useRequest, body.candidates)
       if (body.admit.length === 0) {
+        // Turn start: an answer in a conversation that already drew on a
+        // restricted folder can quote it from the history.
+        await markTurnAnswer(useRequest)
         return {
           drawable,
           admitted: [],

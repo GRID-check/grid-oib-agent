@@ -118,6 +118,27 @@ the 17k-character IFC method on a model question — because inlining every
 method by size cost ~4 600 tokens on every call (ADR-0063, amended). Every
 tool stays bound whatever it says.
 
+*Amended 2026-10-07 (ADR-0094):* the office's other projects. The corpus
+choice gains `referenz`: an earlier or comparable project of this office,
+what an authority demanded there. `buero` keeps templates and office
+standards, so "earlier projects" no longer lands on the archive. When the
+turn's catalog lists reference projects, one more noul is asked:
+`precedent`, whether an earlier project likely faced the decision the message
+is about. A question can need the norm and a precedent at once, and one
+choice cannot say that.
+
+Either answer ADDS `project_lookup` with `scope: closed` to round 0, beside
+the corpus's own search. It searches closed projects only, because a closed
+project's content narrows nobody who may read the chat, while a running
+project's would. Taking that step stays the model's. The threshold (0.6)
+is a first setting. The precedent eval (`suite.py --set precedent`) is what
+moves it (`agents/piloti/decisions.py`, `PRECEDENT_THRESHOLD`).
+
+*Amended 2026-10-08:* the step searches closed projects' open folders only
+(`open_folders_only`). In a solo chat the lookup also reaches the asker's cleared
+restricted folders, and recording one narrows the chat on a search nobody asked
+for; a restricted folder stays a call the model makes itself.
+
 **Use 2 — the judge's yes/no** (`knowledge_layer/decisions.py`,
 `requery_decider: jev`). One noul per passage of the fused head — "does this
 passage state the governing statement the question needs" — beside the

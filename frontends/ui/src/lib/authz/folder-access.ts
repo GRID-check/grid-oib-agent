@@ -43,7 +43,12 @@ import { checkResourcePermission } from './resource-check'
 import { resolveSubjectMembership } from './project-membership'
 import { findProjectTenancy } from '@/lib/projects/repository'
 import { isProjectClosed } from '@/lib/projects/project-status'
-import { listCustomFolderNames, listProjectFolderTree, projectHasCustomOrBinnedFolders } from './folder-access-repository'
+import {
+  listCustomFolderNames,
+  listProjectFolderTree,
+  listProjectsWithCustomOrBinnedFolders,
+  projectHasCustomOrBinnedFolders,
+} from './folder-access-repository'
 import {
   ANY_MEMBER,
   atLeast,
@@ -73,6 +78,28 @@ async function anyRoleAdministers(organizationId: string, roles: readonly string
 }
 
 /**
+ * The session's roles and admin bypass before any project narrows them. Only
+ * the bypass holds without a project ({@link seesEveryFolder}); the roles clear
+ * a folder only through {@link clearanceOf}, in the folder's project.
+ */
+async function organizationClearanceOf(session: AuthorizedSession): Promise<FolderClearance> {
+  const roles = rolesOf(session)
+  const current = await resolveMembershipRoles(session.organizationId, session.userId)
+  return current === null
+    ? { roles, seesEverything: hasPermission(session, ORG_PERMISSIONS.projectsAdminister) }
+    : { roles, seesEverything: await anyRoleAdministers(session.organizationId, current) }
+}
+
+/**
+ * Whether the session clears every folder of every project, closed or not:
+ * the admin bypass, which is the one part of a clearance no project changes.
+ * What decides a row whose project is purged, so that no list can answer now.
+ */
+export async function seesEveryFolder(session: AuthorizedSession): Promise<boolean> {
+  return (await organizationClearanceOf(session)).seesEverything
+}
+
+/**
  * What clears folders for this session in one project: its roles and the admin
  * bypass.
  *
@@ -91,12 +118,7 @@ async function anyRoleAdministers(organizationId: string, roles: readonly string
  * clearance is always a clearance in some project.
  */
 export async function clearanceOf(session: AuthorizedSession, projectId: string): Promise<FolderClearance> {
-  const roles = rolesOf(session)
-  const current = await resolveMembershipRoles(session.organizationId, session.userId)
-  const clearance =
-    current === null
-      ? { roles, seesEverything: hasPermission(session, ORG_PERMISSIONS.projectsAdminister) }
-      : { roles, seesEverything: await anyRoleAdministers(session.organizationId, current) }
+  const clearance = await organizationClearanceOf(session)
   if (clearance.seesEverything) return clearance
   const outsider = await readsOnlyBecauseClosed(session.organizationId, projectId, session.organizationMembershipId)
   return outsider ? ANY_MEMBER : clearance
@@ -381,6 +403,45 @@ export async function readableFolderIdsFor(
   return folders
     .filter((folder) => atLeast(effectiveFolderLevel(tree, clearance, folder.id), 'read'))
     .map((folder) => folder.id)
+}
+
+/**
+ * How many projects {@link readableFoldersOfRestrictedProjects} reads at once.
+ * Each is the session's clearance there ({@link clearanceOf}: for a session
+ * that does not see everything, a tenancy probe, and for a closed project a
+ * WorkOS FGA check too) and one transaction for its tree, so this many hold at
+ * most this many pool connections (of `GRID_DB_POOL_MAX`, 10 by default). The
+ * round trips are as many as one at a time made; a long list waits about a
+ * quarter as long for them, and every other request keeps most of the pool.
+ */
+export const RESTRICTED_PROJECT_READS_AT_ONCE = 4
+
+/**
+ * Every folder the session may read in the organization's projects that have a
+ * folder hiding something from someone ({@link loadCustomFolderTree} is not
+ * null for them): what a query that must not match an unreadable folder's rows
+ * is narrowed to in SQL (the download log's name filter). Each project by the
+ * session's clearance in that project ({@link clearanceOf}), so a closed one
+ * clears someone who reads it only because it is closed as a member with no
+ * role (ADR-0090). A project the list leaves out, past its bound, contributes
+ * no folder, so its rows match nothing: the narrowing fails closed. Projects
+ * are read {@link RESTRICTED_PROJECT_READS_AT_ONCE} at a time; the answer is in
+ * the list's order all the same.
+ */
+export async function readableFoldersOfRestrictedProjects(session: AuthorizedSession): Promise<string[]> {
+  const { organizationId } = session
+  const projectIds = await listProjectsWithCustomOrBinnedFolders(organizationId)
+  const readable: string[][] = []
+  let next = 0
+  const reader = async (): Promise<void> => {
+    for (let index = next++; index < projectIds.length; index = next++) {
+      const projectId = projectIds[index]
+      readable[index] = await readableFolderIdsFor(organizationId, projectId, await clearanceOf(session, projectId))
+    }
+  }
+  const readers = Math.min(RESTRICTED_PROJECT_READS_AT_ONCE, projectIds.length)
+  await Promise.all(Array.from({ length: readers }, reader))
+  return readable.flat()
 }
 
 /**

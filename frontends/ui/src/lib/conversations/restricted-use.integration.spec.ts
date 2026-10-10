@@ -20,18 +20,35 @@
  *   - a share cannot slip between an admission's audience check and its
  *     record, nor an admission between a share's check and its write;
  *   - the erasure takes the record with the conversation, and another
- *     organization can neither see nor write one.
+ *     organization can neither see nor write one;
+ *   - the answer a turn writes is marked by its id at admission, and at the
+ *     start of a later turn, so a vote on it stays out of every cross-tenant
+ *     reader with no persisted answer and whatever conversation it names
+ *     (ADR-0093).
  */
 
+import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { FolderClearance } from '@/lib/authz/folder-access'
+import { NO_RATINGS_FILTERS, type FeedbackQuery } from '@/lib/feedback/filters'
 
 vi.mock('server-only', () => ({}))
 
 const STAMP = Date.now()
 const ORG = `org_ruse_${STAMP}`
+
+/** This organization's down-votes, over a range that holds every seeded vote. */
+const DOWN_IN_ORG: FeedbackQuery = {
+  scope: {
+    from: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
+    to: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+    organizationIds: [ORG],
+    projectIds: [],
+  },
+  ratings: { ...NO_RATINGS_FILTERS, verdict: 'down' },
+}
 const OTHER_ORG = `${ORG}_other`
 /** Owner of every chat here, cleared for the restricted folder. */
 const OWNER = `user_ruse_owner_${STAMP}`
@@ -200,6 +217,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
   afterAll(async () => {
     if (!db) return
     await withPlatformAccess('test teardown', async () => {
+      await db.execute(sql`delete from answer_feedback where organization_id = ${ORG}`)
       await db.execute(sql`delete from conversation_restricted_folders where organization_id = ${ORG}`)
       await db.execute(sql`delete from resource_shares where organization_id = ${ORG}`)
       await db.execute(sql`delete from conversations where organization_id = ${ORG}`)
@@ -466,6 +484,70 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
       // Another organization cannot read the record at all, so it cannot lock anything.
       expect([...(await read(OTHER_ORG))]).toEqual([])
     })
+  })
+
+  /**
+   * The answer's id is minted by the agent for the turn (`answer_message_id`),
+   * streamed to the browser and persisted under it, and a vote names it. The
+   * server marks it when the turn admits restricted content, so no persisted
+   * answer is needed, and the conversation id a vote is sent with only adds.
+   */
+  it('marks the answer a turn writes at admission, so a vote on it stays out whatever conversation it names', async () => {
+    const drew = await chat()
+    const open = await chat()
+    const admitted = randomUUID()
+    const later = randomUUID()
+    const openAnswer = randomUUID()
+    const request = (conversationId: string, answerMessageId: string) => ({
+      organizationId: ORG,
+      conversationId,
+      userId: OWNER,
+      projectId,
+      answerMessageId,
+    })
+    const admission = await inOrg(ORG, () => use.admitRestrictedUse(request(drew, admitted), [restricted]))
+    expect(admission.admitted).toEqual([restricted])
+    // A later turn of the same chat, asked at its start, before the model reads the history.
+    await inOrg(ORG, () => use.markTurnAnswer(request(drew, later)))
+    // A turn of a chat that drew on nothing: no mark.
+    await inOrg(ORG, () => use.markTurnAnswer(request(open, openAnswer)))
+
+    // No `messages` row for any of these answers: the turn's persist is fail-soft.
+    const vote = (messageId: string, claimed: string | null, voter: string, comment: string) =>
+      inOrg(ORG, () =>
+        db.execute(sql`
+          insert into answer_feedback (organization_id, conversation_id, message_id, user_id, verdict, reason, comment, expected_answer)
+          values (${ORG}, ${claimed}, ${messageId}, ${voter}, 'down', 'inaccurate', ${comment}, ${comment})`)
+      )
+    await vote(admitted, null, OWNER, `Laut Vertrag ZIMMERER-DDD ${STAMP}`)
+    await vote(admitted, open, CLEARED, `Laut Vertrag ZIMMERER-EEE ${STAMP}`)
+    await vote(later, open, OWNER, `Laut Vertrag ZIMMERER-FFF ${STAMP}`)
+    await vote(openAnswer, open, OWNER, `Treppe offen ${STAMP}`)
+
+    const { listFeedbackTurns, isRestrictedUseVote } = await import('@/lib/feedback/repository')
+    const { listUnprocessedDownvotes } = await import('@/lib/platform-lessons/repository')
+    const turns = await withPlatformAccess('test: feedback drill-in', () =>
+      listFeedbackTurns(DOWN_IN_ORG)
+    )
+    const reports = (await withPlatformAccess('test: lessons input', () => listUnprocessedDownvotes(500))).filter(
+      (report) => report.organizationId === ORG
+    )
+    expect(turns.map((turn) => turn.comment)).toEqual([`Treppe offen ${STAMP}`])
+    expect(JSON.stringify(reports)).not.toContain('ZIMMERER')
+    expect(reports.map((report) => report.comment)).toEqual([`Treppe offen ${STAMP}`])
+
+    // Langfuse asks the same rule: the restricted votes are scored without their words.
+    const ids = Array.from(
+      await inOrg(ORG, () =>
+        db.execute<{ id: string; message_id: string; user_id: string }>(
+          sql`select id, message_id, user_id from answer_feedback where organization_id = ${ORG} order by comment`
+        )
+      )
+    )
+    const stripped = await inOrg(ORG, async () =>
+      Promise.all(ids.map(async (row) => [String(row.message_id), await isRestrictedUseVote(String(row.id), ORG)]))
+    )
+    expect(Object.fromEntries(stripped)).toEqual({ [admitted]: true, [later]: true, [openAnswer]: false })
   })
 
   it('takes the record with the conversation when the chat is erased', async () => {

@@ -180,6 +180,14 @@
     "de": "Ein fehlgeschlagener Abruf taucht nicht mehr als Quelle in der Herleitung auf."
   },
   {
+    "en": "A file cannot be uploaded over one waiting in quarantine, not even by its uploader, so the held-back version never becomes part of its history. Delete the quarantined file first, or have it released.",
+    "de": "Eine Datei, die in Quarantäne wartet, lässt sich nicht überschreiben, auch nicht von der Person, die sie hochgeladen hat, sodass die zurückgehaltene Fassung nie Teil ihres Verlaufs wird. Löschen Sie die Datei in Quarantäne zuerst, oder lassen Sie sie freigeben."
+  },
+  {
+    "en": "A file in quarantine can be asked for: press „Freigabe anfragen“ next to it in the upload summary, and the people who may release it get an inbox notice naming the file. In Organisation → Quarantäne, „Ansehen“ opens the file where it is filed, so it can be looked at before it is released.",
+    "de": "Für eine Datei in Quarantäne lässt sich die Freigabe anfragen: Drücken Sie daneben in der Upload-Zusammenfassung auf „Freigabe anfragen“, und wer sie freigeben darf, erhält eine Meldung im Postfach, die die Datei nennt. Unter Organisation → Quarantäne öffnet „Ansehen“ die Datei dort, wo sie abgelegt ist, sodass sie sich vor der Freigabe ansehen lässt."
+  },
+  {
     "en": "A file is found even when the answer spells its name with different capitals, or when it is an attachment uploaded in this chat.",
     "de": "Eine Datei wird auch gefunden, wenn die Antwort ihren Namen anders groß schreibt oder wenn sie als Beilage in diesem Chat hochgeladen wurde."
   },
@@ -398,6 +406,10 @@
   {
     "en": "A research run whose end the browser missed no longer locks the chat; a running research never blocks typing, renaming or deleting.",
     "de": "Ein Durchlauf, dessen Ende der Browser verpasst hat, sperrt den Chat nicht mehr; eine laufende Recherche blockiert weder Eingabe noch Umbenennen oder Löschen."
+  },
+  {
+    "en": "A restricted note in the Projektspeicher now says „von KI mitbestimmt\" when a language model helped decide who may read it.",
+    "de": "Eine eingeschränkte Notiz im Projektspeicher zeigt jetzt „von KI mitbestimmt“, wenn ein Sprachmodell mitentschieden hat, wer sie lesen darf."
   },
   {
     "en": "A results table in a comparison or file note is headed Ergebnisse, not Befunde, and passes no verdict the report did not reach.",
@@ -864,6 +876,10 @@
     "de": "Vergleichs- und Datentabellen in den Karten stehen jetzt in normaler Textgröße statt in der kleinsten Schrift, und Spaltenköpfe heben sich durch den Schriftschnitt ab."
   },
   {
+    "en": "Confirming the upload preview checks your office's list once more before a folder is created; if the preview changed meanwhile, nothing is sent and the dialog shows the new preview to confirm.",
+    "de": "Beim Bestätigen der Upload-Vorschau prüft Piloti die Liste Ihres Büros noch einmal, bevor ein Ordner angelegt wird; hat sich die Vorschau inzwischen geändert, wird nichts gesendet, und der Dialog zeigt die neue Vorschau zur Bestätigung."
+  },
+  {
     "en": "Copied answers keep their formatting: pasted into Word, Outlook or Notion they arrive with real tables, headings and emphasis instead of raw Markdown characters.",
     "de": "Kopierte Antworten behalten ihre Formatierung: In Word, Outlook oder Notion eingefügt, erscheinen echte Tabellen, Überschriften und Hervorhebungen statt roher Markdown-Zeichen."
   },
@@ -950,6 +966,10 @@
   {
     "en": "Deleting a folder never deletes what was filed in it. The confirmation names where things go — \"Its 4 documents and 1 subfolder are not deleted — they move to Brandschutz\" — and the documents and any subfolders are re-filed into the folder above before the folder itself is removed, with a toast afterwards repeating the count.",
     "de": "Das Löschen eines Ordners löscht niemals, was darin abgelegt ist. In der Bestätigung steht, wohin die Inhalte verschoben werden: „Die 4 Dokumente und der 1 Unterordner werden nicht gelöscht – sie werden in den Ordner Brandschutz verschoben.“ Bevor der Ordner selbst entfernt wird, werden die Dokumente und etwaige Unterordner in den übergeordneten Ordner verschoben. Eine anschließende Toast-Meldung wiederholt die Anzahl."
+  },
+  {
+    "en": "Deleting a role now also asks about folders in the Papierkorb or in a deleted project whose access list names it, and marks them in the list. Restoring one used to bring back a list naming a role that no longer existed.",
+    "de": "Beim Löschen einer Rolle fragt Piloti jetzt auch nach Ordnern im Papierkorb oder in einem gelöschten Projekt, deren Zugriffsliste sie nennt, und markiert sie in der Liste. Bisher brachte das Wiederherstellen eines solchen Ordners eine Liste mit einer Rolle zurück, die es nicht mehr gab."
   },
   {
     "en": "Deleting an Archiv document or a chat attachment now also removes its version history.",
@@ -1126,6 +1146,10 @@
   {
     "en": "Files of a closed project say so wherever they appear, and the projects list can show active, closed or all projects.",
     "de": "Dateien eines abgeschlossenen Projekts sind überall, wo sie erscheinen, als solche gekennzeichnet, und die Projektliste kann aktive, abgeschlossene oder alle Projekte zeigen."
+  },
+  {
+    "en": "Files uploaded in the project wizard now get the same inbox notice and upload summary as any other upload, and appear in the project's upload history.",
+    "de": "Im Projekt-Assistenten hochgeladene Dateien erhalten jetzt dieselbe Meldung im Postfach und dieselbe Upload-Zusammenfassung wie jeder andere Upload und erscheinen im Upload-Verlauf des Projekts."
   },
   {
     "en": "Files you upload start being read right away, even while another office is importing a large folder, and a busy day brings more reading capacity instead of a longer wait.",
@@ -1570,6 +1594,10 @@
   {
     "en": "Piloti is built for a phone now, not merely resized for one. The numbers and sources in an answer, the mentions in a shared thread, the steps of a card and the outline of a report are all sized for a fingertip, so checking where a requirement came from no longer takes three attempts on site.",
     "de": "Piloti ist jetzt für Smartphones konzipiert und nicht bloß dafür angepasst. Zahlen und Quellen in einer Antwort, Erwähnungen in einem geteilten Thread, Schritte einer Karte und die Gliederung eines Berichts sind auf die Bedienung mit dem Finger ausgelegt. So brauchen Sie vor Ort nicht mehr drei Anläufe, um herauszufinden, woher eine Anforderung stammt."
+  },
+  {
+    "en": "Piloti keeps its own copy of a quarantine decision only until the audit log has it, and seven days at the most, because it names the file and who uploaded it.",
+    "de": "Piloti behält eine eigene Kopie einer Quarantäne-Entscheidung nur, bis das Audit-Protokoll sie hat, und höchstens sieben Tage, weil sie die Datei und die hochladende Person nennt."
   },
   {
     "en": "Piloti knows which documents are still missing and answers accordingly. Without a Bebauungsplan it says so instead of answering as if it had read one.",
@@ -2024,6 +2052,10 @@
     "de": "Der Assistent startet wieder, nachdem er zuvor nicht starten konnte und Fragen unbeantwortet blieben."
   },
   {
+    "en": "The audit log now records when Piloti quarantines an upload, with the terms and checks that matched, once per decision, even if the log was briefly unreachable. It also records each decision of the model that judges who may read a note Piloti keeps from a chat with restricted folders, including a firm-wide note Piloti offered you to save.",
+    "de": "Das Audit-Protokoll hält jetzt fest, wenn Piloti einen Upload in Quarantäne nimmt, mit den Begriffen und Prüfungen, die angeschlagen haben – einmal pro Entscheidung, auch wenn das Protokoll kurz nicht erreichbar war. Es hält außerdem jede Entscheidung des Modells fest, das beurteilt, wer eine Notiz lesen darf, die Piloti aus einem Chat mit eingeschränkten Ordnern behält, auch eine büroweite Notiz, die Piloti Ihnen zum Speichern angeboten hat."
+  },
+  {
     "en": "The banner names where a report will be filed while the research is starting, when you can still stop it, and links to the finished file with „Im Projekt öffnen“. If nothing could be filed, it promises nothing.",
     "de": "Das Banner nennt den Ablageort eines Berichts schon beim Start der Recherche, solange Sie sie noch abbrechen können, und verlinkt die fertige Datei mit „Im Projekt öffnen“. Konnte nichts abgelegt werden, verspricht es nichts."
   },
@@ -2280,8 +2312,16 @@
     "de": "Der Upload-Bereich gibt nun die maximale Dateigröße pro Datei an, die Sie hochladen können. Angezeigt wird der für Ihre Organisation geltende Wert. Bei einem Limit von 100 MB werden nicht mehr 95 MB angezeigt."
   },
   {
+    "en": "The upload history in the project settings now reaches back to a project's first upload: Ältere Uploads laden shows the next older ones.",
+    "de": "Der Upload-Verlauf in den Projekteinstellungen reicht jetzt bis zum ersten Upload eines Projekts zurück: „Ältere Uploads laden“ zeigt die nächstälteren."
+  },
+  {
     "en": "The upload panel no longer retires itself out from under you. A wholly successful batch still clears after a few seconds, but the countdown holds while your pointer is on the panel or your keyboard focus is inside it.",
     "de": "Das Upload-Panel verschwindet nicht mehr, während Sie damit arbeiten. Ein Stapel, bei dem alle Uploads erfolgreich waren, wird weiterhin nach einigen Sekunden ausgeblendet. Der Countdown pausiert jedoch, solange sich der Mauszeiger über dem Panel befindet oder der Tastaturfokus darin liegt."
+  },
+  {
+    "en": "The upload summary now shows which files were a new version of a document already there (Geändert) and which went into a folder with its own access list, the folders marked with a lock (Geschützt), as counts and on each file.",
+    "de": "Die Upload-Zusammenfassung zeigt jetzt, welche Dateien eine neue Fassung eines bereits vorhandenen Dokuments waren (Geändert) und welche in einen Ordner mit eigener Zugriffsliste gingen, also in die mit einem Schloss markierten Ordner (Geschützt) – als Anzahl und bei jeder Datei."
   },
   {
     "en": "The usage overview now includes the model calls Piloti makes to rank passages before it answers, which used to appear on no bill and in no budget.",

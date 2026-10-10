@@ -480,6 +480,18 @@ export interface PendingInteraction {
 }
 
 /** Citation source from research (deep SSE or shallow WS ``sources``). */
+/** The other project a cross-project lookup found a passage in (ADR-0094). */
+export interface CitationProject {
+  id: string
+  name: string
+  status: 'active' | 'closed'
+  /**
+   * The project's Bundesland as the agent states it, warning included when the
+   * Land is not the chat's (ADR-0094). Absent on messages from before it was sent.
+   */
+  landNote?: string | null
+}
+
 export interface CitationSource {
   id: string
   /**
@@ -572,6 +584,12 @@ export interface CitationSource {
    * passage is the model's description of the drawing, not words on the page.
    */
   regions?: PageRegion[]
+  /**
+   * The OTHER project a cross-project lookup found this passage in (ADR-0094).
+   * The chip names it and the preview opens the document there. Absent for
+   * every source of the chat's own scope.
+   */
+  project?: CitationProject
 }
 
 /** Wire shape of a structured source attached to a shallow ChatResponse. */
@@ -614,6 +632,8 @@ export interface WireCitationSource {
   binding_status?: string | null
   /** Boxes on the page, `[{box: [x0, y0, x1, y1], label}]` normalised 0-1 (issue #433). */
   regions?: unknown
+  /** `{id, name, status}` of the other project (ADR-0094); validated by `projectFromWire`. */
+  project?: unknown
 }
 
 /**

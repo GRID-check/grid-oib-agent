@@ -11,6 +11,13 @@ whose answer can only ADD to the turn:
   memory note. What it gates is the PREFETCH below, never a tool.
 - ``corpus``: which body of knowledge the answer most likely lives in. It
   chooses what to prefetch; every tool stays bound whatever it says.
+  ``referenz`` is the office's OTHER projects (ADR-0094): how a comparable
+  project solved something, what an authority demanded there.
+- ``precedent``, asked only when the office has reference projects: whether
+  an earlier project of this office likely faced the decision the message
+  is about. A question can need the norm AND a precedent („brauchen wir ein
+  Gutachten, und wie war das bei ähnlichen Projekten?"), which one corpus
+  choice cannot say. Either answer adds the reference prefetch below.
 - one ``noul`` per Richtlinien-Familie the corpus holds: which OIB documents
   the answer needs. The top ones are prefetched as family overviews, so the
   model's first call sees their Gliederung and scope and opens Punkte instead
@@ -87,6 +94,13 @@ CARD_THRESHOLD = 0.6
 MAX_CARD_SHAPES = 2
 #: The chosen corpus must reach this before its prefetch runs.
 CORPUS_THRESHOLD = 0.5
+#: p(precedent) at or above which the reference projects are prefetched beside
+#: the corpus's own search. Higher than the corpus's: a precedent prefetch is a
+#: search over several projects, and the precedent eval
+#: (`suite.py --set precedent`) is what should move it.
+PRECEDENT_THRESHOLD = 0.6
+#: The cross-project tool the reference prefetch calls (ADR-0094). A wire name.
+PROJECT_LOOKUP = "project_lookup"
 #: A skill's body and shapes ride the turn when the choice lands on it at
 #: this probability AND its own "fits" noul is not near zero. Measured on the
 #: loop-eval set (``decision_eval_2026-09-22.csv``): the choice was right or
@@ -114,7 +128,12 @@ CORPUS_OPTIONS: Mapping[str, str] = {
         "The files of THIS project: a plan, a Bescheid, a report, a model, a submission, or what the "
         "project's own documents contain, show or require."
     ),
-    "buero": "The office's archive: templates, earlier projects, standard details, house documents.",
+    "buero": "The office's archive: templates, standard details, house documents, office guidelines.",
+    "referenz": (
+        "The office's OTHER projects: how an earlier or comparable project of this office solved something, "
+        "what the authority demanded or granted there, a detail, Gutachten or Bescheid from a past project, "
+        "or which past projects resemble this one."
+    ),
     "modell": (
         "The building model (IFC/BIM): storeys, rooms, elements, dimensions, quantities, areas, heights, "
         "or anything measured or counted in the model."
@@ -164,6 +183,8 @@ class TurnDecisions:
     skill_p: float = 0.0
     skill_fit: float | None = None
     self_contained: float | None = None
+    #: p(an earlier project of the office faced this decision); None when not asked.
+    precedent: float | None = None
     latency_ms: int = 0
 
     @staticmethod
@@ -182,6 +203,15 @@ class TurnDecisions:
         if self.skill_p < SKILL_THRESHOLD or (self.skill_fit or 0.0) < SKILL_FIT_THRESHOLD:
             return None
         return self.skill
+
+    @property
+    def wants_reference(self) -> bool:
+        """Whether the office's reference projects are worth a search this turn: as the corpus, or beside it.
+
+        Read only behind ``wants_evidence`` (``prefetch_calls``), which is the gate.
+        """
+        chosen = self.corpus == "referenz" and self.corpus_p >= CORPUS_THRESHOLD
+        return chosen or (self.precedent or 0.0) >= PRECEDENT_THRESHOLD
 
     @property
     def searchable(self) -> bool:
@@ -215,6 +245,9 @@ class TurnFacts:
     #: The opening of the assistant's previous answer, bounded — the subject
     #: a follow-up continues, which the previous question alone may not name.
     previous_answer: str | None = None
+    #: How many reference projects the turn's catalog lists (``<referenzprojekte>``):
+    #: none, and the precedent question is not asked and nothing is prefetched.
+    reference_projects: int = 0
 
     def state(self) -> dict[str, Any]:
         state: dict[str, Any] = {"message": self.question[:1000], "language": "de"}
@@ -230,8 +263,21 @@ class TurnFacts:
             "regulation_families": [f"{family.label}: parts {', '.join(family.members)}" for family in self.families],
             "project_files": self.project_files,
             "archive_files": self.archive_files,
+            "reference_projects": self.reference_projects,
         }
         return state
+
+
+def corpus_options(facts: TurnFacts) -> dict[str, str]:
+    """The corpora this turn can search: other projects only when the office has reference projects.
+
+    Offering ``referenz`` to an office with none let the model pick a corpus
+    nothing searches, and the turn prefetched nothing where ``buero`` would
+    have prefetched the archive.
+    """
+    if facts.reference_projects > 0:
+        return dict(CORPUS_OPTIONS)
+    return {key: text for key, text in CORPUS_OPTIONS.items() if key != "referenz"}
 
 
 def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
@@ -249,7 +295,7 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
             ),
             false=CORPUS_OPTIONS["none"],
         ),
-        "corpus": choice("Where does the answer to this message most likely live?", CORPUS_OPTIONS),
+        "corpus": choice("Where does the answer to this message most likely live?", corpus_options(facts)),
     }
     for family in facts.families:
         scope = FAMILY_SCOPE.get(str(family.key), family.label)
@@ -263,6 +309,18 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
             f"Would the answer to this message be best shown, in part, as a '{card_type}' card?",
             true=f"The answer would contain exactly what this card shows: {doc}",
             false="The answer is prose, a value, or a different kind of structure.",
+        )
+    if facts.reference_projects > 0:
+        questions["precedent"] = noul(
+            "Has an earlier project of this office likely faced the decision or the question this message is about?",
+            true=(
+                "The message asks how something was solved, what an authority demanded, which detail, Gutachten or "
+                "construction to use, or what is usual: a decision a comparable building project makes."
+            ),
+            false=(
+                "The message asks only what a rule says or defines, a fact of this project's own documents, a "
+                "measurement in the model, or needs no reading."
+            ),
         )
     questions["self_contained"] = noul(
         "Can this message be searched for on its own, without the previous message, and still find what it asks about?",
@@ -315,10 +373,12 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
         skill_p=skill_distribution.get(skill or "", 0.0),
         skill_fit=decision.noul(f"fits_{skill}") if skill and skill != "none" else None,
         self_contained=decision.noul("self_contained"),
+        precedent=decision.noul("precedent") if facts.reference_projects > 0 else None,
         latency_ms=decision.latency_ms,
     )
     logger.info(
-        "Turn decision in %d ms: evidence=%.2f corpus=%s(%.2f) families=%s skill=%s cards=%s self_contained=%s",
+        "Turn decision in %d ms: evidence=%.2f corpus=%s(%.2f) families=%s skill=%s cards=%s self_contained=%s "
+        "precedent=%s",
         decided.latency_ms,
         decided.needs_evidence or 0.0,
         decided.corpus,
@@ -327,6 +387,7 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
         decided.chosen_skill,
         decided.chosen_cards(),
         decided.self_contained,
+        decided.precedent,
     )
     return decided
 
@@ -348,6 +409,7 @@ def prefetch_calls(
     *,
     focus_file_name: str | None = None,
     previous_message: str | None = None,
+    reference_projects: int = 0,
 ) -> list[dict[str, Any]]:
     """The tool calls round 0 runs, as the agent's tools node reads them.
 
@@ -377,18 +439,43 @@ def prefetch_calls(
     decision's ``self_contained`` answer a later message may be a follow-up
     („Was sagt die OIB 2 dazu?"), which the decided path refuses to prefetch,
     and a family overview would fill round 0 with the wrong subject.
+
+    The office's reference projects (ADR-0094) are searched beside all that
+    when the decision chose them as the corpus or said a precedent likely
+    exists, and the turn's catalog lists any (``reference_projects``):
+    ``project_lookup`` over the CLOSED projects, most alike first. Closed
+    only, because a decision may only add: a closed project's content
+    narrows nobody who may read the chat, while a running project's would,
+    and that step stays the model's to take. Open folders only
+    (``open_folders_only``), for the same reason: in a solo chat the lookup
+    also reaches the asker's cleared restricted folders, and recording one
+    would narrow the chat on a search nobody asked for. A restricted folder
+    is a call the model makes itself.
     """
     if not decisions.decided:
         return [] if previous_message is not None else _undecided_prefetch(question)
     if not decisions.wants_evidence or not decisions.searchable:
         return []
+    query = prefetch_query(question)
+    if not query:
+        return []
+    calls = _corpus_prefetch(decisions, query, focus_file_name)
+    if reference_projects > 0 and decisions.wants_reference:
+        calls.append(
+            {
+                "name": PROJECT_LOOKUP,
+                "args": {"action": "search", "query": query, "scope": "closed", "open_folders_only": True},
+            }
+        )
+    return calls
+
+
+def _corpus_prefetch(decisions: TurnDecisions, query: str, focus_file_name: str | None) -> list[dict[str, Any]]:
+    """The chosen corpus's own search, and the chosen families' overviews for a law question."""
     if decisions.corpus not in {"baurecht", "projekt", "buero"} or decisions.corpus_p < CORPUS_THRESHOLD:
         return []
     from aiq_agent.common.norm_registry import family_query_number
 
-    query = prefetch_query(question)
-    if not query:
-        return []
     args: dict[str, Any] = {"query": query}
     if focus_file_name and decisions.corpus in {"projekt", "buero"}:
         args["file_name"] = focus_file_name

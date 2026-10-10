@@ -50,7 +50,13 @@ vi.mock('@/lib/cache', () => ({
 vi.mock('@/lib/model-config/backend-key', () => ({ invalidateBackendModelConfig: vi.fn() }))
 vi.mock('@/lib/workos/client', () => ({ getWorkOS: vi.fn() }))
 vi.mock('@/lib/workos/feature-flags', () => ({ isOrgFeatureEnabled: vi.fn(), WEB_SEARCH_FLAG: 'web-search' }))
-vi.mock('@/lib/authz/folder-access', () => ({ loadCustomFolderTree: vi.fn(async () => null) }))
+vi.mock('@/lib/authz/folder-access', () => ({
+  loadCustomFolderTree: vi.fn(async () => null),
+  // An organization admin: a name filter narrows to nothing they may not read.
+  clearanceOf: vi.fn(async () => ({ roles: ['admin'], seesEverything: true })),
+  readableFoldersOfRestrictedProjects: vi.fn(async () => []),
+  seesEveryFolder: vi.fn(async () => true),
+}))
 const recordAuditEvent = vi.fn()
 const recordAuditEventOrThrow = vi.fn()
 vi.mock('@/lib/audit/service', () => ({

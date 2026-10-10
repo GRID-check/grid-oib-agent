@@ -32,6 +32,8 @@ export const uploadBatches: typeof en.uploadBatches = {
       label: 'Auf einen Blick',
       unchanged: 'Unverändert',
       excluded: 'Nicht hochgeladen',
+      changed: 'Geändert',
+      protected: 'Geschützt',
     },
     uploadFailed:
       '{count, plural, one {# Datei kam nicht an. Laden Sie sie erneut hoch.} other {# Dateien kamen nicht an. Laden Sie sie erneut hoch.}}',
@@ -56,6 +58,13 @@ export const uploadBatches: typeof en.uploadBatches = {
       reasonsLabel: 'Warum sie zurückgehalten wird',
       openInFiles: 'In Dateien öffnen',
       openInArchiv: 'In der Büroablage öffnen',
+      changedHint: 'Neue Fassung eines Dokuments, das schon hier lag. Die bisherige bleibt unter Versionen erhalten.',
+      protectedHint: 'Liegt in einem Ordner mit eigenem Zugriff. Wer ihn öffnen und ändern darf, zeigt das Schloss am Ordner.',
+      requestRelease: 'Freigabe anfragen',
+      releaseRequested: 'Freigabe angefragt',
+      releaseRequestedToast: 'Die Personen, die „{name}“ freigeben dürfen, sind benachrichtigt.',
+      releaseRequestNobody: 'Außer Ihnen darf niemand „{name}“ freigeben. Sie finden die Datei unter Organisation → Quarantäne.',
+      releaseRequestError: 'Die Anfrage konnte nicht gesendet werden. Bitte versuchen Sie es erneut.',
     },
     notFound: {
       title: 'Übersicht nicht gefunden',
@@ -80,5 +89,7 @@ export const uploadBatches: typeof en.uploadBatches = {
       description: 'Uploads in dieses Projekt erscheinen hier, mit dem, was aus jeder Datei geworden ist.',
     },
     error: 'Der Verlauf der Uploads konnte nicht geladen werden.',
+    more: 'Ältere Uploads laden',
+    moreError: 'Die älteren Uploads konnten nicht geladen werden. Versuchen Sie es erneut.',
   },
 }

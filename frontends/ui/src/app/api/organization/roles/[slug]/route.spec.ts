@@ -80,14 +80,14 @@ describe('DELETE /api/organization/roles/[slug]', () => {
 
 describe('GET /api/organization/roles/[slug]/usage', () => {
   it('returns the folders that name the role, as the service says', async () => {
-    roles.getCustomRoleUsage.mockResolvedValue({ total: 1, folders: [{ folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd' }] })
+    roles.getCustomRoleUsage.mockResolvedValue({ total: 1, folders: [{ folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd', deleted: null }] })
 
     const response = await getUsage(new Request(`${url()}/usage`), context)
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       total: 1,
-      folders: [{ folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd' }],
+      folders: [{ folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd', deleted: null }],
     })
     expect(roles.getCustomRoleUsage).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user_ua' }), 'org-geschaeftsfuehrung')
   })

@@ -16,6 +16,7 @@
 
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { REVIEWER_READER } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 
@@ -129,13 +130,13 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
 
   it('leaves a hidden folder out of the overview count, size and recent list', async () => {
     const hiddenFolderIds = await access.getRestrictedFolderIds(ORG, projectId)
-    const data = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds }))
+    const data = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds, reader: REVIEWER_READER }))
 
     expect(data?.documentCount).toBe(2)
     expect(data?.totalFileSize).toBe(300)
     expect(data?.recentDocuments.map((row) => row.filename).sort()).toEqual(['Lageplan.pdf', 'Protokoll.pdf'])
 
-    const everything = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds: [] }))
+    const everything = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds: [], reader: REVIEWER_READER }))
     expect(everything?.documentCount).toBe(3)
     expect(everything?.totalFileSize).toBe(4300)
   })
@@ -143,32 +144,34 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
   it('leaves a hidden folder out of the number on the projects grid', async () => {
     const hiddenFolderIds = await access.getRestrictedFolderIds(ORG, projectId)
 
-    const counted = await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], hiddenFolderIds))
+    const counted = await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], hiddenFolderIds, REVIEWER_READER))
     expect(counted).toEqual({ [projectId]: 2 })
 
-    const everything = await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], []))
+    const everything = await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], [], REVIEWER_READER))
     expect(everything).toEqual({ [projectId]: 3 })
     // Without a reader's hidden list the count is what it always was.
-    expect(await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId]))).toEqual({ [projectId]: 3 })
+    expect(
+      await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], undefined, REVIEWER_READER))
+    ).toEqual({ [projectId]: 3 })
   })
 
   it('lists no binding to a document in a hidden folder', async () => {
     const hiddenFolderIds = await access.getRestrictedFolderIds(ORG, projectId)
-    const listed = await inTenant(() => roles.listProjectDocumentRoles(projectId, { hiddenFolderIds }))
+    const listed = await inTenant(() => roles.listProjectDocumentRoles(projectId, { hiddenFolderIds, documents: REVIEWER_READER }))
     expect(listed.map((row) => row.filename).sort()).toEqual(['Lageplan.pdf', 'Protokoll.pdf'])
 
-    const all = await inTenant(() => roles.listProjectDocumentRoles(projectId, { hiddenFolderIds: [] }))
+    const all = await inTenant(() => roles.listProjectDocumentRoles(projectId, { hiddenFolderIds: [], documents: REVIEWER_READER }))
     expect(all).toHaveLength(3)
   })
 
   it('names only unfiled documents when no folder can be decided', async () => {
-    const listed = await inTenant(() => roles.listProjectDocumentRoles(projectId, { unfiledOnly: true }))
+    const listed = await inTenant(() => roles.listProjectDocumentRoles(projectId, { unfiledOnly: true, documents: REVIEWER_READER }))
     expect(listed.map((row) => row.filename)).toEqual(['Lageplan.pdf'])
   })
 
   it('answers a hidden document like a missing one when it is to be bound', async () => {
     const hiddenFolderIds = await access.getRestrictedFolderIds(ORG, projectId)
-    const reader = { hiddenFolderIds }
+    const reader = { hiddenFolderIds, documents: REVIEWER_READER }
     expect(await inTenant(() => roles.documentBelongsToProject(doc['Honorarvertrag.pdf'], projectId, reader))).toBe(false)
     expect(await inTenant(() => roles.documentBelongsToProject(doc['Protokoll.pdf'], projectId, reader))).toBe(true)
   })

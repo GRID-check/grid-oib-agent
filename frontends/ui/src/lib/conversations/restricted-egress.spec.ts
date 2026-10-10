@@ -15,7 +15,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
-vi.mock('./restricted-use', () => ({ recordedRestrictedFolders: vi.fn() }))
+vi.mock('./restricted-use', () => ({ recordedRestrictedFolders: vi.fn(), recordedSourceProjects: vi.fn() }))
 vi.mock('@/lib/authz/folder-access-repository', () => ({ listProjectFolderTree: vi.fn() }))
 vi.mock('@/lib/documents/repository', () => ({ findProjectDocumentsByFilenames: vi.fn() }))
 
@@ -23,8 +23,14 @@ import { ConversationConfinedError } from '@/lib/api/errors'
 import type { AccessFolder } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
 import { findProjectDocumentsByFilenames, type DocumentListRow } from '@/lib/documents/repository'
-import { recordedRestrictedFolders } from './restricted-use'
-import { requireMayFileFrom, requireMayLeaveConversation, requirePlanDocumentsOpen } from './restricted-egress'
+import { recordedRestrictedFolders, recordedSourceProjects } from './restricted-use'
+import {
+  confinementRefusal,
+  folderRestrictsReading,
+  requireMayFileFrom,
+  requireMayLeaveConversation,
+  requirePlanDocumentsOpen,
+} from './restricted-egress'
 
 const ORG = 'org_1'
 const PROJECT = '3f8b0d2e-0000-4000-8000-000000000001'
@@ -52,6 +58,7 @@ const destination = (folderId: string | null) => ({
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(recordedRestrictedFolders).mockResolvedValue([])
+  vi.mocked(recordedSourceProjects).mockResolvedValue([])
   vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
 })
 
@@ -149,6 +156,38 @@ describe('requireMayFileFrom — only where every reader is cleared for what the
   })
 })
 
+/**
+ * The same test for a DOCUMENT: a revision task quotes a draft's text into a
+ * run whose goal and filename every project member sees (`openRevisionTask`).
+ */
+describe('folderRestrictsReading — whether a revision task may quote a draft', () => {
+  it('is true for a folder with its own list, and for one below it', async () => {
+    await expect(folderRestrictsReading(ORG, PROJECT, VERTRAEGE)).resolves.toBe(true)
+    await expect(folderRestrictsReading(ORG, PROJECT, HONORARE)).resolves.toBe(true)
+    expect(listProjectFolderTree).toHaveBeenCalledWith(ORG, PROJECT)
+  })
+
+  it('is false for an open folder and for the project root', async () => {
+    await expect(folderRestrictsReading(ORG, PROJECT, 'open')).resolves.toBe(false)
+    await expect(folderRestrictsReading(ORG, PROJECT, null)).resolves.toBe(false)
+  })
+
+  it('is false outside every project, without reading a tree', async () => {
+    await expect(folderRestrictsReading(ORG, null, 'open')).resolves.toBe(false)
+    expect(listProjectFolderTree).not.toHaveBeenCalled()
+  })
+
+  it('treats a folder the tree no longer holds as restricting: the safe direction', async () => {
+    await expect(folderRestrictsReading(ORG, PROJECT, 'gone')).resolves.toBe(true)
+  })
+
+  it('says why, in the reader’s language', () => {
+    expect(confinementRefusal('revision', 'de').message).toContain('kann Piloti es nicht überarbeiten')
+    expect(confinementRefusal('revision', 'en').message).toContain('Piloti cannot revise it')
+    expect(confinementRefusal('revision', 'en').details).toEqual({ action: 'revision' })
+  })
+})
+
 describe('requirePlanDocumentsOpen — a run’s Unterlagen', () => {
   const row = (filename: string, folderId: string | null) =>
     ({ id: `doc-${filename}`, filename, folderId }) as DocumentListRow
@@ -172,5 +211,33 @@ describe('requirePlanDocumentsOpen — a run’s Unterlagen', () => {
     vi.mocked(listProjectFolderTree).mockResolvedValue([{ id: 'open', parentId: null, accessMode: 'inherit', grants: [] }])
     await requirePlanDocumentsOpen(ORG, PROJECT, [{ name: 'a.pdf', shelf: 'project' }], 'de')
     expect(findProjectDocumentsByFilenames).not.toHaveBeenCalled()
+  })
+})
+
+describe('a conversation that drew on another project (ADR-0094)', () => {
+  const origin = { conversationId: CONV, locale: 'de' as const }
+
+  beforeEach(() => {
+    vi.mocked(recordedSourceProjects).mockResolvedValue(['project_other'])
+  })
+
+  it('refuses every door a whole project reads, with no restricted folder recorded at all', async () => {
+    for (const action of ['deepResearch', 'task', 'profilePatch'] as const) {
+      const error = await refusal(requireMayLeaveConversation(origin, ORG, action))
+      expect(error.action).toBe(action)
+      expect(error.message).toContain('anderes Projekt')
+    }
+  })
+
+  it('refuses filing anywhere, even into the narrowest folder of this project', async () => {
+    expect((await refusal(requireMayFileFrom(origin, destination(HONORARE)))).action).toBe('filing')
+    expect(vi.mocked(listProjectFolderTree)).not.toHaveBeenCalled()
+  })
+
+  it('lets a conversation without one through as before', async () => {
+    vi.mocked(recordedSourceProjects).mockResolvedValue([])
+
+    await expect(requireMayLeaveConversation(origin, ORG, 'task')).resolves.toBeUndefined()
+    await expect(requireMayFileFrom(origin, destination('open'))).resolves.toBeUndefined()
   })
 })

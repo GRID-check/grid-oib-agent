@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    When the office's past projects hold nothing comparable, Piloti now says
+    so. It used to answer that the search was unavailable and ask you to try
+    again.

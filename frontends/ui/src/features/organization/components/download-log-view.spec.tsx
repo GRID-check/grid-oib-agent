@@ -27,6 +27,7 @@ const entry = (n: number, overrides: Record<string, unknown> = {}) => ({
   folderId: 'f1',
   folderPath: 'Pläne',
   ownList: false,
+  nameWithheld: false,
   ...overrides,
 })
 
@@ -84,6 +85,22 @@ describe('DownloadLogView', () => {
     expect(within(rows[3]).getByText('No longer in the organization')).toBeInTheDocument()
     expect(within(rows[3]).getByText('Office filing')).toBeInTheDocument()
     expect(within(rows[4]).getByText('Version 8f3a1c52')).toBeInTheDocument()
+  })
+
+  it('says a name was withheld, and names neither the document nor the folder, for a folder the viewer may not read', async () => {
+    stubApi(() =>
+      page([
+        entry(1),
+        entry(2, { kind: 'pdf', access: 'open', ownList: true, documentName: null, folderPath: null, nameWithheld: true }),
+      ])
+    )
+    render(<DownloadLogView people={PEOPLE} />)
+
+    const rows = await screen.findAllByRole('row')
+    expect(within(rows[1]).queryByTestId('download-log-name-withheld')).toBeNull()
+    expect(within(rows[2]).getByTestId('download-log-name-withheld')).toHaveTextContent('Name withheld')
+    expect(within(rows[2]).getByText(/Wohnbau Nord · a folder you may not read/)).toBeInTheDocument()
+    expect(within(rows[2]).queryByText(/Folder no longer exists/)).toBeNull()
   })
 
   it('shows no total, no ranking and no chart: it is a list of events', async () => {

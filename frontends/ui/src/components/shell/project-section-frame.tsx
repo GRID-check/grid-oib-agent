@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 const PROJECT_SECTION_KEYS = [
   'files',
   'automation',
+  'referenzen',
   'settings',
   'knowledge',
   'intake',

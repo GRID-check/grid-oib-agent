@@ -4,6 +4,7 @@ import {
   BookOpenCheck,
   ClipboardList,
   Folder,
+  GitCompareArrows,
   Inbox,
   MessageSquare,
   Settings,
@@ -47,6 +48,7 @@ import {
 export type ProjectSectionKey =
   | 'chat'
   | 'automation'
+  | 'referenzen'
   | 'files'
   | 'knowledge'
   | 'archiv'
@@ -179,6 +181,19 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inRail: true,
     inPalette: true,
     shortcutKey: 'j',
+    group: 'work',
+  },
+  {
+    // Similar projects: the closed projects most like this one that the person
+    // may open, with what they share and their decisions and permit conditions
+    // (ADR-0094). A reading surface beside Dateien, so it sits in the work group.
+    key: 'referenzen',
+    segment: 'referenzen',
+    icon: GitCompareArrows,
+    i18nKey: 'referenzen',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'r',
     group: 'work',
   },
   {

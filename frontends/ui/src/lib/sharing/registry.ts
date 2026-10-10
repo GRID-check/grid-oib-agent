@@ -255,7 +255,15 @@ const conversationDescriptor: ShareableDescriptor = {
   labelKey: 'conversation',
 }
 
-const DOCUMENT_VISIBILITIES = ['private', 'project'] as const
+/**
+ * `project` only. `private` on a document was a dead switch: it could be set
+ * here, and no read path enforces it (`getAccessibleDocument`, the listings and
+ * retrieval all ignore `documents.visibility`), so a person who set it believed
+ * a file private that everyone in the project could still open. It is refused
+ * until per-document access exists. A row that already says `private` is read
+ * exactly as before, and may be set back to `project`.
+ */
+const DOCUMENT_VISIBILITIES = ['project'] as const
 
 const documentDescriptor: ShareableDescriptor = {
   type: 'document',

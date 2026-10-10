@@ -95,7 +95,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { canUserAccessProject, isUserInOrganization } from '@/lib/authz/project-membership'
 import { findConversationTenancy, updateConversationVisibilityInOrg } from '@/lib/conversations/repository'
-import { findDocumentTenancy } from '@/lib/documents/repository'
+import { findDocumentTenancy, updateDocumentVisibilityInOrg } from '@/lib/documents/repository'
 import {
   assertMayWidenConversation,
   peopleWhoMayRead,
@@ -382,6 +382,53 @@ describe('setResourceVisibility (spec SH-2, SH-14)', () => {
       setResourceVisibility(session, 'conversation', 'conv_1', 'organization'),
     ).rejects.toBeInstanceOf(BadRequestError)
     expect(updateConversationVisibilityInOrg).not.toHaveBeenCalled()
+  })
+})
+
+describe('a document cannot be made private (nothing would enforce it)', () => {
+  beforeEach(() => {
+    vi.mocked(findDocumentTenancy).mockResolvedValue({
+      organizationId: 'org_1',
+      projectId: 'proj_1',
+      visibility: 'project',
+      createdBy: 'user_me',
+      folderId: null,
+    } as never)
+  })
+
+  it('refuses private with 400 and the permitted list, writing and auditing nothing', async () => {
+    stubCallerAccess('owner', 'project')
+
+    const error = await setResourceVisibility(session, 'document', 'doc_1', 'private').catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(BadRequestError)
+    expect(error).toMatchObject({ details: { allowed: ['project'] } })
+    expect(updateDocumentVisibilityInOrg).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('offers only project in the sharing state, so the dialog cannot show the switch', async () => {
+    vi.mocked(resolveResourceAccess).mockResolvedValue({
+      role: 'owner',
+      reason: 'creator',
+      visibility: 'project',
+      container: { organizationId: 'org_1', projectId: 'proj_1' },
+      canEscalate: false,
+      contentLocked: false,
+    })
+
+    const state = await getSharingState(session, 'document', 'doc_1')
+
+    expect(state.allowedVisibilities).toEqual(['project'])
+  })
+
+  it('still lets a document that already says private be set back to project', async () => {
+    stubCallerAccess('owner', 'private')
+    vi.mocked(updateDocumentVisibilityInOrg).mockResolvedValue({} as never)
+
+    await setResourceVisibility(session, 'document', 'doc_1', 'project')
+
+    expect(updateDocumentVisibilityInOrg).toHaveBeenCalledWith('doc_1', 'org_1', 'project', undefined)
   })
 })
 

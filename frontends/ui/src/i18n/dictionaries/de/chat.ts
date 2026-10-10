@@ -52,6 +52,8 @@ export const chat: typeof en.chat = {
       baurecht: 'Baurecht & Richtlinien',
       buero: 'Büroablage',
       projekt: 'Projektwissen',
+      // Eine Quelle aus einem anderen Projekt, die als Vorbild dient (ADR-0094); gleiche Farbe wie „Projektwissen“.
+      praezedenz: 'Präzedenzfall',
       web: 'Webquelle',
     },
     origins: {
@@ -245,6 +247,9 @@ export const chat: typeof en.chat = {
     sourceNumber: 'Quelle {number}',
     page: 'S. {page}',
     pages: 'S. {pages}',
+    // Die Meldezeile einer Präzedenz aus einem anderen Projekt: Projekt, Status, dann das Bundesland.
+    precedentProject: '{name} · {status}',
+    projectStatus: { active: 'laufend', closed: 'abgeschlossen' },
     // Quellen jenseits der acht Chips falten sich hinter denselben Auslöser wie
     // die gelesenen Quellen: die Zahl zuerst, jeder Name beim Aufklappen.
     more: '+{count} weitere',
@@ -782,6 +787,7 @@ export const chat: typeof en.chat = {
         web: 'im Web',
         documents: 'in Ihren Unterlagen',
         ifc: 'im Gebäudemodell',
+        otherProjects: 'in anderen Projekten',
       },
       // Verbindet zwei Korpora in einer Zeile. Grammatik, also auch hier.
       corpusJoin: ' und ',
@@ -1275,6 +1281,12 @@ export const chat: typeof en.chat = {
    * Sensible Daten im Chat (ADR-0086): was der Composer vor dem Senden meldet.
    * Die Platzhalter selbst sind Fachdaten und kommen aus `content-screen.ts`.
    */
+  /** The notice once a chat's answers drew on another project (ADR-0094). */
+  otherProjects: {
+    title: 'Dieser Chat stützt sich auf andere Projekte: {projects}.',
+    gone: 'ein Projekt, das es nicht mehr gibt',
+    body: 'Er lässt sich nur mit Personen teilen, die diese Projekte öffnen dürfen. Aus ihm geht nichts ins Projektgedächtnis, in Aufträge, in eine Tiefenrecherche oder in die Projektablage.',
+  },
   screening: {
     title: 'Enthält {items} (Sensible Daten).',
     body: 'Piloti sendet sie nicht an das Antwortmodell.',

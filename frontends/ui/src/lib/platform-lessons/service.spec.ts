@@ -56,6 +56,7 @@ vi.mock('./distill-client', () => ({
   distillReport: vi.fn(),
 }))
 
+import { getCached } from '@/lib/cache'
 import { embedNote } from '@/lib/knowledge/embeddings'
 import {
   createLessonFromReport,
@@ -332,6 +333,22 @@ describe('buildPlatformLessonsDigest', () => {
 
   it('returns null when no lesson is active', async () => {
     vi.mocked(listActiveLessonsForDigest).mockResolvedValue([])
+    expect(await buildPlatformLessonsDigest()).toBeNull()
+  })
+
+  /**
+   * Migrations 0120 and 0124 retire the lessons created from a vote on an
+   * answer that drew on a restricted folder. A digest cached before they ran
+   * still holds them, and is shared by every replica: it must not be injected
+   * for the rest of its TTL.
+   */
+  it('does not inject a digest cached before restricted lessons were withdrawn', async () => {
+    const stale = 'PLATFORM_LESSONS v1\n- [inaccurate | 1x] "Zimmerer-Honorar 48.000 EUR."'
+    vi.mocked(getCached).mockImplementationOnce(async (key, _ttl, loader) =>
+      key === 'platformlessons:digest:v1' || key === 'platformlessons:digest:v2' ? stale : loader()
+    )
+    vi.mocked(listActiveLessonsForDigest).mockResolvedValue([])
+
     expect(await buildPlatformLessonsDigest()).toBeNull()
   })
 })

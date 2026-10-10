@@ -17,6 +17,8 @@
  *   * a document filed into the project (`fileGeneratedDocument`, and the agent
  *     rewriting a draft's content): allowed only into a folder restricted at
  *     least as narrowly, see {@link requireMayFileFrom};
+ *   * a revision task opened from a draft in a restricted folder, whatever its
+ *     conversation, see {@link folderRestrictsReading};
  *   * a run's Unterlagen (`commissionResearchRun`, `addRunDocument`): a
  *     document's name and title are written into the run's plan and job stream
  *     and its report's „Nicht gelesene Unterlagen", which every member of the
@@ -47,9 +49,10 @@ import { getDictionary } from '@/i18n/dictionaries'
 import type { Locale } from '@/i18n/config'
 import { folderTree, readableByEveryMember } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
+import { internalRead } from '@/lib/documents/document-reader'
 import { findProjectDocumentsByFilenames } from '@/lib/documents/repository'
 import type { PlanDocument } from '@/lib/runs/plan-documents'
-import { recordedRestrictedFolders } from './restricted-use'
+import { recordedRestrictedFolders, recordedSourceProjects } from './restricted-use'
 
 export type ConfinedAction = ConversationConfinedError['action']
 
@@ -80,16 +83,32 @@ async function originFolders(origin: ConversationOrigin, organizationId: string)
 }
 
 /**
+ * The other projects the origin's conversation drew on through a cross-project
+ * lookup (ADR-0094); none without a conversation. Every one counts: a door a
+ * whole project reads cannot enumerate whether each of its readers may open
+ * them, so content from another project leaves by none of these doors.
+ */
+async function originProjects(origin: ConversationOrigin, organizationId: string): Promise<string[]> {
+  if (!origin.conversationId) return []
+  return recordedSourceProjects(origin.conversationId, organizationId)
+}
+
+/**
  * Refuse a door that writes something every project member reads: a
  * deep-research run, a task, the project profile. No folder is narrow enough
- * for these, so a confined origin is refused outright.
+ * for these, so a confined origin is refused outright, and so is one that drew
+ * on another project.
  */
 export async function requireMayLeaveConversation(
   origin: ConversationOrigin,
   organizationId: string,
   action: Exclude<ConfinedAction, 'filing' | 'planDocument'>
 ): Promise<void> {
-  if ((await originFolders(origin, organizationId)).length > 0) throw confinementRefusal(action, origin.locale)
+  const [folders, projects] = await Promise.all([
+    originFolders(origin, organizationId),
+    originProjects(origin, organizationId),
+  ])
+  if (folders.length > 0 || projects.length > 0) throw confinementRefusal(action, origin.locale)
 }
 
 /** Where a document is about to be filed. */
@@ -118,6 +137,8 @@ export interface FilingDestination {
  */
 export async function requireMayFileFrom(origin: ConversationOrigin, destination: FilingDestination): Promise<void> {
   const { organizationId, projectId, folderId } = destination
+  // No folder of this project is narrow enough for another project's content (ADR-0094).
+  if ((await originProjects(origin, organizationId)).length > 0) throw confinementRefusal('filing', origin.locale)
   const required = await originFolders(origin, organizationId)
   if (required.length === 0) return
   if (projectId === null || folderId === null) throw confinementRefusal('filing', origin.locale)
@@ -129,6 +150,26 @@ export async function requireMayFileFrom(origin: ConversationOrigin, destination
   }
   if (required.every((source) => path.has(source))) return
   throw confinementRefusal('filing', origin.locale)
+}
+
+/**
+ * Whether a document filed in `folderId` of `projectId` is one some project
+ * member may not read: its folder, or an ancestor, restricts reading. The test
+ * a door that every member reads applies to a DOCUMENT rather than a
+ * conversation: a revision task quotes the draft's text into its run, and its
+ * goal and filename are listed to the whole project (`openRevisionTask`).
+ *
+ * False for the project root and for a document outside every project. A
+ * folder the tree no longer holds counts as restricting: the safe direction.
+ */
+export async function folderRestrictsReading(
+  organizationId: string,
+  projectId: string | null,
+  folderId: string | null
+): Promise<boolean> {
+  if (projectId === null || folderId === null) return false
+  const tree = folderTree(await listProjectFolderTree(organizationId, projectId))
+  return !readableByEveryMember(tree, folderId)
 }
 
 /** The Archiv is the organization's shelf: every member reads it, and no project folder restricts it. */
@@ -164,7 +205,12 @@ export async function requirePlanDocumentsOpen(
   // No folder has its own list, so every folder is read by every member.
   if (!folders.some((folder) => folder.accessMode === 'custom')) return
   const tree = folderTree(folders)
-  const rows = await findProjectDocumentsByFilenames(projectId, organizationId, names, { includeArchived: true })
+  // Every row by that name, held ones included (ADR-0086): the answer is only
+  // ever a refusal, and a held file in a restricted folder is still there.
+  const rows = await findProjectDocumentsByFilenames(projectId, organizationId, names, {
+    includeArchived: true,
+    reader: internalRead('identity'),
+  })
   if (rows.some((row) => row.folderId !== null && !readableByEveryMember(tree, row.folderId))) {
     throw confinementRefusal('planDocument', locale)
   }

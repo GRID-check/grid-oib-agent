@@ -153,6 +153,8 @@ const OPAQUE_STATUS_WRITES: Readonly<Record<string, string>> = {
     "the BACKEND's file state, compared against, never stored",
   'src/lib/documents/reconcile-status.ts: resolution.status':
     'the value this module just decided, on its way to the repository',
+  'src/lib/documents/reconcile-status.ts: row.status':
+    'the status the read saw, the guard of the repository write (`ReconciledFrom`), never written',
   // Service return values: what the CALLER is told, not what the row holds.
   'src/lib/documents/service.ts: doc.status': 'the row being read back, returned to the caller',
   'src/lib/documents/service.ts: reconciled.status': 'a reconciled status, returned to the caller',

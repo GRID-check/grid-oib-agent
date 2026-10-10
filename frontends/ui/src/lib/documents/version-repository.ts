@@ -25,6 +25,7 @@ import {
 import type { DocumentVersionState } from './lifecycle-types'
 import { DOCUMENT_VERSION_STATES, OPEN_DOCUMENT_VERSION_STATES } from './lifecycle-types'
 import { mapVersionInsertError } from './unique-conflicts'
+import { documentVisibleTo, SCREENED_ONLY } from './visibility'
 
 /**
  * A document's version list is a page, like every other list in this tier.
@@ -872,6 +873,9 @@ export async function listRefusedVersionsForConversation(
         eq(documentVersions.organizationId, organizationId),
         inArray(documentVersions.state, ['changes_requested', 'rejected']),
         isNotNull(documentVersions.reviewComment),
+        // This block rides into a model's conversation: a held document is
+        // named to none (ADR-0086).
+        documentVisibleTo(SCREENED_ONLY),
       ),
     )
     .orderBy(desc(documentVersions.reviewedAt))
