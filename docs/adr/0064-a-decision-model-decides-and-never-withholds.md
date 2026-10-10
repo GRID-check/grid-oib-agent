@@ -118,7 +118,7 @@ the 17k-character IFC method on a model question — because inlining every
 method by size cost ~4 600 tokens on every call (ADR-0063, amended). Every
 tool stays bound whatever it says.
 
-*Amended 2026-10-07 (ADR-0093):* the office's other projects. The corpus
+*Amended 2026-10-07 (ADR-0094):* the office's other projects. The corpus
 choice gains `referenz`: an earlier or comparable project of this office,
 what an authority demanded there. `buero` keeps templates and office
 standards, so "earlier projects" no longer lands on the archive. When the

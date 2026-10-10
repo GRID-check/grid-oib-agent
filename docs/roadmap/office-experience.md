@@ -3,7 +3,7 @@
 > **Status:** product direction, 7 Oct 2026. It replaces
 > [`cross-project-rag-vision.md`](cross-project-rag-vision.md) (July 2026). That
 > document named the goal, but it had no access model, no data, and a readiness
-> gate nobody owned. The first layer is built: ADR-0093 and
+> gate nobody owned. The first layer is built: ADR-0094 and
 > [`../design/cross-project-escalation.md`](../design/cross-project-escalation.md).
 
 ## The pure intent
@@ -113,7 +113,7 @@ Sources: `docs/design/cross-project-escalation.md` (agent patterns) and the
 research notes behind this document. Bauwelt 1.2025 (Staab), the derPlan 58
 survey PDF (ZT-Kammer), and FHNW (GKS).
 
-## What exists after ADR-0093, and what it is worth
+## What exists after ADR-0094, and what it is worth
 
 | Layer | State | What it gives |
 |---|---|---|
@@ -217,7 +217,7 @@ the tender's, as a document the office checks and files.
 
 *Needs:* Bausumme and BGF as fields (ÖNORM B 1801-1), the fingerprint, and the
 Steckbrief. People reach the document through its form fields, never through
-the model's context (ADR-0090).
+the model's context (ADR-0091).
 
 ### 6. Erfahrung wird Standard: the compounding loop
 
@@ -296,7 +296,7 @@ blocks a step, and always names its project, year and edition.
 * **A new colleague** asks „Wie macht unser Büro das?" and gets the office's
   answer with its projects, not the internet's.
 * **Who knows** stays a link to the Steckbrief, never model context
-  (ADR-0090). The office can see who solved what. The model cannot use it to
+  (ADR-0091). The office can see who solved what. The model cannot use it to
   profile people.
 
 ## Where Jev fits
@@ -376,14 +376,14 @@ in smarter retrieval but in **turning an office's archive into experience**:
   under which. The norm stays the authority.
 * **One access model.** Every new object (decision, Auflage, fingerprint,
   standard) carries its project's readers. A closed project's are the office.
-  A restricted folder's stay restricted. ADR-0093's label rule applies
+  A restricted folder's stay restricted. ADR-0094's label rule applies
   unchanged; no layer gets its own.
 * **Confirmed beats suggested, and the difference is visible.** Extracted facts
   and drafted decisions are suggestions until a person confirms them, and
   similarity weighs confirmed facts more.
 * **Never across offices.** The office's experience is its own. Platform
   lessons stay anonymized agent-behaviour lessons, never building knowledge.
-* **People stay out of the prompt** (ADR-0090). "Who solved this" is a UI link
+* **People stay out of the prompt** (ADR-0091). "Who solved this" is a UI link
   to the Steckbrief, never model context.
 * **Measure the cause.** Similarity weights are learned from which references
   readers open and cite, not tuned by feel.

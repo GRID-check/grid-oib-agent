@@ -103,7 +103,7 @@ Three consequences worth knowing before adding a fifth operation:
 
 ## Content from another project is recorded by the BFF before it arrives
 
-`project_lookup` (`cross_project/`, ADR-0093) reads OTHER projects, from any
+`project_lookup` (`cross_project/`, ADR-0094) reads OTHER projects, from any
 chat, as the conversation's whole audience. It is the one tool here whose
 answers come from outside the turn's signed scope, so the usual admission (a
 tool reports what it read, the tools node asks the BFF) is not what keeps it

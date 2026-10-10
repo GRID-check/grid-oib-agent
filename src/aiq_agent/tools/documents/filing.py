@@ -154,7 +154,7 @@ def get_document_version_content(
     BFF has admitted that folder for the conversation (ADR-0087, ADR-0088), and
     without an asker it answers ``404`` too. ``answer_message_id`` is the answer
     the turn writes: when the read admits such a folder, the BFF marks that
-    answer in the same transaction (ADR-0092).
+    answer in the same transaction (ADR-0093).
 
     Raises :class:`FilingError` for every refusal and every transport failure,
     the same one thing every caller in this module has to catch. Blocking — call

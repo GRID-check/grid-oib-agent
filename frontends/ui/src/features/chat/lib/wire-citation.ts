@@ -20,7 +20,7 @@ export const normalizeOrigin = (value: unknown): CitationSource['origin'] | unde
   return undefined
 }
 
-/** The other project a source came from (ADR-0093), when the wire states a well-formed one. */
+/** The other project a source came from (ADR-0094), when the wire states a well-formed one. */
 export const projectFromWire = (value: unknown): CitationProject | undefined => {
   if (!value || typeof value !== 'object') return undefined
   const { id, name, status } = value as Record<string, unknown>

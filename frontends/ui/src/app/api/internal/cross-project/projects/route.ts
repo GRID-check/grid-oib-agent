@@ -1,6 +1,6 @@
 /**
  * INTERNAL — list and find the projects in reach of the conversation's audience
- * (ADR-0093): name, status, address, period. The agent's `project_lookup` tool
+ * (ADR-0094): name, status, address, period. The agent's `project_lookup` tool
  * (`action: find`) is the caller; the acting person is the envelope's, as a
  * pinned session.
  *

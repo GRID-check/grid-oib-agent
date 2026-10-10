@@ -183,7 +183,7 @@ export interface CitedDocument {
    * undefined upstream so it renders as no badge.
    */
   bindingStatus?: string
-  /** The other project a cross-project lookup found it in (ADR-0093); the chip names it. */
+  /** The other project a cross-project lookup found it in (ADR-0094); the chip names it. */
   project?: CitationProject
   /** Backend origin token, when one was stamped. */
   origin?: CitationOrigin

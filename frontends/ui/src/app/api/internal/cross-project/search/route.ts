@@ -1,6 +1,6 @@
 /**
  * INTERNAL — search documents across the projects in reach of the
- * conversation's whole audience, from any chat (ADR-0093). The agent's
+ * conversation's whole audience, from any chat (ADR-0094). The agent's
  * `project_lookup` tool (`action: search`) is the caller.
  *
  * The acting person is the one the turn's signed envelope names, as a pinned

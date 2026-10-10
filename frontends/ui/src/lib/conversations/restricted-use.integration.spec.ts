@@ -24,7 +24,7 @@
  *   - the answer a turn writes is marked by its id at admission, and at the
  *     start of a later turn, so a vote on it stays out of every cross-tenant
  *     reader with no persisted answer and whatever conversation it names
- *     (ADR-0092).
+ *     (ADR-0093).
  */
 
 import { randomUUID } from 'node:crypto'

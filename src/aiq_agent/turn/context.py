@@ -149,7 +149,7 @@ def settle_restriction(context: TurnContext, request: GridRequestContext) -> Tur
     """
     use = current_restricted_use()
     drawable = tuple(signed_restricted_collections(request))
-    # A conversation that drew on another project (ADR-0093) is confined the same
+    # A conversation that drew on another project (ADR-0094) is confined the same
     # way: nothing it holds may reach what a whole project reads.
     recorded = bool(use is not None and use.confined) or drew_on_other_projects()
     if not drawable and not recorded:
@@ -282,7 +282,7 @@ async def _load_turn_context(
         _turn_flags(request, resolve_stages),
     )
     if blocks.drew_on_other_projects and (cross := current_cross_project_turn()) is not None:
-        # An earlier turn drew on another project (ADR-0093): this one starts
+        # An earlier turn drew on another project (ADR-0094): this one starts
         # with every door a whole project reads shut (`settle_restriction`).
         cross.drew_on_others = True
     return TurnContext(

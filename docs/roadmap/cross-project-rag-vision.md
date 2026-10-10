@@ -1,7 +1,7 @@
 # Cross-Project RAG: The Grid Data Flywheel
 
 > **Status:** Superseded on 7 Oct 2026 by [`office-experience.md`](office-experience.md),
-> which keeps this goal, adds the access model it lacked (ADR-0093) and puts the
+> which keeps this goal, adds the access model it lacked (ADR-0094) and puts the
 > data the flywheel needs (archive import, fingerprints, decisions) first.
 > Kept for its reasoning; do not plan from it.
 

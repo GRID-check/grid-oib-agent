@@ -45,7 +45,7 @@ TOOLS: dict[str, tuple[str, str]] = {
         "reports",
         "tests/knowledge_layer_tests/test_restricted_reads.py::test_view_image_of_a_drawable_restricted_folder_is_reported_and_admitted",
     ),
-    # Other projects (ADR-0093): the BFF records what it hands out before it
+    # Other projects (ADR-0094): the BFF records what it hands out before it
     # answers, and the tool admits exactly that for the turn.
     "project_lookup": (
         "reports",

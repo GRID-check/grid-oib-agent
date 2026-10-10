@@ -54,7 +54,7 @@ const state = vi.hoisted(() => ({
   written: [] as string[][],
   members: new Map<string, FolderClearance>(),
   tree: [] as AccessFolder[],
-  /** Another project's folder tree, by project id (ADR-0093); every other project reads `tree`. */
+  /** Another project's folder tree, by project id (ADR-0094); every other project reads `tree`. */
   trees: new Map<string, AccessFolder[]>(),
   /** Which project a folder of another project belongs to. */
   folderOwners: new Map<string, string>(),
@@ -501,7 +501,7 @@ describe('lockedConversationIds: which of a list the session may no longer read 
   })
 })
 
-describe('a chat that drew on another project (ADR-0093)', () => {
+describe('a chat that drew on another project (ADR-0094)', () => {
   const OTHER = 'project_2'
   /** „Honorare" in the other project: Geschäftsführung only. */
   const HONORARE_ID = 'aaaa0000-0000-4000-8000-0000000000aa'
@@ -615,7 +615,7 @@ describe('a chat that drew on another project (ADR-0093)', () => {
   })
 })
 
-describe('the cost of asking who may open the recorded projects (ADR-0093)', () => {
+describe('the cost of asking who may open the recorded projects (ADR-0094)', () => {
   it('stops asking about a person at their first project they may not open', async () => {
     state.projects = ['project_a', 'project_b', 'project_c']
     state.opens = new Set([`${OWNER}:project_a`, `${OWNER}:project_b`, `${OWNER}:project_c`])

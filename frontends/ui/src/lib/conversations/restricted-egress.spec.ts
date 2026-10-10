@@ -214,7 +214,7 @@ describe('requirePlanDocumentsOpen — a run’s Unterlagen', () => {
   })
 })
 
-describe('a conversation that drew on another project (ADR-0093)', () => {
+describe('a conversation that drew on another project (ADR-0094)', () => {
   const origin = { conversationId: CONV, locale: 'de' as const }
 
   beforeEach(() => {

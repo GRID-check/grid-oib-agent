@@ -179,7 +179,7 @@ class DocumentSearchRequest(BaseModel):
         le=1500,
         description=(
             "Max characters kept from each document's best-matching chunk. 300 for a hit list a person scans; "
-            "the cross-project lookups (ADR-0093) ask for more, because their snippet is the evidence the agent "
+            "the cross-project lookups (ADR-0094) ask for more, because their snippet is the evidence the agent "
             "answers from and cites: it cannot open another project's document further."
         ),
     )
@@ -228,7 +228,7 @@ class GenerateSummaryResponse(BaseModel):
 
 
 class CleanupDocumentFacts(BaseModel):
-    """What the index already holds about one document, and nothing more (ADR-0091).
+    """What the index already holds about one document, and nothing more (ADR-0092).
 
     No document content: the name, where it is filed, its type and tags, the
     summary ingestion already wrote, and its editorial state.

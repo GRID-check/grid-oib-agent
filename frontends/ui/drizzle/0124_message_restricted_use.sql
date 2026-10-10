@@ -1,5 +1,5 @@
 -- 0123: the server marks a message whose conversation drew on a folder with
--- restricted access, and the mark outlives the chat (ADR-0092, ADR-0087,
+-- restricted access, and the mark outlives the chat (ADR-0093, ADR-0087,
 -- ADR-0088).
 --
 -- ## Why the mark moves from the conversation to the message
@@ -117,7 +117,7 @@ CREATE INDEX IF NOT EXISTS "message_restricted_use_conversation_idx"
   ON "message_restricted_use" ("organization_id", "conversation_id");
 --> statement-breakpoint
 COMMENT ON TABLE "message_restricted_use" IS
-  'A message id whose conversation drew on a folder with restricted access (ADR-0092). Written by triggers on messages, conversation_restricted_folders and answer_feedback, never by a client; no foreign key, so it outlives the chat. Every cross-tenant reader of a vote asks grid_feedback_restricted_use, which reads this.';
+  'A message id whose conversation drew on a folder with restricted access (ADR-0093). Written by triggers on messages, conversation_restricted_folders and answer_feedback, never by a client; no foreign key, so it outlives the chat. Every cross-tenant reader of a vote asks grid_feedback_restricted_use, which reads this.';
 --> statement-breakpoint
 SELECT grid_secure_table('message_restricted_use', 'organization_id = grid_current_org()');
 --> statement-breakpoint
@@ -137,7 +137,7 @@ CREATE OR REPLACE FUNCTION grid_uuid_or_null(value text) RETURNS uuid LANGUAGE s
   END
 $$;
 --> statement-breakpoint
--- THE question (ADR-0092): did this conversation draw on a folder with
+-- THE question (ADR-0093): did this conversation draw on a folder with
 -- restricted access. Asked by the triggers that write marks, by every
 -- cross-tenant reader of a vote (`grid_feedback_restricted_use`) and by the
 -- staff profiler. A revision task's thread is asked by its document's place

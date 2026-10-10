@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { render, screen } from '@/test-utils'
 import { OtherProjectsNotice } from './OtherProjectsNotice'
 
-describe('OtherProjectsNotice (ADR-0093)', () => {
+describe('OtherProjectsNotice (ADR-0094)', () => {
   it('names each running other project and says what that closes; a closed one closes nothing and is not named', () => {
     render(
       <OtherProjectsNotice

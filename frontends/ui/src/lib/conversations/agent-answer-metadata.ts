@@ -195,7 +195,7 @@ export type StoredCitationSource = Partial<
 > & {
   /** Whether the answer cited this source, as opposed to merely retrieving it. */
   is_cited?: boolean
-  /** The other project a cross-project lookup found it in (ADR-0093). */
+  /** The other project a cross-project lookup found it in (ADR-0094). */
   project?: { id: string; name: string; status: 'active' | 'closed' }
 }
 
@@ -266,7 +266,7 @@ function normalizeSource(input: unknown): StoredCitationSource | null {
     // frontend cannot recover on its own: the number→source binding exists only
     // in the backend's citation verification.
     number: positiveInt(input.number),
-    // Which other project a cross-project lookup found it in (ADR-0093). Kept
+    // Which other project a cross-project lookup found it in (ADR-0094). Kept
     // like the collection: without it a reloaded chip loses the project's
     // name and opens nothing, because the document is not in this chat's project.
     project: storedProject(input.project),

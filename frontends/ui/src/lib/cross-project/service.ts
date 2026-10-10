@@ -1,5 +1,5 @@
 /**
- * Cross-project lookups (ADR-0093, docs/design/cross-project-escalation.md):
+ * Cross-project lookups (ADR-0094, docs/design/cross-project-escalation.md):
  * list and find the projects in reach, read one project's brief, and search
  * documents across them. The one place that decides what a lookup may return;
  * the agent's routes (`app/api/internal/cross-project/*`) are thin adapters
@@ -77,7 +77,7 @@ export interface CrossProjectCaller {
   session: AuthorizedSession
   conversationId: string
   currentProjectId: string | null
-  /** The answer the turn is writing, from the request body; marked with the hand-out (ADR-0092). */
+  /** The answer the turn is writing, from the request body; marked with the hand-out (ADR-0093). */
   answerMessageId?: string | null
 }
 
@@ -112,7 +112,7 @@ function party(caller: CrossProjectCaller): HandOutParty {
 /** The project status as the lookups report it; kept on the wire so an agent built before ticket 1 still parses. */
 export const PROJECT_STATUS_KNOWN = true
 
-/** A project's status (ADR-0089). */
+/** A project's status (ADR-0090). */
 export function projectStatusOf(project: Pick<Project, 'status'>): ProjectStatus {
   return project.status === 'closed' ? 'closed' : 'active'
 }
@@ -179,7 +179,7 @@ async function currentProjectOf(caller: CrossProjectCaller): Promise<Project | n
   return caller.currentProjectId ? findProjectInOrg(caller.currentProjectId, caller.session.organizationId) : null
 }
 
-/** List and find the projects in reach (ADR-0093). Every project listed is recorded. */
+/** List and find the projects in reach (ADR-0094). Every project listed is recorded. */
 export async function listLookupProjects(
   caller: CrossProjectCaller,
   request: CrossProjectListRequest
@@ -354,7 +354,7 @@ function asDecision(found: FoundDecision, byId: ReadonlyMap<string, Project>): C
   }
 }
 
-/** Search documents and recorded decisions across the projects in reach, one bounded page of projects per call (ADR-0093). */
+/** Search documents and recorded decisions across the projects in reach, one bounded page of projects per call (ADR-0094). */
 export async function searchAcrossProjects(
   caller: CrossProjectCaller,
   request: CrossProjectSearchRequest
