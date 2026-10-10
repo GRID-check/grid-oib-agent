@@ -34,6 +34,7 @@ vi.mock('@/lib/projects/repository', () => ({
 vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
 vi.mock('@/lib/conversations/restricted-use', () => ({
   recordedRestrictedFolders: vi.fn(async () => []),
+  recordedSourceProjects: vi.fn(async () => []),
 }))
 
 import { POST } from './route'

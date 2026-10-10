@@ -76,7 +76,8 @@ import {
   queueResearchReportFiling,
 } from '@/lib/documents/research-report'
 import { requesterOf } from '@/lib/jobs-queue/types'
-import { findProjectIdByCollectionName } from '@/lib/projects/repository'
+import { findProjectIdByCollectionName, findProjectTenancy } from '@/lib/projects/repository'
+import { isProjectClosed, projectClosedError } from '@/lib/projects/project-status'
 
 /**
  * The signed context envelope (backlog T3-9 follow-up, 2026-07-16,
@@ -636,6 +637,17 @@ export const POST = tenantSlotRoute(async function POST(
     const gridContextHeaders = await resolveGridContextHeaders(session, scope, {
       submit: path[0] === 'submit',
     })
+
+    // A closed project files nothing (ADR-0090): a research run's report would
+    // land in it. The agent no longer offers research there; this is the door a
+    // direct call comes through.
+    if (path[0] === 'submit' && scope.projectId && isProjectClosed(await findProjectTenancy(scope.projectId))) {
+      const closed = projectClosedError()
+      return NextResponse.json(
+        { error: { code: closed.code, message: closed.message, details: closed.details } },
+        { status: closed.status }
+      )
+    }
 
     // Forward the request to the backend.
     //

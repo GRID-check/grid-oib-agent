@@ -3,7 +3,7 @@
  *
  * Spec'd here rather than only through the workspaces because this control is
  * the product's single answer to "what can I do to this document" — it is
- * mounted by the file preview, the Büroarchiv and the model viewport, and a
+ * mounted by the file preview, the Büroablage and the model viewport, and a
  * regression in any of its three items is a regression on all three surfaces.
  *
  * What is asserted is the BEHAVIOUR the heuristics called for: an irreversible

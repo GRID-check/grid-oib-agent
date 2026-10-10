@@ -57,6 +57,7 @@ import { contentDigest } from './content-digest'
 import { assertMayFileGeneratedDocument, fileGeneratedDocument, type FiledGeneratedDocument } from './generated'
 import { createDocumentVersion, transitionDocumentVersion } from './lifecycle'
 import { findDocumentAuthoredByRef, findDocumentInOrg } from './repository'
+import { internalRead } from '@/lib/documents/document-reader'
 import { findOpenVersion } from './version-repository'
 
 export interface FileResearchReportInput {
@@ -343,7 +344,7 @@ async function openReviewRound(
     const existing = await findOpenVersion(filed.documentId, session.organizationId)
     if (existing) return
 
-    const document = await findDocumentInOrg(filed.documentId, session.organizationId)
+    const document = await findDocumentInOrg(filed.documentId, session.organizationId, internalRead('just-written'))
     if (!document) return
 
     const version = await createDocumentVersion(session, {

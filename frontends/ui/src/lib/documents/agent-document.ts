@@ -38,6 +38,7 @@ import { AGENT_REFUSAL_LOCALE } from '@/lib/conversations/restricted-egress'
 import type { Locale } from '@/i18n/config'
 import { createDocumentVersion } from './lifecycle'
 import { findDocumentInOrg } from './repository'
+import { internalRead } from '@/lib/documents/document-reader'
 import { findOpenVersion } from './version-repository'
 
 /**
@@ -137,7 +138,7 @@ export async function fileAgentDocumentDraft(
     },
   })
 
-  const document = await findDocumentInOrg(filed.documentId, input.session.organizationId)
+  const document = await findDocumentInOrg(filed.documentId, input.session.organizationId, internalRead('just-written'))
   // The row was written a moment ago by the call above; a miss means it was
   // deleted in between, and a version for a document that is gone helps nobody.
   if (!document) throw new NotFoundError('Document not found')

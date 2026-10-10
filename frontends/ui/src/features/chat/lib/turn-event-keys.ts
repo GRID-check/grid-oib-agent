@@ -85,7 +85,7 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
 const CORPUS_KEYS = new Set(['status.retrieval.withQuery', 'status.retrieval.plain'])
 
 /** Corpus ids the dictionary can name. Anything else is dropped, not printed. */
-const CORPUS_IDS = new Set(['knowledge', 'ris', 'web', 'documents', 'ifc'])
+const CORPUS_IDS = new Set(['knowledge', 'ris', 'web', 'documents', 'ifc', 'otherProjects'])
 
 /** A `chat`-namespace translator. Structural, so no i18n import is needed here. */
 export type StepEventTranslator = (

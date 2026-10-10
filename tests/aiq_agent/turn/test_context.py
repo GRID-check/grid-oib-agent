@@ -71,8 +71,9 @@ def stubs(monkeypatch):
             raise value
         return value
 
-    async def turn_flags(*, organization_id, memory_reflection_enabled):
+    async def turn_flags(*, organization_id, memory_reflection_enabled, project_id=None):
         calls["stages_args"] = (organization_id, memory_reflection_enabled)
+        calls["flags_project"] = project_id
         return TurnFlags(
             enabled_stages=calls["stages"],
             deep_research_allowed=calls["deep_research_allowed"],
@@ -95,6 +96,8 @@ class TestLoadTurnContext:
         assert context.project_context == "PROFILE\n\nLIVE"
         assert context.platform_lessons == "LESSONS"
         assert stubs["digest_args"] == ("p1", "org", "Wie hoch?")
+        # The project rides along, so a closed one withdraws research (ADR-0090).
+        assert stubs["flags_project"] == "p1"
         facts = context.stage_facts
         assert (facts.conversation_id, facts.ws_parent_id, facts.organization_id, facts.project_id) == (
             "c1",
@@ -327,6 +330,21 @@ class TestBffTurnContext:
         )
         assert context.platform_lessons == "LESSONS"
         assert "digest_args" not in stubs
+
+    async def test_the_reference_catalog_reaches_the_turn(self, stubs, monkeypatch):
+        catalog = "- Wohnbau Graz (id p1): 2019, GK 4"
+        monkeypatch.setattr(
+            context_mod,
+            "fetch_turn_context",
+            lambda *_a, **_kw: ContextBlocks(None, None, None, reference_projects=catalog),
+        )
+        context = await load_turn_context(
+            _request(context_transport="bff", organization_id="org"),
+            conversation_id="conv_text",
+            query_text="q",
+            resolve_stages=False,
+        )
+        assert context.reference_projects == catalog
 
     async def test_advisory_lessons_still_fail_open_in_bff_mode(self, stubs, monkeypatch):
         def fail(_cid):

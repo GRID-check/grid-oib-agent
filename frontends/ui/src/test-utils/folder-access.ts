@@ -71,7 +71,7 @@ export function openFolderAccessModule(): FolderAccessModule & typeof rule {
     placementCollectionFor: vi.fn(async (_org: string, _project: string, collection: string) => collection),
     getProjectFolderAccess: vi.fn(async (_session, _project: string, collection: string) => openFolderAccess(collection)),
     currentRestrictedCollections: vi.fn(async () => []),
-    clearanceOfMember: vi.fn(async () => ({ roles: [], seesEverything: false })),
+    clearanceOfMember: vi.fn(async () => ({ levels: {}, seesEverything: false })),
     // Writes are allowed in an open project; a spec that tests a read-only
     // folder overrides this one with `vi.mocked(…)`.
     requireFolderWrite: vi.fn(async () => undefined),

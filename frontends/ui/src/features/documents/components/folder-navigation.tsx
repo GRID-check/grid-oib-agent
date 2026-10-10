@@ -33,7 +33,7 @@ import { folderDragProps, useFolderDropTarget } from '../hooks/use-document-drag
 import { cn } from '@/lib/utils'
 import { TimeAgo } from '@/components/ui/time-ago'
 import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
-import { FolderAccessMark, FolderReadOnlyBadge } from './folder-access-mark'
+import { FolderAccessMark, FolderReadOnlyBadge, useFolderOwnAccessLabel } from './folder-access-mark'
 import type { FolderItem } from './project-file-workspace'
 
 /**
@@ -319,24 +319,27 @@ interface FolderTileProps {
   /** Whether this tile may receive that folder — see `useFolderDropTarget`. */
   canAcceptFolder?: (draggedFolderId: string, targetFolderId: string | null) => boolean
   /**
-   * The entries of this folder's own access list, each a role's name with what
-   * it may do (ADR-0088); absent or empty for a folder that inherits. Draws the
-   * lock, and names the roles in the open button's accessible name.
-   */
-  restrictedRoleNames?: readonly string[]
-  /**
    * The reader may only read here (ADR-0088): „Nur lesen" beside the name, and
    * nothing can be dropped on the tile. The server refuses a write anyway.
    */
   readOnly?: boolean
 }
 
-/** The open button's accessible name: a restricted folder says so, and to whom. */
-function useOpenFolderLabel(folder: FolderItem, restrictedRoleNames?: readonly string[]): string {
+/**
+ * The open button's accessible name, and the lock's tooltip on a folder with
+ * its own access list (ADR-0088, `folder.ownAccess`): a restricted folder says
+ * so in both. Null `lockLabel` draws no lock.
+ */
+function useFolderLabels(folder: FolderItem): { openLabel: string; lockLabel: string | null } {
   const t = useTranslations('files')
-  return restrictedRoleNames && restrictedRoleNames.length > 0
-    ? t('folders.access.openRestricted', { name: folder.name, roles: restrictedRoleNames.join(', ') })
-    : t('folders.openFolder', { name: folder.name })
+  const ownAccessLabel = useFolderOwnAccessLabel()
+  const lockLabel = folder.ownAccess ? ownAccessLabel(folder.ownAccess) : null
+  return {
+    lockLabel,
+    openLabel: lockLabel
+      ? t('folders.access.openRestricted', { name: folder.name, access: lockLabel })
+      : t('folders.openFolder', { name: folder.name }),
+  }
 }
 
 /** Shared inline rename field — same in-place contract the tree pane had. */
@@ -468,13 +471,10 @@ export function FolderCard({
   actions,
   editing: editingProp,
   onEditingChange,
-  restrictedRoleNames,
   readOnly = false,
 }: FolderTileProps): JSX.Element {
   const t = useTranslations('files')
-  const openLabel = useOpenFolderLabel(folder, restrictedRoleNames)
-  const roleNames = restrictedRoleNames ?? []
-  const restricted = roleNames.length > 0
+  const { openLabel, lockLabel } = useFolderLabels(folder)
   const { locale } = useLocale()
   const [uncontrolledEditing, setUncontrolledEditing] = useState(false)
   const editing = editingProp ?? uncontrolledEditing
@@ -544,9 +544,7 @@ export function FolderCard({
               <FolderNameEditor folder={folder} onRenameFolder={onRenameFolder} onDone={() => setEditing(false)} />
             ) : (
               <div className="flex min-w-0 items-center gap-1.5">
-                {restricted && (
-                  <FolderAccessMark roleNames={roleNames} testId={`folder-lock-${folder.id}`} />
-                )}
+                {lockLabel && <FolderAccessMark label={lockLabel} testId={`folder-lock-${folder.id}`} />}
                 <p className="truncate text-sm font-medium leading-tight text-foreground" title={folder.name}>
                   {folder.name}
                 </p>
@@ -590,12 +588,9 @@ export function FolderRow({
   actions,
   editing: editingProp,
   onEditingChange,
-  restrictedRoleNames,
   readOnly = false,
 }: FolderTileProps): JSX.Element {
-  const openLabel = useOpenFolderLabel(folder, restrictedRoleNames)
-  const roleNames = restrictedRoleNames ?? []
-  const restricted = roleNames.length > 0
+  const { openLabel, lockLabel } = useFolderLabels(folder)
   const { locale } = useLocale()
   const [uncontrolledEditing, setUncontrolledEditing] = useState(false)
   const editing = editingProp ?? uncontrolledEditing
@@ -672,7 +667,7 @@ export function FolderRow({
           <Folder className="text-muted-foreground size-3.5" aria-hidden />
         </span>
         <span className="text-foreground truncate font-medium">{folder.name}</span>
-        {restricted && <FolderAccessMark roleNames={roleNames} testId={`folder-lock-${folder.id}`} />}
+        {lockLabel && <FolderAccessMark label={lockLabel} testId={`folder-lock-${folder.id}`} />}
         {readOnly && <FolderReadOnlyBadge testId={`folder-read-only-${folder.id}`} />}
         {/* The kit's numeric pill, not a fourth hand-rolled one. */}
         <CountPill>{itemCount}</CountPill>

@@ -122,6 +122,7 @@ import {
   submitAgentRun,
   updateJob,
 } from './service'
+import { AGENT_RUN_INPUT_MAX_CHARS } from './types'
 
 const emptySkill = {} as SkillSnapshot
 const skillSnapshot: SkillSnapshot = {
@@ -701,6 +702,16 @@ describe('fireScheduledJob', () => {
     expect(vi.mocked(repository.insertRun).mock.calls[0][0]).toMatchObject({ status: 'skipped' })
   })
 
+  it('skips a schedule whose project is closed, visibly, and submits nothing (ADR-0090)', async () => {
+    vi.mocked(findProjectInOrg).mockResolvedValueOnce({ collectionName: 'proj_x', status: 'closed' } as never)
+
+    const result = await fireScheduledJob(definitionRow({ trigger: 'schedule', scheduleCron: '0 8 * * 1' }))
+
+    expect(result).toEqual({ fired: false, reason: 'project-closed' })
+    expect(submitJob).not.toHaveBeenCalled()
+    expect(vi.mocked(repository.insertRun).mock.calls[0][0]).toMatchObject({ status: 'skipped', error: 'Project is closed' })
+  })
+
   it('fires and reports the backend id', async () => {
     const result = await fireScheduledJob(definitionRow({ trigger: 'schedule', scheduleCron: '0 8 * * 1' }))
 
@@ -757,6 +768,18 @@ describe('submitAgentRun', () => {
     const submitted = vi.mocked(submitJob).mock.calls[0][0]
     expect(submitted).not.toHaveProperty('clarifier_result')
     expect(submitted).not.toHaveProperty('documents')
+  })
+
+  it('refuses a prompt over the backend ceiling in a sentence, before submitting', async () => {
+    const atCeiling = 'x'.repeat(AGENT_RUN_INPUT_MAX_CHARS)
+    await submitAgentRun({ ...spec, prompt: atCeiling })
+    expect(vi.mocked(submitJob).mock.calls[0][0].input).toBe(atCeiling)
+
+    vi.mocked(submitJob).mockClear()
+    const refusal = submitAgentRun({ ...spec, prompt: `${atCeiling}x` })
+    await expect(refusal).rejects.toBeInstanceOf(JobSubmitError)
+    await expect(refusal).rejects.toThrow(`at most ${AGENT_RUN_INPUT_MAX_CHARS}`)
+    expect(submitJob).not.toHaveBeenCalled()
   })
 
   it('never searches a restricted folder: its report is filed for the whole project (ADR-0087)', async () => {

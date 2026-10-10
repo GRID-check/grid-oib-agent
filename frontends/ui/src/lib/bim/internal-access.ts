@@ -30,6 +30,7 @@ import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { FEATURE_FLAGS, enforcementOn, ifcModelsEnvEnabled } from '@/lib/authz/feature-flags'
 import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
 import { findDocumentInOrg } from '@/lib/documents/repository'
+import { SCREENED_ONLY } from '@/lib/documents/document-reader'
 import { getRestrictedFolderIds } from '@/lib/authz/folder-access'
 import { listBimModels, type BimModelHeader } from './repository'
 
@@ -127,6 +128,9 @@ export async function resolveInternalModel(
     // reader who holds no role: every restricted subtree is hidden, and a
     // `modelId` naming a model inside one is not found.
     hiddenFolderIds: input.projectId ? await getRestrictedFolderIds(input.organizationId, input.projectId) : [],
+    // Nor is a held file's model (ADR-0086): nothing of it reaches a model
+    // until its screening passes, its building data included.
+    reader: SCREENED_ONLY,
   })
   // Only `ready` models can answer anything. A model still extracting is
   // reported as such below rather than filtered into silence, because "the
@@ -244,7 +248,8 @@ export async function getInternalModelSource(
   model: BimModelHeader,
   organizationId: string
 ): Promise<InternalModelSource> {
-  const document = await findDocumentInOrg(model.documentId, organizationId)
+  // The agent's byte path: a held file's bytes reach no model (ADR-0086).
+  const document = await findDocumentInOrg(model.documentId, organizationId, SCREENED_ONLY)
   if (!document?.storageKey) throw new NotFoundError('Model file not available')
 
   const bucket = resolveDocumentBucket(document.storageBucket)

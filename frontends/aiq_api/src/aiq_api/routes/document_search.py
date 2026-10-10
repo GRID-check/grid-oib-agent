@@ -29,7 +29,8 @@ from .collections import _require_ingestor
 
 logger = logging.getLogger(__name__)
 
-# Max chars kept from a document's best-matching chunk as its snippet.
+# Max chars kept from a document's best-matching chunk as its snippet, unless the
+# request asks for more (``DocumentSearchRequest.snippet_max_chars``).
 SNIPPET_MAX_CHARS = 300
 
 
@@ -121,7 +122,9 @@ def _snippet(content: str, limit: int = SNIPPET_MAX_CHARS) -> str:
     return text[:limit].rstrip() + "…"
 
 
-def _aggregate_hits(chunks: list[Chunk], collection_name: str, top_k_files: int) -> list[DocumentSearchHit]:
+def _aggregate_hits(
+    chunks: list[Chunk], collection_name: str, top_k_files: int, snippet_max_chars: int = SNIPPET_MAX_CHARS
+) -> list[DocumentSearchHit]:
     """Group chunks by ``file_name`` and keep each file's max-score chunk.
 
     Within this one collection ``file_name`` uniquely identifies a document
@@ -139,7 +142,7 @@ def _aggregate_hits(chunks: list[Chunk], collection_name: str, top_k_files: int)
         DocumentSearchHit(
             file_name=chunk.file_name,
             score=chunk.score,
-            snippet=_snippet(chunk.content),
+            snippet=_snippet(chunk.content, snippet_max_chars),
             page_number=chunk.page_number,
             collection=chunk.metadata.get("collection", collection_name),
         )
@@ -190,7 +193,7 @@ def add_document_search_routes(router: APIRouter):
                 top_k=request.top_k,
                 filters=None,
             )
-            hits = _aggregate_hits(result.chunks, collection_name, request.top_k_files)
+            hits = _aggregate_hits(result.chunks, collection_name, request.top_k_files, request.snippet_max_chars)
             return DocumentSearchResponse(hits=hits)
         except HTTPException:
             raise

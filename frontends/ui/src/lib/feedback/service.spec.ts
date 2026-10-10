@@ -12,6 +12,7 @@ vi.mock('./repository', () => ({
   deleteAnswerFeedbackForUser: vi.fn(),
   getAnswerFeedbackForUser: vi.fn(async () => null),
   getAnswerTraceId: vi.fn(async () => null),
+  isRestrictedUseVote: vi.fn(async () => false),
   getPersistedAnswerConversationId: vi.fn(async () => null),
   listAnswerFeedbackForConversation: vi.fn(),
   getFeedbackHealth: vi.fn(),
@@ -68,6 +69,7 @@ import {
   getAnswerFeedbackForUser,
   getAnswerTraceId,
   getFeedbackHealth,
+  isRestrictedUseVote,
   getPersistedAnswerConversationId,
   listAnswerFeedbackForConversation,
   upsertAnswerFeedback,
@@ -128,6 +130,7 @@ const storedRow = {
   // No experiment arm: the holdout is off by default (see
   // lib/platform-lessons/holdout.ts), so an ordinary vote carries null.
   lessonsHoldout: null,
+  restrictedSource: false,
   createdAt: new Date(),
   updatedAt: new Date(),
 }
@@ -394,6 +397,39 @@ describe('submitAnswerFeedback -> Langfuse score', () => {
       verdict: 'down',
       reason: 'inaccurate',
       comment: 'R 60, nicht R 90',
+      expectedAnswer: null,
+      previousVerdict: null,
+    })
+  })
+
+  /** As the platform's feedback views leave such a vote out (`OUTSIDE_RESTRICTED_USE`). */
+  it("scores a vote on a restricted conversation without the voter's words", async () => {
+    vi.mocked(getAnswerTraceId).mockResolvedValueOnce('6135ac80f26d5f7dab0f1633fe313293')
+    vi.mocked(isRestrictedUseVote).mockResolvedValueOnce(true)
+    mockUpsert.mockResolvedValueOnce({
+      ...storedRow,
+      verdict: 'down',
+      reason: 'inaccurate',
+      comment: 'Das Honorar aus dem Vertrag stimmt nicht',
+      expectedAnswer: '48.000 EUR',
+    })
+
+    await submitAnswerFeedback(session, {
+      messageId: 'msg_1',
+      verdict: 'down',
+      reason: 'inaccurate',
+      comment: 'Das Honorar aus dem Vertrag stimmt nicht',
+      expectedAnswer: '48.000 EUR',
+    })
+    await flush()
+
+    expect(isRestrictedUseVote).toHaveBeenCalledWith('fb_1', 'org_1')
+    expect(upsertFeedbackScore).toHaveBeenCalledWith({
+      feedbackId: 'fb_1',
+      traceId: '6135ac80f26d5f7dab0f1633fe313293',
+      verdict: 'down',
+      reason: 'inaccurate',
+      comment: null,
       expectedAnswer: null,
       previousVerdict: null,
     })

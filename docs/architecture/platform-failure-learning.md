@@ -29,7 +29,8 @@ surface says "bandage" and carries a per-lesson `root_cause_status`.
 ```
 down-vote (existing WS-7 capture: verdict + reason chip + comment)
   └─ POST /api/feedback/answers ── after() ──► kickLessonDistillation()   [fail-open]
-       └─ sweep: unprocessed down-votes (anti-joined, 30-day window, oldest first)
+       └─ sweep: unprocessed down-votes (anti-joined, 30-day window, oldest first,
+                 none from a conversation that drew on a restricted folder)
             1. deterministic PII scrub          lib/text/redact-pii.ts (@redactpii/node + AT/DE rules)
             1b. semantic match candidates       cosine over the register (0069), rank window as fallback
             2. POST backend /v1/lesson-distill  two LLM calls:
@@ -133,6 +134,36 @@ provenance survives a retracted vote. Dereferencing a pointer back to the raw
 report means joining `answer_feedback` under the audited platform bypass,
 which is a deliberate second gate: the injectable/visible layer is safe by
 construction, and crossing back to raw is a privileged act.
+
+Before any of them, a down-vote on an answer that drew on a folder with
+restricted access is never read: its question and answer may quote a folder
+some of the tenant's own members may not read, and a lesson reaches every
+tenant. The database decides, from one rule (`grid_feedback_restricted_use`,
+migration 0124, ADR-0093): the vote's message is marked in
+`message_restricted_use`, or the voted message's conversation, or the one the
+vote names, holds a `conversation_restricted_folders` record (written when the
+BFF admits restricted content into a turn) or is a revision thread whose
+document sits where not every member may read, or was marked before. The BFF
+marks the answer a turn is writing, by the id the agent mints for it, when it
+admits restricted content into the turn, before the model reads it, so a vote
+on an answer that was never persisted is judged by the server's own record.
+Triggers mark every message of such a conversation from its first admission
+on (for a revision thread, from the change that made it answer yes), and the
+message id of every vote cast in one. The vote's ids are the client's and can
+only add to the answer. The sweep reads the question through the voted
+message's own conversation. Marks have no foreign key, so they stay when the
+chat is deleted, and a conversation once marked keeps answering yes.
+
+What a sweep took before that rule was withdrawn twice: migration 0120 by
+conversation record, 0123 by mark. The report's `canonical_summary` is cleared,
+and a lesson created from it loses its text and is retired
+(`restricted_source`). A lesson the report was only linked to keeps its text,
+since none of it came from there. 0123 also clears the vector embedded from
+every withdrawn lesson's old text and removes `previousContent`, which an
+owner's edit had kept, from its events. Votes whose chat and record were
+deleted before 0120, and reports whose vote was retracted, cannot be matched
+(the 0123 header lists them). The injection digest's cache key is `platformlessons:digest:v3`, so a
+digest cached before 0123 ran is not injected for the rest of its five minutes.
 
 Four defence layers, none trusted alone: deterministic scrub → instructed
 omission (the distiller writes the failure class, not the instance) → auditor

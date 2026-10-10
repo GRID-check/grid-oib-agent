@@ -405,7 +405,7 @@ class TestLaneForHit:
         assert nr.lane_for_hit(source_url="https://ris.bka.gv.at.evil.example/") == ("web", "Web")
 
     def test_archiv_collection(self):
-        assert nr.lane_for_hit(collection="archiv_buero") == ("buero", "Büroarchiv")
+        assert nr.lane_for_hit(collection="archiv_buero") == ("buero", "Büroablage")
 
     def test_project_collections(self):
         assert nr.lane_for_hit(collection="proj_123") == ("projekt", "Projektwissen")
@@ -413,13 +413,13 @@ class TestLaneForHit:
         assert nr.lane_for_hit(collection="s_session42") == ("projekt", "Private Sitzung")
 
     def test_a_shelf_the_caller_knows_beats_the_collection_guess(self):
-        assert nr.lane_for_hit(collection="whatever", shelf="archiv") == ("buero", "Büroarchiv")
+        assert nr.lane_for_hit(collection="whatever", shelf="archiv") == ("buero", "Büroablage")
 
     def test_the_default_class_never_relabels_a_users_document(self):
         # Ingestion used to stamp "sonstiges" on every upload; on a user's own
         # shelf that guess is not a decision, and the shelf wins.
         assert nr.lane_for_hit(collection="proj_123", doc_class="sonstiges") == ("projekt", "Projektwissen")
-        assert nr.lane_for_hit(collection="archiv_org", doc_class="sonstiges") == ("buero", "Büroarchiv")
+        assert nr.lane_for_hit(collection="archiv_org", doc_class="sonstiges") == ("buero", "Büroablage")
         assert nr.lane_for_hit(collection="s_chat", doc_class="sonstiges") == ("projekt", "Private Sitzung")
         # A base-corpus file nobody classified is still a base document.
         assert nr.lane_for_hit(collection="oib_knowledge", doc_class="sonstiges") == ("baurecht_basis", "Basisdokument")
@@ -461,7 +461,7 @@ class TestLaneForHit:
 class TestLaneForAgentAuthoredHit:
     """Stated provenance outranks every other signal in the classifier.
 
-    A published Piloti document is filed on the project or the Büroarchiv shelf
+    A published Piloti document is filed on the project or the Büroablage shelf
     like any other document, and ingest stamps it with a doc_class like any
     other document. Both of those are how it would silently lose its author:
     the shelf would make it Projektwissen, and the doc_class would file it in
@@ -503,7 +503,7 @@ class TestLaneForAgentAuthoredHit:
 
     def test_an_unmarked_hit_is_untouched(self):
         for authored_by in (None, "", "human", "Marianne"):
-            assert nr.lane_for_hit(shelf="archiv", authored_by=authored_by) == ("buero", "Büroarchiv")
+            assert nr.lane_for_hit(shelf="archiv", authored_by=authored_by) == ("buero", "Büroablage")
 
 
 class TestLaneForKnowledgeHit:
@@ -521,7 +521,7 @@ class TestLaneForKnowledgeHit:
             "baurecht_oib",
             "OIB-Richtlinie",
         )
-        assert nr.lane_for_knowledge_hit(collection="archiv_org1") == ("buero", "Büroarchiv")
+        assert nr.lane_for_knowledge_hit(collection="archiv_org1") == ("buero", "Büroablage")
 
 
 # ---------------------------------------------------------------------------

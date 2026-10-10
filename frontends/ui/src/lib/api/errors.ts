@@ -60,6 +60,8 @@ export class OrgMemoryDisabledError extends ApiError {
  * 403 — a conversation that drew on a folder with restricted access may not
  * carry its content to where others read it (ADR-0087): a deep-research run, a
  * task, the project profile, or a folder not restricted at least as narrowly.
+ * `revision` is the same refusal for a document rather than a conversation: a
+ * draft in such a folder is not quoted into a project-wide revision task.
  * The same refusal answers a run's Unterlagen naming a document from such a
  * folder (`planDocument`): the run's Grundlage is read by the whole project.
  * Its own code, so a caller (the agent's tools, a card) can tell this refusal
@@ -68,10 +70,33 @@ export class OrgMemoryDisabledError extends ApiError {
  */
 export class ConversationConfinedError extends ApiError {
   constructor(
-    readonly action: 'deepResearch' | 'task' | 'profilePatch' | 'filing' | 'planDocument',
+    readonly action: 'deepResearch' | 'task' | 'profilePatch' | 'filing' | 'revision' | 'planDocument',
     message: string
   ) {
     super(403, 'CONVERSATION_CONFINED', message, { action })
+  }
+}
+
+/**
+ * 409 — a cross-project lookup (ADR-0094) whose conversation changed who may
+ * read it while the lookup ran: the reach it searched was computed for the old
+ * audience, so nothing is handed out. Asking again searches as the new one. The
+ * message is the reader's sentence, relayed by the agent.
+ */
+export class CrossProjectAudienceChangedError extends ApiError {
+  constructor(message: string) {
+    super(409, 'CROSS_PROJECT_AUDIENCE_CHANGED', message)
+  }
+}
+
+/**
+ * 409 — a memory write from a conversation that drew on another project
+ * (ADR-0094). Project and organization memory are read by everyone in the
+ * project, so nothing found in another project may reach them from a chat.
+ */
+export class CrossProjectMemoryError extends ApiError {
+  constructor(message: string) {
+    super(409, 'CROSS_PROJECT_MEMORY', message)
   }
 }
 

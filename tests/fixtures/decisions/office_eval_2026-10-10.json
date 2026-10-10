@@ -1,0 +1,1584 @@
+{
+  "precedent": {
+    "rows": [
+      {
+        "id": "traufe-frueher",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.89,
+        "corpus": "referenz",
+        "corpus_p": 0.99,
+        "wants_reference": true
+      },
+      {
+        "id": "moedling-nachforderung",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.64,
+        "corpus": "projekt",
+        "corpus_p": 0.94,
+        "wants_reference": true
+      },
+      {
+        "id": "fluchttreppe-moedling",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.66,
+        "corpus": "projekt",
+        "corpus_p": 0.77,
+        "wants_reference": true
+      },
+      {
+        "id": "sicherheitstreppenhaus-referenz",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.78,
+        "corpus": "referenz",
+        "corpus_p": 1.0,
+        "wants_reference": true
+      },
+      {
+        "id": "linz-decke",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.7,
+        "corpus": "referenz",
+        "corpus_p": 0.45,
+        "wants_reference": true
+      },
+      {
+        "id": "kapselung-gk4",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.76,
+        "corpus": "baurecht",
+        "corpus_p": 0.98,
+        "wants_reference": true
+      },
+      {
+        "id": "auflagen-noe-gk4",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.78,
+        "corpus": "baurecht",
+        "corpus_p": 0.97,
+        "wants_reference": true
+      },
+      {
+        "id": "fluchtniveau-definition",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.56,
+        "corpus": "baurecht",
+        "corpus_p": 0.83,
+        "wants_reference": false
+      },
+      {
+        "id": "rauchabzug-norm",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.35,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "feuerwehraufzug-keiner",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.82,
+        "corpus": "referenz",
+        "corpus_p": 0.69,
+        "wants_reference": true
+      },
+      {
+        "id": "tiefgarage-keine",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.69,
+        "corpus": "referenz",
+        "corpus_p": 0.99,
+        "wants_reference": true
+      },
+      {
+        "id": "fluchttreppe-wie-moedling",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.87,
+        "corpus": "referenz",
+        "corpus_p": 0.91,
+        "wants_reference": true
+      },
+      {
+        "id": "kapselung-wie-baden",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.84,
+        "corpus": "referenz",
+        "corpus_p": 0.56,
+        "wants_reference": true
+      },
+      {
+        "id": "kapselung-warum-gipsfaser",
+        "source": "precedent",
+        "holdout": false,
+        "should_look": true,
+        "precedent": 0.79,
+        "corpus": "projekt",
+        "corpus_p": 0.71,
+        "wants_reference": true
+      },
+      {
+        "id": "hold-hinterlueftung-mundart",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.86,
+        "corpus": "referenz",
+        "corpus_p": 0.89,
+        "wants_reference": true
+      },
+      {
+        "id": "hold-english-escape-stair",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.83,
+        "corpus": "referenz",
+        "corpus_p": 1.0,
+        "wants_reference": true
+      },
+      {
+        "id": "hold-dachgeschoss-auflagen",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.67,
+        "corpus": "projekt",
+        "corpus_p": 0.9,
+        "wants_reference": true
+      },
+      {
+        "id": "hold-norm-und-praxis",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.75,
+        "corpus": "referenz",
+        "corpus_p": 0.97,
+        "wants_reference": true
+      },
+      {
+        "id": "hold-norm-brandabschnitt",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": false,
+        "precedent": 0.37,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "hold-none-hallenbad",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.58,
+        "corpus": "referenz",
+        "corpus_p": 0.93,
+        "wants_reference": true
+      },
+      {
+        "id": "wien-druckbelueftung",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.82,
+        "corpus": "referenz",
+        "corpus_p": 0.86,
+        "wants_reference": true
+      },
+      {
+        "id": "wien-uebernahme-aus-noe",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.84,
+        "corpus": "referenz",
+        "corpus_p": 0.86,
+        "wants_reference": true
+      },
+      {
+        "id": "wien-norm-bestand",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": false,
+        "precedent": 0.35,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "perm-ma37-nachgefordert",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.78,
+        "corpus": "referenz",
+        "corpus_p": 0.6,
+        "wants_reference": true
+      },
+      {
+        "id": "perm-baden-auflagen",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.58,
+        "corpus": "projekt",
+        "corpus_p": 0.98,
+        "wants_reference": true
+      },
+      {
+        "id": "perm-english-moedling",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.72,
+        "corpus": "projekt",
+        "corpus_p": 0.89,
+        "wants_reference": true
+      },
+      {
+        "id": "perm-none-kufstein",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.65,
+        "corpus": "referenz",
+        "corpus_p": 0.62,
+        "wants_reference": true
+      },
+      {
+        "id": "perm-wien-einreichung",
+        "source": "precedent",
+        "holdout": true,
+        "should_look": true,
+        "precedent": 0.76,
+        "corpus": "baurecht",
+        "corpus_p": 0.89,
+        "wants_reference": true
+      },
+      {
+        "id": "fluchtweg-gk4",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.42,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "feuerwiderstand-gk5",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.46,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "rauchwarnmelder-wohnung",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.54,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "abstand-nachbargrenze-brandwand",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.58,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "fassade-brandschutz",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.63,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "was-weisst-du-ueber-oib-2",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.35,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "tiefgarage-entrauchung",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.59,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "worum-geht-es-oib-2-2",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.36,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "betriebsbau-brandschutz",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.63,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "hochhaus-ab-22m",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.51,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "treppenbreite-wohnbau",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.41,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "absturzsicherung-gelaender",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.56,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "barrierefrei-wohngebaeude",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.35,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "was-regelt-oib-4",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.41,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "belichtung-aufenthaltsraum",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.45,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "feuchtigkeit-erdberuehrt",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.55,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "uwert-aussenwand-neubau",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.49,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "sommerlicher-waermeschutz",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.74,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": true
+      },
+      {
+        "id": "schallschutz-zwischen-wohnungen",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.51,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "tragwerk-einwirkungen",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.65,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "einreichung-wien-unterlagen",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.7,
+        "corpus": "baurecht",
+        "corpus_p": 0.91,
+        "wants_reference": true
+      },
+      {
+        "id": "bauhoehe-wien",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.49,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "stellplatz-tirol",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.61,
+        "corpus": "baurecht",
+        "corpus_p": 0.94,
+        "wants_reference": false
+      },
+      {
+        "id": "abstandsflaeche-noe",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.53,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "bewilligungsfrei-salzburg",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.46,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "was-steht-im-brandschutzkonzept",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.39,
+        "corpus": "projekt",
+        "corpus_p": 0.98,
+        "wants_reference": false
+      },
+      {
+        "id": "ordner-brandschutz-listing",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.35,
+        "corpus": "projekt",
+        "corpus_p": 0.91,
+        "wants_reference": false
+      },
+      {
+        "id": "treppenhaus-gk4-tabelle",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.54,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "fluchtweg-varianten",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.66,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "bruestung-absturzhoehe-museum",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.52,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      },
+      {
+        "id": "mensa-schule-pflicht",
+        "source": "loop-eval",
+        "holdout": false,
+        "should_look": false,
+        "precedent": 0.34,
+        "corpus": "baurecht",
+        "corpus_p": 1.0,
+        "wants_reference": false
+      }
+    ],
+    "sweep": [
+      {
+        "threshold": 0.1,
+        "tp": 24,
+        "fp": 35,
+        "fn": 0,
+        "tn": 0,
+        "precision": 0.407,
+        "recall": 1.0,
+        "f1": 0.578
+      },
+      {
+        "threshold": 0.15,
+        "tp": 24,
+        "fp": 35,
+        "fn": 0,
+        "tn": 0,
+        "precision": 0.407,
+        "recall": 1.0,
+        "f1": 0.578
+      },
+      {
+        "threshold": 0.2,
+        "tp": 24,
+        "fp": 35,
+        "fn": 0,
+        "tn": 0,
+        "precision": 0.407,
+        "recall": 1.0,
+        "f1": 0.578
+      },
+      {
+        "threshold": 0.3,
+        "tp": 24,
+        "fp": 35,
+        "fn": 0,
+        "tn": 0,
+        "precision": 0.407,
+        "recall": 1.0,
+        "f1": 0.578
+      },
+      {
+        "threshold": 0.4,
+        "tp": 24,
+        "fp": 26,
+        "fn": 0,
+        "tn": 9,
+        "precision": 0.48,
+        "recall": 1.0,
+        "f1": 0.649
+      },
+      {
+        "threshold": 0.5,
+        "tp": 24,
+        "fp": 18,
+        "fn": 0,
+        "tn": 17,
+        "precision": 0.571,
+        "recall": 1.0,
+        "f1": 0.727
+      },
+      {
+        "threshold": 0.6,
+        "tp": 22,
+        "fp": 7,
+        "fn": 2,
+        "tn": 28,
+        "precision": 0.759,
+        "recall": 0.917,
+        "f1": 0.83
+      },
+      {
+        "threshold": 0.7,
+        "tp": 17,
+        "fp": 2,
+        "fn": 7,
+        "tn": 33,
+        "precision": 0.895,
+        "recall": 0.708,
+        "f1": 0.791
+      },
+      {
+        "threshold": 0.8,
+        "tp": 8,
+        "fp": 0,
+        "fn": 16,
+        "tn": 35,
+        "precision": 1.0,
+        "recall": 0.333,
+        "f1": 0.5
+      }
+    ],
+    "wants_reference": {
+      "threshold": 0.5,
+      "tp": 24,
+      "fp": 2,
+      "fn": 0,
+      "tn": 33,
+      "precision": 0.923,
+      "recall": 1.0,
+      "f1": 0.96
+    },
+    "held_out": {
+      "threshold": 0.5,
+      "tp": 12,
+      "fp": 2,
+      "fn": 0,
+      "tn": 31,
+      "precision": 0.857,
+      "recall": 1.0,
+      "f1": 0.923
+    }
+  },
+  "fit": {
+    "rows": [
+      {
+        "id": "traufe-frueher",
+        "scenario": "default",
+        "rank_before": 0,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 4,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.66,
+          "Wohnhausanlage Mödling, Br": 0.14,
+          "Einfamilienhaus Gänserndor": 0.79,
+          "Dachgeschoßausbau Wien 7, ": 0.74,
+          "Wohnanlage Salzburg-Lehen,": 0.19,
+          "Reihenhausanlage Wolfurt, ": 0.79,
+          "Bürogebäude Wien 22, Wagra": 0.31,
+          "Hotel Seefeld, Münchner St": 0.33,
+          "Produktionshalle Wels, Per": 0.17,
+          "Pflegeheim Villach, Draust": 0.28,
+          "Zubau Kindergarten Oberwar": 0.75,
+          "Sanierung Wohnhaus Graz, A": 0.47
+        }
+      },
+      {
+        "id": "moedling-nachforderung",
+        "scenario": "default",
+        "rank_before": 1,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.44,
+          "Wohnhausanlage Mödling, Br": 0.85,
+          "Einfamilienhaus Gänserndor": 0.19,
+          "Dachgeschoßausbau Wien 7, ": 0.33,
+          "Wohnanlage Salzburg-Lehen,": 0.23,
+          "Reihenhausanlage Wolfurt, ": 0.26,
+          "Bürogebäude Wien 22, Wagra": 0.18,
+          "Hotel Seefeld, Münchner St": 0.12,
+          "Produktionshalle Wels, Per": 0.1,
+          "Pflegeheim Villach, Draust": 0.13,
+          "Zubau Kindergarten Oberwar": 0.14,
+          "Sanierung Wohnhaus Graz, A": 0.24
+        }
+      },
+      {
+        "id": "fluchttreppe-moedling",
+        "scenario": "default",
+        "rank_before": 1,
+        "rank_after": {
+          "0.5": 1,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.52,
+          "Wohnhausanlage Mödling, Br": 0.92,
+          "Einfamilienhaus Gänserndor": 0.12,
+          "Dachgeschoßausbau Wien 7, ": 0.31,
+          "Wohnanlage Salzburg-Lehen,": 0.61,
+          "Reihenhausanlage Wolfurt, ": 0.23,
+          "Bürogebäude Wien 22, Wagra": 0.48,
+          "Hotel Seefeld, Münchner St": 0.22,
+          "Produktionshalle Wels, Per": 0.09,
+          "Pflegeheim Villach, Draust": 0.34,
+          "Zubau Kindergarten Oberwar": 0.12,
+          "Sanierung Wohnhaus Graz, A": 0.45
+        }
+      },
+      {
+        "id": "sicherheitstreppenhaus-referenz",
+        "scenario": "default",
+        "rank_before": 6,
+        "rank_after": {
+          "0.5": 3,
+          "0.6": 2,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.64,
+          "Wohnhausanlage Mödling, Br": 0.6,
+          "Einfamilienhaus Gänserndor": 0.16,
+          "Dachgeschoßausbau Wien 7, ": 0.26,
+          "Wohnanlage Salzburg-Lehen,": 0.5,
+          "Reihenhausanlage Wolfurt, ": 0.18,
+          "Bürogebäude Wien 22, Wagra": 0.85,
+          "Hotel Seefeld, Münchner St": 0.29,
+          "Produktionshalle Wels, Per": 0.17,
+          "Pflegeheim Villach, Draust": 0.48,
+          "Zubau Kindergarten Oberwar": 0.16,
+          "Sanierung Wohnhaus Graz, A": 0.38
+        }
+      },
+      {
+        "id": "kapselung-gk4",
+        "scenario": "default",
+        "rank_before": 0,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.8,
+          "Wohnhausanlage Mödling, Br": 0.1,
+          "Einfamilienhaus Gänserndor": 0.37,
+          "Dachgeschoßausbau Wien 7, ": 0.7,
+          "Wohnanlage Salzburg-Lehen,": 0.13,
+          "Reihenhausanlage Wolfurt, ": 0.34,
+          "Bürogebäude Wien 22, Wagra": 0.11,
+          "Hotel Seefeld, Münchner St": 0.12,
+          "Produktionshalle Wels, Per": 0.13,
+          "Pflegeheim Villach, Draust": 0.12,
+          "Zubau Kindergarten Oberwar": 0.46,
+          "Sanierung Wohnhaus Graz, A": 0.12
+        }
+      },
+      {
+        "id": "auflagen-noe-gk4",
+        "scenario": "default",
+        "rank_before": 0,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.74,
+          "Wohnhausanlage Mödling, Br": 0.65,
+          "Einfamilienhaus Gänserndor": 0.68,
+          "Dachgeschoßausbau Wien 7, ": 0.57,
+          "Wohnanlage Salzburg-Lehen,": 0.57,
+          "Reihenhausanlage Wolfurt, ": 0.6,
+          "Bürogebäude Wien 22, Wagra": 0.2,
+          "Hotel Seefeld, Münchner St": 0.22,
+          "Produktionshalle Wels, Per": 0.16,
+          "Pflegeheim Villach, Draust": 0.2,
+          "Zubau Kindergarten Oberwar": 0.24,
+          "Sanierung Wohnhaus Graz, A": 0.56
+        }
+      },
+      {
+        "id": "fluchttreppe-wie-moedling",
+        "scenario": "default",
+        "rank_before": 1,
+        "rank_after": {
+          "0.5": 1,
+          "0.6": 1,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.61,
+          "Wohnhausanlage Mödling, Br": 0.85,
+          "Einfamilienhaus Gänserndor": 0.27,
+          "Dachgeschoßausbau Wien 7, ": 0.56,
+          "Wohnanlage Salzburg-Lehen,": 0.55,
+          "Reihenhausanlage Wolfurt, ": 0.2,
+          "Bürogebäude Wien 22, Wagra": 0.73,
+          "Hotel Seefeld, Münchner St": 0.28,
+          "Produktionshalle Wels, Per": 0.2,
+          "Pflegeheim Villach, Draust": 0.52,
+          "Zubau Kindergarten Oberwar": 0.3,
+          "Sanierung Wohnhaus Graz, A": 0.58
+        }
+      },
+      {
+        "id": "kapselung-wie-baden",
+        "scenario": "default",
+        "rank_before": 0,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.85,
+          "Wohnhausanlage Mödling, Br": 0.21,
+          "Einfamilienhaus Gänserndor": 0.58,
+          "Dachgeschoßausbau Wien 7, ": 0.6,
+          "Wohnanlage Salzburg-Lehen,": 0.22,
+          "Reihenhausanlage Wolfurt, ": 0.72,
+          "Bürogebäude Wien 22, Wagra": 0.15,
+          "Hotel Seefeld, Münchner St": 0.16,
+          "Produktionshalle Wels, Per": 0.12,
+          "Pflegeheim Villach, Draust": 0.15,
+          "Zubau Kindergarten Oberwar": 0.63,
+          "Sanierung Wohnhaus Graz, A": 0.19
+        }
+      },
+      {
+        "id": "kapselung-warum-gipsfaser",
+        "scenario": "default",
+        "rank_before": 0,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.84,
+          "Wohnhausanlage Mödling, Br": 0.07,
+          "Einfamilienhaus Gänserndor": 0.47,
+          "Dachgeschoßausbau Wien 7, ": 0.37,
+          "Wohnanlage Salzburg-Lehen,": 0.1,
+          "Reihenhausanlage Wolfurt, ": 0.52,
+          "Bürogebäude Wien 22, Wagra": 0.1,
+          "Hotel Seefeld, Münchner St": 0.11,
+          "Produktionshalle Wels, Per": 0.09,
+          "Pflegeheim Villach, Draust": 0.12,
+          "Zubau Kindergarten Oberwar": 0.36,
+          "Sanierung Wohnhaus Graz, A": 0.15
+        }
+      },
+      {
+        "id": "hold-hinterlueftung-mundart",
+        "scenario": "default",
+        "rank_before": 0,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 1,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.62,
+          "Wohnhausanlage Mödling, Br": 0.1,
+          "Einfamilienhaus Gänserndor": 0.7,
+          "Dachgeschoßausbau Wien 7, ": 0.47,
+          "Wohnanlage Salzburg-Lehen,": 0.33,
+          "Reihenhausanlage Wolfurt, ": 0.68,
+          "Bürogebäude Wien 22, Wagra": 0.17,
+          "Hotel Seefeld, Münchner St": 0.35,
+          "Produktionshalle Wels, Per": 0.14,
+          "Pflegeheim Villach, Draust": 0.33,
+          "Zubau Kindergarten Oberwar": 0.69,
+          "Sanierung Wohnhaus Graz, A": 0.33
+        }
+      },
+      {
+        "id": "hold-english-escape-stair",
+        "scenario": "default",
+        "rank_before": 1,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.49,
+          "Wohnhausanlage Mödling, Br": 0.92,
+          "Einfamilienhaus Gänserndor": 0.15,
+          "Dachgeschoßausbau Wien 7, ": 0.4,
+          "Wohnanlage Salzburg-Lehen,": 0.52,
+          "Reihenhausanlage Wolfurt, ": 0.25,
+          "Bürogebäude Wien 22, Wagra": 0.54,
+          "Hotel Seefeld, Münchner St": 0.37,
+          "Produktionshalle Wels, Per": 0.1,
+          "Pflegeheim Villach, Draust": 0.51,
+          "Zubau Kindergarten Oberwar": 0.13,
+          "Sanierung Wohnhaus Graz, A": 0.58
+        }
+      },
+      {
+        "id": "hold-dachgeschoss-auflagen",
+        "scenario": "default",
+        "rank_before": 3,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 3
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.17,
+          "Wohnhausanlage Mödling, Br": 0.27,
+          "Einfamilienhaus Gänserndor": 0.11,
+          "Dachgeschoßausbau Wien 7, ": 0.74,
+          "Wohnanlage Salzburg-Lehen,": 0.14,
+          "Reihenhausanlage Wolfurt, ": 0.11,
+          "Bürogebäude Wien 22, Wagra": 0.12,
+          "Hotel Seefeld, Münchner St": 0.08,
+          "Produktionshalle Wels, Per": 0.07,
+          "Pflegeheim Villach, Draust": 0.08,
+          "Zubau Kindergarten Oberwar": 0.09,
+          "Sanierung Wohnhaus Graz, A": 0.26
+        }
+      },
+      {
+        "id": "hold-norm-und-praxis",
+        "scenario": "default",
+        "rank_before": 0,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.94,
+          "Wohnhausanlage Mödling, Br": 0.29,
+          "Einfamilienhaus Gänserndor": 0.19,
+          "Dachgeschoßausbau Wien 7, ": 0.27,
+          "Wohnanlage Salzburg-Lehen,": 0.56,
+          "Reihenhausanlage Wolfurt, ": 0.18,
+          "Bürogebäude Wien 22, Wagra": 0.51,
+          "Hotel Seefeld, Münchner St": 0.34,
+          "Produktionshalle Wels, Per": 0.08,
+          "Pflegeheim Villach, Draust": 0.4,
+          "Zubau Kindergarten Oberwar": 0.17,
+          "Sanierung Wohnhaus Graz, A": 0.11
+        }
+      },
+      {
+        "id": "wien-druckbelueftung",
+        "scenario": "wien-bestand",
+        "rank_before": 0,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Bürogebäude Wien 22, Wagra": 0.8,
+          "Sanierung Wohnhaus Graz, A": 0.17,
+          "Fassadensanierung Wohnhaus": 0.12,
+          "Dachgeschoßausbau Wien 7, ": 0.27,
+          "Wohnhausanlage Mödling, Br": 0.67,
+          "Holzwohnbau Baden, Wiener ": 0.64,
+          "Wohnanlage Salzburg-Lehen,": 0.39,
+          "Bürogebäude Klagenfurt, Vö": 0.28,
+          "Einfamilienhaus Gänserndor": 0.08,
+          "Altprojekt Hinterbrühl": 0.32,
+          "Reihenhausanlage Wolfurt, ": 0.1,
+          "Hotel Seefeld, Münchner St": 0.2
+        }
+      },
+      {
+        "id": "wien-uebernahme-aus-noe",
+        "scenario": "wien-bestand",
+        "rank_before": 5,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Bürogebäude Wien 22, Wagra": 0.11,
+          "Sanierung Wohnhaus Graz, A": 0.22,
+          "Fassadensanierung Wohnhaus": 0.25,
+          "Dachgeschoßausbau Wien 7, ": 0.42,
+          "Wohnhausanlage Mödling, Br": 0.09,
+          "Holzwohnbau Baden, Wiener ": 0.88,
+          "Wohnanlage Salzburg-Lehen,": 0.14,
+          "Bürogebäude Klagenfurt, Vö": 0.13,
+          "Einfamilienhaus Gänserndor": 0.63,
+          "Altprojekt Hinterbrühl": 0.45,
+          "Reihenhausanlage Wolfurt, ": 0.61,
+          "Hotel Seefeld, Münchner St": 0.12
+        }
+      },
+      {
+        "id": "perm-ma37-nachgefordert",
+        "scenario": "default",
+        "rank_before": 6,
+        "rank_after": {
+          "0.5": 6,
+          "0.6": 6,
+          "0.7": 6,
+          "0.8": 6
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.54,
+          "Wohnhausanlage Mödling, Br": 0.5,
+          "Einfamilienhaus Gänserndor": 0.36,
+          "Dachgeschoßausbau Wien 7, ": 0.48,
+          "Wohnanlage Salzburg-Lehen,": 0.39,
+          "Reihenhausanlage Wolfurt, ": 0.46,
+          "Bürogebäude Wien 22, Wagra": 0.46,
+          "Hotel Seefeld, Münchner St": 0.29,
+          "Produktionshalle Wels, Per": 0.36,
+          "Pflegeheim Villach, Draust": 0.36,
+          "Zubau Kindergarten Oberwar": 0.4,
+          "Sanierung Wohnhaus Graz, A": 0.41
+        }
+      },
+      {
+        "id": "perm-baden-auflagen",
+        "scenario": "default",
+        "rank_before": 0,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.74,
+          "Wohnhausanlage Mödling, Br": 0.3,
+          "Einfamilienhaus Gänserndor": 0.2,
+          "Dachgeschoßausbau Wien 7, ": 0.18,
+          "Wohnanlage Salzburg-Lehen,": 0.16,
+          "Reihenhausanlage Wolfurt, ": 0.16,
+          "Bürogebäude Wien 22, Wagra": 0.16,
+          "Hotel Seefeld, Münchner St": 0.17,
+          "Produktionshalle Wels, Per": 0.16,
+          "Pflegeheim Villach, Draust": 0.15,
+          "Zubau Kindergarten Oberwar": 0.14,
+          "Sanierung Wohnhaus Graz, A": 0.17
+        }
+      },
+      {
+        "id": "perm-english-moedling",
+        "scenario": "default",
+        "rank_before": 1,
+        "rank_after": {
+          "0.5": 1,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 1
+        },
+        "scores": {
+          "Holzwohnbau Baden, Wiener ": 0.5,
+          "Wohnhausanlage Mödling, Br": 0.77,
+          "Einfamilienhaus Gänserndor": 0.23,
+          "Dachgeschoßausbau Wien 7, ": 0.28,
+          "Wohnanlage Salzburg-Lehen,": 0.19,
+          "Reihenhausanlage Wolfurt, ": 0.18,
+          "Bürogebäude Wien 22, Wagra": 0.19,
+          "Hotel Seefeld, Münchner St": 0.15,
+          "Produktionshalle Wels, Per": 0.11,
+          "Pflegeheim Villach, Draust": 0.14,
+          "Zubau Kindergarten Oberwar": 0.15,
+          "Sanierung Wohnhaus Graz, A": 0.18
+        }
+      },
+      {
+        "id": "perm-wien-einreichung",
+        "scenario": "wien-bestand",
+        "rank_before": 0,
+        "rank_after": {
+          "0.5": 0,
+          "0.6": 0,
+          "0.7": 0,
+          "0.8": 0
+        },
+        "scores": {
+          "Bürogebäude Wien 22, Wagra": 0.73,
+          "Sanierung Wohnhaus Graz, A": 0.52,
+          "Fassadensanierung Wohnhaus": 0.19,
+          "Dachgeschoßausbau Wien 7, ": 0.35,
+          "Wohnhausanlage Mödling, Br": 0.72,
+          "Holzwohnbau Baden, Wiener ": 0.77,
+          "Wohnanlage Salzburg-Lehen,": 0.6,
+          "Bürogebäude Klagenfurt, Vö": 0.37,
+          "Einfamilienhaus Gänserndor": 0.32,
+          "Altprojekt Hinterbrühl": 0.35,
+          "Reihenhausanlage Wolfurt, ": 0.35,
+          "Hotel Seefeld, Münchner St": 0.38
+        }
+      }
+    ],
+    "summary": {
+      "questions": 19,
+      "before": {
+        "first_page": 19,
+        "top1": 10,
+        "mrr": 0.695
+      },
+      "after@0.5": {
+        "first_page": 19,
+        "top1": 14,
+        "mrr": 0.836,
+        "worse": []
+      },
+      "after@0.6": {
+        "first_page": 19,
+        "top1": 16,
+        "mrr": 0.893,
+        "worse": []
+      },
+      "after@0.7": {
+        "first_page": 19,
+        "top1": 16,
+        "mrr": 0.886,
+        "worse": [
+          "traufe-frueher",
+          "hold-hinterlueftung-mundart"
+        ]
+      },
+      "after@0.8": {
+        "first_page": 19,
+        "top1": 16,
+        "mrr": 0.889,
+        "worse": []
+      }
+    }
+  },
+  "hits": {
+    "sweep": [
+      {
+        "threshold": 0.1,
+        "tp": 22,
+        "fp": 98,
+        "fn": 0,
+        "tn": 64,
+        "precision": 0.183,
+        "recall": 1.0,
+        "f1": 0.31
+      },
+      {
+        "threshold": 0.15,
+        "tp": 22,
+        "fp": 86,
+        "fn": 0,
+        "tn": 76,
+        "precision": 0.204,
+        "recall": 1.0,
+        "f1": 0.338
+      },
+      {
+        "threshold": 0.2,
+        "tp": 22,
+        "fp": 76,
+        "fn": 0,
+        "tn": 86,
+        "precision": 0.224,
+        "recall": 1.0,
+        "f1": 0.367
+      },
+      {
+        "threshold": 0.3,
+        "tp": 22,
+        "fp": 66,
+        "fn": 0,
+        "tn": 96,
+        "precision": 0.25,
+        "recall": 1.0,
+        "f1": 0.4
+      },
+      {
+        "threshold": 0.4,
+        "tp": 22,
+        "fp": 55,
+        "fn": 0,
+        "tn": 107,
+        "precision": 0.286,
+        "recall": 1.0,
+        "f1": 0.444
+      },
+      {
+        "threshold": 0.5,
+        "tp": 22,
+        "fp": 42,
+        "fn": 0,
+        "tn": 120,
+        "precision": 0.344,
+        "recall": 1.0,
+        "f1": 0.512
+      },
+      {
+        "threshold": 0.6,
+        "tp": 22,
+        "fp": 32,
+        "fn": 0,
+        "tn": 130,
+        "precision": 0.407,
+        "recall": 1.0,
+        "f1": 0.579
+      },
+      {
+        "threshold": 0.7,
+        "tp": 22,
+        "fp": 28,
+        "fn": 0,
+        "tn": 134,
+        "precision": 0.44,
+        "recall": 1.0,
+        "f1": 0.611
+      },
+      {
+        "threshold": 0.8,
+        "tp": 22,
+        "fp": 18,
+        "fn": 0,
+        "tn": 144,
+        "precision": 0.55,
+        "recall": 1.0,
+        "f1": 0.71
+      }
+    ],
+    "evidence_first": 13,
+    "questions": 19,
+    "injection": {
+      "threshold": 0.7,
+      "tp": 7,
+      "fp": 0,
+      "fn": 0,
+      "tn": 184,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    }
+  },
+  "verify": {
+    "rows": [
+      {
+        "id": "bl-moedling",
+        "stated": true,
+        "p": 0.3
+      },
+      {
+        "id": "bl-ma37-wien",
+        "stated": true,
+        "p": 0.5
+      },
+      {
+        "id": "bl-seefeld",
+        "stated": true,
+        "p": 0.82
+      },
+      {
+        "id": "bl-klagenfurt",
+        "stated": true,
+        "p": 0.32
+      },
+      {
+        "id": "bl-adresse-baden",
+        "stated": true,
+        "p": 0.43
+      },
+      {
+        "id": "bl-wien-for-baden",
+        "stated": false,
+        "p": 0.09
+      },
+      {
+        "id": "bl-gutachter-wien",
+        "stated": false,
+        "p": 0.23
+      },
+      {
+        "id": "bl-mortgage-tirol",
+        "stated": false,
+        "p": 0.26
+      },
+      {
+        "id": "bw-clt",
+        "stated": true,
+        "p": 0.62
+      },
+      {
+        "id": "bw-holzriegel",
+        "stated": true,
+        "p": 0.86
+      },
+      {
+        "id": "bw-stb-stiege",
+        "stated": true,
+        "p": 0.71
+      },
+      {
+        "id": "bw-stahlhalle",
+        "stated": true,
+        "p": 0.88
+      },
+      {
+        "id": "bw-hackschnitzel",
+        "stated": false,
+        "p": 0.25
+      },
+      {
+        "id": "bw-manschetten",
+        "stated": false,
+        "p": 0.27
+      },
+      {
+        "id": "bw-holzfenster",
+        "stated": false,
+        "p": 0.1
+      },
+      {
+        "id": "bw-clt-not-massiv",
+        "stated": false,
+        "p": 0.04
+      },
+      {
+        "id": "nu-wohnnutz",
+        "stated": true,
+        "p": 0.88
+      },
+      {
+        "id": "nu-wohnungen",
+        "stated": true,
+        "p": 0.5
+      },
+      {
+        "id": "nu-halle",
+        "stated": true,
+        "p": 0.25
+      },
+      {
+        "id": "nu-klassen",
+        "stated": true,
+        "p": 0.14
+      },
+      {
+        "id": "nu-halle-wohnen",
+        "stated": false,
+        "p": 0.03
+      },
+      {
+        "id": "nu-spiel-buero",
+        "stated": false,
+        "p": 0.05
+      },
+      {
+        "id": "nu-nachbar-hotel",
+        "stated": false,
+        "p": 0.12
+      },
+      {
+        "id": "va-zubau",
+        "stated": true,
+        "p": 0.92
+      },
+      {
+        "id": "va-neubau-markt",
+        "stated": true,
+        "p": 0.86
+      },
+      {
+        "id": "va-zubau-not-neubau",
+        "stated": false,
+        "p": 0.13
+      },
+      {
+        "id": "va-dachausbau-umbau",
+        "stated": false,
+        "p": 0.1
+      },
+      {
+        "id": "oib-2019",
+        "stated": true,
+        "p": 0.51
+      },
+      {
+        "id": "oib-april-2019",
+        "stated": true,
+        "p": 0.78
+      },
+      {
+        "id": "oib-2019-not-2015",
+        "stated": false,
+        "p": 0.05
+      },
+      {
+        "id": "oib-no-edition",
+        "stated": false,
+        "p": 0.13
+      },
+      {
+        "id": "oib-oenorm-year",
+        "stated": false,
+        "p": 0.13
+      }
+    ],
+    "sweep": [
+      {
+        "threshold": 0.1,
+        "tp": 17,
+        "fp": 10,
+        "fn": 0,
+        "tn": 5,
+        "precision": 0.63,
+        "recall": 1.0,
+        "f1": 0.773
+      },
+      {
+        "threshold": 0.15,
+        "tp": 16,
+        "fp": 4,
+        "fn": 1,
+        "tn": 11,
+        "precision": 0.8,
+        "recall": 0.941,
+        "f1": 0.865
+      },
+      {
+        "threshold": 0.2,
+        "tp": 16,
+        "fp": 4,
+        "fn": 1,
+        "tn": 11,
+        "precision": 0.8,
+        "recall": 0.941,
+        "f1": 0.865
+      },
+      {
+        "threshold": 0.3,
+        "tp": 15,
+        "fp": 0,
+        "fn": 2,
+        "tn": 15,
+        "precision": 1.0,
+        "recall": 0.882,
+        "f1": 0.938
+      },
+      {
+        "threshold": 0.4,
+        "tp": 13,
+        "fp": 0,
+        "fn": 4,
+        "tn": 15,
+        "precision": 1.0,
+        "recall": 0.765,
+        "f1": 0.867
+      },
+      {
+        "threshold": 0.5,
+        "tp": 12,
+        "fp": 0,
+        "fn": 5,
+        "tn": 15,
+        "precision": 1.0,
+        "recall": 0.706,
+        "f1": 0.828
+      },
+      {
+        "threshold": 0.6,
+        "tp": 9,
+        "fp": 0,
+        "fn": 8,
+        "tn": 15,
+        "precision": 1.0,
+        "recall": 0.529,
+        "f1": 0.692
+      },
+      {
+        "threshold": 0.7,
+        "tp": 8,
+        "fp": 0,
+        "fn": 9,
+        "tn": 15,
+        "precision": 1.0,
+        "recall": 0.471,
+        "f1": 0.64
+      },
+      {
+        "threshold": 0.8,
+        "tp": 6,
+        "fp": 0,
+        "fn": 11,
+        "tn": 15,
+        "precision": 1.0,
+        "recall": 0.353,
+        "f1": 0.522
+      }
+    ]
+  }
+}

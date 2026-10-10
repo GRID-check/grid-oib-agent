@@ -2,19 +2,21 @@
 
 /**
  * Dev preview for read/write folder access in the project Files view
- * (ADR-0088).
+ * (ADR-0088, ADR-0097).
  *
  * The REAL `FileBrowserPane`, three times, as three people see one project:
- * a writer (Projektleitung), a person who may only read two of the folders
- * (Buchhaltung) and an organization admin. The lock on a folder with its own
- * list, with the list in its tooltip; „Nur lesen" on a folder the person may
- * open but not change, whose menu offers no write entries and which takes no
- * drop; „Honorare" absent for the two who may not read it. The admin's ⋯ menu
- * carries „Zugriff…" and opens the real `FolderAccessDialog`.
+ * a writer (Jana Weber, Projektleitung), a person who may only read two of the
+ * folders (Tom Berger, Buchhaltung) and an organization admin. The lock on a
+ * folder with its own list, saying in its tooltip whether every project member
+ * reads it; „Nur lesen" on a folder the person may open but not change, whose
+ * menu offers no write entries and which takes no drop; „Honorare" absent for
+ * the two who may not read it. The admin's ⋯ menu carries „Zugriff…" and opens
+ * the real `FolderAccessDialog`.
  *
- * A module-scope fetch shim (browser + dev only) serves the organization's
- * roles and answers the access PUT with three documents moved, and applies the
- * change to the fixture so the lock appears or goes.
+ * A module-scope fetch shim (browser + dev only) serves the project's members
+ * and each folder's list (`GET …/access`), answers the access PUT with three
+ * documents moved, and applies the change to the fixture so the lock appears
+ * or goes.
  *
  * `?dialog=custom` opens the dialog on „Verträge" (own list), and
  * `?dialog=inherit` on „Pläne" (inherits), for captures. Not linked from
@@ -23,67 +25,64 @@
 
 import { projectSearchScope } from '@/features/documents/lib/file-shelf'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 
-import { EVERY_PROJECT_MEMBER, type FolderAccessSetting } from '@/adapters/api/folder-access-client'
-import type { OrganizationRoles } from '@/adapters/api/organization-roles-client'
+import type { FolderAccessSetting } from '@/adapters/api/folder-access-client'
 import { FileBrowserPane, type FolderNavigation } from '@/features/documents/components/file-browser-pane'
 import { FolderAccessDialog } from '@/features/documents/components/folder-access-dialog'
 import type { FileItem, FolderItem } from '@/features/documents/components/project-file-workspace'
 import { useFileSearch } from '@/features/documents/hooks/use-file-search'
-import { roleNamesFor, useOrganizationRoles } from '@/features/organization/hooks/use-organization-roles'
 
-const ROLES: OrganizationRoles = {
-  roles: [
-    { slug: 'admin', name: 'Admin', description: null, custom: false },
-    { slug: 'member', name: 'Member', description: null, custom: false },
-    { slug: 'org-geschaeftsfuehrung', name: 'Geschäftsführung', description: null, custom: true },
-    { slug: 'org-projektleitung', name: 'Projektleitung', description: null, custom: true },
-    { slug: 'org-buchhaltung', name: 'Buchhaltung', description: null, custom: true },
-    { slug: 'org-statik', name: 'Statik', description: null, custom: true },
-  ],
-  assignable: null,
-}
+/** `GET /api/projects/[id]/members`: the organization, each with their project role (null = none). */
+const MEMBERS = [
+  { userId: 'u-claudia', name: 'Claudia Hofer', email: 'c.hofer@buero.example', role: 'project-admin' },
+  { userId: 'u-jana', name: 'Jana Weber', email: 'j.weber@buero.example', role: 'project-editor' },
+  { userId: 'u-tom', name: 'Tom Berger', email: 't.berger@buero.example', role: 'project-editor' },
+  { userId: 'u-lea', name: 'Lea Novak', email: 'l.novak@buero.example', role: 'project-viewer' },
+  { userId: 'u-max', name: 'Max Aigner', email: 'm.aigner@buero.example', role: null },
+].map((member) => ({ ...member, organizationMembershipId: `om-${member.userId}`, profilePictureUrl: null }))
 
 /**
- * The tree, with each folder's own list (ADR-0088):
+ * Each folder's own list (ADR-0097), as `GET …/access` answers it:
  *
  *   Pläne      — inherits the project
- *   Verträge   — Geschäftsführung: Bearbeiten, Projektleitung: Bearbeiten, Buchhaltung: Lesen
- *   Honorare   — Geschäftsführung: Bearbeiten
- *   Statik     — Alle Projektmitglieder: Lesen, Projektleitung: Bearbeiten
+ *   Verträge   — Claudia Hofer: Bearbeiten, Jana Weber: Bearbeiten, Tom Berger: Lesen
+ *   Honorare   — Claudia Hofer: Bearbeiten
+ *   Statik     — alle Projektmitglieder lesen, Jana Weber: Bearbeiten
  */
+const INITIAL_ACCESS: Record<string, FolderAccessSetting> = {
+  'f-plaene': { mode: 'inherit' },
+  'f-vertraege': {
+    mode: 'custom',
+    everyoneReads: false,
+    people: [
+      { userId: 'u-claudia', level: 'write' },
+      { userId: 'u-jana', level: 'write' },
+      { userId: 'u-tom', level: 'read' },
+    ],
+  },
+  'f-honorare': { mode: 'custom', everyoneReads: false, people: [{ userId: 'u-claudia', level: 'write' }] },
+  'f-statik': { mode: 'custom', everyoneReads: true, people: [{ userId: 'u-jana', level: 'write' }] },
+}
+
+/** The listing's view of a list: only whether everyone reads it. */
+const ownAccessOf = (access: FolderAccessSetting | undefined): FolderItem['ownAccess'] =>
+  access?.mode === 'custom' ? { everyoneReads: access.everyoneReads } : null
+
+const folderRow = (id: string, name: string): FolderItem => ({
+  id,
+  parentId: null,
+  name,
+  path: `/${name}`,
+  ownAccess: ownAccessOf(INITIAL_ACCESS[id]),
+})
+
 const INITIAL_FOLDERS: FolderItem[] = [
-  { id: 'f-plaene', parentId: null, name: 'Pläne', path: '/Pläne', grants: null },
-  {
-    id: 'f-vertraege',
-    parentId: null,
-    name: 'Verträge',
-    path: '/Verträge',
-    grants: [
-      { role: 'org-geschaeftsfuehrung', level: 'write' },
-      { role: 'org-projektleitung', level: 'write' },
-      { role: 'org-buchhaltung', level: 'read' },
-    ],
-  },
-  {
-    id: 'f-honorare',
-    parentId: null,
-    name: 'Honorare',
-    path: '/Honorare',
-    grants: [{ role: 'org-geschaeftsfuehrung', level: 'write' }],
-  },
-  {
-    id: 'f-statik',
-    parentId: null,
-    name: 'Statik',
-    path: '/Statik',
-    grants: [
-      { role: EVERY_PROJECT_MEMBER, level: 'read' },
-      { role: 'org-projektleitung', level: 'write' },
-    ],
-  },
+  folderRow('f-plaene', 'Pläne'),
+  folderRow('f-vertraege', 'Verträge'),
+  folderRow('f-honorare', 'Honorare'),
+  folderRow('f-statik', 'Statik'),
 ]
 
 /**
@@ -94,11 +93,11 @@ const INITIAL_FOLDERS: FolderItem[] = [
  */
 const PERSONAS = {
   writer: {
-    title: 'Projektleitung (Projekt-Editor)',
+    title: 'Jana Weber (Projekt-Editor)',
     access: { 'f-plaene': 'write', 'f-vertraege': 'write', 'f-statik': 'write' },
   },
   reader: {
-    title: 'Buchhaltung (Projekt-Editor) — liest „Verträge“ und „Statik“ nur',
+    title: 'Tom Berger (Projekt-Editor) — liest „Verträge“ und „Statik“ nur',
     access: { 'f-plaene': 'write', 'f-vertraege': 'read', 'f-statik': 'read' },
   },
   admin: {
@@ -141,7 +140,7 @@ const FILES: FileItem[] = [
   file('d4', 'Baubeschreibung.pdf', null, 'Baubeschreibung des Wohnbaus Nord.'),
 ]
 
-const state = { folders: INITIAL_FOLDERS.map((folder) => ({ ...folder })) }
+const state = { folders: INITIAL_FOLDERS.map((folder) => ({ ...folder })), access: { ...INITIAL_ACCESS } }
 
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const w = window as unknown as { __folderAccessShim?: boolean }
@@ -150,15 +149,17 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.startsWith('/api/organization/roles')) return Response.json(ROLES)
+      if (/\/api\/projects\/[^/]+\/members$/.test(url)) return Response.json({ members: MEMBERS })
       const access = /\/api\/projects\/[^/]+\/folders\/([^/]+)\/access$/.exec(url)
-      if (access && init?.method === 'PUT') {
+      if (access) {
         const folderId = decodeURIComponent(access[1])
-        const setting = JSON.parse(String(init.body)) as FolderAccessSetting
-        state.folders = state.folders.map((folder) =>
-          folder.id === folderId ? { ...folder, grants: setting.mode === 'custom' ? setting.grants : null } : folder
-        )
         await new Promise((resolve) => window.setTimeout(resolve, 400))
+        if (init?.method !== 'PUT') return Response.json(state.access[folderId] ?? { mode: 'inherit' })
+        const setting = JSON.parse(String(init.body)) as FolderAccessSetting
+        state.access = { ...state.access, [folderId]: setting }
+        state.folders = state.folders.map((folder) =>
+          folder.id === folderId ? { ...folder, ownAccess: ownAccessOf(setting) } : folder
+        )
         return Response.json({ folderId, access: setting, moved: 3, failed: [] })
       }
       if (url.includes('/thumbnail')) return new Response(null, { status: 404 })
@@ -178,21 +179,18 @@ function FolderAccessPreview(): JSX.Element {
   const dialog = useSearchParams()?.get('dialog')
   const [folders, setFolders] = useState<FolderItem[]>(state.folders)
   const [accessFolderId, setAccessFolderId] = useState<string | null>(null)
-  const roles = useOrganizationRoles()
 
   useEffect(() => {
     if (dialog === 'custom') setAccessFolderId('f-vertraege')
     if (dialog === 'inherit') setAccessFolderId('f-plaene')
   }, [dialog])
 
-  const roleNames = useCallback((slugs: readonly string[]) => roleNamesFor(slugs, roles.data), [roles.data])
-
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-8 p-4 sm:p-6" data-testid="folder-access-preview">
       <div>
         <h1 className="text-lg font-semibold">Dateien — Lesen und Bearbeiten pro Ordner</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          ADR-0088: „Verträge“, „Honorare“ und „Statik“ haben eigene Zugriffsrechte. Hover a lock for the list;
+          ADR-0088: „Verträge“, „Honorare“ und „Statik“ haben eigene Zugriffsrechte. Hover a lock for what the list means;
           „Nur lesen“ marks a folder the person may open but not change. ⋯ → „Zugriff…“ edits the list.
         </p>
       </div>
@@ -201,7 +199,6 @@ function FolderAccessPreview(): JSX.Element {
           key={persona}
           persona={persona}
           folders={foldersFor(persona, folders)}
-          roleNames={roleNames}
           onEditFolderAccess={persona === 'admin' ? setAccessFolderId : undefined}
         />
       ))}
@@ -210,9 +207,6 @@ function FolderAccessPreview(): JSX.Element {
         onOpenChange={(next) => !next && setAccessFolderId(null)}
         projectId="proj-demo"
         folder={folders.find((folder) => folder.id === accessFolderId) ?? null}
-        roles={roles.data}
-        rolesFailed={roles.failed}
-        onRetryRoles={() => void roles.reload()}
         onSaved={() => setFolders(state.folders)}
       />
     </main>
@@ -222,12 +216,10 @@ function FolderAccessPreview(): JSX.Element {
 function PersonaSection({
   persona,
   folders,
-  roleNames,
   onEditFolderAccess,
 }: {
   persona: Persona
   folders: FolderItem[]
-  roleNames: (slugs: readonly string[]) => string[]
   onEditFolderAccess?: (folderId: string) => void
 }): JSX.Element {
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
@@ -242,7 +234,6 @@ function PersonaSection({
     onRenameFolder: async () => true,
     onDeleteFolder: async () => true,
     onEditFolderAccess,
-    roleNames,
     rootAccess: 'write',
   }
   return (

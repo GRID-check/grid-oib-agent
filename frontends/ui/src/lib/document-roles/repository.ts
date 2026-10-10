@@ -10,6 +10,7 @@
 import { and, eq, inArray, isNotNull, isNull, notInArray, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { outsideHiddenFolders } from '@/lib/documents/repository'
+import { documentVisibleTo, internalRead, type DocumentReader } from '@/lib/documents/visibility'
 import { documentRoles, documents } from '@/lib/db/schema'
 import type { DbTransaction } from '@/lib/storage/repository'
 import type { DocumentRole, RoleConfidence, RoleSource } from '@/lib/project-profile/document-roles'
@@ -92,12 +93,19 @@ const SELECTION = {
  *   clearance: the prompt view every member and every scheduled run shares).
  * - `unfiledOnly`: no tenant to read the folder tree in (an anonymous
  *   deployment), so no folder can be decided and none is shown.
+ *
+ * And by the hold (ADR-0086), `documents`: a held file's binding is its
+ * uploader's and its reviewers' (`shelfReaderFor`), and the agent's prompt
+ * names none (`screened-only`).
  */
-export type DocumentRoleReader = { hiddenFolderIds: readonly string[] } | { unfiledOnly: true }
+export type DocumentRoleReader = ({ hiddenFolderIds: readonly string[] } | { unfiledOnly: true }) & {
+  documents: DocumentReader
+}
 
 function visibleTo(reader: DocumentRoleReader): SQL[] {
-  if ('unfiledOnly' in reader) return [isNull(documents.folderId)]
-  return outsideHiddenFolders(reader.hiddenFolderIds)
+  const held = documentVisibleTo(reader.documents)
+  const folders = 'unfiledOnly' in reader ? [isNull(documents.folderId)] : outsideHiddenFolders(reader.hiddenFolderIds)
+  return held ? [...folders, held] : folders
 }
 
 /** Every binding in a project the reader may see, joined to the document it names. */
@@ -139,7 +147,10 @@ export async function findBindingsForRole(
         // have it — the single-holder ones.
         scopeInstanceId === null
           ? isNull(documentRoles.scopeInstanceId)
-          : eq(documentRoles.scopeInstanceId, scopeInstanceId)
+          : eq(documentRoles.scopeInstanceId, scopeInstanceId),
+        // Every holder of the slot, held or not: cardinality counts them all,
+        // and the caller names only those its reader may see (`keepVisible`).
+        documentVisibleTo(internalRead('identity'))
       )
     )
     .orderBy(documentRoles.createdAt)

@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useLocale, useTranslations } from '@/i18n'
+import { isProjectClosedBody } from '@/lib/projects/project-status'
 import { createDocumentsClient } from '@/adapters/api'
 import { deleteSessionDocument } from '@/adapters/api/session-documents-client'
 import { xhrUpload, XhrUploadError } from '@/lib/http/xhr-upload'
@@ -32,6 +33,7 @@ import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
 import { screenUploadName, type NameMatch } from '@/lib/upload-screening/name-screen'
 import { describeScreenedOut } from '@/lib/upload-screening/quarantine'
+import type { UploadScreeningPolicy } from '@/lib/upload-screening/policy'
 import { exclusionsByTerm, openUploadBatch, sealUploadBatch } from '../lib/upload-batch'
 
 /**
@@ -66,10 +68,13 @@ async function deleteShelfDocument(shelf: 'project' | 'archiv' | 'session', docu
 const isAbort = (error: unknown): boolean => error instanceof Error && error.name === 'AbortError'
 
 /** The clearest sentence available about why an upload did not happen. */
-const failureMessage = (error: unknown, fallback: string): string => {
+const failureMessage = (error: unknown, fallback: string, projectClosed?: string): string => {
   if (error instanceof XhrUploadError) {
     try {
       const body: unknown = JSON.parse(error.responseText)
+      // A closed project (ADR-0090) is named in the reader's language: the
+      // project closed while this tab was open.
+      if (projectClosed && isProjectClosedBody(body)) return projectClosed
       const message = (body as { error?: unknown })?.error
       if (typeof message === 'string' && message) return message
     } catch {
@@ -139,6 +144,13 @@ export interface UploadFilesOptions {
    * summary can say why something is missing; never sent by name.
    */
   excludedByScreening?: ReadonlyArray<readonly NameMatch[]>
+  /**
+   * The office's policy, when the caller has just read it for this upload
+   * (the upload dialog settles its plan against a fresh read). Screened with
+   * as given; absent, it is read here. Never a kept copy: a stale list is the
+   * one this gate exists to refuse.
+   */
+  screeningPolicy?: UploadScreeningPolicy
 }
 
 interface UseFileUploadReturn {
@@ -329,9 +341,16 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
        * back and took their releases; this is the gate for every path that
        * does not pass the dialog (a chat attachment, a direct pick that met
        * nothing) and the backstop for the ones that do. What it holds back is
-       * not sent at all.
+       * not sent at all. Neither is anything else while the policy cannot be
+       * read: an unknown list holds back nothing it should.
        */
-      const policy = await loadUploadScreeningPolicy()
+      let policy: UploadScreeningPolicy
+      try {
+        policy = options?.screeningPolicy ?? (await loadUploadScreeningPolicy())
+      } catch {
+        setError(t('errors.screeningPolicyUnavailable'))
+        return
+      }
       const screenedOut: Array<{ file: File; matches: NameMatch[] }> = []
       const validFiles = validationResult.validFiles.filter((file) => {
         if (options?.screeningReleased?.(file)) return true
@@ -512,7 +531,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             // The failure belongs to THIS file. The other eleven documents in
             // an Einreichung are still wanted, and the row that refused is the
             // one that has to say so.
-            const message = failureMessage(err, 'Upload failed')
+            const message = failureMessage(err, 'Upload failed', t('errors.projectClosed'))
             updateTrackedFile(tracked.id, { status: 'failed', errorMessage: message })
             throw err instanceof Error ? err : new Error(message)
           } finally {
@@ -542,7 +561,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         const firstFailure = results.find((result) => result.status === 'rejected')
         if (firstFailure && firstFailure.status === 'rejected') {
           const failedCount = results.filter((result) => result.status === 'rejected').length
-          const message = failureMessage(firstFailure.reason, 'Upload failed')
+          const message = failureMessage(firstFailure.reason, 'Upload failed', t('errors.projectClosed'))
           setError(
             failedCount > 1
               ? t('errors.someUploadsFailed', { failed: failedCount, total: entries.length, reason: message })

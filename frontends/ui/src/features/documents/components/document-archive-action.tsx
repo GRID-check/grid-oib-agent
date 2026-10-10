@@ -16,7 +16,7 @@
  * from by thinking harder.
  *
  * So the copy is „Stilllegen" / „Stillgelegt" (EN: retire / retired), and it
- * carries no archive-box icon either — that glyph is the Büroarchiv's own
+ * carries no archive-box icon either — that glyph is the Büroablage's own
  * provenance signal, and reusing it here would put the collision back in a
  * picture after taking it out of the words.
  *

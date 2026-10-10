@@ -1,5 +1,6 @@
 'use client'
 
+import { SourceDeletedNote } from '@/components/projects/source-deleted-note'
 import type { JSX } from 'react'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -54,18 +55,33 @@ type MemoryItem = Omit<ProjectMemoryItem, 'createdAt' | 'updatedAt' | 'lastRefer
   lastReferencedAt: string | null
   /** The folders a restricted note (ADR-0087) is restricted to; only ever sent to a cleared reader. */
   restrictedFolderNames?: string[]
+  /** When a folder the note came from was purged (ADR-0088): „Quelle gelöscht am …". */
+  sourceDeletedAt?: string
 }
 
-/** The tooltip on a restricted note's lock: the folders it came from, when known. */
+/**
+ * The tooltip on a restricted note's lock: the folders it came from, when
+ * known, and whether a language model helped decide that (ADR-0087; AI Act).
+ */
 function restrictionTitle(item: MemoryItem, t: Translator): string {
   const folders = item.restrictedFolderNames ?? []
-  return folders.length > 0
-    ? t('memory.restricted.title', { folders: folders.join(', ') })
-    : t('memory.restricted.titleUnknown')
+  const where =
+    folders.length > 0
+      ? t('memory.restricted.title', { folders: folders.join(', ') })
+      : t('memory.restricted.titleUnknown')
+  if (!item.restrictionJudge) return where
+  const judge = item.restrictionJudge === 'failed' ? t('memory.restricted.judgeFailed') : t('memory.restricted.judged')
+  return `${where} ${judge}`
 }
 
 interface ProjectMemoryPanelProps {
   projectId: string
+  /**
+   * A list without the controls to add, confirm, pin, edit or remove: for a
+   * reader without `project:memory:write`, whose every click would answer 404,
+   * and for a closed project, whose memory is read-only (ADR-0090).
+   */
+  readOnly?: boolean
 }
 
 const KNOWN_VERIFICATIONS = ['unverified', 'source_grounded', 'user_confirmed']
@@ -114,7 +130,10 @@ async function requestJson<T>(url: string, init?: RequestInit, t?: Translator): 
   return (await res.json()) as T
 }
 
-export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.Element {
+export function ProjectMemoryPanel({
+  projectId,
+  readOnly = false,
+}: ProjectMemoryPanelProps): JSX.Element {
   const t = useTranslations('projects')
   const { locale } = useLocale()
   const [items, setItems] = useState<MemoryItem[] | null>(null)
@@ -299,20 +318,22 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
           <h2 className="text-foreground text-sm font-semibold">{t('memory.heading')}</h2>
           <p className="text-muted-foreground mt-1 text-sm">{t('memory.description')}</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setAdding(true)}
-          className={adding ? 'pointer-events-none invisible' : undefined}
-          tabIndex={adding ? -1 : undefined}
-          aria-hidden={adding || undefined}
-        >
-          <Plus className="size-4" aria-hidden />
-          {t('memory.addMemory')}
-        </Button>
+        {!readOnly && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAdding(true)}
+            className={adding ? 'pointer-events-none invisible' : undefined}
+            tabIndex={adding ? -1 : undefined}
+            aria-hidden={adding || undefined}
+          >
+            <Plus className="size-4" aria-hidden />
+            {t('memory.addMemory')}
+          </Button>
+        )}
       </div>
 
-      {adding && (
+      {!readOnly && adding && (
         <RaisedCard className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
           <RaisedCardBody className="space-y-3 p-4">
             <div className="flex flex-wrap items-start gap-3">
@@ -502,11 +523,20 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                               data-testid="memory-restricted"
                             >
                               <FolderAccessMark
-                                roleNames={item.restrictedFolderNames ?? []}
+                                names={item.restrictedFolderNames ?? []}
                                 label={restrictionTitle(item, t)}
                               />
                               {t('memory.restricted.badge')}
+                              {item.restrictionJudge && (
+                                <span data-testid="memory-restriction-judged">
+                                  {' · '}
+                                  {t('memory.restricted.judgedBadge')}
+                                </span>
+                              )}
                             </Badge>
+                          )}
+                          {item.sourceDeletedAt && (
+                            <SourceDeletedNote at={item.sourceDeletedAt} className="mt-1" />
                           )}
                           {item.conflictsWithId && (
                             <Badge
@@ -538,7 +568,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                       )}
                     </ItemContent>
 
-                    {!isEditing && (
+                    {!isEditing && !readOnly && (
                       <ItemActions className="duration-quick pointer-coarse:opacity-100 gap-1 opacity-0 transition-opacity ease-out focus-within:opacity-100 group-hover:opacity-100 motion-reduce:opacity-100 motion-reduce:transition-none">
                         <Button
                           variant="ghost"

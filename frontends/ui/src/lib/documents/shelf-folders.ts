@@ -18,10 +18,11 @@
  * The project shelf adds per-folder access per role (ADR-0088), decided in
  * `@/lib/projects/folder-service`: it checks before calling in here and passes
  * a {@link ShelfFolderVisibility} where a walk must skip what the reader may
- * not see. Two things differ here by shelf: a project folder's delete leaves a
- * tombstone (migration 0111), because what was derived from it is judged by
- * the access it had, and a project's path rewrite reaches every collection its
- * documents live in (a restricted folder's documents are in their own).
+ * not see. A project's path rewrite reaches every collection its documents
+ * live in (a restricted folder's documents are in their own). A project folder
+ * is never deleted here: it goes to the Papierkorb with its contents
+ * (`@/lib/projects/folder-bin`, ADR-0088), so {@link deleteShelfFolder} takes
+ * the Archiv's shelf alone.
  */
 
 import { isUniqueViolation } from '@/lib/db/errors'
@@ -34,7 +35,7 @@ import { validateFolderName, buildFolderPath, folderMatchKey, pathSegments } fro
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireShelfRead, requireShelfWrite } from './shelf-authz'
 import { shelfCollectionName } from './shelf-collection'
-import { shelfDocumentWhere, shelfOwner, shelfFolderWhere, type DocumentShelf } from './shelf'
+import { shelfDocumentWhere, shelfOwner, shelfFolderWhere, type ArchivShelf, type DocumentShelf } from './shelf'
 import { escapeLikePattern } from '@/lib/text/like-pattern'
 
 /** Backend calls here are decoration on a committed write — keep them short. */
@@ -652,19 +653,19 @@ export async function updateShelfFolder(
  * root when it has none) INSIDE the transaction, before the row goes. Nothing
  * is ever left for the cascade to find.
  *
- * A PROJECT folder's row then stays as a TOMBSTONE (`deleted_at`, migration
- * 0110): its access mode, grants and parent remain, because content derived
- * from it (a conversation's record of use, restricted memory) names it by id
- * and keeps being judged by the access it had. `shelfFolderWhere` skips it, and
- * its name is free again. Nothing derived records an Archiv folder, so an
- * Archiv folder's row goes.
+ * The Archiv's delete only. Nothing derived records an Archiv folder, so its
+ * row goes. A PROJECT folder is not deleted this way: re-filing its contents
+ * into the parent would lift the folder's own access list from them, and what
+ * was derived from it must keep being judged by the access it had. It goes to
+ * the Papierkorb with its contents instead (`@/lib/projects/folder-bin`,
+ * ADR-0088), and the type of `shelf` keeps a project caller from landing here.
  *
  * The counts come back so the surface can say what happened rather than leaving
  * the reader to discover where their files went.
  */
 export async function deleteShelfFolder(
   session: AuthorizedSession,
-  shelf: DocumentShelf,
+  shelf: ArchivShelf,
   folderId: string,
 ): Promise<Outcome<{ result: DeleteFolderResult }>> {
   await requireShelfWrite(session, shelf)
@@ -699,15 +700,7 @@ export async function deleteShelfFolder(
       await rewriteDescendantPaths(tx, shelf, organizationId, child.path, childPath)
     }
 
-    if (shelf.kind === 'project') {
-      const now = new Date()
-      await tx
-        .update(projectFolders)
-        .set({ deletedAt: now, deletedBy: session.userId, updatedAt: now })
-        .where(folderOnShelf(shelf, organizationId, folder.id))
-    } else {
-      await tx.delete(projectFolders).where(folderOnShelf(shelf, organizationId, folder.id))
-    }
+    await tx.delete(projectFolders).where(folderOnShelf(shelf, organizationId, folder.id))
 
     return { documentsMoved: moved.length, foldersMoved: children.length }
   })

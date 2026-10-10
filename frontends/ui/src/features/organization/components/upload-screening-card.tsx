@@ -26,7 +26,7 @@ import {
   saveUploadScreening,
   type UploadScreeningState,
 } from '@/adapters/api/upload-screening-client'
-import { clearUploadScreeningPolicyCache } from '@/adapters/api/upload-screening-policy'
+import { forgetPendingUploadScreeningPolicyRead } from '@/adapters/api/upload-screening-policy'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -147,8 +147,9 @@ export const UploadScreeningForm: FC<{ initial: UploadScreeningState; canEdit: b
       setBaseline(saved.policy)
       setDraft(saved.policy)
       setSuggested(saved.suggested)
-      // The upload dialog on this page reads the policy through a short cache.
-      clearUploadScreeningPolicyCache()
+      // Every upload reads the policy afresh; one read already under way in
+      // this tab may have started before the save, so it is not shared on.
+      forgetPendingUploadScreeningPolicyRead()
       toast.success(t('screening.saved'))
     } catch (error) {
       toast.error(

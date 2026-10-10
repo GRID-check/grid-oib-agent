@@ -284,7 +284,7 @@ describe('CSL ids are unique per reference', () => {
         {
           id: 'c1',
           content: '[KB] Plan.pdf, p.3',
-          citationKey: 'Plan.pdf, p.3 (Büroarchiv)',
+          citationKey: 'Plan.pdf, p.3 (Büroablage)',
           fileName: 'Plan.pdf',
           collection: 'archiv_1',
           timestamp: NOW,

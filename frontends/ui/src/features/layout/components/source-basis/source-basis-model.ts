@@ -16,11 +16,11 @@
  *    `adapters/api/data-sources-client.ts`, so it can never be counted — while
  *    `use-websocket-chat.ts` unconditionally appends it to every turn's
  *    `dataSourcesForMessage`. The pill said "2" while three things went out, and
- *    the two it omitted (Projektwissen, Büroarchiv) are exactly the ones an
+ *    the two it omitted (Projektwissen, Büroablage) are exactly the ones an
  *    architect cares about.
  * 2. `computePresetSourceIds('office', …)` legitimately returns `[]` (the office
  *    archive is retrieved through the knowledge layer, not through a toggleable
- *    source), so picking the **Büroarchiv** preset made the composer report
+ *    source), so picking the **Büroablage** preset made the composer report
  *    "Datengrundlage 0" — zero sources, right after the user named one.
  *
  * Both bugs are fixed here, once: the knowledge layer is folded in as `always`
@@ -104,7 +104,7 @@ export interface SourceBasis {
  *
  * The knowledge layer is not a toggleable data source — it is appended to every
  * turn — so it is modelled as two `always` entries rather than hidden. It is
- * split into Projektwissen and Büroarchiv because those are two different
+ * split into Projektwissen and Büroablage because those are two different
  * provenance strata to the reader even though they ride one wire id.
  */
 export const buildSourceBasis = ({
@@ -191,7 +191,7 @@ export const MAX_TRIGGER_STRATA = 2
  * Summarise a basis for the trigger.
  *
  * Ordering of the checks is itself a decision: an active preset wins over
- * "everything is on", because the preset's own name ("Büroarchiv") is the more
+ * "everything is on", because the preset's own name ("Büroablage") is the more
  * precise of two true statements — and because the office preset enables no
  * external source at all, so without this branch it would fall through to
  * `internalOnly` and the reader would be told they picked nothing.

@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    The notice under the message box now shows which other projects restrict
+    a chat right now. It used to keep showing a project after it was closed,
+    and missed a closed project's restricted folder.

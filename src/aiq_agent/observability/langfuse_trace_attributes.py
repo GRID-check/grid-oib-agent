@@ -876,6 +876,23 @@ try:
             """
             try:
                 attributes = item.attributes or {}
+                from aiq_agent.observability.decision_trace import decision_usage
+                from aiq_agent.observability.decision_trace import is_decision_span
+
+                if is_decision_span(item.name):
+                    # The decision model's calls bypass LangChain; their usage
+                    # rides the observation's own output (decision_trace).
+                    decided = decision_usage(attributes)
+                    if decided is not None:
+                        for key, value in usage_observation_attributes(
+                            prompt_tokens=decided["prompt_tokens"],
+                            completion_tokens=decided["completion_tokens"],
+                            total_tokens=decided["total_tokens"],
+                            cost_usd=decided["cost_usd"],
+                            model=decided["model"],
+                        ).items():
+                            item.set_attribute(key, value)
+                    return item
                 if not is_generation_span(attributes):
                     return item
                 counts: dict[str, Any] | None = None

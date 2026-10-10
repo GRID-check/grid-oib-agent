@@ -503,7 +503,7 @@ Nothing new; each line joins two things that are built.
 | Rank memory in SQL instead of pre-slicing 200 rows; reinforce only on the query-ranked build | `memory-service.ts:105,624,746,816` |
 | One PII filter for both writers, with date shapes excluded | `reflection.py:223-238` → `knowledge/project_memory.py` |
 | Show superseded notes with their replacement and an undo; persist a refused supersede as a conflict, not a `console.warn` | `project-memory-panel.tsx:252`, `memory-service.ts:429-438` |
-| An organisation memory page; the panel gets a rail entry | `/app/organization/*`, `project-settings.tsx:189` |
+| An organisation memory page; the panel gets a rail entry | `/app/organization/*`, `settings/memory-settings.tsx` |
 | Lift files filter and sort into the URL; one filter grammar for the three document shelves | `project-file-workspace.tsx:251-345`, `archiv-library-pane.tsx:231-260` |
 
 **Verification pass B.** A scheduled chat job's answer cites a memory note the

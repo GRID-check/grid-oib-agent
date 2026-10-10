@@ -359,6 +359,96 @@ task be:eval:answer-suite -- --out /tmp/suite/before         # on the base branc
 task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before/results.json
 ```
 
+**The precedent set** (`-- --set precedent`) asks whether the agent uses the
+office's other projects well (docs/roadmap/office-experience.md, step A). Each
+turn is asked in the current project of a fixture office
+(`frontends/ui/tests/fixtures/precedent/office.json`: a timber GK 4 house in
+Niederösterreich, and 24 other projects (23 closed) across all nine Länder with 74 documents:
+Bescheide, Nachforderungen, details, and many passages that answer none of
+the questions, so a search that ranks badly is told apart from a good one). The suite mints a signed envelope per run, and `fixture_bff.py`
+serves the routes such a turn reads: the turn context, with the reference
+catalog, and the three cross-project lookups. It drops every other connection,
+as the norm set's runs see no BFF at all. The catalog, the project context
+and the briefs are written by the production renderers
+(`reference-brief.fixture.spec.ts`, regenerated with `UPDATE_FIXTURES=1`), so
+the eval cannot drift from what production sends. The questions are in
+`tests/fixtures/precedent/precedent_questions.yaml`, in five groups:
+
+- **explicit:** asked about past projects;
+- **implicit:** a decision a past project made, not asked as such;
+- **norm:** must not look;
+- **none:** must say so and invent nothing;
+- **drift:** must name the older edition.
+
+The checks are `looked_up`, `no_lookup`, `cites`, `not_cites`,
+`real_projects`, `says_none` and `caveat`. `cites` counts only a name the
+question does not already hold: before 8 Oct 2026, 10 of 23 cite groups were
+met by an answer that repeated the question. `real_projects` holds every
+project an answer's source lines name to the scenario's office, which is how
+an invented project is caught (one named only in prose is not). `looked_up` counts what the fixture BFF served to the run's
+conversation, so a lookup the turn decision prefetched as round 0 counts,
+although no model call shows it. The report adds each kind of check over every run. Run it before
+and after any change to the lookup, the catalog, the similarity or the prompt
+around them.
+
+**The decision model's part of it** (`task be:eval:decisions:office`) needs
+no corpus: `scripts/decision_eval_office.py` asks Jev the production
+questions over the same fixture office — whether a turn should look
+(`precedent`), which catalog projects fit a question (`fit`), whether another
+project's passage shows a solution or instructs an AI (`hits`), and whether a
+fingerprint quote states its value (`verify`) — and prints each sweep beside
+the threshold the code ships. Run it before and after changing a question's
+wording or a threshold; the last run is
+`tests/fixtures/decisions/office_eval_2026-10-10.json`.
+
+**Against overfitting.** A question may name a `scenario`: the office the run
+sits in (`office.json` → `scenarios`, each rendered by the production code
+like the default). `wien-bestand` puts the chat in a Vienna office building
+conversion, another Land, use and kind of work than the default house;
+`leeres-buero` is an office with no other project. A third of the questions
+are `holdout: true`: written before any of them ran, never used to tune a
+prompt, a check or the fixture. The report scores tuned, held-out and each
+scenario apart; a held-out score well below the tuned one is overfitting, and
+the fix is never to tune on the held-out questions.
+
+**Meanings are judged, not matched.** `says_none` and `caveat` go to a model
+judge (`scripts/turn_census/judge.py`, `SUITE_JUDGE_MODEL`) with one yes/no
+question about what the answer means; without a key, or when it cannot
+answer, the check FAILS and the report counts it under „judge could not
+answer". Leaving it out shrank the denominator without a word: a `says_none`
+9/9 once hid a tenth run. Phrase lists were tried first
+and read the eval's own answers wrong both ways: on 65 answers that cited a
+precedent they called 11 a „nothing found", because a precedent's own caveat
+(„keine Vorgabe für Ihr Projekt") reads like one, and every phrase added for a
+miss made the next false pass likelier. Validated on 77 captured answers (7
+Oct 2026): `says_none` recall 10/10, with two disagreements that were the
+label's error; `caveat` no false pass in 12 norm answers, recall 9/12, the
+misses borderline. Do not tune the rubric to answers; re-validate it on new
+captures instead.
+
+**The fixture's search ranks as production does.** `fixture_bff.py` embeds
+with the deployment's own model (`make_embed_model`, as the note-embeddings
+route) and fuses it by reciprocal rank with a token channel that weighs words by
+how rare they are in the office (as production's full-text channel does),
+then hands over
+each searched project's nearest passages and the most relevant decisions with
+no relevance floor, exactly as the BFF does. On a question nothing answers the
+agent gets the nearest irrelevant passages and must judge them, as it must in
+production. Without an embedding key it ranks by tokens alone, a kinder search
+than production's, and the report's header says `fixture search: tokens only`.
+An earlier word-overlap matcher with a cut-off made „nothing comparable"
+questions easy and missed German compounds; tuning it only moved the misses.
+Passages from all searched projects are merged by score, as the BFF merges
+them; the fused rank decides only which passages each project hands over, and
+no fixture project holds more passages than that cut, so for passages the
+fused order changes nothing (it does order decisions and permits). A
+question's `evidence` names the passages that answer it, and
+`tests/test_precedent_eval.py` holds the token channel's scores to them
+offline: the evidence ranks in the top ten for every such question, and
+inverted scores lose it, so a scoring regression fails there rather than as an
+agent miss. A regression in the fused order alone shows only in the decisions
+and permits tests.
+
 **From a down-vote to a case.** Every down-voted answer can become a case, so a
 failure users reported cannot return unnoticed. In Plattform → Antwortqualität →
 Bewertungen, choose **Exportieren → Als CSV (für Skripte)** (or fetch

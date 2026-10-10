@@ -18,6 +18,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping
 from collections.abc import Sequence
 from contextvars import ContextVar
 from contextvars import Token
@@ -27,6 +28,17 @@ from dataclasses import field
 from aiq_agent.knowledge.restricted_use import current_restricted_use
 
 logger = logging.getLogger(__name__)
+
+
+class CrossProjectMemoryRefusedError(RuntimeError):
+    """The frontend refused a write from a conversation that drew on another project (ADR-0094).
+
+    Raised when ``POST /api/internal/memory`` answers 409 ``CROSS_PROJECT_MEMORY``.
+    Nothing is remembered from such a conversation, at any scope and by any
+    path: a caller must not offer the reader a way around it (a
+    ``memory_proposal`` card would write the same finding through the reader's
+    own session).
+    """
 
 
 class OrgMemoryDisabledError(RuntimeError):
@@ -242,6 +254,11 @@ def fetch_memory_digest(
         params["restrictedCollections"] = ",".join(dict.fromkeys(restricted))
     if user_id and user_id.strip():
         params["userId"] = user_id.strip()[:128]
+    use = current_restricted_use()
+    if restricted and use is not None and use.answer_message_id:
+        # The answer this turn writes: marked when a restricted note is
+        # admitted, in the same transaction (ADR-0093).
+        params["answerMessageId"] = use.answer_message_id
     query_string = urllib.parse.urlencode(params)
 
     request = urllib.request.Request(
@@ -311,6 +328,7 @@ def insert_memory_item(
     supersedes_content: str | None = None,
     salience: float | None = None,
     restricted_collections: Sequence[str] | None = None,
+    restriction_judge: Mapping[str, object] | None = None,
 ) -> str | None:
     """Record one memory item via the internal BFF endpoint.
 
@@ -331,6 +349,10 @@ def insert_memory_item(
     :mod:`aiq_agent.memory.restriction` decided. Project scope only — the BFF
     refuses a restricted organization write, and refuses (400) a collection that
     is not a current restricted collection of the project.
+
+    ``restriction_judge`` is the memory judge's verdict on this item, when it
+    was asked (``JudgeVerdict.as_payload``): the BFF records it in the audit
+    trail with the item it was about. Collections only, never text.
 
     Returns the new item id, or None when the target (project/org) is unknown.
     Raises RuntimeError on configuration problems and urllib errors on
@@ -377,6 +399,8 @@ def insert_memory_item(
         payload["salience"] = max(0.0, min(1.0, float(salience)))
     if restricted_collections:
         payload["restrictedCollections"] = sorted(set(restricted_collections))
+    if restriction_judge:
+        payload["restrictionJudge"] = dict(restriction_judge)
 
     request = urllib.request.Request(
         f"{_internal_base_url()}/api/internal/memory",
@@ -424,6 +448,9 @@ def insert_memory_item(
                 "Internal memory endpoint rejected the service token (403) — GRID_INTERNAL_API_TOKEN "
                 "mismatch between the aiq-agent and frontend services (the same value must be set on both)."
             )
+        elif exc.code == 409 and _error_code(exc) == "CROSS_PROJECT_MEMORY":
+            logger.info("Internal memory endpoint declined a write from a conversation that drew on another project")
+            raise CrossProjectMemoryRefusedError("the conversation drew on another project") from exc
         elif exc.code == 503:
             logger.error(
                 "Internal memory endpoint disabled (503) — GRID_INTERNAL_API_TOKEN "

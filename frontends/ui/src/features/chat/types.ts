@@ -397,6 +397,20 @@ export interface ChatMessage {
    */
   stopped?: true
   /**
+   * The answer drew on a folder that was permanently deleted since (ADR-0088):
+   * when its purge ran, for the „Quelle gelöscht am …" note. Set by the purge
+   * (`metadata.sourceDeleted`); who may still read the answer is decided by
+   * the organization's setting, on the server.
+   */
+  sourceDeletedAt?: string
+  /**
+   * The answer was removed with its source folder (ADR-0088, „Mit dem Ordner
+   * entfernen“): its text is the stored replacement, every source and card is
+   * gone, and the chat shows the removal note in the reader's language
+   * (`metadata.sourceRemoved`).
+   */
+  erasedAt?: string
+  /**
    * The turn failed (`RUN_ERROR`) after this much of the answer was written.
    * Kept on screen, dimmed, above the error card, so the words the reader was
    * on are not deleted under them. Local only: nothing persisted it, so a
@@ -466,6 +480,18 @@ export interface PendingInteraction {
 }
 
 /** Citation source from research (deep SSE or shallow WS ``sources``). */
+/** The other project a cross-project lookup found a passage in (ADR-0094). */
+export interface CitationProject {
+  id: string
+  name: string
+  status: 'active' | 'closed'
+  /**
+   * The project's Bundesland as the agent states it, warning included when the
+   * Land is not the chat's (ADR-0094). Absent on messages from before it was sent.
+   */
+  landNote?: string | null
+}
+
 export interface CitationSource {
   id: string
   /**
@@ -558,6 +584,12 @@ export interface CitationSource {
    * passage is the model's description of the drawing, not words on the page.
    */
   regions?: PageRegion[]
+  /**
+   * The OTHER project a cross-project lookup found this passage in (ADR-0094).
+   * The chip names it and the preview opens the document there. Absent for
+   * every source of the chat's own scope.
+   */
+  project?: CitationProject
 }
 
 /** Wire shape of a structured source attached to a shallow ChatResponse. */
@@ -600,6 +632,8 @@ export interface WireCitationSource {
   binding_status?: string | null
   /** Boxes on the page, `[{box: [x0, y0, x1, y1], label}]` normalised 0-1 (issue #433). */
   regions?: unknown
+  /** `{id, name, status}` of the other project (ADR-0094); validated by `projectFromWire`. */
+  project?: unknown
 }
 
 /**

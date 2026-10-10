@@ -45,7 +45,9 @@ from aiq_agent.knowledge.inventory import get_turn_documents
 from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import set_turn_documents
+from aiq_agent.knowledge.restricted_use import CrossProjectTurn
 from aiq_agent.knowledge.restricted_use import begin_restricted_use
+from aiq_agent.knowledge.restricted_use import bind_cross_project_turn
 from aiq_agent.knowledge.restricted_use import bind_restricted_use
 from aiq_agent.knowledge.restricted_use import without_restricted
 from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
@@ -84,6 +86,7 @@ from aiq_agent.turn.response import answer_message_id
 from aiq_agent.turn.response import build_result
 from aiq_agent.turn.response import finished
 from aiq_agent.turn.response import post_answer_turn_facts
+from aiq_agent.turn.response import turn_answer_message_id
 from aiq_agent.turn.streaming import TurnTextFold
 from aiq_agent.turn.streaming import fold_turn
 from aiq_agent.turn.streaming import note_settled_replaced
@@ -259,6 +262,7 @@ def _turn_state(
         project_context=context.project_context,
         platform_lessons=context.platform_lessons,
         org_instructions=context.org_instructions,
+        reference_projects=context.reference_projects,
         deep_research_allowed=context.deep_research_allowed,
         tasks_allowed=context.tasks_allowed,
         confined=context.confined,
@@ -489,7 +493,14 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         # before anything reads the scope (ADR-0087, ADR-0088). Bound on every
         # turn, None included, so one turn never runs on the last one's answer;
         # the scope read below and every read path after it keep only these.
-        bind_restricted_use(await begin_restricted_use(request, conversation_id))
+        bind_restricted_use(
+            await begin_restricted_use(
+                request, conversation_id, answer_message_id=turn_answer_message_id(conversation_id)
+            )
+        )
+        # What the conversation drew on from OTHER projects (ADR-0094): a fresh
+        # object every turn, filled from the turn context and by the lookups.
+        bind_cross_project_turn(CrossProjectTurn())
         header_scope = get_scoped_collections_from_context()
         # Say what is happening in the FIRST hole of the turn — only when one
         # of the reader's OWN shelves is in scope; the base corpus is a constant.

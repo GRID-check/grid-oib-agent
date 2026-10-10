@@ -43,6 +43,9 @@ vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
   lockedConversationIds: vi.fn(async () => new Set<string>()),
 }))
 
+// Which other projects restrict the chat is `cross-project-use.spec.ts`'s subject (ADR-0094).
+vi.mock('@/lib/conversations/cross-project-use', () => ({ restrictingOtherProjects: vi.fn(async () => []) }))
+
 vi.mock('@/lib/conversations/repository', () => ({
   deleteConversationInOrg: vi.fn(),
   findConversationInOrg: vi.fn(),

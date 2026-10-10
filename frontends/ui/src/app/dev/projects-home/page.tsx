@@ -38,6 +38,11 @@ function makeProject(id: string, name: string, summary: string | null, createdMi
     profilePromptView: null,
     profileDisplay: summary ? { title: name, summary, keyFacts: [], missingInfo: [] } : null,
     profileUpdatedAt: summary ? minutesAgo(createdMinutesAgo) : null,
+    status: 'active',
+    closedAt: null,
+    closedBy: null,
+    startedOn: null,
+    endedOn: null,
     deletedAt: null,
     createdAt: minutesAgo(createdMinutesAgo),
   }

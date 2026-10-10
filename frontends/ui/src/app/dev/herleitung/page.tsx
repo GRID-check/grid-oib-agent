@@ -73,7 +73,7 @@ const step: StoredThinkingStep = {
     },
     {
       key: 'buero',
-      label: 'Büroarchiv',
+      label: 'Büroablage',
       hitCount: 1,
       signal: 'office',
       sources: [{ name: 'Brandschutzkonzept_2023.pdf', detail: 'Referenzprojekt' }],
@@ -181,7 +181,7 @@ const denseStep: StoredThinkingStep = {
     },
     {
       key: 'buero',
-      label: 'Büroarchiv',
+      label: 'Büroablage',
       hitCount: 1,
       signal: 'office',
       sources: [{ name: 'Brandschutzkonzept_2023.pdf', detail: 'Referenzprojekt' }],
@@ -245,7 +245,7 @@ const mergedHits = (
               ? 'OIB-Richtlinie'
               : signal === 'project'
                 ? 'Projektwissen'
-                : 'Büroarchiv',
+                : 'Büroablage',
           hitCount: laneHits.length,
           signal,
           sources: laneHits.map((hit) => ({ name: hit.name, detail: hit.detail, round })),
@@ -277,7 +277,7 @@ const SPINE_ROUNDS = [
   {
     query: 'Referenzprojekt Sicherheitstreppenhaus RWA',
     reason:
-      'Der Plan zeigt eine RWA im Treppenraum; wie das Büro das zuletzt nachgewiesen hat, steht im Archiv.',
+      'Der Plan zeigt eine RWA im Treppenraum; wie das Büro das zuletzt nachgewiesen hat, steht in der Büroablage.',
     hits: [
       { name: 'Brandschutzkonzept_2023.pdf', detail: 'Referenzprojekt', lane: 'office' as const },
     ],

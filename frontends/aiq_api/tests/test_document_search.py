@@ -178,6 +178,20 @@ async def test_search_snippet_truncated_to_300_chars(app):
 
 
 @pytest.mark.asyncio
+async def test_search_snippet_length_is_the_requests_within_bounds(app):
+    """The cross-project lookups ask for a longer passage; the bound still holds (ADR-0094)."""
+    set_active_retriever(_make_retriever([_chunk("big.pdf", 0.8, "B" * 2000)]))
+
+    async with _client(app) as client:
+        longer = await client.post("/v1/collections/proj_a/search", json={"query": "q", "snippet_max_chars": 900})
+        too_long = await client.post("/v1/collections/proj_a/search", json={"query": "q", "snippet_max_chars": 5000})
+
+    assert longer.status_code == 200
+    assert longer.json()["hits"][0]["snippet"] == "B" * 900 + "…"
+    assert too_long.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_search_respects_top_k_files(app):
     set_active_retriever(_make_retriever([_chunk(f"doc{i}.pdf", 0.9 - i * 0.01) for i in range(10)]))
 

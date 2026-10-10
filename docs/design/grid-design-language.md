@@ -83,7 +83,7 @@ hidden under `contrast-more:` and `forced-colors:`.
 | `--source-law(-tint/-text)` | blue #2359d3 | Rechtsquellen (RIS, BO Wien, Behörde) | "§" |
 | `--source-oib(-tint/-text)` | indigo | **Accent inside law** — OIB-Richtlinien & Erläuterungen | "§" (same as law) |
 | `--source-project(-tint/-text)` | green #17914d | Projektwissen (project documents) | doc |
-| `--source-office(-tint/-text)` | gold #c08c28 | Büroarchiv (office archive) | archive box |
+| `--source-office(-tint/-text)` | gold #c08c28 | Büroablage (Office filing) | archive box |
 | `--source-auto(-tint/-text)` | gray #83837f | Automatisch / **Lücke** (knowledge gap) | globe / gap |
 | `--status-active(-tint)` | = project green | status "Aktiv" | dot |
 | `--status-done(-tint)` | warm gray | status "Abgeschlossen" | dot |

@@ -4,9 +4,9 @@ import { SUGGESTED_SCREENING_POLICY, type UploadScreeningPolicy } from '@/lib/up
 import { UploadScreeningCard } from './upload-screening-card'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
-vi.mock('@/adapters/api/upload-screening-policy', () => ({ clearUploadScreeningPolicyCache: vi.fn() }))
+vi.mock('@/adapters/api/upload-screening-policy', () => ({ forgetPendingUploadScreeningPolicyRead: vi.fn() }))
 import { toast } from 'sonner'
-import { clearUploadScreeningPolicyCache } from '@/adapters/api/upload-screening-policy'
+import { forgetPendingUploadScreeningPolicyRead } from '@/adapters/api/upload-screening-policy'
 
 const OWN: UploadScreeningPolicy = {
   enabled: true,
@@ -70,7 +70,7 @@ describe('UploadScreeningCard', () => {
       contentTerms: ['Lohnzettel'],
       detectors: ['iban', 'at_svnr', 'credit_card'],
     })
-    expect(clearUploadScreeningPolicyCache).toHaveBeenCalled()
+    expect(forgetPendingUploadScreeningPolicyRead).toHaveBeenCalled()
     expect(screen.getByTestId('upload-screening-save')).toBeDisabled()
   })
 
@@ -100,7 +100,7 @@ describe('UploadScreeningCard', () => {
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/Manage organization settings/))
     )
-    expect(clearUploadScreeningPolicyCache).not.toHaveBeenCalled()
+    expect(forgetPendingUploadScreeningPolicyRead).not.toHaveBeenCalled()
   })
 
   it('is read-only without org:settings:manage: chips, no typing, no buttons, disabled controls', async () => {
