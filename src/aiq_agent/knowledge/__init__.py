@@ -36,9 +36,11 @@ from .factory import get_document_doc_class
 from .factory import get_document_doc_classes
 from .factory import get_document_folder_paths
 from .factory import get_document_person_tags
+from .factory import get_document_person_topics
 from .factory import get_document_provenance
 from .factory import get_ingestor
 from .factory import get_retriever
+from .factory import get_topic_vocabulary
 from .factory import list_summary_collections
 from .factory import register_ingestor
 from .factory import register_retriever
@@ -46,12 +48,14 @@ from .factory import register_summary
 from .factory import rewrite_document_folder_paths
 from .factory import set_active_ingestor
 from .factory import set_active_retriever
+from .factory import set_document_capture
 from .factory import set_document_display_title
 from .factory import set_document_doc_class
 from .factory import set_document_doc_class_suggestion
 from .factory import set_document_folder_path
 from .factory import set_document_provenance
 from .factory import set_document_tags_by_person
+from .factory import set_document_topics_by_person
 from .factory import unregister_summary
 from .factory import update_document_tags
 from .inventory import allocate_inventory
@@ -100,6 +104,10 @@ __all__ = [
     "update_document_tags",
     "set_document_tags_by_person",
     "get_document_person_tags",
+    "set_document_topics_by_person",
+    "get_document_person_topics",
+    "get_topic_vocabulary",
+    "set_document_capture",
     "set_document_doc_class",
     "set_document_doc_class_suggestion",
     "get_document_doc_class",

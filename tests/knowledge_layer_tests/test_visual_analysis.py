@@ -233,6 +233,29 @@ class TestJsonSchema:
         assert "never merge them" in prompt
 
 
+class TestPromptContext:
+    """The file's own facts (a photo's capture time) reach the prompt only when given."""
+
+    def test_the_context_is_in_the_prompt_when_given(self, registry):
+        prompt = va.build_prompt(registry, context="Aufgenommen am 14.09.2026 um 10:32 Uhr.")
+        assert "Aufgenommen am 14.09.2026 um 10:32 Uhr." in prompt
+
+    def test_the_context_is_absent_when_none(self, registry):
+        assert "SENTINEL-CONTEXT" not in va.build_prompt(registry, context=None)
+
+    def test_no_context_is_the_same_prompt_as_no_argument(self, registry):
+        assert va.build_prompt(registry, context=None) == va.build_prompt(registry)
+
+    def test_an_empty_context_adds_nothing(self, registry):
+        assert va.build_prompt(registry, context="") == va.build_prompt(registry)
+
+    def test_a_given_context_only_adds_to_the_prompt(self, registry):
+        base = va.build_prompt(registry)
+        prompt = va.build_prompt(registry, context="SENTINEL-CONTEXT")
+        assert prompt.startswith(base)
+        assert "SENTINEL-CONTEXT" in prompt[len(base) :]
+
+
 class TestParsing:
     def test_parses_a_mixed_sheet_into_per_domain_segments(self, registry):
         analysis = va.parse_visual_analysis(_MIXED_SHEET, registry)

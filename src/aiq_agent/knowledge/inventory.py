@@ -18,6 +18,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from collections.abc import Sequence
 from contextvars import ContextVar
+from datetime import datetime
 from typing import Any
 
 from aiq_agent.common.source_kinds import SHELF_QUALIFIERS
@@ -222,11 +223,35 @@ def _folder_of(doc: Any) -> str:
     return str(raw or "").strip()
 
 
-def _tags_of(doc: Any) -> list[str]:
-    raw = doc.get("tags") if isinstance(doc, dict) else getattr(doc, "tags", None)
+def _list_of(doc: Any, name: str) -> list[str]:
+    raw = doc.get(name) if isinstance(doc, dict) else getattr(doc, name, None)
     if not raw:
         return []
-    return [str(tag) for tag in raw if tag]
+    return [str(term) for term in raw if term]
+
+
+def _tags_of(doc: Any) -> list[str]:
+    return _list_of(doc, "tags")
+
+
+def _topics_of(doc: Any) -> list[str]:
+    return _list_of(doc, "topics")
+
+
+def _captured_on_of(doc: Any) -> str | None:
+    """The ``YYYY-MM-DD`` a camera gave the photo, or ``None``.
+
+    Reads ``captured_at`` and nothing else of ``capture``. The coordinates are
+    never read here: this line is rendered into the prompt, and a site's
+    position is not something a model is given (see ``PhotoFacts``).
+    """
+    capture = doc.get("capture") if isinstance(doc, dict) else getattr(doc, "capture", None)
+    if not isinstance(capture, dict) or not isinstance(capture.get("captured_at"), str):
+        return None
+    try:
+        return datetime.fromisoformat(capture["captured_at"]).date().isoformat()
+    except ValueError:
+        return None
 
 
 def document_identity(doc: Any) -> tuple[str, str]:
@@ -642,10 +667,14 @@ def render_inventory_block(
             for doc in rows:
                 tags = _tags_of(doc)
                 tag_bit = f" [{', '.join(tags)}]" if tags else ""
+                topics = _topics_of(doc)
+                topic_bit = f" Themen: {', '.join(topics)}" if topics else ""
+                captured = _captured_on_of(doc)
+                captured_bit = f" · aufgenommen {captured}" if captured else ""
                 folder = _folder_of(doc)
                 folder_bit = f" (Ordner: {folder})" if folder else ""
                 summary = _summary_of(doc) or "No summary available"
-                lines.append(f"- **{_file_name_of(doc)}**{folder_bit}{tag_bit}: {summary}")
+                lines.append(f"- **{_file_name_of(doc)}**{folder_bit}{tag_bit}{topic_bit}{captured_bit}: {summary}")
         # Never a silent cap. Without this line the model reads a truncated
         # shelf as the whole shelf, and the listing instruction above ("answer
         # ONLY from that shelf's group") turns that into a confident wrong

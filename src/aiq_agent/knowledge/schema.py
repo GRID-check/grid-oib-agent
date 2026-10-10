@@ -224,6 +224,21 @@ class FileInfo(BaseModel):
             "(e.g. 'Brandschutz/Fluchtwege'). None means the project root."
         ),
     )
+    topics: list[str] | None = Field(
+        None,
+        description=(
+            "Open topics (Themen) Piloti recognised in the document, or set by a person; "
+            "free terms such as 'Attika', beside the controlled tags."
+        ),
+    )
+    capture: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "What the camera wrote into a photo: captured_at (ISO 8601), latitude, longitude, camera; "
+            "present keys only. Coordinates are for the BFF and the people who may open the file, "
+            "never for a model."
+        ),
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="File-specific metadata (e.g., page count, content types).",
@@ -338,6 +353,13 @@ class AvailableDocument(BaseModel):
             project root (or a shelf that has no folders at all). It is a PATH,
             not an id: it reads as itself, and a prefix match gives the folder's
             whole subtree.
+        topics: Optional open topics (Themen): the model's own confident terms,
+            or a person's correction. Free text beside the controlled tags.
+        capture: Optional facts a camera wrote into a photo: ``captured_at``
+            (ISO 8601), ``latitude``, ``longitude``, ``camera``, present keys
+            only. Coordinates ride along for the BFF, which shows them to the
+            people who may open the file; they are never rendered to a model.
+            Only ``captured_at`` (as a date) and ``camera`` may reach a prompt.
         added_at: Optional ``YYYY-MM-DD`` the document was first indexed under
             this name (the row's ``created_at``; a re-ingest keeps it). A
             string, not a datetime, because the row rides the checkpointed turn
@@ -353,6 +375,8 @@ class AvailableDocument(BaseModel):
     doc_class: str | None = None
     display_title: str | None = None
     folder_path: str | None = None
+    topics: list[str] | None = None
+    capture: dict[str, Any] | None = None
     added_at: str | None = None
     collection: str | None = None
     shelf: str | None = None

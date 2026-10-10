@@ -26,6 +26,7 @@ from aiq_agent.common.db_utils import redact_db_url
 
 from .base import BaseIngestor
 from .base import BaseRetriever
+from .document_classification import MAX_TOPIC_VOCABULARY
 from .schema import FileStatus
 
 if TYPE_CHECKING:
@@ -510,15 +511,17 @@ def register_summary(
     filename: str,
     summary: str | None,
     tags: list[str] | None = None,
+    topics: list[str] | None = None,
 ) -> None:
-    """Store a summary (and optional controlled tags) in the database.
+    """Store a summary, its controlled tags and its open topics in the database.
 
     The ``summary`` column is NOT NULL, so a file with no summary is skipped
-    entirely — tags ride along with the summary in a single upsert per file.
+    entirely — tags and topics ride along with the summary in a single upsert
+    per file.
     """
     if not summary:
         return
-    _get_document_metadata_store().register(collection, filename, summary, tags)
+    _get_document_metadata_store().register(collection, filename, summary, tags, topics)
 
 
 def update_document_tags(collection: str, filename: str, tags: list[str] | None) -> bool:
@@ -547,6 +550,36 @@ def set_document_tags_by_person(collection: str, filename: str, tags: list[str] 
 def get_document_person_tags(collection: str, filenames: list[str]) -> dict[str, list[str]]:
     """The tags a person chose, for those of ``filenames`` that have them (``[]`` = chose none)."""
     return _get_document_metadata_store().get_person_tags_batch(collection, filenames)
+
+
+def set_document_topics_by_person(collection: str, filename: str, topics: list[str] | None) -> bool:
+    """Store the topics a PERSON chose for a document, so no re-ingest replaces them.
+
+    The topic twin of :func:`set_document_tags_by_person`: validated by the
+    caller (:func:`normalize_topic`), never touches the summary, ``False`` when
+    no summary row exists (callers 404). Marks the row as a person's, which
+    freezes its tags as well as its topics.
+    """
+    return _get_document_metadata_store().set_topics_by_person(collection, filename, topics)
+
+
+def get_document_person_topics(collection: str, filenames: list[str]) -> dict[str, list[str]]:
+    """The topics a person chose, for those of ``filenames`` that have them (``[]`` = chose none)."""
+    return _get_document_metadata_store().get_person_topics_batch(collection, filenames)
+
+
+def get_topic_vocabulary(collection: str, limit: int = MAX_TOPIC_VOCABULARY) -> list[str]:
+    """The topics a collection already uses, most frequent first: what ingestion offers the model to reuse."""
+    return _get_document_metadata_store().get_topic_vocabulary(collection, limit)
+
+
+def set_document_capture(collection: str, filename: str, capture: dict[str, Any] | None) -> bool:
+    """Set the camera facts of a photo on an existing metadata row (UPDATE-only, like :func:`set_document_provenance`).
+
+    ``latitude``/``longitude`` are stored for the BFF and must never be printed
+    into anything a model reads; the readers take only ``captured_at`` and ``camera``.
+    """
+    return _get_document_metadata_store().set_capture(collection, filename, capture or None)
 
 
 def set_document_doc_class(collection: str, filename: str, doc_class: str | None) -> bool:

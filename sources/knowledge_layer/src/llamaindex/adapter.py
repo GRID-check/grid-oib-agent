@@ -749,6 +749,10 @@ EMBED_EXCLUDED_METADATA_KEYS = (
     "stored_image_index",
     "drawing_type",
     "drawing_scale",
+    # A photo's camera facts (photo_facts.py): metadata to filter and show by,
+    # not words of what the photo depicts.
+    "captured_at",
+    "camera",
     # The v2 structured payload: multi-KB JSON for the detail view / later
     # re-mapping, plus per-sheet segment bookkeeping. Embedding any of it
     # would double the segment text's weight (drawing_data restates the chunk
@@ -1721,8 +1725,14 @@ def analyze_visual(
     vlm_base_url: str = DEFAULT_VLM_BASE_URL,
     vlm_api_key: str | None = None,
     extract_charts: bool = True,
+    context: str | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     """Analyse ONE visual — the single entry point for every image source.
+
+    ``context`` is a sentence the model is told about the image that the pixels
+    do not show (a photo's capture date, read from its EXIF). It is part of the
+    cache key: the cache is keyed on pixels, and the same pixels taken on two
+    days are two captions.
 
     A rendered PDF page, a raster embedded in a PDF and an uploaded image file
     all arrive here. They used to be analysed by two different prompts: pages
@@ -1748,15 +1758,17 @@ def analyze_visual(
     from knowledge_layer.llamaindex import visual_analysis
     from knowledge_layer.llamaindex import visual_domains
 
+    context_key = f":ctx={hashlib.sha256(context.encode('utf-8')).hexdigest()[:16]}" if context else ""
     caption, fields = _processing._cached_vlm_call(
         image_bytes,
-        visual_analysis.cache_prompt_type(visual_domains.resolve_registry()),
+        visual_analysis.cache_prompt_type(visual_domains.resolve_registry()) + context_key,
         _analyze_drawing_page_with_vlm,
         image_bytes,
         vlm_model=vlm_model,
         vlm_base_url=vlm_base_url,
         vlm_api_key=vlm_api_key,
         model=vlm_model,
+        **({"context": context} if context else {}),
     )
     fields = fields if isinstance(fields, dict) else {}
 
@@ -1866,8 +1878,13 @@ def _build_image_documents(
     vlm_base_url: str = DEFAULT_VLM_BASE_URL,
     extract_charts: bool = True,
     vlm_api_key: str | None = None,
+    photo: Any = None,
 ) -> list[Any] | None:
     """Standalone uploaded image → Documents, through the shared analyser.
+
+    ``photo`` is the image's :class:`~knowledge_layer.llamaindex.photo_facts.PhotoFacts`,
+    read from the ORIGINAL bytes before the re-encode drops EXIF. Its capture
+    date reaches the model and the chunks; its position reaches neither.
 
     Thin by design: decode, then the same :func:`analyze_visual` +
     :func:`visual_documents` every other source uses. Returns ``None`` when the
@@ -1888,10 +1905,17 @@ def _build_image_documents(
         vlm_base_url=vlm_base_url,
         vlm_api_key=vlm_api_key,
         extract_charts=extract_charts,
+        context=photo.model_context() if photo is not None else None,
     )
     if _processing.is_failed_caption(caption):
         logger.error("VLM analysis failed for standalone image %s: %s", file_name, caption[:120])
         return None
+
+    captured = {}
+    if photo is not None and photo.captured_at:
+        captured["captured_at"] = photo.captured_at
+    if photo is not None and photo.camera:
+        captured["camera"] = photo.camera
 
     return visual_documents(
         content_type,
@@ -1905,6 +1929,7 @@ def _build_image_documents(
             "image_format": image_format,
             "image_width": width,
             "image_height": height,
+            **captured,
         },
     )
 
@@ -2295,6 +2320,7 @@ def _analyze_drawing_page_with_vlm(
     vlm_model: str = DEFAULT_VLM_MODEL,
     vlm_base_url: str = DEFAULT_VLM_BASE_URL,
     vlm_api_key: str | None = None,
+    context: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """VLM-analyse a full rendered PDF page as a technical drawing (schema v2).
 
@@ -2336,7 +2362,7 @@ def _analyze_drawing_page_with_vlm(
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": visual_analysis.build_prompt(registry)},
+                        {"type": "text", "text": visual_analysis.build_prompt(registry, context=context)},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
                     ],
                 }
@@ -2499,16 +2525,22 @@ def _read_human_set_fields(collection_name: str, found: dict[str, _PreviousVersi
         from aiq_agent.knowledge import get_document_doc_classes
         from aiq_agent.knowledge import get_document_folder_paths
         from aiq_agent.knowledge import get_document_person_tags
+        from aiq_agent.knowledge import get_document_person_topics
 
         stored_names = [stored for version in found.values() for stored in version.stored_names]
         person_tags = {
             stored: json.dumps(tags) for stored, tags in get_document_person_tags(collection_name, stored_names).items()
+        }
+        person_topics = {
+            stored: json.dumps(topics)
+            for stored, topics in get_document_person_topics(collection_name, stored_names).items()
         }
         for name, values in (
             ("doc_class", get_document_doc_classes(collection_name, stored_names)),
             ("display_title", get_document_display_titles(collection_name, stored_names)),
             ("folder_path", get_document_folder_paths(collection_name, stored_names)),
             ("tags", person_tags),
+            ("topics", person_topics),
         ):
             for stored, value in values.items():
                 version = found.get(_normalized_file_name(stored))
@@ -4704,6 +4736,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             logger.warning("Image ingestion skipped (VLM not configured): %s", file_name)
                             continue
 
+                        # From the ORIGINAL bytes: the re-encode below drops EXIF.
+                        from knowledge_layer.llamaindex.photo_facts import read_photo_facts
+
+                        photo = read_photo_facts(file_path)
                         image_docs = _build_image_documents(
                             file_path,
                             file_name,
@@ -4713,6 +4749,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             vlm_base_url=vlm_base_url,
                             vlm_api_key=vlm_api_key,
                             extract_charts=extract_charts,
+                            photo=photo,
                         )
                         if image_docs is None:
                             self._update_file_status(
@@ -4796,7 +4833,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # summary. Rendered visual/vector pages accumulate here.
                     summary_future = None
                     tags_future = None
+                    topics_future = None
                     doc_class_future = None
+                    photo = None
                     executor = None
                     drawing_pages: list[dict[str, Any]] = []
 
@@ -4963,7 +5002,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             llm_input = drawing_source or text_source
                         else:
                             llm_input = text_source
-                        executor = ThreadPoolExecutor(max_workers=3)
+                        executor = ThreadPoolExecutor(max_workers=4)
                         # In the job's context, so the summary and the tags
                         # land on its cost ledger (`_ingest_cost_scope`).
                         from aiq_agent.common.cost_tracking import submit_in_context
@@ -4978,6 +5017,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             file_name,
                             self.summary_llm,
                             organization_id=organization_id,
+                        )
+                        # The model's own topics beside the controlled tags, told the
+                        # project's existing ones first so its spellings hold.
+                        from aiq_agent.knowledge import get_topic_vocabulary
+                        from aiq_agent.knowledge.document_classification import suggest_topics
+
+                        topics_future = submit_in_context(
+                            executor,
+                            suggest_topics,
+                            llm_input,
+                            file_name,
+                            self.summary_llm,
+                            existing=get_topic_vocabulary(collection_name),
                         )
                         # A base-corpus file whose name gives no OIB hint lands in
                         # `sonstiges`; the decision model proposes a Dokumentart
@@ -5016,6 +5068,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             logger.warning("Tag classification timed out for %s", file_name)
                         except Exception as e:
                             logger.warning("Tag classification failed for %s: %s", file_name, e)
+
+                    topics = _future_result(topics_future, "Topic suggestion", file_name)
 
                     # Clean up executor
                     if executor:
@@ -5216,7 +5270,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         from aiq_agent.knowledge import set_document_doc_class
                         from aiq_agent.knowledge import set_document_folder_path
 
-                        register_summary(collection_name, file_name, summary, tags=tags)
+                        register_summary(collection_name, file_name, summary, tags=tags, topics=topics)
+                        if photo is not None and not photo.empty:
+                            from aiq_agent.knowledge import set_document_capture
+
+                            set_document_capture(collection_name, file_name, photo.as_metadata())
 
                         # Persist the doc_class onto the freshly-created summary
                         # row, but never overwrite a human-set stored value —
@@ -5252,6 +5310,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             from aiq_agent.knowledge import set_document_tags_by_person
 
                             set_document_tags_by_person(collection_name, file_name, json.loads(preserved["tags"]))
+                        if "topics" in preserved:
+                            from aiq_agent.knowledge import set_document_topics_by_person
+
+                            set_document_topics_by_person(collection_name, file_name, json.loads(preserved["topics"]))
                         if preserved.get("display_title"):
                             from aiq_agent.knowledge import set_document_display_title
 

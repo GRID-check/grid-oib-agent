@@ -140,3 +140,47 @@ def test_file_filed_at_the_root_keeps_a_null_folder_path():
     _merge_summaries(files, summaries)
 
     assert files[0].folder_path is None
+
+
+def test_merges_topics_and_capture_onto_matching_file():
+    files = [_file("foto.jpg")]
+    summaries = [
+        AvailableDocument(
+            file_name="foto.jpg",
+            summary="Baustelle.",
+            topics=["Attika"],
+            capture={"captured_at": "2026-10-09T14:30:00", "latitude": 47.8, "longitude": 13.0, "camera": "X"},
+        ),
+    ]
+
+    _merge_summaries(files, summaries)
+
+    assert files[0].topics == ["Attika"]
+    assert files[0].capture == {
+        "captured_at": "2026-10-09T14:30:00",
+        "latitude": 47.8,
+        "longitude": 13.0,
+        "camera": "X",
+    }
+
+
+def test_file_without_topics_or_capture_row_stays_none():
+    files = [_file("plan.pdf")]
+    summaries = [AvailableDocument(file_name="plan.pdf", summary="A plan.")]
+
+    _merge_summaries(files, summaries)
+
+    assert files[0].topics is None
+    assert files[0].capture is None
+
+
+def test_existing_topics_and_capture_are_not_overwritten():
+    files = [_file("foto.jpg")]
+    files[0].topics = ["Schnitt"]
+    files[0].capture = {"camera": "Set"}
+    summaries = [AvailableDocument(file_name="foto.jpg", summary="A.", topics=["Attika"], capture={"camera": "Row"})]
+
+    _merge_summaries(files, summaries)
+
+    assert files[0].topics == ["Schnitt"]
+    assert files[0].capture == {"camera": "Set"}

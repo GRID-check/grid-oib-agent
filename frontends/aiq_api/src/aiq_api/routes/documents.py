@@ -26,9 +26,12 @@ from aiq_agent.knowledge import rewrite_document_folder_paths
 from aiq_agent.knowledge import set_document_display_title
 from aiq_agent.knowledge import set_document_folder_path
 from aiq_agent.knowledge import set_document_tags_by_person
+from aiq_agent.knowledge import set_document_topics_by_person
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.document_classification import ALLOWED_TAGS
 from aiq_agent.knowledge.document_classification import MAX_TAGS
+from aiq_agent.knowledge.document_classification import MAX_TOPICS
+from aiq_agent.knowledge.document_classification import normalize_topic
 from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.schema import FileInfo
 from aiq_agent.knowledge.schema import IngestionJobStatus
@@ -53,7 +56,8 @@ def _merge_summaries(files: list[FileInfo], summaries: list[AvailableDocument]) 
     knows what the vector store holds. The join key is the
     filename, unique within the summaries table, so a straight lookup is safe.
     A file without a stored summary/tags/folder is left untouched; already-populated
-    values are never overwritten.
+    values are never overwritten. Topics (Themen) and the camera's capture facts
+    travel the same way.
     """
     if not summaries:
         return files
@@ -68,7 +72,89 @@ def _merge_summaries(files: list[FileInfo], summaries: list[AvailableDocument]) 
             file.tags = doc.tags
         if file.folder_path is None and doc.folder_path:
             file.folder_path = doc.folder_path
+        if not file.topics and doc.topics:
+            file.topics = doc.topics
+        if file.capture is None and doc.capture:
+            file.capture = doc.capture
     return files
+
+
+def _checked_tags(raw: list[str]) -> list[str]:
+    """A person's controlled tags, de-duplicated; 400 when one is off the vocabulary or there are too many."""
+    # De-duplicate while preserving order so the response is stable.
+    deduped: list[str] = []
+    for tag in raw:
+        if tag not in deduped:
+            deduped.append(tag)
+
+    offending = [tag for tag in deduped if tag not in ALLOWED_TAGS]
+    if offending:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Tags outside the controlled vocabulary are not allowed",
+                "invalid_tags": offending,
+            },
+        )
+
+    # Enforce the same per-document cap that ingestion applies (MAX_TAGS).
+    # Reject rather than silently truncate so the caller's intent is explicit.
+    if len(deduped) > MAX_TAGS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": f"At most {MAX_TAGS} tags are allowed per document",
+                "max_tags": MAX_TAGS,
+                "tag_count": len(deduped),
+            },
+        )
+    return deduped
+
+
+def _checked_topics(raw: list[str]) -> list[str]:
+    """A person's topics as ingestion would store them.
+
+    Each goes through :func:`normalize_topic` (400 listing the ones that are not a
+    term), is de-duplicated by case keeping the first spelling, and a topic that
+    restates a controlled tag is dropped: that word is already a tag, and a
+    filter should find it in one place. 400 when more than ``MAX_TOPICS`` remain.
+    """
+    invalid = [raw_topic for raw_topic in raw if normalize_topic(raw_topic) is None]
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Topics must be a term of up to three words",
+                "invalid_topics": invalid,
+            },
+        )
+
+    controlled = {tag.casefold() for tag in ALLOWED_TAGS}
+    kept: dict[str, str] = {}
+    for raw_topic in raw:
+        term = normalize_topic(raw_topic)
+        folded = term.casefold()
+        if folded not in controlled:
+            kept.setdefault(folded, term)
+
+    topics = list(kept.values())
+    if len(topics) > MAX_TOPICS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": f"At most {MAX_TOPICS} topics are allowed per document",
+                "max_topics": MAX_TOPICS,
+                "topic_count": len(topics),
+            },
+        )
+    return topics
+
+
+def _no_summary_404(collection_name: str, file_name: str) -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail=f"No summary found for '{file_name}' in collection '{collection_name}'",
+    )
 
 
 def _job_statuses(ingestor: BaseIngestor, job_ids: list[str]) -> dict[str, Any]:
@@ -229,6 +315,13 @@ def add_document_routes(router: APIRouter):
             default_factory=list,
             description="Controlled document tags; must be a subset of the ingestion vocabulary.",
         )
+        topics: list[str] | None = Field(
+            default=None,
+            description=(
+                "Open topics (Themen), free terms of up to three words. Omit to leave the topics as they are; "
+                "send tags alone to leave them, too."
+            ),
+        )
 
     @router.patch(
         "/v1/collections/{collection_name}/documents/{file_name}/tags",
@@ -252,49 +345,31 @@ def add_document_routes(router: APIRouter):
         - More than ``MAX_TAGS`` tags (after dedup) → 400 (the BFF zod already
           caps this, so a normal user never reaches it).
         - An empty list is allowed and clears the tags.
+        - ``topics``, when sent, is normalised by :func:`_checked_topics` (400
+          for a non-term or too many) and stored as a person's topics. Sent
+          alone, it leaves the tags as they are; sent with ``tags``, both change.
         - No summary row for ``(collection, file_name)`` → 404 (the summary is
           the anchor; there is nothing to tag without one).
         The summary itself is never modified.
 
-        The tags are stored as a PERSON's choice, so a later re-ingest keeps
-        them instead of writing the classifier's guess back over the correction.
+        The tags and topics are stored as a PERSON's choice, so a later re-ingest
+        keeps them instead of writing the classifier's guess back over the correction.
         """
-        # De-duplicate while preserving order so the response is stable.
-        deduped: list[str] = []
-        for tag in request.tags:
-            if tag not in deduped:
-                deduped.append(tag)
+        # Validate everything before any write, so a 400 on one field leaves both untouched.
+        topics = _checked_topics(request.topics) if request.topics is not None else None
+        write_tags = "tags" in request.model_fields_set or request.topics is None
+        tags = _checked_tags(request.tags) if write_tags else None
 
-        offending = [tag for tag in deduped if tag not in ALLOWED_TAGS]
-        if offending:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "message": "Tags outside the controlled vocabulary are not allowed",
-                    "invalid_tags": offending,
-                },
-            )
-
-        # Enforce the same per-document cap that ingestion applies (MAX_TAGS).
-        # Reject rather than silently truncate so the caller's intent is explicit.
-        if len(deduped) > MAX_TAGS:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "message": f"At most {MAX_TAGS} tags are allowed per document",
-                    "max_tags": MAX_TAGS,
-                    "tag_count": len(deduped),
-                },
-            )
-
-        updated = await asyncio.to_thread(set_document_tags_by_person, collection_name, file_name, deduped)
-        if not updated:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No summary found for '{file_name}' in collection '{collection_name}'",
-            )
-
-        return {"collection_name": collection_name, "file_name": file_name, "tags": deduped}
+        response: dict[str, Any] = {"collection_name": collection_name, "file_name": file_name}
+        if topics is not None:
+            if not await asyncio.to_thread(set_document_topics_by_person, collection_name, file_name, topics):
+                raise _no_summary_404(collection_name, file_name)
+            response["topics"] = topics
+        if tags is not None:
+            if not await asyncio.to_thread(set_document_tags_by_person, collection_name, file_name, tags):
+                raise _no_summary_404(collection_name, file_name)
+            response["tags"] = tags
+        return response
 
     class UpdateDisplayTitleRequest(BaseModel):
         display_title: str | None = Field(

@@ -605,3 +605,80 @@ class TestTheFamiliesAreNamed:
 
         assert "oib-rl_2.3_x.pdf" in text
         assert "Richtlinien-Familien" not in text
+
+
+class TestTopicsAndCaptureInTheInventory:
+    """What a model is told about a file: its Themen, and the day a photo was taken.
+
+    The coordinates of a photo are stored for the BFF and never reach a prompt.
+    Asserted on both row shapes the inventory accepts: the model object and the dict.
+    """
+
+    LATITUDE = 47.812345
+    LONGITUDE = 13.045678
+
+    def _photo(self, *, as_dict: bool = False, **extra):
+        row = {
+            "file_name": "baustelle.jpg",
+            "summary": "Rohbau Ost, Stand Oktober.",
+            "collection": "proj_1",
+            "shelf": "project",
+            **extra,
+        }
+        if as_dict:
+            return row
+        return AvailableDocument(
+            file_name=row["file_name"],
+            summary=row["summary"],
+            collection=row["collection"],
+            shelf=row["shelf"],
+            topics=extra.get("topics"),
+            capture=extra.get("capture"),
+        )
+
+    def test_topics_are_shown_on_the_row(self):
+        text = render_inventory_block([self._photo(topics=["Attika", "Fluchtweg"])])
+        assert "**baustelle.jpg** Themen: Attika, Fluchtweg: Rohbau Ost, Stand Oktober." in text
+
+    def test_the_day_a_photo_was_taken_is_shown_and_the_clock_is_not_needed(self):
+        capture = {"captured_at": "2026-10-09T14:30:00+02:00", "camera": "Canon EOS R5"}
+        text = render_inventory_block([self._photo(capture=capture)])
+        assert "- **baustelle.jpg** · aufgenommen 2026-10-09: Rohbau Ost, Stand Oktober." in text
+        assert "14:30" not in text
+
+    def test_coordinates_are_never_rendered_for_a_model_object(self):
+        capture = {
+            "captured_at": "2026-10-09T14:30:00",
+            "latitude": self.LATITUDE,
+            "longitude": self.LONGITUDE,
+            "camera": "Canon EOS R5",
+        }
+        text = render_inventory_block([self._photo(capture=capture)])
+        assert "aufgenommen 2026-10-09" in text
+        assert str(self.LATITUDE) not in text
+        assert str(self.LONGITUDE) not in text
+
+    def test_coordinates_are_never_rendered_for_a_dict_row(self):
+        row = self._photo(
+            as_dict=True,
+            capture={
+                "captured_at": "2026-10-09T14:30:00",
+                "latitude": self.LATITUDE,
+                "longitude": self.LONGITUDE,
+            },
+        )
+        text = render_inventory_block([row])
+        assert "aufgenommen 2026-10-09" in text
+        assert str(self.LATITUDE) not in text
+        assert str(self.LONGITUDE) not in text
+
+    def test_a_capture_without_a_usable_date_shows_no_date(self):
+        text = render_inventory_block([self._photo(capture={"captured_at": "letzte Woche", "latitude": 47.5})])
+        assert "aufgenommen" not in text
+        assert "47.5" not in text
+
+    def test_a_file_with_no_topics_or_capture_has_neither_bit(self):
+        text = render_inventory_block([self._photo()])
+        assert "Themen" not in text
+        assert "aufgenommen" not in text
+        assert "**baustelle.jpg**: Rohbau Ost, Stand Oktober." in text

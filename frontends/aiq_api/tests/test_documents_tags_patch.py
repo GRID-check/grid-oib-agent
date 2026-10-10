@@ -21,6 +21,7 @@ from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
 from aiq_agent.knowledge.factory import clear_active_ingestor
 from aiq_agent.knowledge.factory import configure_summary_db
 from aiq_agent.knowledge.factory import get_document_person_tags
+from aiq_agent.knowledge.factory import get_document_person_topics
 from aiq_agent.knowledge.factory import set_active_ingestor
 from aiq_api.routes.documents import add_document_routes
 
@@ -228,3 +229,138 @@ async def test_a_patched_tag_set_survives_a_re_ingest_of_the_document(app, store
     doc = store.get_all("proj_a")[0]
     assert doc.summary == "A newer summary."
     assert doc.tags == ["Schnitt", "Brandschutz"]
+
+
+# ---------------------------------------------------------------------------
+# Topics (Themen) on the same route. Tags above are unchanged by them.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_patch_topics_are_normalised_deduplicated_and_stored(app, store):
+    store.register("proj_a", "plan.pdf", "A floor plan.")
+
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/collections/proj_a/documents/plan.pdf/tags",
+            json={"topics": ["  Attika ", "attika", "Fluchtweg"]},
+        )
+
+    assert res.status_code == 200
+    assert res.json()["topics"] == ["Attika", "Fluchtweg"]
+    assert get_document_person_topics("proj_a", ["plan.pdf"]) == {"plan.pdf": ["Attika", "Fluchtweg"]}
+
+
+@pytest.mark.asyncio
+async def test_patch_drops_a_topic_that_restates_a_controlled_tag(app, store):
+    store.register("proj_a", "plan.pdf", "A floor plan.")
+
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/collections/proj_a/documents/plan.pdf/tags",
+            json={"topics": ["Grundriss", "Attika"]},
+        )
+
+    assert res.status_code == 200
+    assert res.json()["topics"] == ["Attika"]
+
+
+@pytest.mark.asyncio
+async def test_patch_invalid_topics_400_lists_them_and_writes_nothing(app, store):
+    store.register("proj_a", "plan.pdf", "A floor plan.", topics=["Attika"])
+
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/collections/proj_a/documents/plan.pdf/tags",
+            json={"topics": ["Fluchtweg", "a b c d", ""]},
+        )
+
+    assert res.status_code == 400
+    assert res.json()["detail"]["invalid_topics"] == ["a b c d", ""]
+    assert get_document_person_topics("proj_a", ["plan.pdf"]) == {}
+    assert store.get_all("proj_a")[0].topics == ["Attika"]
+
+
+@pytest.mark.asyncio
+async def test_patch_too_many_topics_400(app, store):
+    from aiq_agent.knowledge.document_classification import MAX_TOPICS
+
+    store.register("proj_a", "plan.pdf", "A floor plan.")
+    seven = [f"Thema {index}" for index in range(MAX_TOPICS + 1)]
+
+    async with _client(app) as client:
+        res = await client.patch("/v1/collections/proj_a/documents/plan.pdf/tags", json={"topics": seven})
+
+    assert res.status_code == 400
+    detail = res.json()["detail"]
+    assert detail["max_topics"] == MAX_TOPICS
+    assert detail["topic_count"] == MAX_TOPICS + 1
+    assert get_document_person_topics("proj_a", ["plan.pdf"]) == {}
+
+
+@pytest.mark.asyncio
+async def test_patch_topics_only_leaves_the_tags_alone(app, store):
+    """A topics-only edit must not clear the tags: an absent ``tags`` is not an empty one."""
+    store.register("proj_a", "plan.pdf", "A floor plan.", tags=["Grundriss"])
+
+    async with _client(app) as client:
+        res = await client.patch("/v1/collections/proj_a/documents/plan.pdf/tags", json={"topics": ["Attika"]})
+
+    assert res.status_code == 200
+    assert "tags" not in res.json()
+    assert store.get_all("proj_a")[0].tags == ["Grundriss"]
+    assert store.get_all("proj_a")[0].topics == ["Attika"]
+
+
+@pytest.mark.asyncio
+async def test_patch_tags_only_leaves_the_topics_alone(app, store):
+    store.register("proj_a", "plan.pdf", "A floor plan.", topics=["Attika"])
+
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/collections/proj_a/documents/plan.pdf/tags",
+            json={"tags": ["Schnitt"]},
+        )
+
+    assert res.status_code == 200
+    assert "topics" not in res.json()
+    assert store.get_all("proj_a")[0].topics == ["Attika"]
+
+
+@pytest.mark.asyncio
+async def test_patch_with_an_invalid_tag_writes_no_topics_either(app, store):
+    """Both fields are validated before either is written, so a 400 on one leaves the other untouched."""
+    store.register("proj_a", "plan.pdf", "A floor plan.", topics=["Attika"])
+
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/collections/proj_a/documents/plan.pdf/tags",
+            json={"tags": ["MadeUp"], "topics": ["Fluchtweg"]},
+        )
+
+    assert res.status_code == 400
+    assert store.get_all("proj_a")[0].topics == ["Attika"]
+
+
+@pytest.mark.asyncio
+async def test_patch_topics_missing_summary_row_404(app, store):
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/collections/proj_a/documents/ghost.pdf/tags",
+            json={"topics": ["Attika"]},
+        )
+
+    assert res.status_code == 404
+    assert store.get_all("proj_a") == []
+
+
+@pytest.mark.asyncio
+async def test_a_patched_topic_set_survives_a_re_ingest(app, store):
+    store.register("proj_a", "plan.pdf", "A floor plan.", topics=["Attika"])
+
+    async with _client(app) as client:
+        await client.patch("/v1/collections/proj_a/documents/plan.pdf/tags", json={"topics": ["Fluchtweg"]})
+
+    store.register("proj_a", "plan.pdf", "A newer summary.", topics=["Holzrahmenbau"])
+
+    assert store.get_all("proj_a")[0].topics == ["Fluchtweg"]

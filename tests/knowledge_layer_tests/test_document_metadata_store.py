@@ -135,6 +135,8 @@ class TestAvailableDocument:
             "doc_class": None,
             "display_title": None,
             "folder_path": None,
+            "topics": None,
+            "capture": None,
             "added_at": None,
             "collection": None,
             "shelf": None,
@@ -151,6 +153,8 @@ class TestAvailableDocument:
             "doc_class": None,
             "display_title": None,
             "folder_path": None,
+            "topics": None,
+            "capture": None,
             "added_at": None,
             "collection": None,
             "shelf": None,
@@ -1325,3 +1329,316 @@ class TestMigrationFailureNotCached:
                 engine.dispose()
                 await DocumentMetadataStore.dispose_engine_async(db_url)
                 DocumentMetadataStore._tables_initialized.discard(db_url)
+
+
+# =============================================================================
+# Topics (Themen) and the photo capture facts
+# =============================================================================
+
+
+class TestTopicsAndCapture:
+    """Open topics travel like tags: a machine write, a person's curation kept across re-reads.
+
+    ``capture`` is what the camera wrote. Its coordinates are stored and read back
+    for the BFF; the readers (inventory, list_files) never render them, and that
+    is pinned in their own tests.
+    """
+
+    @pytest.fixture
+    def temp_db(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_url = f"sqlite:///{Path(tmpdir) / 'topics.db'}"
+            yield db_url
+            DocumentMetadataStore.dispose_engine(db_url)
+
+    @pytest.fixture
+    def store(self, temp_db):
+        return DocumentMetadataStore(temp_db)
+
+    # -- topics on register ------------------------------------------------
+
+    def test_register_with_topics_roundtrip(self, store):
+        store.register("coll", "plan.pdf", "A plan.", tags=["Grundriss"], topics=["Attika", "Fluchtweg"])
+        doc = store.get_all("coll")[0]
+        assert doc.topics == ["Attika", "Fluchtweg"]
+        assert doc.tags == ["Grundriss"]
+
+    def test_register_without_topics_is_none_not_empty(self, store):
+        store.register("coll", "plan.pdf", "A plan.")
+        assert store.get_all("coll")[0].topics is None
+
+    async def test_get_all_async_decodes_topics_and_capture(self, store):
+        store.register("acoll", "plan.pdf", "A plan.", topics=["Attika"])
+        store.set_capture("acoll", "plan.pdf", {"captured_at": "2026-10-09T14:30:00", "camera": "Canon R5"})
+        doc = (await store.get_all_async("acoll"))[0]
+        assert doc.topics == ["Attika"]
+        assert doc.capture == {"captured_at": "2026-10-09T14:30:00", "camera": "Canon R5"}
+
+    def test_a_machine_re_register_refreshes_the_topics(self, store):
+        store.register("coll", "plan.pdf", "First.", topics=["Attika"])
+        store.register("coll", "plan.pdf", "Newer.", topics=["Holzrahmenbau"])
+        assert store.get_all("coll")[0].topics == ["Holzrahmenbau"]
+
+    # -- a person's curation covers topics ---------------------------------
+
+    def test_set_topics_by_person_roundtrip_and_missing_row(self, store):
+        store.register("coll", "plan.pdf", "A plan.", topics=["Attika"])
+        assert store.set_topics_by_person("coll", "plan.pdf", ["Fluchtweg"]) is True
+        assert store.get_all("coll")[0].topics == ["Fluchtweg"]
+        assert store.set_topics_by_person("coll", "ghost.pdf", ["Fluchtweg"]) is False
+        assert [doc.file_name for doc in store.get_all("coll")] == ["plan.pdf"]  # no row created for the ghost
+
+    def test_a_re_register_keeps_the_topics_a_person_set(self, store):
+        store.register("coll", "plan.pdf", "First.", topics=["Attika"])
+        store.set_topics_by_person("coll", "plan.pdf", ["Fluchtweg", "Brandschutz"])
+
+        store.register("coll", "plan.pdf", "Newer.", topics=["Holzrahmenbau"])
+
+        doc = store.get_all("coll")[0]
+        assert doc.summary == "Newer."
+        assert doc.topics == ["Fluchtweg", "Brandschutz"]
+
+    def test_a_person_who_cleared_the_topics_is_not_refilled_by_register(self, store):
+        store.register("coll", "plan.pdf", "A plan.", topics=["Attika"])
+        store.set_topics_by_person("coll", "plan.pdf", [])
+
+        store.register("coll", "plan.pdf", "A plan.", topics=["Holzrahmenbau"])
+
+        assert store.get_all("coll")[0].topics is None
+
+    def test_a_person_topic_edit_also_keeps_the_tags_across_a_re_read(self, store):
+        """One marker per row: a person who curated the topics has curated the row's tags too."""
+        store.register("coll", "plan.pdf", "A plan.", tags=["Grundriss"], topics=["Attika"])
+        store.set_topics_by_person("coll", "plan.pdf", ["Fluchtweg"])
+
+        store.register("coll", "plan.pdf", "A plan.", tags=["Schnitt"], topics=["Holzrahmenbau"])
+
+        doc = store.get_all("coll")[0]
+        assert doc.tags == ["Grundriss"]
+        assert doc.topics == ["Fluchtweg"]
+
+    def test_person_topics_batch_returns_only_rows_a_person_set(self, store):
+        store.register("coll", "machine.pdf", "M.", topics=["Attika"])
+        store.register("coll", "person.pdf", "P.", topics=["Attika"])
+        store.register("coll", "cleared.pdf", "C.", topics=["Attika"])
+        store.set_topics_by_person("coll", "person.pdf", ["Fluchtweg"])
+        store.set_topics_by_person("coll", "cleared.pdf", [])
+
+        result = store.get_person_topics_batch("coll", ["machine.pdf", "person.pdf", "cleared.pdf", "ghost.pdf"])
+
+        assert result == {"person.pdf": ["Fluchtweg"], "cleared.pdf": []}
+        assert store.get_person_topics_batch("coll", []) == {}
+        assert store.get_person_topics_batch("other", ["person.pdf"]) == {}
+
+    def test_the_tags_seams_answer_as_before_now_that_they_share_a_helper(self, store):
+        store.register("coll", "plan.pdf", "A plan.", tags=["Grundriss"], topics=["Attika"])
+        # Curating the topics marks the row as a person's, so its tags are a person's too.
+        store.set_topics_by_person("coll", "plan.pdf", ["Fluchtweg"])
+        assert store.get_person_tags_batch("coll", ["plan.pdf"]) == {"plan.pdf": ["Grundriss"]}
+        store.set_tags_by_person("coll", "plan.pdf", ["Schnitt"])
+        assert store.get_person_tags_batch("coll", ["plan.pdf"]) == {"plan.pdf": ["Schnitt"]}
+
+    # -- the vocabulary ----------------------------------------------------
+
+    def test_vocabulary_orders_by_documents_then_alphabetically(self, store):
+        store.register("coll", "a.pdf", "A.", topics=["Attika", "Fluchtweg"])
+        store.register("coll", "b.pdf", "B.", topics=["attika", "Holz"])
+        store.register("coll", "c.pdf", "C.", topics=["Attika", "Fluchtweg"])
+        store.register("coll", "d.pdf", "D.", topics=["Stiege"])
+
+        assert store.get_topic_vocabulary("coll") == ["Attika", "Fluchtweg", "Holz", "Stiege"]
+
+    def test_vocabulary_keeps_the_most_frequent_spelling(self, store):
+        store.register("coll", "a.pdf", "A.", topics=["attika"])
+        store.register("coll", "b.pdf", "B.", topics=["Attika"])
+        store.register("coll", "c.pdf", "C.", topics=["Attika"])
+
+        assert store.get_topic_vocabulary("coll") == ["Attika"]
+
+    def test_vocabulary_counts_a_topic_once_per_document_whatever_its_case(self, store):
+        store.register("coll", "a.pdf", "A.", topics=["Attika", "attika"])
+        store.register("coll", "b.pdf", "B.", topics=["Holz"])
+        store.register("coll", "c.pdf", "C.", topics=["Holz"])
+
+        assert store.get_topic_vocabulary("coll") == ["Holz", "Attika"]
+
+    def test_vocabulary_is_per_collection_bounded_and_fail_open(self, store):
+        store.register("coll", "a.pdf", "A.", topics=["Attika", "Fluchtweg", "Holz"])
+        store.register("other", "b.pdf", "B.", topics=["Stiege"])
+        store.register("coll", "c.pdf", "C.")
+
+        assert store.get_topic_vocabulary("coll", limit=2) == ["Attika", "Fluchtweg"]
+        assert store.get_topic_vocabulary("other") == ["Stiege"]
+        assert store.get_topic_vocabulary("empty") == []
+
+    def test_vocabulary_on_a_database_without_the_column_is_empty_not_an_error(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy import text
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_url = f"sqlite:///{Path(tmpdir) / 'no_topics.db'}"
+            engine = create_engine(db_url)
+            with engine.connect() as conn:
+                conn.execute(text("CREATE TABLE document_metadata (collection TEXT, filename TEXT, summary TEXT)"))
+                conn.commit()
+            engine.dispose()
+            DocumentMetadataStore._tables_initialized.add(db_url)  # schema already "ready": no backfill here
+            try:
+                assert DocumentMetadataStore(db_url).get_topic_vocabulary("coll") == []
+            finally:
+                DocumentMetadataStore._tables_initialized.discard(db_url)
+                DocumentMetadataStore.dispose_engine(db_url)
+
+    # -- capture -----------------------------------------------------------
+
+    def test_set_capture_roundtrip_keeps_the_coordinates_for_the_bff(self, store):
+        store.register("coll", "foto.jpg", "Baustelle.")
+        capture = {
+            "captured_at": "2026-10-09T14:30:00+02:00",
+            "latitude": 47.812345,
+            "longitude": 13.045678,
+            "camera": "DJI Mavic 3",
+        }
+
+        assert store.set_capture("coll", "foto.jpg", capture) is True
+
+        assert store.get_all("coll")[0].capture == capture
+
+    def test_set_capture_missing_row_returns_false_and_none_clears(self, store):
+        assert store.set_capture("coll", "ghost.jpg", {"camera": "X"}) is False
+        assert store.get_all("coll") == []
+
+        store.register("coll", "foto.jpg", "Baustelle.")
+        store.set_capture("coll", "foto.jpg", {"camera": "X"})
+        assert store.set_capture("coll", "foto.jpg", None) is True
+        assert store.get_all("coll")[0].capture is None
+
+    def test_a_re_register_keeps_the_capture(self, store):
+        store.register("coll", "foto.jpg", "First.")
+        store.set_capture("coll", "foto.jpg", {"captured_at": "2026-10-09T14:30:00"})
+        store.register("coll", "foto.jpg", "Newer.")
+        assert store.get_all("coll")[0].capture == {"captured_at": "2026-10-09T14:30:00"}
+
+    def test_the_decoder_drops_wrong_types_and_unknown_keys(self, store):
+        store.register("coll", "foto.jpg", "Baustelle.")
+        store.set_capture(
+            "coll",
+            "foto.jpg",
+            {
+                "captured_at": 20261009,  # not a string
+                "latitude": "47.8",  # not a number
+                "longitude": True,  # a flag is not a coordinate
+                "camera": "Canon R5",
+                "serial": "0123456",  # not a known key
+            },
+        )
+        assert store.get_all("coll")[0].capture == {"camera": "Canon R5"}
+
+    def test_the_decoder_refuses_what_is_not_an_object(self):
+        assert DocumentMetadataStore._decode_object(None) is None
+        assert DocumentMetadataStore._decode_object("not json") is None
+        assert DocumentMetadataStore._decode_object("[1, 2]") is None
+        assert DocumentMetadataStore._decode_object('{"serial": "x"}') is None
+        assert DocumentMetadataStore._decode_object('{"latitude": 47.5, "longitude": 13}') == {
+            "latitude": 47.5,
+            "longitude": 13,
+        }
+
+    # -- schema ------------------------------------------------------------
+
+    def test_fresh_table_has_topics_and_capture_columns(self, temp_db):
+        from sqlalchemy import create_engine
+        from sqlalchemy import inspect
+
+        DocumentMetadataStore(temp_db)
+        engine = create_engine(temp_db)
+        columns = {c["name"] for c in inspect(engine).get_columns("document_metadata")}
+        assert {"topics", "capture"} <= columns
+        engine.dispose()
+
+    def test_existing_table_without_topics_and_capture_is_migrated_and_keeps_its_rows(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy import inspect
+        from sqlalchemy import text
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_url = f"sqlite:///{Path(tmpdir) / 'before_topics.db'}"
+            engine = create_engine(db_url)
+            with engine.connect() as conn:
+                conn.execute(
+                    text(
+                        "CREATE TABLE summaries ("
+                        "collection VARCHAR(256) NOT NULL, "
+                        "filename VARCHAR(512) NOT NULL, "
+                        "summary TEXT NOT NULL, "
+                        "tags TEXT, doc_class TEXT, display_title TEXT, folder_path TEXT, provenance TEXT, "
+                        "doc_class_suggestion TEXT, tags_set_by TEXT, "
+                        "created_at DATETIME, "
+                        "PRIMARY KEY (collection, filename))"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO summaries (collection, filename, summary, tags) "
+                        "VALUES ('c', 'old.pdf', 'Alt.', '[\"Grundriss\"]')"
+                    )
+                )
+                conn.commit()
+            assert "topics" not in {c["name"] for c in inspect(engine).get_columns("summaries")}
+
+            DocumentMetadataStore._tables_initialized.discard(db_url)
+            store = DocumentMetadataStore(db_url)
+
+            columns = {c["name"] for c in inspect(engine).get_columns("document_metadata")}
+            assert {"topics", "capture"} <= columns
+            old = store.get_all("c")[0]
+            assert old.tags == ["Grundriss"]
+            assert old.topics is None and old.capture is None
+
+            assert store.set_capture("c", "old.pdf", {"camera": "X"}) is True
+            assert store.get_all("c")[0].capture == {"camera": "X"}
+
+            engine.dispose()
+            DocumentMetadataStore.dispose_engine(db_url)
+
+
+class TestTopicsAndCaptureThroughTheFactory:
+    """The factory seams the BFF and the ingestion path call, over one store."""
+
+    @pytest.fixture
+    def db_url(self):
+        from aiq_agent.knowledge import configure_summary_db
+        from aiq_agent.knowledge import factory
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            url = f"sqlite:///{Path(tmpdir) / 'factory_topics.db'}"
+            configure_summary_db(url)
+            yield url
+            factory._document_metadata_store = None
+            DocumentMetadataStore.dispose_engine(url)
+
+    def test_register_summary_carries_topics_and_the_person_seams_round_trip(self, db_url):
+        from aiq_agent.knowledge import get_available_documents
+        from aiq_agent.knowledge import get_document_person_topics
+        from aiq_agent.knowledge import get_topic_vocabulary
+        from aiq_agent.knowledge import register_summary
+        from aiq_agent.knowledge import set_document_topics_by_person
+
+        register_summary("coll", "plan.pdf", "A plan.", tags=["Grundriss"], topics=["Attika"])
+        assert get_available_documents("coll")[0].topics == ["Attika"]
+        assert get_topic_vocabulary("coll") == ["Attika"]
+
+        assert set_document_topics_by_person("coll", "plan.pdf", ["Fluchtweg"]) is True
+        assert get_document_person_topics("coll", ["plan.pdf"]) == {"plan.pdf": ["Fluchtweg"]}
+        assert set_document_topics_by_person("coll", "ghost.pdf", ["Fluchtweg"]) is False
+
+    def test_set_document_capture_is_visible_on_the_available_document(self, db_url):
+        from aiq_agent.knowledge import get_available_documents
+        from aiq_agent.knowledge import register_summary
+        from aiq_agent.knowledge import set_document_capture
+
+        register_summary("coll", "foto.jpg", "Baustelle.")
+        capture = {"captured_at": "2026-10-09T14:30:00", "latitude": 47.8, "longitude": 13.0}
+        assert set_document_capture("coll", "foto.jpg", capture) is True
+        assert get_available_documents("coll")[0].capture == capture
+        assert set_document_capture("coll", "ghost.jpg", capture) is False

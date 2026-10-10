@@ -330,7 +330,7 @@ def _sketch(node: dict[str, Any], indent: int = 0) -> str:
     return f"{base}|null" if "null" in types else base
 
 
-def build_prompt(registry: DomainRegistry) -> str:
+def build_prompt(registry: DomainRegistry, *, context: str | None = None) -> str:
     """The extraction instructions for one vocabulary.
 
     Rules that are ABOUT THE SCHEMA are written once, here — they are what the
@@ -364,7 +364,7 @@ def build_prompt(registry: DomainRegistry) -> str:
     domains_text = "\n\n".join(domain_blocks)
     schema_text = _sketch(json_schema(registry))
 
-    return f"""You are reading ONE image taken from an uploaded document. It may be a \
+    prompt = f"""You are reading ONE image taken from an uploaded document. It may be a \
 rendered page, a picture embedded in a PDF, or an uploaded image file.
 
 Work in two steps.
@@ -410,6 +410,11 @@ not in English.
 ## Shape
 
 {schema_text}"""
+    if context:
+        # What the pixels cannot show — a photo's capture date from its EXIF.
+        # The model may date what it sees by it; it never invents a date.
+        prompt += f"\n\nKnown about this image (from the file, not the pixels): {context}"
+    return prompt
 
 
 # ---------------------------------------------------------------------------
