@@ -8,7 +8,8 @@
  * conversation is shared with may read it too.
  *
  * The folder-access decision runs for real over a mocked folder tree, so the
- * only thing that differs between the members below is their roles.
+ * only thing that differs between the members below is the folder roles WorkOS
+ * reports for their memberships (ADR-0097).
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -26,8 +27,25 @@ vi.mock('@/lib/user-preferences/repository', () => ({ findUserPreferencesForSess
 vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
 vi.mock('@/lib/sharing/repository', () => ({ countGrantsForResource: vi.fn() }))
 vi.mock('@/lib/authz/folder-access-repository', () => ({
+  projectHasCustomFolders: vi.fn(async () => true),
   projectHasCustomOrBinnedFolders: vi.fn(),
   listProjectFolderTree: vi.fn(),
+}))
+/** Verträge's list in WorkOS: the director writes, the accountant reads, nobody else holds a folder role. */
+vi.mock('@/lib/authz/folder-roles', () => ({
+  heldFolderLevels: vi.fn(async (_org: string, membershipId: string) =>
+    membershipId === 'om_director'
+      ? { '22222222-aaaa-4bbb-8ccc-000000000002': 'write' }
+      : membershipId === 'om_accountant'
+        ? { '22222222-aaaa-4bbb-8ccc-000000000002': 'read' }
+        : {}
+  ),
+}))
+vi.mock('@/lib/authz/project-membership', () => ({
+  resolveSubjectMembership: vi.fn(async (_org: string, userId: string) => ({
+    organizationMembershipId: userId.replace(/^user_/, 'om_'),
+    role: 'member',
+  })),
 }))
 vi.mock('@/lib/conversations/restricted-use-repository', () => ({ readConversationAudience: vi.fn() }))
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn() }))
@@ -55,22 +73,20 @@ const FOLDER = {
 const RESTRICTED = restrictedCollectionName(PROJECT_COLLECTION, FOLDER.vertraege)
 
 const TREE: AccessFolder[] = [
-  {
-    id: FOLDER.vertraege,
-    parentId: null,
-    accessMode: 'custom',
-    grants: [
-      { role: 'org-geschaeftsfuehrung', level: 'write' },
-      { role: 'org-buchhaltung', level: 'read' },
-    ],
-  },
-  { id: FOLDER.plaene, parentId: null, accessMode: 'inherit', grants: [] },
+  { id: FOLDER.vertraege, parentId: null, accessMode: 'custom', everyoneReads: false },
+  { id: FOLDER.plaene, parentId: null, accessMode: 'inherit', everyoneReads: false },
 ]
 
-function sessionWith(roles: string[], permissions: string[] = [], userId = 'user_me'): AuthorizedSession {
+function sessionWith(
+  membershipId: string,
+  roles: string[] = ['member'],
+  permissions: string[] = [],
+  userId = 'user_me'
+): AuthorizedSession {
   return {
     userId,
     organizationId: ORG_ID,
+    organizationMembershipId: membershipId,
     email: 'me@grid.test',
     role: roles[0],
     roles,
@@ -79,11 +95,11 @@ function sessionWith(roles: string[], permissions: string[] = [], userId = 'user
   } as unknown as AuthorizedSession
 }
 
-const director = sessionWith(['org-geschaeftsfuehrung'])
+const director = sessionWith('om_director')
 /** May only read „Verträge“ — and reads it in chat exactly as a writer does. */
-const accountant = sessionWith(['org-buchhaltung'])
-const intern = sessionWith(['member'])
-const orgAdmin = sessionWith(['admin'], ['org:projects:administer'], 'user_admin')
+const accountant = sessionWith('om_accountant')
+const intern = sessionWith('om_intern')
+const orgAdmin = sessionWith('om_admin', ['admin'], ['org:projects:administer'], 'user_admin')
 
 const chatTurn = { projectId: PROJECT_ID, conversationId: CONVERSATION_ID, interactiveChat: true }
 
@@ -106,7 +122,7 @@ beforeEach(() => {
     grantees: [],
   })
   vi.mocked(resolveMembershipRoles).mockImplementation(async (_org, userId) =>
-    userId === 'user_admin' ? ['admin'] : userId === 'user_accountant' ? ['org-buchhaltung'] : userId === 'user_director' ? ['org-geschaeftsfuehrung'] : ['member']
+    userId === 'user_admin' ? ['admin'] : ['member']
   )
 })
 

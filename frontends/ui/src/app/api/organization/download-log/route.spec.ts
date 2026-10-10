@@ -53,7 +53,7 @@ vi.mock('@/lib/workos/feature-flags', () => ({ isOrgFeatureEnabled: vi.fn(), WEB
 vi.mock('@/lib/authz/folder-access', () => ({
   loadCustomFolderTree: vi.fn(async () => null),
   // An organization admin: a name filter narrows to nothing they may not read.
-  clearanceOf: vi.fn(async () => ({ roles: ['admin'], seesEverything: true })),
+  clearanceOf: vi.fn(async () => ({ levels: {}, seesEverything: true })),
   readableFoldersOfRestrictedProjects: vi.fn(async () => []),
   seesEveryFolder: vi.fn(async () => true),
 }))

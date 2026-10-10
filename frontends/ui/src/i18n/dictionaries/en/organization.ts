@@ -173,6 +173,7 @@ export const organization = {
       org: 'Organization',
       project: 'Project',
       skill: 'Skill schedule',
+      folder: 'Folder',
       platform: 'Platform',
     },
     // The gate here is `org:members:manage`, NOT org admin — borrowing the
@@ -186,23 +187,23 @@ export const organization = {
   },
   /**
    * Personen & Zugriff → Eigene Rollen (ADR-0087): roles an office builds in
-   * WorkOS, assigned on the People tab, named by restricted folders.
+   * WorkOS and assigns on the People tab.
    */
   customRoles: {
     title: 'Custom roles',
     description:
       'Roles your office builds itself, beside Piloti’s. A role bundles permissions under a name such as “Management”.',
     howTo:
-      'You assign roles to people on the People tab. A project folder can be restricted to one or more roles: then only people holding one of them see the folder, its documents and what Piloti answers from them. Organization admins always see everything.',
+      'You assign roles to people on the People tab, and they apply across the organization. Who may see a single project folder is set on the folder, under “Access…”, person by person.',
     oneRoleTitle: 'One role per person',
     oneRoleBody:
-      'Unless your organization has multiple roles per person switched on, everyone holds exactly one role. A role you use for folders must then also carry the permissions its holders work with.',
+      'Unless your organization has multiple roles per person switched on, everyone holds exactly one role. A custom role must then carry every permission its holders work with.',
     create: 'New role',
     customGroup: 'Your office’s roles',
     environmentGroup: 'Piloti’s roles',
     environmentHint: 'Provided by Piloti for every organization. They cannot be changed here.',
     emptyTitle: 'No custom roles yet',
-    emptyDescription: 'Create a role such as “Management” to restrict folders to the people who hold it.',
+    emptyDescription: 'Create a role such as “Management” to bundle permissions under one name.',
     permissionCount: '{count, plural, one {# permission} other {# permissions}}',
     editRole: 'Edit role “{name}”',
     deleteRole: 'Delete role “{name}”',
@@ -240,23 +241,9 @@ export const organization = {
     },
     deleteDialog: {
       title: 'Delete the role “{name}”?',
-      description:
-        'A role can only be deleted once nobody holds it. A folder restricted to this role alone is then visible to organization admins only.',
+      description: 'A role can only be deleted once nobody holds it.',
       confirm: 'Delete role',
       deleted: 'Role “{name}” deleted.',
-      /** Folders whose own access list names the role (ADR-0088): shown before the deletion is confirmed. */
-      foldersCount: '{count, plural, one {# folder names} other {# folders name}} this role in its access list:',
-      foldersEffect:
-        'After the deletion those lists match nobody: only organization admins can read these folders until a valid role is set. The project settings list them under “Folders without a valid role”.',
-      foldersMore: 'and {count} more',
-      foldersNamesHidden: 'Only organization admins see which folders these are.',
-      folderInBin: 'in the bin',
-      folderProjectDeleted: 'project deleted',
-      foldersDeletedNote:
-        'A folder in the bin, or in a deleted project, is not in the folder tree. It comes back with this list if it is restored, so fix the list after the restore.',
-      confirmAnyway: 'Delete anyway',
-      usageError: 'Which folders use this role could not be checked. Please try again.',
-      usedByFoldersNow: 'Folders now use this role. Review the list and confirm again.',
       stillAssigned: 'Somebody still holds this role. Give them another role on the People tab first.',
       error: 'The role could not be deleted. Please try again.',
     },

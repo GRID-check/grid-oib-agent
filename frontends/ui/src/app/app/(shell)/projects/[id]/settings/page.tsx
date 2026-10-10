@@ -7,7 +7,6 @@ import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getProjectUsage } from '@/lib/budgets/service'
 import { getProjectActivity } from '@/lib/projects/activity'
-import { listFoldersWithoutValidRole } from '@/lib/projects/folder-access-settings'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
 import { projectOverviewReader } from '@/lib/projects/service'
 import { resolveProjectSettingsAccess } from '@/lib/projects/settings-access'
@@ -54,11 +53,8 @@ export default async function ProjectOverviewPage({ params }: PageProps): Promis
     ])
     if (!data) notFound()
 
-    const [usage, foldersWithoutRole, accounts] = await Promise.all([
+    const [usage, accounts] = await Promise.all([
       access.manageBudget ? getProjectUsage(session, id) : null,
-      // Folders whose roles were deleted since (ADR-0088). Asked only of a
-      // project manager, who is the one who can set a role again.
-      access.manage ? listFoldersWithoutValidRole(session, id) : [],
       // The organization's people, to link a Steckbrief person to their
       // account; asked only of someone who may edit it. Names only, never e-mail.
       steckbrief.canEdit
@@ -73,7 +69,6 @@ export default async function ProjectOverviewPage({ params }: PageProps): Promis
         data={data}
         activity={activity}
         usage={usage}
-        foldersWithoutRole={foldersWithoutRole}
         steckbrief={steckbrief}
         steckbriefAccounts={accounts}
         similar={

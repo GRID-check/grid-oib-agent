@@ -18,7 +18,7 @@ vi.mock('@/lib/sharing/repository', () => ({ findGrantForSubject: vi.fn() }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/authz/folder-access', () => ({
   isFolderVisibleTo: vi.fn(),
-  clearanceOf: vi.fn(() => ({ roles: [], seesEverything: false })),
+  clearanceOf: vi.fn(() => ({ levels: {}, seesEverything: false })),
   requireFolderWrite: vi.fn(),
 }))
 vi.mock('@/lib/conversations/restricted-use', () => ({

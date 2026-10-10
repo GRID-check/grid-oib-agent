@@ -29,7 +29,6 @@ import {
   unreadableFoldersBelow,
   withProjectCeiling,
   type AccessFolder,
-  type FolderGrant,
 } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -48,7 +47,6 @@ import {
 } from '@/lib/documents/shelf-folders'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { placeProjectDocuments } from './collection-placement'
-import { describeGrants } from './folder-access-settings'
 import type { BinFolderResult } from './folder-bin'
 import { assertFolderMoveKeepsIfcOpen } from './ifc-folder-guard'
 
@@ -91,7 +89,12 @@ export interface EnsureFolderPathsInput {
  * on every write; `access` only shapes the UI.
  */
 export interface ProjectFolderRow extends FolderRow {
-  grants: FolderGrant[] | null
+  /**
+   * Set when the folder has its own access list; who is on it is read on
+   * demand by whoever may change it (`getFolderAccess`), not shipped with every
+   * listing.
+   */
+  ownAccess: { everyoneReads: boolean } | null
   access: 'read' | 'write'
 }
 
@@ -121,7 +124,7 @@ export async function listProjectFolders(projectId: string, session: AuthorizedS
       const own = byId.get(row.id)
       return {
         ...row,
-        grants: own?.accessMode === 'custom' ? [...own.grants] : null,
+        ownAccess: own?.accessMode === 'custom' ? { everyoneReads: own.everyoneReads } : null,
         access: withProjectCeiling(access.levelOf(row.id), projectWrite) === 'write' ? 'write' : 'read',
       }
     })
@@ -206,9 +209,13 @@ function restrictionsAt(tree: ReadonlyMap<string, AccessFolder>, folderId: strin
   return chain
 }
 
-/** The audit form of {@link restrictionsAt}: each folder's `role:level` list, folders `;`-joined. */
+/**
+ * The audit form of {@link restrictionsAt}: each folder with its own list by
+ * id, `+*` when everyone reads it, folders `;`-joined. Who is on each list is
+ * the folder's folder roles in WorkOS (ADR-0097), so the folder names it.
+ */
 function describeRestrictions(chain: readonly AccessFolder[]): string {
-  return chain.map((folder) => describeGrants(folder.grants)).join(';')
+  return chain.map((folder) => `folder:${folder.id}${folder.everyoneReads ? '+*' : ''}`).join(';')
 }
 
 async function folderTree(organizationId: string, projectId: string): Promise<Map<string, AccessFolder>> {
@@ -236,8 +243,8 @@ async function recordFolderAccessChange(
     action: 'project.folder.access_changed',
     targetType: 'project',
     targetId: projectId,
-    // `roles`, the lists' roles alone, as the first, role-only design named them.
-    metadata: { folderId, grants, roles: grants.replace(/:(read|write)/g, ''), documentsMoved },
+    // `roles` named the lists' roles while lists named roles; a list of people names none.
+    metadata: { folderId, grants, roles: '', documentsMoved },
     request,
   })
 }

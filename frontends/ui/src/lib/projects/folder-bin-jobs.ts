@@ -22,7 +22,7 @@
 import 'server-only'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { computeFolderAccess, loadCustomFolderTree } from '@/lib/authz/folder-access'
+import { computeFolderAccess, EVERY_FOLDER, loadCustomFolderTree } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import type { Document } from '@/lib/db/schema'
@@ -66,7 +66,7 @@ type ProjectRow = NonNullable<Awaited<ReturnType<typeof findProjectInOrg>>>
 async function collectionPlacement(organizationId: string, project: ProjectRow): Promise<(doc: Document) => string> {
   const folders = await loadCustomFolderTree(organizationId, project.id)
   if (!folders) return () => project.collectionName
-  const placement = computeFolderAccess(folders, { roles: [], seesEverything: true }, project.collectionName)
+  const placement = computeFolderAccess(folders, EVERY_FOLDER, project.collectionName)
   return (doc) => placement.collectionFor(doc.folderId)
 }
 

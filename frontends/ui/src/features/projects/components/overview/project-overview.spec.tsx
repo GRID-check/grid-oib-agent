@@ -152,35 +152,6 @@ describe('ProjectOverview', () => {
     expect(screen.queryByText(/credits/)).not.toBeInTheDocument()
   })
 
-  test('flags folders whose roles were deleted, with a link to each, only when there are any (ADR-0088)', () => {
-    const { rerender } = render(
-      <ProjectOverview data={DATA} activity={ACTIVITY} usage={null} access={ADMIN} />
-    )
-    expect(screen.queryByTestId('folders-without-role')).not.toBeInTheDocument()
-
-    rerender(
-      <ProjectOverview
-        data={DATA}
-        activity={ACTIVITY}
-        usage={null}
-        access={ADMIN}
-        foldersWithoutRole={[
-          { id: 'f-honorare', name: 'Honorare' },
-          { id: 'f-vertraege', name: 'Verträge' },
-        ]}
-      />
-    )
-
-    const section = screen.getByTestId('folders-without-role')
-    expect(section).toHaveTextContent('Folders without a valid role')
-    const links = screen.getAllByTestId('folder-without-role-link')
-    expect(links.map((link) => link.getAttribute('href'))).toEqual([
-      '/app/projects/p1/files?folder=f-honorare',
-      '/app/projects/p1/files?folder=f-vertraege',
-    ])
-    expect(links[0]).toHaveAccessibleName('Open folder “Honorare”')
-  })
-
   test('a closed project (ADR-0090): no rename, but the status control and deletion stay with the manager', async () => {
     const user = userEvent.setup()
     render(

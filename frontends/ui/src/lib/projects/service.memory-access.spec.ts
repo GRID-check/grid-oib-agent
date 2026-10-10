@@ -24,7 +24,7 @@ vi.mock('./repository', () => ({
 }))
 
 vi.mock('@/lib/authz/folder-access', () => ({
-  clearanceOf: vi.fn(() => ({ roles: ['member'], seesEverything: false })),
+  clearanceOf: vi.fn(() => ({ levels: {}, seesEverything: false })),
   customFolderNames: vi.fn(),
   getHiddenFolderIds: vi.fn(async () => []),
   purgedFolderDates: vi.fn(async () => new Map()),
@@ -82,7 +82,7 @@ describe('getProjectMemory', () => {
 
     const items = await getProjectMemory(SESSION, 'proj-1')
 
-    expect(readableFolderIdsFor).toHaveBeenCalledWith('org_1', 'proj-1', { roles: ['member'], seesEverything: false })
+    expect(readableFolderIdsFor).toHaveBeenCalledWith('org_1', 'proj-1', { levels: {}, seesEverything: false })
     expect(listProjectMemory).toHaveBeenCalledWith('proj-1', {
       organizationId: 'org_1',
       readableFolderIds: [CONTRACTS],

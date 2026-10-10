@@ -6,7 +6,8 @@
  * the environment's set. They behave like the catalog's roles everywhere —
  * sessions, the membership API, the `UsersManagement` widget that assigns
  * roles — so an office that builds „Geschäftsführung" here assigns it on the
- * People tab like any other role, and a restricted folder can name it.
+ * People tab like any other role. A folder's own access list names people, not
+ * roles (ADR-0097), so no folder depends on a role.
  *
  * Who may: `org:members:manage` (the User Admin persona and Admin). And only
  * with permissions they hold themselves: a role is a bundle of permissions, so
@@ -22,7 +23,6 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { getCached, invalidateCached } from '@/lib/cache'
 import { getWorkOS } from '@/lib/workos/client'
 import { ORG_PERMISSION_SPECS } from './catalog'
-import { listFoldersNamingRole, type FolderNamingRole } from './folder-access-repository'
 import { hasPermission, ORG_PERMISSIONS, type KnownPermission } from './permissions'
 
 /** One role as an office sees it. */
@@ -85,7 +85,7 @@ export async function listOrganizationRoles(session: AuthorizedSession): Promise
   }))
 }
 
-/** The role slugs that exist in the organization, for validating what a folder may name. */
+/** The role slugs that exist in the organization: a new role may not take one of them. */
 export async function organizationRoleSlugs(organizationId: string): Promise<Set<string>> {
   return new Set((await listRolesFromWorkOS(organizationId)).map((role) => role.slug))
 }
@@ -238,69 +238,19 @@ export async function updateCustomRole(
 
 /** `details.reason` of the refusal to delete a role that somebody still holds. */
 export const ROLE_ASSIGNED_REASON = 'role-assigned'
-/** `details.reason` of the refusal to delete a role that folders name, until the deletion is confirmed. */
-export const ROLE_USED_BY_FOLDERS_REASON = 'role-used-by-folders'
-
-/** What deleting a custom role would leave behind: the folders whose own list names it. */
-export interface CustomRoleUsage {
-  /** How many folders name the role, counting those a restore can bring back (Papierkorb, project pending deletion). */
-  total: number
-  /**
-   * Which, with their projects (the first fifty, by project and folder name). Only
-   * for someone who administers projects and so may read those folders: a role
-   * manager who may not is told how many, not which, because a restricted
-   * folder's name is not theirs to read.
-   */
-  folders: FolderNamingRole[]
-}
 
 /**
- * The folders that name a custom role: what the deletion confirmation lists
- * (ADR-0088). A role manager reads the count; naming the folders needs
- * `org:projects:administer`.
- */
-export async function getCustomRoleUsage(session: AuthorizedSession, slug: string): Promise<CustomRoleUsage> {
-  requireRoleManager(session)
-  await requireCustomRole(session.organizationId, slug)
-  const { folders, total } = await listFoldersNamingRole(session.organizationId, slug)
-  return { total, folders: hasPermission(session, ORG_PERMISSIONS.projectsAdminister) ? folders : [] }
-}
-
-export interface DeleteCustomRoleOptions {
-  /** The caller was shown the folders that name the role and still wants it gone. */
-  confirmFolders?: boolean
-}
-
-/**
- * Delete a custom role. Two things refuse it.
- *
- * Folders that name it (ADR-0088): after the deletion their grants match
- * nobody, and a folder whose own list names no role that exists is readable by
- * organization admins only. That is not done out from under an office without
- * the caller having seen which folders, so the request must say it did
- * (`confirmFolders`); the service answers 409 `role-used-by-folders` with the
- * count until it does.
- *
- * Holders (`role-assigned`): WorkOS refuses while anybody holds it (or a
- * directory group maps to it), which is answered as 409: deleting a role out
- * from under people would silently change what they may do.
+ * Delete a custom role. WorkOS refuses while anybody holds it (or a directory
+ * group maps to it), which is answered as 409 `role-assigned`: deleting a role
+ * out from under people would silently change what they may do.
  */
 export async function deleteCustomRole(
   session: AuthorizedSession,
   slug: string,
-  request: Request,
-  options: DeleteCustomRoleOptions = {}
+  request: Request
 ): Promise<void> {
   requireRoleManager(session)
   await requireCustomRole(session.organizationId, slug)
-  const { total } = await listFoldersNamingRole(session.organizationId, slug)
-  if (total > 0 && !options.confirmFolders) {
-    throw new ConflictError('Folders still name this role. Confirm to delete it anyway.', {
-      slug,
-      reason: ROLE_USED_BY_FOLDERS_REASON,
-      total,
-    })
-  }
   try {
     await getWorkOS().authorization.deleteOrganizationRole(session.organizationId, slug)
   } catch (error) {
@@ -314,7 +264,7 @@ export async function deleteCustomRole(
     throw error
   }
   await forgetRoles(session.organizationId)
-  await auditRole(session, 'org.role.deleted', slug, [], request, { folders: total })
+  await auditRole(session, 'org.role.deleted', slug, [], request)
 }
 
 async function auditRole(
@@ -322,8 +272,7 @@ async function auditRole(
   action: 'org.role.created' | 'org.role.updated' | 'org.role.deleted',
   slug: string,
   permissions: readonly string[],
-  request: Request,
-  extra: Record<string, number> = {}
+  request: Request
 ): Promise<void> {
   await recordAuditEvent({
     organizationId: session.organizationId,
@@ -331,7 +280,7 @@ async function auditRole(
     action,
     targetType: 'organization',
     targetId: session.organizationId,
-    metadata: { role: slug, permissions: permissions.join(',').slice(0, 500), ...extra },
+    metadata: { role: slug, permissions: permissions.join(',').slice(0, 500) },
     request,
   })
 }

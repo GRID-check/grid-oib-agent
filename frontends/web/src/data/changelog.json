@@ -147,6 +147,10 @@
               "de": "Wenn Sie ein Projekt schließen, kann Piloti dessen Dokumente lesen und das Bundesland, die Gebäudeklasse, die Bauweise, die Nutzungen, die OIB-Ausgabe sowie die darin getroffenen Entscheidungen vorschlagen – jeweils mit dem Dokument und der Seite, aus denen die Information stammt. Sie bestätigen jeden Vorschlag; ähnliche Projekte werden anschließend anhand dieser Merkmale gefunden."
             },
             {
+              "en": "A folder's own access list now names people instead of roles, each allowed to read or also to edit. Switch on \"Alle Projektmitglieder dürfen lesen\" when the whole project may read a folder and only some may change it.",
+              "de": "Die Zugriffsliste eines Ordners führt jetzt Personen statt Rollen auf, jeweils mit Lese- oder Lese- und Bearbeitungsberechtigung. Aktivieren Sie „Alle Projektmitglieder dürfen lesen“, wenn alle Projektmitglieder einen Ordner lesen dürfen, aber nur einige ihn bearbeiten dürfen."
+            },
+            {
               "en": "Deleting a folder in a project now moves it to the project's Papierkorb with its subfolders and documents. It disappears from lists, search and answers at once and can be restored with its access for 14 days.",
               "de": "Wer einen Ordner in einem Projekt löscht, verschiebt ihn jetzt samt Unterordnern und Dokumenten in den Papierkorb des Projekts. Er verschwindet sofort aus Listen, Suche und Antworten und lässt sich 14 Tage lang mit seinen Zugriffsrechten wiederherstellen."
             },
@@ -469,6 +473,10 @@
         {
           "key": "upgrade",
           "notes": [
+            {
+              "en": "A folder that was restricted to a role now lists the people who held that role when the change was rolled out; someone given the role later has to be added to the folder's list.",
+              "de": "Ein Ordner, der auf eine Rolle beschränkt war, listet jetzt die Personen auf, die diese Rolle bei Einführung der Änderung innehatten; Personen, denen die Rolle später zugewiesen wird, müssen zur Liste des Ordners hinzugefügt werden."
+            },
             {
               "en": "A folder deleted before this release stays deleted for good. A project folder can no longer be deleted while it holds a subfolder you may not edit; folders in the Archiv delete as before.",
               "de": "Ein vor diesem Release gelöschter Ordner bleibt endgültig gelöscht. Ein Projektordner lässt sich nicht mehr löschen, solange er einen Unterordner enthält, den Sie nicht bearbeiten dürfen; Ordner im Archiv werden wie bisher gelöscht."

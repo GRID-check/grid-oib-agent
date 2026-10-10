@@ -120,15 +120,9 @@ describe.skipIf(!url)('memory evidence names against live Postgres', () => {
     // one put in the Papierkorb, one archived.
     restricted = idOf(
       await inserted(sql`
-        with folder as (
-          insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-          values (${ORG}, ${projectId}::uuid, ${`Vertraulich_${STAMP}`}, ${`Vertraulich_${STAMP}`}, 'custom', ${USER}, now())
-          returning id, project_id
-        ), grants as (
-          insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-          select ${ORG}, project_id, id, 'org-gf', 'read' from folder
-        )
-        select id from folder`)
+        insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+        values (${ORG}, ${projectId}::uuid, ${`Vertraulich_${STAMP}`}, ${`Vertraulich_${STAMP}`}, 'custom', ${USER}, now())
+        returning id`)
     )
     await fileTo(moved, restricted)
     const bin = idOf(

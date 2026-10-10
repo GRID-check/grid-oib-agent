@@ -8,11 +8,12 @@
  *     npx vitest run src/lib/projects/project-status.integration.spec.ts
  *
  * What only the database can prove: that closing and reopening never open a
- * folder with its own role list (the real tree, the real rule, the real listing
- * SQL), that the status CHECKs hold, and that the 0115 trigger refuses an insert
- * into a closed project while an update still goes through. WorkOS is the only
- * thing stubbed: who holds which organization role, and who holds a grant on
- * the project.
+ * folder with its own access list (the real tree, the real rule, the real
+ * listing SQL, the real folder-role lookup), that the status CHECKs hold, and
+ * that the 0115 trigger refuses an insert into a closed project while an update
+ * still goes through. WorkOS is the only thing stubbed: who holds which
+ * organization role, who holds a grant on the project, and who holds a folder
+ * role on which folder (ADR-0097).
  */
 
 import { sql } from 'drizzle-orm'
@@ -24,12 +25,15 @@ vi.mock('server-only', () => ({}))
 
 /** Organization roles per user, as WorkOS would report them. */
 const ROLES: Record<string, string[]> = {
-  user_member: ['org-geschaeftsfuehrung'],
-  user_outsider: ['org-geschaeftsfuehrung'],
+  user_member: ['member'],
+  user_outsider: ['member'],
   user_plain: ['member'],
 }
 /** Who holds an FGA grant on the project. */
 const PROJECT_MEMBERS = new Set(['om_member'])
+/** Who holds folder-editor on Verträge (its id once made): the member, and the outsider too. */
+const FOLDER_EDITORS = new Set(['om_member', 'om_outsider'])
+const vertraege = { id: '' }
 
 vi.mock('@/lib/auth/membership-roles', () => ({
   resolveMembershipRoles: vi.fn(async (_org: string, userId: string) => ROLES[userId] ?? null),
@@ -46,6 +50,13 @@ vi.mock('@/lib/workos/client', () => ({
     authorization: {
       check: vi.fn(async ({ organizationMembershipId }: { organizationMembershipId: string }) => ({
         authorized: PROJECT_MEMBERS.has(organizationMembershipId),
+      })),
+      // `heldFolderLevels`, for real: folder-editor gives folder:read and folder:write.
+      listResourcesForMembership: vi.fn(async ({ organizationMembershipId }: { organizationMembershipId: string }) => ({
+        autoPagination: async () =>
+          FOLDER_EDITORS.has(organizationMembershipId) && vertraege.id
+            ? [{ externalId: vertraege.id, resourceTypeSlug: 'folder' }]
+            : [],
       })),
     },
   }),
@@ -82,21 +93,15 @@ describe.skipIf(!url)('a closed project against Postgres', () => {
     featureFlags: null,
   })
 
-  async function insertFolder(name: string, grants: Array<[string, 'read' | 'write']> | null) {
+  /** A folder; with `list`, its own access list (who is on it is WorkOS's). */
+  async function insertFolder(name: string, list: { everyoneReads: boolean } | null) {
     const rows = await inTenant(() =>
       db.execute<{ id: string }>(sql`
-        WITH folder AS (
-          INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
-          VALUES (${ORG}, ${projectId}::uuid, NULL, ${name}, ${name}, ${grants ? 'custom' : 'inherit'},
-                  ${grants ? USER : null}, ${grants ? new Date().toISOString() : null}::timestamptz)
-          RETURNING id, project_id
-        ), listed AS (
-          INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-          SELECT ${ORG}, folder.project_id, folder.id, grant_row.role_slug, grant_row.level
-          FROM folder, jsonb_to_recordset(${JSON.stringify((grants ?? []).map(([role_slug, level]) => ({ role_slug, level })))}::jsonb)
-            AS grant_row(role_slug text, level text)
-        )
-        SELECT id FROM folder
+        INSERT INTO project_folders
+          (organization_id, project_id, parent_id, name, path, access_mode, everyone_reads, access_changed_by, access_changed_at)
+        VALUES (${ORG}, ${projectId}::uuid, NULL, ${name}, ${name}, ${list ? 'custom' : 'inherit'},
+                ${list?.everyoneReads ?? false}, ${list ? USER : null}, ${list ? new Date().toISOString() : null}::timestamptz)
+        RETURNING id
       `)
     )
     return firstId(rows)
@@ -138,11 +143,12 @@ describe.skipIf(!url)('a closed project against Postgres', () => {
         `)
       )
     )
-    //   Verträge/   Geschäftsführung: write   (restricted, its own collection)
-    //   Pläne/      *: read                    (every project member)
+    //   Verträge/   member, outsider: folder-editor   (restricted, its own collection)
+    //   Pläne/      everyone reads
     //   Verwaltung/ inherits
-    folder.vertraege = await insertFolder('Verträge', [['org-geschaeftsfuehrung', 'write']])
-    folder.plaene = await insertFolder('Pläne', [['*', 'read']])
+    folder.vertraege = await insertFolder('Verträge', { everyoneReads: false })
+    vertraege.id = folder.vertraege
+    folder.plaene = await insertFolder('Pläne', { everyoneReads: true })
     folder.verwaltung = await insertFolder('Verwaltung', null)
     await insertDocument('Lageplan.pdf', null)
     await insertDocument('Einreichplan.pdf', folder.plaene)
@@ -202,7 +208,7 @@ describe.skipIf(!url)('a closed project against Postgres', () => {
     ).rejects.toMatchObject({ status: 403, details: { reason: 'project-closed' } })
   })
 
-  it('never opens a folder with its own role list: not by closing, not by reopening', async () => {
+  it('never opens a folder with its own access list: not by closing, not by reopening', async () => {
     const before = {
       member: await listedFor('member'),
       outsider: await listedFor('outsider'),
@@ -211,9 +217,9 @@ describe.skipIf(!url)('a closed project against Postgres', () => {
     expect(before.member).toEqual(['Einreichplan.pdf', 'Lageplan.pdf', 'Protokoll.pdf', 'Werkvertrag.pdf'])
 
     await close()
-    // The member keeps exactly what their role gave them.
+    // The member keeps exactly what their folder role gave them.
     expect(await listedFor('member')).toEqual(before.member)
-    // The outsider holds the very role Verträge grants, and still does not see it.
+    // The outsider holds folder-editor on Verträge in WorkOS, and still does not see it.
     expect(await listedFor('outsider')).toEqual(['Einreichplan.pdf', 'Lageplan.pdf', 'Protokoll.pdf'])
     expect(await listedFor('plain')).toEqual(['Einreichplan.pdf', 'Lageplan.pdf', 'Protokoll.pdf'])
     const outsider = await access.getProjectFolderAccess(session('outsider'), projectId, COLLECTION)

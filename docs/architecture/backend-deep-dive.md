@@ -582,7 +582,8 @@ load-bearing:
   delete marks it and its subfolders `deleted_at` (the Papierkorb), purges their
   documents' chunks and keeps every row; the purge after
   `FOLDER_PURGE_GRACE_DAYS` erases the documents one by one and keeps the
-  folders as tombstones with their grants. Migration 0115's triggers refuse
+  folders as tombstones with their access lists (a folder with its own list
+  keeps its WorkOS folder resource, ADR-0097). Migration 0115's triggers refuse
   filing anything into a deleted folder, and its CHECK refuses a deleted Archiv
   folder. `folder-bin.integration.spec.ts` pins it against Postgres. An Archiv
   folder has no bin: `deleteShelfFolder` re-files its documents and child

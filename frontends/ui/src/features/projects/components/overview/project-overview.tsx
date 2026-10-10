@@ -35,9 +35,8 @@ import { ProjectStatusChip } from '@/components/projects/project-status'
 import type { SteckbriefView } from '@/lib/projects/steckbrief-types'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatBytes, formatDate } from '@/lib/format'
-import type { FolderWithoutRole, ProjectOverviewData } from '../../types'
+import type { ProjectOverviewData } from '../../types'
 import { settingsSectionHref } from '../../lib/settings-sections'
-import { FoldersWithoutRole } from '../folders-without-role'
 import { ProjectDeleteDialog } from '../project-delete-dialog'
 import { ProjectLifecycleCard } from '../project-lifecycle-card'
 import { ProjectRenameDialog } from '../project-rename-dialog'
@@ -67,12 +66,6 @@ export interface ProjectOverviewProps {
   activity: ProjectActivityView
   /** Null for a reader who may not see the project's spend. */
   usage: ProjectUsageView | null
-  /**
-   * Folders whose roles were deleted since (ADR-0088), for a project manager.
-   * Empty shows nothing; otherwise a warning sits above the grid, because a
-   * folder nobody can read is something to fix, not a figure to glance at.
-   */
-  foldersWithoutRole?: readonly FolderWithoutRole[]
   /** The Steckbrief (ADR-0091): period and people, what stays once the project closes. */
   steckbrief?: SteckbriefView
   /** Accounts a Steckbrief person may be linked to; empty unless the reader may edit it. */
@@ -90,7 +83,6 @@ export function ProjectOverview({
   data,
   activity,
   usage,
-  foldersWithoutRole = [],
   steckbrief,
   steckbriefAccounts = [],
   similar,
@@ -108,7 +100,6 @@ export function ProjectOverview({
   const steckbriefSpan: BentoSpan = access.changeStatus ? 'major' : 'wide'
   return (
     <div className="flex flex-col gap-4">
-      <FoldersWithoutRole projectId={id} folders={foldersWithoutRole} />
       <BentoGrid data-testid="project-overview">
         <HeroTile data={data} activity={activity} access={access} />
         <DocumentsTile

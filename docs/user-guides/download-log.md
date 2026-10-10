@@ -69,8 +69,9 @@ what staff opened. The page is **Organisation → Download-Protokoll**.
 **The permission clears no folder.** A row recorded in a folder the reader may
 not open shows „Name ausgeblendet“ instead of the document's name, and no folder
 path; who, when, what and the document's id are still there. In a closed
-project the reader is not a member of, no folder with its own list counts as
-open to them, whatever their roles, just as on the project's Files page.
+project the reader is not a member of, of the folders with their own list only
+those every project member reads count as open to them, even if a list names
+them, just as on the project's Files page.
 Organization admins see every name. A row whose project has since been deleted for good can no
 longer be checked against today's lists, so it goes by what was recorded: one
 logged under a folder with its own list keeps its name hidden from everyone but

@@ -28,7 +28,7 @@ installs and runs scripts here and is never the runtime: `--bun` exports
 | When you | You must | What fails you |
 |---|---|---|
 | Add an `app/api` route | Declare `authz` on the factory from `@/lib/api/handler` | `apiRoute` does not compile; `authz-coverage.spec.ts` |
-| Add a permission | `lib/authz/catalog.ts` first, then `bun run provision:authz --apply` against **every** environment | WorkOS drifts from the code. A project-tier permission that exists only in the catalog is held by nobody |
+| Add a permission | `lib/authz/catalog.ts`. The deploy applies it to its environment (Job `grid-app-authz-catalog`); a new **resource type** is a dashboard step per environment, before the deploy | WorkOS drifts from the code. A project-tier permission that exists only in the catalog is held by nobody |
 | Decide access | Check a permission through `lib/authz/decide.ts`, the single decision point. Adoption is incremental, so gates still call `hasPermission` / `requireProjectAccess` / `requirePlatformPermission` (ADR-0038 §6) | A role-name check breaks every custom role |
 | Create a table | `SELECT grid_secure_table('<table>','<predicate>');` in the same migration | `rls-coverage.spec.ts`, by name |
 | Read tenant rows | Context from `getGridSession()`, or state it (`withTenant`, `withPlatformAccess`, `withOptionalTenant`) | `internalApiRoute` does not compile |

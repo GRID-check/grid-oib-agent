@@ -131,12 +131,15 @@ rather than silently hiding them (spec SH-19) — an invite picker that omits a
 colleague with no explanation reads as a bug.
 
 For a conversation each candidate who could otherwise be invited (reachable, not
-yet in the room) also carries `lacksFolderAccess`: `true` when their roles do not
-reach every restricted folder the conversation drew on now (ADR-0088). The UI
-shows them disabled with „Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat
+yet in the room) also carries `lacksFolderAccess`: `true` when they may not read
+every restricted folder the conversation drew on now (ADR-0088): they hold no
+folder role on it and are not an organization admin (ADR-0097). The UI shows
+them disabled with „Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat
 stammt“ and never names the folder. At most 200 people are evaluated, a bounded
-number at a time against the membership roles cached for 60 s; anyone beyond
-that is reported as lacking access. Absent for a document.
+number at a time, each against their folder roles (cached for
+`GRID_AUTHZ_CACHE_TTL_MS`) and the membership roles behind the admin bypass
+(cached for 60 s); anyone beyond that, or whose lookup fails, is reported as
+lacking access. Absent for a document.
 
 Assignment (who is on the hook) does **not** use this endpoint. A project
 member who can assign is a `collaborator` on a project-visible document, not

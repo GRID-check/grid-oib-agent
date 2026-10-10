@@ -9,8 +9,10 @@
  *
  * `task db:test:rls` (scripts/rls-test-db.sh) builds that database and runs it.
  *
- * Who holds which WorkOS role is the one thing faked (`clearanceOfMember`);
- * the folder tree, the conversation, its grants and the record are real rows.
+ * Who holds which folder role in WorkOS is the one thing faked
+ * (`clearanceOfMember` for a member, `heldFolderLevels` for a session,
+ * ADR-0097); the folder tree, the conversation, its grants and the record are
+ * real rows.
  * What it proves:
  *   - a chat of a cleared member that never admits restricted content records
  *     nothing and can be shared with anyone;
@@ -54,18 +56,28 @@ const OTHER_ORG = `${ORG}_other`
 const OWNER = `user_ruse_owner_${STAMP}`
 /** Cleared for the restricted folder too. */
 const CLEARED = `user_ruse_cleared_${STAMP}`
-/** A project member holding no clearance role. */
+/** A project member holding no folder role. */
 const UNCLEARED = `user_ruse_uncleared_${STAMP}`
 
 /**
  * The WorkOS answer, per person. `pause` holds the NEXT lookup until released,
  * which is how the interleaving tests put a share inside an admission's window.
  */
-const roles = new Map<string, FolderClearance>([
-  [OWNER, { roles: ['org-gf'], seesEverything: false }],
-  [CLEARED, { roles: ['org-gf'], seesEverything: false }],
-])
+const holders = new Set<string>([OWNER, CLEARED])
+/** The folders whose list holds OWNER and CLEARED, as folder-editor: every custom folder made here. */
+const listed = new Set<string>()
+const levelsOfHolder = (): FolderClearance['levels'] =>
+  Object.fromEntries([...listed].map((folderId) => [folderId, 'write' as const]))
+/** A session's membership: `om_holder` holds the folder roles, any other holds none. */
+const HOLDER_MEMBERSHIP = 'om_holder'
 let pause: { reached: () => void; release: Promise<void> } | null = null
+
+vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn(async () => ['member']) }))
+vi.mock('@/lib/authz/folder-roles', () => ({
+  heldFolderLevels: vi.fn(async (_org: string, membershipId: string) =>
+    membershipId === HOLDER_MEMBERSHIP ? levelsOfHolder() : {}
+  ),
+}))
 
 vi.mock('@/lib/authz/folder-access', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/authz/folder-access')>()
@@ -78,7 +90,7 @@ vi.mock('@/lib/authz/folder-access', async (importOriginal) => {
         held.reached()
         await held.release
       }
-      return roles.get(userId) ?? { roles: [], seesEverything: false }
+      return { levels: holders.has(userId) ? levelsOfHolder() : {}, seesEverything: false }
     }),
   }
 })
@@ -113,9 +125,9 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     name: 'Owner',
     accessToken: 'token',
     organizationId: ORG,
-    organizationMembershipId: 'om_owner',
-    role: 'org-gf',
-    roles: ['org-gf'],
+    organizationMembershipId: HOLDER_MEMBERSHIP,
+    role: 'member',
+    roles: ['member'],
     permissions: [],
     featureFlags: null,
   }
@@ -194,23 +206,17 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
       )
     )
     projectId = String(project.id)
-    // One statement: the 0110 trigger checks at commit that a custom list is
-    // not empty, and every statement here commits on its own.
+    // A folder with its own list; who is on it is WorkOS's (`listed`).
     const [folder] = Array.from(
       await inOrg(ORG, () =>
         db.execute<{ id: string }>(sql`
-          with folder as (
-            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            values (${ORG}, ${projectId}::uuid, 'Verträge', 'Verträge', 'custom', ${OWNER}, now())
-            returning id, project_id
-          ), grants as (
-            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            select ${ORG}, project_id, id, 'org-gf', 'write' from folder
-          )
-          select id from folder`)
+          insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+          values (${ORG}, ${projectId}::uuid, 'Verträge', 'Verträge', 'custom', ${OWNER}, now())
+          returning id`)
       )
     )
     folderId = String(folder.id)
+    listed.add(folderId)
     restricted = folderAccess.restrictedCollectionName(collection, folderId)
   })
 
@@ -366,11 +372,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     expect(await reasonOf(shareWith(id, UNCLEARED))).toBe('restricted-content')
 
     // Everyone may read the folder now: nothing recorded restricts anyone.
-    await inOrg(ORG, () =>
-      db.execute(sql`
-        with gone as (delete from project_folder_grants where folder_id = ${folderId}::uuid)
-        update project_folders set access_mode = 'inherit' where id = ${folderId}::uuid`)
-    )
+    await inOrg(ORG, () => db.execute(sql`update project_folders set access_mode = 'inherit' where id = ${folderId}::uuid`))
     expect(await recorded(id)).toEqual([])
     const other = await chat()
     await inOrg(ORG, () =>
@@ -380,26 +382,18 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     )
     expect(await reasonOf(shareWith(other, UNCLEARED))).toBe('went through')
 
-    // Back to Geschäftsführung only: the same record restricts again, unrewritten.
-    await inOrg(ORG, () =>
-      db.execute(sql`
-        with listed as (
-          insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-          values (${ORG}, ${projectId}::uuid, ${folderId}::uuid, 'org-gf', 'write')
-        )
-        update project_folders set access_mode = 'custom' where id = ${folderId}::uuid`)
-    )
+    // Back to its own list: the same record restricts again, unrewritten.
+    await inOrg(ORG, () => db.execute(sql`update project_folders set access_mode = 'custom' where id = ${folderId}::uuid`))
     expect(await recorded(id)).toEqual([folderId])
     expect(await reasonOf(shareWith(id, UNCLEARED))).toBe('restricted-content')
   })
 
   describe('who may still read a chat that recorded the folder (ADR-0088)', () => {
-    /** The same people, with the roles WorkOS reports for them NOW. */
-    const withRoles = (userId: string, roleList: string[]): AuthorizedSession => ({
+    /** The same people, with the folder roles WorkOS reports for their membership NOW. */
+    const asHolder = (userId: string, holdsFolderRoles: boolean): AuthorizedSession => ({
       ...session,
       userId,
-      role: roleList[0] ?? '',
-      roles: roleList,
+      organizationMembershipId: holdsFolderRoles ? HOLDER_MEMBERSHIP : `om_${userId}`,
     })
 
     let own = ''
@@ -407,25 +401,20 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
       const [created] = Array.from(
         await inOrg(ORG, () =>
           db.execute<{ id: string }>(sql`
-            with folder as (
-              insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-              values (${ORG}, ${projectId}::uuid, 'Lesen', 'Lesen', 'custom', ${OWNER}, now())
-              returning id, project_id
-            ), grants as (
-              insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-              select ${ORG}, project_id, id, 'org-gf', 'write' from folder
-            )
-            select id from folder`)
+            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+            values (${ORG}, ${projectId}::uuid, 'Lesen', 'Lesen', 'custom', ${OWNER}, now())
+            returning id`)
         )
       )
       own = String(created.id)
+      listed.add(own)
     })
 
     /** Record that the chat drew on this block's folder. */
     const admitOwn = (conversationId: string) =>
       inOrg(ORG, () => use.admitSourceFolders({ organizationId: ORG, conversationId, userId: OWNER, projectId }, [own]))
 
-    it('locks the CREATOR and a grantee who lost the role, leaves the cleared one, and unlocks when the role is back', async () => {
+    it('locks the CREATOR and a grantee who lost the folder role, leaves the cleared one, and unlocks when it is back', async () => {
       // Shared only with a person cleared for it: an admission refuses a folder
       // somebody in the audience may not read, so this is the chat that has one.
       const id = await chat([CLEARED])
@@ -437,12 +426,12 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
       ]
       const locked = (who: AuthorizedSession) => inOrg(ORG, () => use.lockedConversationIds(who, asked))
 
-      expect([...(await locked(withRoles(OWNER, ['org-gf'])))]).toEqual([])
-      // The creator lost the role: ownership is not the right to read.
-      expect([...(await locked(withRoles(OWNER, ['member'])))]).toEqual([id])
-      expect([...(await locked(withRoles(UNCLEARED, ['member'])))]).toEqual([id])
+      expect([...(await locked(asHolder(OWNER, true)))]).toEqual([])
+      // The creator lost the folder role: ownership is not the right to read.
+      expect([...(await locked(asHolder(OWNER, false)))]).toEqual([id])
+      expect([...(await locked(asHolder(UNCLEARED, false)))]).toEqual([id])
       // Given back, with nothing rewritten, the chat opens again.
-      expect([...(await locked(withRoles(OWNER, ['org-gf'])))]).toEqual([])
+      expect([...(await locked(asHolder(OWNER, true)))]).toEqual([])
     })
 
     it('answers per person from the folder as it is now: tightened closes, loosened opens', async () => {
@@ -455,21 +444,10 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
 
       expect(await readers()).toEqual([CLEARED, OWNER].sort())
 
-      await inOrg(ORG, () =>
-        db.execute(sql`
-          with gone as (delete from project_folder_grants where folder_id = ${own}::uuid)
-          update project_folders set access_mode = 'inherit' where id = ${own}::uuid`)
-      )
+      await inOrg(ORG, () => db.execute(sql`update project_folders set access_mode = 'inherit' where id = ${own}::uuid`))
       expect(await readers()).toEqual([CLEARED, OWNER, UNCLEARED].sort())
 
-      await inOrg(ORG, () =>
-        db.execute(sql`
-          with listed as (
-            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            values (${ORG}, ${projectId}::uuid, ${own}::uuid, 'org-gf', 'write')
-          )
-          update project_folders set access_mode = 'custom' where id = ${own}::uuid`)
-      )
+      await inOrg(ORG, () => db.execute(sql`update project_folders set access_mode = 'custom' where id = ${own}::uuid`))
       expect(await readers()).toEqual([CLEARED, OWNER].sort())
     })
 
@@ -478,7 +456,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
       const b = await chat()
       await admitOwn(a)
       const read = (organizationId: string) =>
-        inOrg(organizationId, () => use.lockedConversationIds(withRoles(OWNER, ['member']), [{ id: a, projectId }, { id: b, projectId }]))
+        inOrg(organizationId, () => use.lockedConversationIds(asHolder(OWNER, false), [{ id: a, projectId }, { id: b, projectId }]))
 
       expect([...(await read(ORG))]).toEqual([a])
       // Another organization cannot read the record at all, so it cannot lock anything.

@@ -148,17 +148,11 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
   async function customFolder(projectId: string, name: string): Promise<string> {
     return first(
       await inOrg(ORG, () =>
-        // One statement: the 0110 trigger wants the list in the same commit.
+        // Its own list; who is on it is WorkOS's (ADR-0097).
         db.execute<{ id: string }>(sql`
-          with folder as (
-            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            values (${ORG}, ${projectId}::uuid, ${name}, ${name}, 'custom', ${USER}, now())
-            returning id, project_id
-          ), grants as (
-            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            select ${ORG}, project_id, id, 'org-gf', 'write' from folder
-          )
-          select id from folder`)
+          insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+          values (${ORG}, ${projectId}::uuid, ${name}, ${name}, 'custom', ${USER}, now())
+          returning id`)
       )
     )
   }

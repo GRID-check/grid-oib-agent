@@ -13,19 +13,23 @@
  * only the write and is not audited. Deleting is the Papierkorb's
  * (`folder-bin.integration.spec.ts`).
  *
+ * Who is on a list is the folder roles WorkOS reports for each membership
+ * (ADR-0097): `om-gf` (the session), `om-bh` (the reader), `om-hr` (nobody here).
+ *
  *   Verwaltung/           inherits
- *     Verträge/           org-gf: write, org-bh: read
+ *     Verträge/           gf: write, bh: read
  *       Alt/              inherits (narrowed by Verträge)
  *       Sub/              inherits (narrowed by Verträge)
- *         Geheim/         org-hr: write (the session may not read it)
+ *         Geheim/         hr: write (the session may not read it)
  *     Projektordner/      inherits
  *   Ablage/               inherits
- *   Honorare/             org-hr: write (the session may not read it)
+ *   Honorare/             hr: write (the session may not read it)
+ *   Statik/               everyone reads, gf: write
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
-import type { AccessFolder, FolderGrant } from '@/lib/authz/folder-access'
+import type { AccessFolder, FolderGrantLevel } from '@/lib/authz/folder-access'
 
 interface FolderRow {
   id: string
@@ -39,24 +43,34 @@ interface FolderRow {
 }
 
 const at = new Date('2026-10-01T00:00:00Z')
-const grantsOf = new Map<string, FolderGrant[]>()
-const folder = (id: string, name: string, path: string, parentId: string | null, grants: FolderGrant[] | null = null): FolderRow => {
-  if (grants) grantsOf.set(id, grants)
-  return { id, projectId: 'proj-1', parentId, name, path, accessMode: grants ? 'custom' : 'inherit', createdAt: at, updatedAt: at }
+/** Each custom folder's list: membership → the level of the folder role WorkOS has assigned it there. */
+type List = Record<string, FolderGrantLevel>
+const listOf = vi.hoisted(() => new Map<string, Record<string, 'read' | 'write'>>())
+/** The custom folders every project member reads. */
+const everyoneReads = vi.hoisted(() => new Set<string>())
+const folder = (
+  id: string,
+  name: string,
+  path: string,
+  parentId: string | null,
+  list: List | null = null,
+  readByEveryone = false
+): FolderRow => {
+  if (list) listOf.set(id, list)
+  if (readByEveryone) everyoneReads.add(id)
+  return { id, projectId: 'proj-1', parentId, name, path, accessMode: list ? 'custom' : 'inherit', createdAt: at, updatedAt: at }
 }
 
 const TREE = {
   verwaltung: folder('f-verwaltung', 'Verwaltung', 'Verwaltung', null),
-  vertraege: folder('f-vertraege', 'Verträge', 'Verwaltung/Verträge', 'f-verwaltung', [
-    { role: 'org-gf', level: 'write' },
-    { role: 'org-bh', level: 'read' },
-  ]),
+  vertraege: folder('f-vertraege', 'Verträge', 'Verwaltung/Verträge', 'f-verwaltung', { 'om-gf': 'write', 'om-bh': 'read' }),
   alt: folder('f-alt', 'Alt', 'Verwaltung/Verträge/Alt', 'f-vertraege'),
   sub: folder('f-sub', 'Sub', 'Verwaltung/Verträge/Sub', 'f-vertraege'),
-  geheim: folder('f-geheim', 'Geheim', 'Verwaltung/Verträge/Sub/Geheim', 'f-sub', [{ role: 'org-hr', level: 'write' }]),
+  geheim: folder('f-geheim', 'Geheim', 'Verwaltung/Verträge/Sub/Geheim', 'f-sub', { 'om-hr': 'write' }),
   projektordner: folder('f-projektordner', 'Projektordner', 'Verwaltung/Projektordner', 'f-verwaltung'),
   ablage: folder('f-ablage', 'Ablage', 'Ablage', null),
-  honorare: folder('f-honorare', 'Honorare', 'Honorare', null, [{ role: 'org-hr', level: 'write' }]),
+  honorare: folder('f-honorare', 'Honorare', 'Honorare', null, { 'om-hr': 'write' }),
+  statik: folder('f-statik', 'Statik', 'Statik', null, { 'om-gf': 'write' }, true),
 }
 const byId = new Map(Object.values(TREE).map((row) => [row.id, row]))
 
@@ -80,6 +94,7 @@ vi.mock('@/lib/authz/projects', () => ({
 // The decision runs for real over the tree below; only its reads are stubbed.
 vi.mock('@/lib/authz/folder-access-repository', () => ({
   listProjectDocumentCollections: vi.fn(async () => []),
+  projectHasCustomFolders: vi.fn(async () => true),
   projectHasCustomOrBinnedFolders: vi.fn(async () => true),
   listProjectFolderTree: vi.fn(
     async (): Promise<AccessFolder[]> =>
@@ -87,8 +102,15 @@ vi.mock('@/lib/authz/folder-access-repository', () => ({
         id,
         parentId,
         accessMode,
-        grants: grantsOf.get(id) ?? [],
+        everyoneReads: everyoneReads.has(id),
       }))
+  ),
+}))
+vi.mock('@/lib/authz/folder-roles', () => ({
+  heldFolderLevels: vi.fn(async (_org: string, membershipId: string) =>
+    Object.fromEntries(
+      [...listOf].flatMap(([folderId, list]) => (list[membershipId] ? [[folderId, list[membershipId]]] : []))
+    )
   ),
 }))
 
@@ -137,12 +159,13 @@ const session = {
   userId: 'user-1',
   email: 'pl@buero.at',
   organizationId: 'org-1',
-  role: 'org-gf',
-  roles: ['org-gf'],
+  organizationMembershipId: 'om-gf',
+  role: 'member',
+  roles: ['member'],
   permissions: [],
 } as unknown as AuthorizedSession
 /** May only read „Verträge“. */
-const reader = { ...session, role: 'org-bh', roles: ['org-bh'] } as unknown as AuthorizedSession
+const reader = { ...session, organizationMembershipId: 'om-bh' } as unknown as AuthorizedSession
 const WRITE_ONLY = ['project:documents:write']
 const MANAGER = ['project:documents:write', 'project:manage']
 
@@ -209,16 +232,31 @@ describe('moving a folder', () => {
     )
     expect(vi.mocked(recordAuditEvent).mock.calls[0][0].metadata).toEqual({
       folderId: TREE.projektordner.id,
-      grants: 'org-bh:read,org-gf:write',
-      roles: 'org-bh,org-gf',
+      // The folder that now governs it, by id: who is on its list is WorkOS's (ADR-0097).
+      grants: 'folder:f-vertraege',
+      roles: '',
+      documentsMoved: 3,
+    })
+  })
+
+  it('names a folder everyone reads with `+*` in what now governs the moved folder', async () => {
+    state.granted = new Set(MANAGER)
+    reads(TREE.projektordner, TREE.statik)
+
+    await updateProjectFolder({ projectId: 'proj-1', folderId: TREE.projektordner.id, parentId: TREE.statik.id }, session)
+
+    expect(vi.mocked(recordAuditEvent).mock.calls[0][0].metadata).toEqual({
+      folderId: TREE.projektordner.id,
+      grants: 'folder:f-statik+*',
+      roles: '',
       documentsMoved: 3,
     })
   })
 
   describe('a subtree holding a folder the mover cannot read', () => {
-    // Sub sits under Verträge (org-gf, org-bh) and holds Geheim, whose own list names org-hr only. The
-    // path's minimum leaves nobody reading Geheim. Taking Sub out from under Verträge makes org-hr read
-    // it, and the mover could not see what they changed.
+    // Sub sits under Verträge (gf, bh) and holds Geheim, whose own list names hr only. The path's
+    // minimum leaves nobody reading Geheim. Taking Sub out from under Verträge makes hr read it, and
+    // the mover could not see what they changed.
     it('refuses to move it out from under a restricting folder, even for a manager, and writes nothing', async () => {
       state.granted = new Set(MANAGER)
       reads(TREE.sub, TREE.ablage)
@@ -324,7 +362,7 @@ describe('a folder the session may only read (ADR-0088)', () => {
     expect(state.transactions).toBe(0)
   })
 
-  it('lets an organization admin change a folder whose list names none of their roles', async () => {
+  it('lets an organization admin change a folder whose list does not name them', async () => {
     const admin = { ...session, roles: [], role: 'admin', permissions: ['org:projects:administer'] } as unknown as AuthorizedSession
     reads(TREE.honorare)
     const result = await updateProjectFolder({ projectId: 'proj-1', folderId: TREE.honorare.id, name: 'Gehälter' }, admin)

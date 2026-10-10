@@ -1,18 +1,20 @@
 /**
- * Setting who may read and who may write a project folder (ADR-0088).
+ * Setting who may read and who may write a project folder (ADR-0088, ADR-0097).
  *
- * A folder inherits its parent's access, or has its own list: WorkOS roles
- * (and `*`, every project member), each with `read` or `write`. Nesting only
- * narrows (`effectiveFolderLevel`), so an own list on a subfolder can take
- * access away from what the parent gives and never add to it.
+ * A folder inherits its parent's access, or has its own list: people, each with
+ * `read` or `write`, and optionally „everyone in the project reads". The people
+ * are WorkOS's: the folder is a WorkOS `folder` resource and each of them holds
+ * a folder role on it (`./../authz/folder-roles`). Nesting only narrows
+ * (`effectiveFolderLevel`), so an own list on a subfolder can take access away
+ * from what the parent gives and never add to it.
  *
  * Who may change it: whoever manages the project (`project:manage`, which an
  * organization admin holds through `org:projects:administer`) AND may write the
  * folder. Changing its list is the strongest write there is on it: a manager
  * who could do it with only Lesen could give themselves Bearbeiten. One who may
  * not read the folder cannot see it, so cannot change it either. An
- * organization admin writes everywhere, which is what keeps a list naming a
- * role nobody holds from locking a folder away for good.
+ * organization admin writes everywhere, which is what keeps a list whose people
+ * have all left from locking a folder away for good.
  *
  * Writing the folder is also what keeps a change from granting the caller more
  * than they hold: the level on a folder is the minimum over its path, so
@@ -22,25 +24,29 @@
  * new tree puts them in (`./collection-placement`), so the change holds in
  * retrieval, not only in listings, before the request returns for every
  * document whose move succeeded. Changing who may only WRITE moves nothing.
+ *
+ * The order of the writes keeps every moment between the old list and the new
+ * one no wider than one of them: WorkOS first and the folder row last when a
+ * folder gets its own list, the folder row first and WorkOS last when it goes
+ * back to inheriting. Folder roles on a folder that inherits are never read.
+ * One change of a folder's list runs at a time: a transaction-scoped lock on
+ * the folder is held across the WorkOS writes, so two managers saving at once
+ * end with the second list, never the two combined.
  */
 
 import 'server-only'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { BadRequestError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { organizationRoleSlugs } from '@/lib/authz/custom-roles'
+import { folderReadOnlyError, getProjectFolderAccess, type FolderGrantLevel } from '@/lib/authz/folder-access'
 import {
-  clearanceOf,
-  computeFolderAccess,
-  customFolderNames,
-  EVERY_PROJECT_MEMBER,
-  folderReadOnlyError,
-  foldersWithoutValidRole,
-  getProjectFolderAccess,
-  loadCustomFolderTree,
-  type FolderGrant,
-} from '@/lib/authz/folder-access'
+  ensureFolderResource,
+  listFolderRoleHolders,
+  removeFolderResource,
+  replaceFolderRoleHolders,
+} from '@/lib/authz/folder-roles'
+import { resolveSubjectMembership } from '@/lib/authz/project-membership'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
@@ -49,125 +55,162 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { placeProjectDocuments, type PlacementResult } from './collection-placement'
 import { assertRestrictionKeepsIfcOpen } from './ifc-folder-guard'
 
-/** Most entries one folder's own list may hold; mirrors the 0110 constraint trigger. */
-export const FOLDER_ACCESS_MAX_GRANTS = 20
+/** Most people one folder's own list may name. A list longer than this is a group's job. */
+export const FOLDER_ACCESS_MAX_PEOPLE = 50
+
+/** One person on a folder's own list. */
+export interface FolderPersonGrant {
+  userId: string
+  level: FolderGrantLevel
+}
 
 /** A folder's access, as it is set. */
-export type FolderAccessSetting = { mode: 'inherit' } | { mode: 'custom'; grants: FolderGrant[] }
+export type FolderAccessSetting =
+  | { mode: 'inherit' }
+  | { mode: 'custom'; everyoneReads: boolean; people: FolderPersonGrant[] }
 
 export interface FolderAccessResult extends PlacementResult {
   folderId: string
   access: FolderAccessSetting
 }
 
-/** The audit form of a list: `role:level`, comma-joined, sorted. */
-export function describeGrants(grants: readonly FolderGrant[]): string {
-  return grants
-    .map((grant) => `${grant.role}:${grant.level}`)
-    .sort()
-    .join(',')
+/**
+ * The audit form of a list: `*:read` when everyone reads, then
+ * `user:<id>:<level>` per person, comma-joined and sorted. Kept in the
+ * `grants` field the role-based lists wrote, so the trail reads the same
+ * across the change and the registered audit schema stays as it is.
+ */
+export function describeAccess(access: FolderAccessSetting): string {
+  if (access.mode === 'inherit') return ''
+  const entries = access.people.map((person) => `user:${person.userId}:${person.level}`).sort()
+  return [...(access.everyoneReads ? ['*:read'] : []), ...entries].join(',')
+}
+
+interface ResolvedPerson {
+  userId: string
+  organizationMembershipId: string
+  level: FolderGrantLevel
 }
 
 /**
- * The list as it may be stored: one entry per role, 1 to
- * {@link FOLDER_ACCESS_MAX_GRANTS} of them, each a role of the organization or
- * `*`. A role named twice is refused rather than guessed at.
+ * The list as it may be set: each person once, at most
+ * {@link FOLDER_ACCESS_MAX_PEOPLE}, each a member of the organization. A list
+ * that names nobody and that everyone does not read is refused: only
+ * organization admins would read it, and inherit is the way to say "as the
+ * parent". A person named twice is refused rather than guessed at.
  */
-async function validatedGrants(organizationId: string, grants: readonly FolderGrant[]): Promise<FolderGrant[]> {
-  if (grants.length === 0) {
-    throw new BadRequestError('A folder with its own access list needs at least one entry')
+async function resolvedPeople(
+  organizationId: string,
+  access: Extract<FolderAccessSetting, { mode: 'custom' }>
+): Promise<ResolvedPerson[]> {
+  if (access.people.length === 0 && !access.everyoneReads) {
+    throw new BadRequestError('A folder with its own access list needs at least one person, or everyone reading it')
   }
-  if (grants.length > FOLDER_ACCESS_MAX_GRANTS) {
-    throw new BadRequestError(`A folder names at most ${FOLDER_ACCESS_MAX_GRANTS} roles`)
+  if (access.people.length > FOLDER_ACCESS_MAX_PEOPLE) {
+    throw new BadRequestError(`A folder names at most ${FOLDER_ACCESS_MAX_PEOPLE} people`)
   }
-  const roles = grants.map((grant) => grant.role)
-  if (new Set(roles).size !== roles.length) throw new BadRequestError('A role is listed twice')
-  const named = roles.filter((role) => role !== EVERY_PROJECT_MEMBER)
-  if (named.length > 0) {
-    // A slug that names nobody would lock the folder for everyone but the
-    // admins, and would do it silently.
-    const known = await organizationRoleSlugs(organizationId)
-    const unknown = named.filter((role) => !known.has(role))
-    if (unknown.length > 0) throw new BadRequestError(`Not a role of this organization: ${unknown.join(', ')}`)
-  }
-  return grants.map((grant) => ({ role: grant.role, level: grant.level }))
-}
-
-/** A folder whose own list names no role that exists any more. */
-export interface FolderWithoutValidRole {
-  id: string
-  name: string
+  const userIds = access.people.map((person) => person.userId)
+  if (new Set(userIds).size !== userIds.length) throw new BadRequestError('A person is listed twice')
+  const memberships = await Promise.all(userIds.map((userId) => resolveSubjectMembership(organizationId, userId)))
+  const unknown = userIds.filter((_userId, index) => !memberships[index])
+  if (unknown.length > 0) throw new BadRequestError(`Not a member of this organization: ${unknown.join(', ')}`)
+  return access.people.map((person, index) => ({
+    userId: person.userId,
+    organizationMembershipId: memberships[index]?.organizationMembershipId ?? '',
+    level: person.level,
+  }))
 }
 
 /**
- * The project's folders left without a valid role (ADR-0088): their own list
- * names only roles deleted from the organization since, so organization admins
- * are the only ones who read them. For the project settings to flag, with a
- * link to each.
- *
- * `project:manage`, and only the folders this session may itself see: a folder
- * nobody but admins reads is not named to a project admin who is not one. When
- * the roles cannot be listed (WorkOS unreachable) the answer is none, because
- * naming a folder an outage merely hid the role of would be a false alarm; the
- * next load asks again.
+ * Authorizes a change to `folderId`'s list and returns the project: needs
+ * `project:manage` and write on the folder (404 when the folder is not
+ * readable, a typed 403 when it is only readable).
  */
-export async function listFoldersWithoutValidRole(
-  session: AuthorizedSession,
-  projectId: string
-): Promise<FolderWithoutValidRole[]> {
+async function requireListManager(session: AuthorizedSession, projectId: string, folderId: string) {
   await requireProjectAccess(session, projectId, 'project:manage')
-  const folders = await loadCustomFolderTree(session.organizationId, projectId)
-  if (!folders) return []
-  const existing = await organizationRoleSlugs(session.organizationId).catch((error: unknown) => {
-    console.warn('[folder-access] cannot list the roles; flagging no folder:', error)
-    return null
-  })
-  if (!existing) return []
-  const orphaned = foldersWithoutValidRole(folders, existing)
-  if (orphaned.length === 0) return []
-  const access = computeFolderAccess(folders, await clearanceOf(session, projectId), '')
-  const names = await customFolderNames(session.organizationId, projectId)
-  return orphaned
-    .filter((folderId) => access.isVisible(folderId))
-    .map((folderId) => ({ id: folderId, name: names.get(folderId) ?? folderId }))
+  const project = await findProjectInOrg(projectId, session.organizationId)
+  if (!project) throw new NotFoundError('Project not found')
+  const current = await getProjectFolderAccess(session, projectId, project.collectionName)
+  if (!current.isVisible(folderId)) throw new NotFoundError('Folder not found')
+  // The level before the project ceiling: `project:manage` was asked above, and
+  // a manager is who this change is for.
+  if (current.levelOf(folderId) !== 'write') throw folderReadOnlyError()
+  return project
+}
+
+async function livingFolder(organizationId: string, projectId: string, folderId: string) {
+  const db = getDb()
+  const [folder] = await withTenant({ organizationId }, () =>
+    db
+      .select({ name: projectFolders.name, accessMode: projectFolders.accessMode, everyoneReads: projectFolders.everyoneReads })
+      .from(projectFolders)
+      .where(and(eq(projectFolders.id, folderId), eq(projectFolders.projectId, projectId), isNull(projectFolders.deletedAt)))
+      .limit(1)
+  )
+  if (!folder) throw new NotFoundError('Folder not found')
+  return folder
+}
+
+/**
+ * A folder's list as it is now, for whoever may change it: who holds a folder
+ * role on it, read from WorkOS. Same authorization as {@link setFolderAccess}:
+ * the names on a list are not for everyone who may open the folder.
+ */
+export async function getFolderAccess(
+  session: AuthorizedSession,
+  input: { projectId: string; folderId: string }
+): Promise<FolderAccessSetting> {
+  await requireListManager(session, input.projectId, input.folderId)
+  const folder = await livingFolder(session.organizationId, input.projectId, input.folderId)
+  if (folder.accessMode !== 'custom') return { mode: 'inherit' }
+  const holders = await listFolderRoleHolders(session.organizationId, input.folderId)
+  return {
+    mode: 'custom',
+    everyoneReads: folder.everyoneReads,
+    people: holders.map((holder) => ({ userId: holder.userId, level: holder.level })),
+  }
 }
 
 /**
  * Set a folder's access: inherit, or its own list. Needs `project:manage` and
- * write on the folder (404 when the folder is not readable, a typed 403 when
- * it is only readable). Refuses a role the organization does not have, an
- * empty list (inherit is the way to say "everyone, as the parent"), and a list
- * that would put an IFC model in a folder not every member may read.
+ * write on the folder. Refuses someone not in the organization, a list that
+ * names nobody and that everyone does not read, and a list that would put an
+ * IFC model in a folder not every member may read.
  */
 export async function setFolderAccess(
   session: AuthorizedSession,
   input: { projectId: string; folderId: string; access: FolderAccessSetting },
   request: Request
 ): Promise<FolderAccessResult> {
-  await requireProjectAccess(session, input.projectId, 'project:manage')
-  const project = await findProjectInOrg(input.projectId, session.organizationId)
-  if (!project) throw new NotFoundError('Project not found')
-  const current = await getProjectFolderAccess(session, input.projectId, project.collectionName)
-  if (!current.isVisible(input.folderId)) throw new NotFoundError('Folder not found')
-  // The level before the project ceiling: `project:manage` was asked above, and
-  // a manager is who this change is for.
-  if (current.levelOf(input.folderId) !== 'write') throw folderReadOnlyError()
-
-  const grants = input.access.mode === 'custom' ? await validatedGrants(session.organizationId, input.access.grants) : null
+  const { organizationId } = session
+  await requireListManager(session, input.projectId, input.folderId)
+  const folder = await livingFolder(organizationId, input.projectId, input.folderId)
+  const access = input.access
+  const people = access.mode === 'custom' ? await resolvedPeople(organizationId, access) : null
   // Folders not every member may read do not hold IFC models until their
   // building data is partitioned (ADR-0087): refused before anything changes.
-  await assertRestrictionKeepsIfcOpen(session.organizationId, input.projectId, input.folderId, grants)
+  await assertRestrictionKeepsIfcOpen(
+    organizationId,
+    input.projectId,
+    input.folderId,
+    access.mode === 'custom' ? access.everyoneReads : null
+  )
 
   const db = getDb()
-  const updated = await withTenant({ organizationId: session.organizationId }, () =>
-    // One transaction: the 0110 trigger checks at commit that a custom list is
-    // never empty, so the old list may go before the new one arrives.
+  const updated = await withTenant({ organizationId }, () =>
     db.transaction(async (tx) => {
-      await tx.delete(projectFolderGrants).where(eq(projectFolderGrants.folderId, input.folderId))
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${`folder_access:${organizationId}:${input.folderId}`}, 0))`
+      )
+      if (access.mode === 'custom' && people) {
+        await ensureFolderResource(organizationId, input.projectId, input.folderId, folder.name)
+        await replaceFolderRoleHolders(organizationId, input.projectId, input.folderId, people)
+      }
       const rows = await tx
         .update(projectFolders)
         .set({
-          accessMode: grants ? 'custom' : 'inherit',
+          accessMode: access.mode,
+          everyoneReads: access.mode === 'custom' && access.everyoneReads,
           accessChangedBy: session.userId,
           accessChangedAt: new Date(),
           updatedAt: new Date(),
@@ -180,38 +223,45 @@ export async function setFolderAccess(
           )
         )
         .returning({ id: projectFolders.id })
-      if (rows.length === 0 || !grants) return rows
-      await tx.insert(projectFolderGrants).values(
-        grants.map((grant) => ({
-          organizationId: session.organizationId,
-          projectId: input.projectId,
-          folderId: input.folderId,
-          roleSlug: grant.role,
-          level: grant.level,
-        }))
-      )
+      if (rows.length === 0) return rows
+      // A build before ADR-0097 decides from these rows. Left in place they
+      // would contradict the list now in WorkOS, so a rollback or an old pod in
+      // a rolling deploy would read the folder as it was before this change;
+      // without them it reads a custom folder as one nobody but admins may read.
+      await tx.delete(projectFolderGrants).where(eq(projectFolderGrants.folderId, input.folderId))
+      if (access.mode === 'inherit' && folder.accessMode === 'custom') {
+        // The row inherits from this commit on, so nothing reads the folder
+        // roles any more; a resource left behind by a failure here is harmless
+        // and is replaced the next time the folder gets its own list.
+        await removeFolderResource(organizationId, input.projectId, input.folderId).catch((error: unknown) => {
+          console.warn(`[folder-access] folder ${input.folderId} inherits again; its WorkOS resource stays:`, error)
+        })
+      }
       return rows
     })
   )
   if (updated.length === 0) throw new NotFoundError('Folder not found')
 
-  const placement = await placeProjectDocuments(session.organizationId, input.projectId)
+  const placement = await placeProjectDocuments(organizationId, input.projectId)
+  const stored: FolderAccessSetting =
+    access.mode === 'custom' && people
+      ? { mode: 'custom', everyoneReads: access.everyoneReads, people: people.map(({ userId, level }) => ({ userId, level })) }
+      : { mode: 'inherit' }
   await recordAuditEvent({
-    organizationId: session.organizationId,
+    organizationId,
     actor: { userId: session.userId, email: session.email },
     action: 'project.folder.access_changed',
     targetType: 'project',
     targetId: input.projectId,
     metadata: {
       folderId: input.folderId,
-      mode: grants ? 'custom' : 'inherit',
-      grants: grants ? describeGrants(grants) : '',
-      // The roles alone, as the first, role-only design named them, so a reader of the
-      // trail across the change finds the same field.
-      roles: (grants ?? []).map((grant) => grant.role).join(','),
+      mode: stored.mode,
+      grants: describeAccess(stored),
+      // Role-based lists named roles here; a list of people names none.
+      roles: '',
       documentsMoved: placement.moved,
     },
     request,
   })
-  return { folderId: input.folderId, access: grants ? { mode: 'custom', grants } : { mode: 'inherit' }, ...placement }
+  return { folderId: input.folderId, access: stored, ...placement }
 }

@@ -3,19 +3,23 @@
  * ADR-0088) — the one place that decides.
  *
  * A folder either inherits its parent's access (`accessMode: 'inherit'`; a root
- * folder inherits the project) or has its own access list (`'custom'`): grants
- * of `read` or `write` to WorkOS role slugs, and `*` for every project member.
- * A role not listed gets nothing.
+ * folder inherits the project) or has its own access list (`'custom'`): a
+ * WorkOS `folder` resource on which people hold a folder role that reads or
+ * writes (ADR-0097, `./folder-roles`), and optionally „everyone in the project
+ * reads" (`everyoneReads`). Someone without a folder role on it gets nothing,
+ * or read when everyone reads.
  *
  * ONE rule over a path, {@link effectiveFolderLevel}: the level on a folder is
  * the minimum over the folder and every ancestor that has its own list, so a
- * subfolder can be narrower than its parent and never wider. Organization
+ * subfolder can be narrower than its parent and never wider. WorkOS answers
+ * who holds what on each folder; the walk is ours, because WorkOS only adds
+ * access down a tree and cannot narrow it. Organization
  * admins (`org:projects:administer`) write everywhere. The project permission
  * is the ceiling for writing ({@link withProjectCeiling}): a project viewer
  * granted `write` on a folder still only reads.
  *
  * Retrieval keys on READ. A folder that not every project member can read — a
- * custom list without `*` — gets its own collection
+ * custom list that everyone does not read — gets its own collection
  * ({@link restrictedCollectionName}), and a document lives in the collection
  * of its NEAREST such folder. Only a session that may read that folder gets the
  * collection in its signed scope. Write never affects retrieval.
@@ -34,7 +38,7 @@
 
 import 'server-only'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
-import { rolesOf, type AuthorizedSession } from '@/lib/auth/types'
+import type { AuthorizedSession } from '@/lib/auth/types'
 import { hasPermission, ORG_PERMISSIONS } from './permissions'
 import { orgRoleHoldsPermission } from './org-role-permissions'
 import { resolveMembershipRoles } from '@/lib/auth/membership-roles'
@@ -47,14 +51,17 @@ import {
   listCustomFolderNames,
   listProjectFolderTree,
   listProjectsWithCustomOrBinnedFolders,
+  projectHasCustomFolders,
   projectHasCustomOrBinnedFolders,
 } from './folder-access-repository'
+import { heldFolderLevels } from './folder-roles'
 import {
   ANY_MEMBER,
   atLeast,
   computeFolderAccess,
   DOCUMENT_WRITE_PERMISSIONS,
   effectiveFolderLevel,
+  EVERY_FOLDER,
   folderReadOnlyError,
   folderTree,
   OPEN_ACCESS,
@@ -78,50 +85,57 @@ async function anyRoleAdministers(organizationId: string, roles: readonly string
 }
 
 /**
- * The session's roles and admin bypass before any project narrows them. Only
- * the bypass holds without a project ({@link seesEveryFolder}); the roles clear
- * a folder only through {@link clearanceOf}, in the folder's project.
- */
-async function organizationClearanceOf(session: AuthorizedSession): Promise<FolderClearance> {
-  const roles = rolesOf(session)
-  const current = await resolveMembershipRoles(session.organizationId, session.userId)
-  return current === null
-    ? { roles, seesEverything: hasPermission(session, ORG_PERMISSIONS.projectsAdminister) }
-    : { roles, seesEverything: await anyRoleAdministers(session.organizationId, current) }
-}
-
-/**
  * Whether the session clears every folder of every project, closed or not:
  * the admin bypass, which is the one part of a clearance no project changes.
  * What decides a row whose project is purged, so that no list can answer now.
+ *
+ * Read from the same membership the session's roles come from, at most a
+ * minute old (`resolveMembershipRoles`, then what those roles hold), not from
+ * the token's `permissions` claim: the token lives until it is refreshed, so an
+ * admin demoted in the People tab kept reading and writing every folder for
+ * that long. Only when WorkOS cannot be asked is the token's claim the answer.
  */
 export async function seesEveryFolder(session: AuthorizedSession): Promise<boolean> {
-  return (await organizationClearanceOf(session)).seesEverything
+  const current = await resolveMembershipRoles(session.organizationId, session.userId)
+  return current === null
+    ? hasPermission(session, ORG_PERMISSIONS.projectsAdminister)
+    : anyRoleAdministers(session.organizationId, current)
 }
 
 /**
- * What clears folders for this session in one project: its roles and the admin
- * bypass.
- *
- * The bypass comes from the same membership the roles do, at most a minute old
- * (`resolveMembershipRoles`, then what those roles hold), not from the token's
- * `permissions` claim. The token lives until it is refreshed, so an admin
- * demoted in the People tab kept reading and writing every folder for that
- * long. Only when WorkOS cannot be asked is the token's claim the answer, as it
- * is for the roles.
+ * The level a membership holds on each folder of `projectId` with its own
+ * list. No WorkOS call for a project with no such folder, which is nearly every
+ * project: one indexed probe instead.
+ */
+async function folderLevelsIn(
+  organizationId: string,
+  organizationMembershipId: string | null,
+  projectId: string
+): Promise<FolderClearance['levels']> {
+  if (!organizationMembershipId) return {}
+  if (!(await projectHasCustomFolders(organizationId, projectId))) return {}
+  return heldFolderLevels(organizationId, organizationMembershipId, projectId)
+}
+
+/**
+ * What clears folders for this session in one project: the folder roles WorkOS
+ * has assigned its membership there (ADR-0097), and the admin bypass
+ * ({@link seesEveryFolder}).
  *
  * Someone who reads a CLOSED project only because it is closed (ADR-0090: every
- * organization member may) clears what a member holding no role clears: the
- * folders open to everyone, and no folder with its own role list. Their roles
- * were never matched against this project's grants before it closed, and
- * closing must not start doing so. Hence the project in the signature: a
- * clearance is always a clearance in some project.
+ * organization member may) clears what a member holding no folder role clears:
+ * the folders open to everyone, and no folder with its own list. Closing a
+ * project opens it to the office, not its restricted folders. Hence the project
+ * in the signature: a clearance is always a clearance in some project.
  */
 export async function clearanceOf(session: AuthorizedSession, projectId: string): Promise<FolderClearance> {
-  const clearance = await organizationClearanceOf(session)
-  if (clearance.seesEverything) return clearance
+  if (await seesEveryFolder(session)) return EVERY_FOLDER
   const outsider = await readsOnlyBecauseClosed(session.organizationId, projectId, session.organizationMembershipId)
-  return outsider ? ANY_MEMBER : clearance
+  if (outsider) return ANY_MEMBER
+  return {
+    levels: await folderLevelsIn(session.organizationId, session.organizationMembershipId, projectId),
+    seesEverything: false,
+  }
 }
 
 /**
@@ -209,8 +223,8 @@ export async function isFolderVisibleTo(
 
 /**
  * {@link isFolderVisibleTo} for someone who is not the session: a member the
- * BFF is deciding about on its own (who to notify), from the roles WorkOS
- * reports for their membership.
+ * BFF is deciding about on its own (who to notify), from the folder roles
+ * WorkOS reports for their membership ({@link clearanceOfMember}).
  */
 export async function isFolderVisibleToClearance(
   organizationId: string,
@@ -226,7 +240,7 @@ export async function isFolderVisibleToClearance(
 
 /**
  * Which of `userIds` may read `folderId` (null: the project root) now, each by
- * the roles WorkOS reports for their membership. For a caller that picks other
+ * the folder roles WorkOS reports for their membership. For a caller that picks other
  * people for something filed in a folder (who is asked to review a version):
  * someone who may not open the folder cannot open what they were asked about.
  * Reads the tree once, and not at all for the root or a project with no own
@@ -312,7 +326,7 @@ export async function placementCollectionFor(
   if (folderId === null) return projectCollection
   const folders = await loadCustomFolderTree(organizationId, projectId)
   if (!folders) return projectCollection
-  return computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection).collectionFor(folderId)
+  return computeFolderAccess(folders, EVERY_FOLDER, projectCollection).collectionFor(folderId)
 }
 
 /**
@@ -328,8 +342,7 @@ export async function currentRestrictedCollections(
   const folders = await loadCustomFolderTree(organizationId, projectId)
   if (!folders) return []
   return [
-    ...computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection)
-      .clearedRestrictedCollections,
+    ...computeFolderAccess(folders, EVERY_FOLDER, projectCollection).clearedRestrictedCollections,
   ]
 }
 
@@ -345,11 +358,12 @@ export async function customFolderNames(organizationId: string, projectId: strin
 
 /**
  * What clears folders in `projectId` for a member who is not the session:
- * someone a conversation is shared with, or the asker of an agent turn. Read
- * from the roles WorkOS reports for their membership (cached for at most a
- * minute), and fails closed: no membership, or a lookup that failed, clears
- * nothing. In a closed project they read only because it is closed, they clear
- * what a member with no role clears ({@link clearanceOf}).
+ * someone a conversation is shared with, or the asker of an agent turn. The
+ * admin bypass from the roles WorkOS reports for their membership, and
+ * otherwise the folder roles it holds in the project (ADR-0097). Fails closed:
+ * no membership, or a lookup that failed, clears nothing. In a closed project
+ * they read only because it is closed, they clear what a member with no folder
+ * role clears ({@link clearanceOf}).
  */
 export async function clearanceOfMember(
   organizationId: string,
@@ -358,13 +372,15 @@ export async function clearanceOfMember(
 ): Promise<FolderClearance> {
   const roles = await resolveMembershipRoles(organizationId, userId)
   if (!roles || roles.length === 0) return ANY_MEMBER
-  const clearance = { roles, seesEverything: await anyRoleAdministers(organizationId, roles) }
-  if (clearance.seesEverything) return clearance
-  const project = await findProjectTenancy(projectId)
-  if (!isProjectClosed(project)) return clearance
+  if (await anyRoleAdministers(organizationId, roles)) return EVERY_FOLDER
   const membership = await resolveSubjectMembership(organizationId, userId)
-  const outsider = await readsOnlyBecauseClosed(organizationId, projectId, membership?.organizationMembershipId ?? null)
-  return outsider ? ANY_MEMBER : clearance
+  const membershipId = membership?.organizationMembershipId ?? null
+  if (!membershipId) return ANY_MEMBER
+  const project = await findProjectTenancy(projectId)
+  if (isProjectClosed(project) && (await readsOnlyBecauseClosed(organizationId, projectId, membershipId))) {
+    return ANY_MEMBER
+  }
+  return { levels: await folderLevelsIn(organizationId, membershipId, projectId), seesEverything: false }
 }
 
 /**
@@ -459,7 +475,7 @@ export async function sourceFoldersOfCollections(
   if (collections.length === 0) return found
   const folders = await loadCustomFolderTree(organizationId, projectId)
   if (!folders) return found
-  const access = computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection)
+  const access = computeFolderAccess(folders, EVERY_FOLDER, projectCollection)
   for (const collection of collections) {
     const folderId = access.sourceFolderOf(collection)
     if (folderId) found.set(collection, folderId)

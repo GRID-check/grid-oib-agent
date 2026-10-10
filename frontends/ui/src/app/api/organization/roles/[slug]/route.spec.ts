@@ -2,9 +2,8 @@
  * @vitest-environment node
  */
 /**
- * Deleting a custom role that folders name (ADR-0088): the route passes the
- * caller's confirmation on to the service and nothing else, and the usage route
- * is the service's answer verbatim. The rule itself is `custom-roles.spec.ts`.
+ * Deleting a custom role: the route hands the slug to the service and answers
+ * its refusal as it is. The rule itself is `custom-roles.spec.ts`.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,16 +17,14 @@ vi.mock('server-only', () => ({}))
 const roles = vi.hoisted(() => ({
   deleteCustomRole: vi.fn(),
   updateCustomRole: vi.fn(),
-  getCustomRoleUsage: vi.fn(),
 }))
 vi.mock('@/lib/authz/custom-roles', () => roles)
 
 import { ConflictError } from '@/lib/api/errors'
 import { DELETE } from './route'
-import { GET as getUsage } from './usage/route'
 
 const context = { params: Promise.resolve({ slug: 'org-geschaeftsfuehrung' }) }
-const url = (query = ''): string => `https://grid.test/api/organization/roles/org-geschaeftsfuehrung${query}`
+const url = 'https://grid.test/api/organization/roles/org-geschaeftsfuehrung'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -42,53 +39,26 @@ beforeEach(() => {
 })
 
 describe('DELETE /api/organization/roles/[slug]', () => {
-  it('does not confirm by default: a role folders name is refused until the caller says it saw them', async () => {
-    await DELETE(new Request(url(), { method: 'DELETE' }), context)
-
-    expect(roles.deleteCustomRole).toHaveBeenCalledWith(expect.anything(), 'org-geschaeftsfuehrung', expect.any(Request), {
-      confirmFolders: false,
-    })
-  })
-
-  it('passes the confirmation on with ?confirmFolders=1', async () => {
-    const response = await DELETE(new Request(url('?confirmFolders=1'), { method: 'DELETE' }), context)
+  it('deletes the role named in the path, with nothing to confirm', async () => {
+    const response = await DELETE(new Request(url, { method: 'DELETE' }), context)
 
     expect(response.status).toBe(200)
-    expect(roles.deleteCustomRole).toHaveBeenCalledWith(expect.anything(), 'org-geschaeftsfuehrung', expect.any(Request), {
-      confirmFolders: true,
-    })
+    expect(await response.json()).toEqual({ slug: 'org-geschaeftsfuehrung' })
+    expect(roles.deleteCustomRole).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user_ua' }),
+      'org-geschaeftsfuehrung',
+      expect.any(Request)
+    )
   })
 
-  it('refuses any other value for it: a typo is not a confirmation', async () => {
-    const response = await DELETE(new Request(url('?confirmFolders=yes'), { method: 'DELETE' }), context)
-
-    expect(response.status).toBe(400)
-    expect(roles.deleteCustomRole).not.toHaveBeenCalled()
-  })
-
-  it('answers the 409 with its reason and the count', async () => {
+  it('answers a role somebody still holds with 409 and its reason', async () => {
     roles.deleteCustomRole.mockRejectedValue(
-      new ConflictError('Folders still name this role.', { slug: 'org-geschaeftsfuehrung', reason: 'role-used-by-folders', total: 3 })
+      new ConflictError('This role is still assigned.', { slug: 'org-geschaeftsfuehrung', reason: 'role-assigned' })
     )
 
-    const response = await DELETE(new Request(url(), { method: 'DELETE' }), context)
+    const response = await DELETE(new Request(url, { method: 'DELETE' }), context)
 
     expect(response.status).toBe(409)
-    expect(await response.json()).toMatchObject({ details: { reason: 'role-used-by-folders', total: 3 } })
-  })
-})
-
-describe('GET /api/organization/roles/[slug]/usage', () => {
-  it('returns the folders that name the role, as the service says', async () => {
-    roles.getCustomRoleUsage.mockResolvedValue({ total: 1, folders: [{ folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd', deleted: null }] })
-
-    const response = await getUsage(new Request(`${url()}/usage`), context)
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
-      total: 1,
-      folders: [{ folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd', deleted: null }],
-    })
-    expect(roles.getCustomRoleUsage).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user_ua' }), 'org-geschaeftsfuehrung')
+    expect(await response.json()).toMatchObject({ details: { reason: 'role-assigned' } })
   })
 })

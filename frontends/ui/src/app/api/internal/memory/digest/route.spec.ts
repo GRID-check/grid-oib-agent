@@ -17,11 +17,13 @@ vi.mock('@/lib/projects/memory-service', () => ({
 
 vi.mock('@/lib/documents/review-decisions', () => ({ buildReviewDecisionsBlock: vi.fn() }))
 vi.mock('@/lib/authz/folder-access', () => ({
-  ANY_MEMBER: { roles: [], seesEverything: false },
-  clearanceOfMember: vi.fn(async () => ({ roles: ['org-gf'], seesEverything: false })),
-  // Every member reads OPEN; the asker (org-gf) reads OPEN and SECRET.
-  readableFolderIdsFor: vi.fn(async (_org: string, _project: string, clearance: { roles: string[] }) =>
-    clearance.roles.includes('org-gf') ? ['folder-open', 'folder-secret'] : ['folder-open']
+  ANY_MEMBER: { levels: {}, seesEverything: false },
+  // The asker holds a folder role on SECRET (ADR-0097).
+  clearanceOfMember: vi.fn(async () => ({ levels: { 'folder-secret': 'read' }, seesEverything: false })),
+  // Every member reads OPEN; the asker reads OPEN and SECRET.
+  readableFolderIdsFor: vi.fn(
+    async (_org: string, _project: string, clearance: { levels: Record<string, 'read' | 'write'> }) =>
+      clearance.levels['folder-secret'] ? ['folder-open', 'folder-secret'] : ['folder-open']
   ),
 }))
 vi.mock('@/lib/conversations/restricted-use', () => ({

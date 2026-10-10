@@ -83,9 +83,9 @@ const document = (overrides: Partial<LoggedDocument> = {}): LoggedDocument => ({
 
 /** Folders: Verträge has its own list, Anhänge below it inherits, Allgemein inherits. */
 const tree = () => [
-  { id: FOLDER, parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'write' }] },
-  { id: CHILD, parentId: FOLDER, accessMode: 'inherit', grants: [] },
-  { id: OPEN_FOLDER, parentId: null, accessMode: 'inherit', grants: [] },
+  { id: FOLDER, parentId: null, accessMode: 'custom', everyoneReads: false },
+  { id: CHILD, parentId: FOLDER, accessMode: 'inherit', everyoneReads: false },
+  { id: OPEN_FOLDER, parentId: null, accessMode: 'inherit', everyoneReads: false },
 ]
 
 beforeEach(() => {
@@ -97,7 +97,7 @@ beforeEach(() => {
   getOrgSettings.mockResolvedValue({ displayName: null, defaultLocale: 'de', settings: {} })
   resolvePeople.mockResolvedValue(new Map())
   // An organization admin: clears every folder.
-  clearanceOf.mockResolvedValue({ roles: ['admin'], seesEverything: true })
+  clearanceOf.mockResolvedValue({ levels: {}, seesEverything: true })
   seesEveryFolder.mockResolvedValue(true)
 })
 
@@ -338,7 +338,7 @@ describe('the admin view', () => {
     const openRow = () => ({ ...row(3), folderId: OPEN_FOLDER, folderPath: 'Allgemein', documentName: 'Plan.pdf', ownList: false })
     const restrictedRow = () => ({ ...row(2), folderId: CHILD, folderPath: 'Verträge/Anhänge', documentName: 'Gehaltsliste.xlsx' })
     beforeEach(() => {
-      clearanceOf.mockResolvedValue({ roles: ['org-revision'], seesEverything: false })
+      clearanceOf.mockResolvedValue({ levels: {}, seesEverything: false })
       seesEveryFolder.mockResolvedValue(false)
     })
 
@@ -355,8 +355,8 @@ describe('the admin view', () => {
       expect(page.entries[1]).toMatchObject({ documentId: 'doc-1', kind: 'preview', folderId: CHILD, ownList: true })
     })
 
-    it('names it once a role on the list clears them, and reads the folder tree once per project', async () => {
-      clearanceOf.mockResolvedValue({ roles: ['org-gf'], seesEverything: false })
+    it('names it once a folder role on the list clears them, and reads the folder tree once per project', async () => {
+      clearanceOf.mockResolvedValue({ levels: { [FOLDER]: 'write' }, seesEverything: false })
       listAccessLog.mockResolvedValue([openRow(), restrictedRow()])
 
       const page = await listDownloadLog(viewer(), {}, request())
@@ -365,12 +365,12 @@ describe('the admin view', () => {
       expect(loadCustomFolderTree).toHaveBeenCalledTimes(1)
     })
 
-    it('decides each row by the clearance in its own project: a closed one clears an outsider as a member with no role', async () => {
+    it('decides each row by the clearance in its own project: a closed one clears an outsider as a member with no folder role', async () => {
       const CLOSED = '77777777-7777-4777-8777-777777777777'
-      // The Geschäftsführung role, which Verträge grants. In the closed project
-      // the viewer reads only because it is closed, so it clears no list there (ADR-0090).
+      // A folder role on Verträge. In the closed project the viewer reads only
+      // because it is closed, so it clears no list there (ADR-0090).
       clearanceOf.mockImplementation(async (_session: AuthorizedSession, projectId: string) =>
-        projectId === CLOSED ? { roles: [], seesEverything: false } : { roles: ['org-gf'], seesEverything: false }
+        projectId === CLOSED ? { levels: {}, seesEverything: false } : { levels: { [FOLDER]: 'write' }, seesEverything: false }
       )
       listAccessLog.mockResolvedValue([restrictedRow(), { ...restrictedRow(), projectId: CLOSED, projectName: 'Altbau' }])
 
@@ -457,7 +457,7 @@ describe('the admin view', () => {
         ['Plan.pdf', false],
       ])
 
-      clearanceOf.mockResolvedValue({ roles: ['admin'], seesEverything: true })
+      clearanceOf.mockResolvedValue({ levels: {}, seesEverything: true })
       expect((await listDownloadLog(viewer(), {}, request())).entries[0]).toMatchObject({
         documentName: 'Gehaltsliste.xlsx',
         nameWithheld: false,
