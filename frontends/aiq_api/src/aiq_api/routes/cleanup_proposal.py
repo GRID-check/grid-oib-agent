@@ -23,6 +23,7 @@ from fastapi import Header
 
 from aiq_agent.common import provider_limiter
 from aiq_agent.common.openrouter import limited_async_http_client
+from aiq_agent.observability.direct_trace import observed_generation
 
 from ..models.requests import CleanupCandidate
 from ..models.requests import CleanupDocumentFacts
@@ -143,10 +144,16 @@ def add_cleanup_proposal_routes(router: APIRouter) -> None:
 
         try:
             # A person waits on the close dialog, so the call queues as interactive (ADR-0081).
-            async with limited_async_http_client(cls=provider_limiter.INTERACTIVE, timeout=60.0) as client:
+            async with (
+                observed_generation(
+                    "cleanup-proposal", model=cred.model, messages=payload.get("messages")
+                ) as generation,
+                limited_async_http_client(cls=provider_limiter.INTERACTIVE, timeout=60.0) as client,
+            ):
                 response = await client.post(f"{cred.base_url}/chat/completions", json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
+                generation.finish(data)
             content = data["choices"][0]["message"]["content"]
         except httpx.HTTPError as exc:
             logger.warning("Cleanup proposal LLM call failed: %s", type(exc).__name__)
