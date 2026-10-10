@@ -46,6 +46,9 @@ const TOOL_LABEL_KEYS: Record<string, string> = {
   ris_lookup_tool: 'ris',
   ris_catalog_lookup_tool: 'ris',
   knowledge_search: 'corpus',
+  // The office's other projects (ADR-0094): the live line says „in anderen
+  // Projekten“, and the settled Herleitung must still say the chat left its own.
+  project_lookup: 'otherProjects',
   read_passage: 'reading',
   ifc_query: 'model',
   ifc_measure: 'measure',

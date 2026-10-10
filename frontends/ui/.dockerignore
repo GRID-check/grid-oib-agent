@@ -58,3 +58,4 @@ TODO.md
 .vercel/
 .cache/
 *.cache
+dist-scripts/

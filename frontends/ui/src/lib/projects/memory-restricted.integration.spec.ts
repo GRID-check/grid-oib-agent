@@ -18,6 +18,9 @@
  *     tightening one closes them, with no row rewritten;
  *   - the write stores a current restricted collection as its source folder,
  *     and refuses a collection that is not a current restricted one;
+ *   - a restricted note keeps the memory judge's verdict, and the 0117 CHECK
+ *     refuses one on an open note, where it would tell any member the chat
+ *     could list a restricted folder;
  *   - the card decisions of a conversation that drew on a restricted folder stay
  *     out of the project-wide PROPOSAL_DECISIONS block.
  *
@@ -87,17 +90,11 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       folderIds.push(
         firstId(
           await inTenant(() =>
-            // One statement: the 0110 trigger wants the list in the same commit.
+            // Its own list; who is on it is WorkOS's (ADR-0097).
             db.execute<{ id: string }>(sql`
-              with folder as (
-                insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-                values (${ORG}, ${projectId}::uuid, ${folder}, ${folder}, 'custom', ${USER}, now())
-                returning id, project_id
-              ), grants as (
-                insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-                select ${ORG}, project_id, id, 'org-gf', 'write' from folder
-              )
-              select id from folder`)
+              insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+              values (${ORG}, ${projectId}::uuid, ${folder}, ${folder}, 'custom', ${USER}, now())
+              returning id`)
           )
         )
       )
@@ -347,6 +344,44 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       expect(cleared).not.toContain('Bauleitung')
     })
 
+    it('recalls a restricted note by meaning only for a reader who may read all of its folders', async () => {
+      // The embedder runs (`/v1/note-embeddings`), so recall ranks by vector: a
+      // query aimed straight at the restricted notes, sharing none of their words.
+      const { projectId, restricted } = await seedProject('meaning')
+      const vectors: Record<string, number[]> = {
+        'Offene Notiz zur Fassade': [0, 1, 0, 0],
+        'Nur Verträge: Honorar pauschal vereinbart': [1, 0, 0, 0],
+        'Verträge und Personal: Bauleitung durch Frau M.': [0.9, 0.1, 0, 0],
+        'payment terms': [1, 0, 0, 0],
+      }
+      vi.mocked(embedNote).mockImplementation(async (text: string) => {
+        const key = Object.keys(vectors).find((content) => text.includes(content))
+        return key ? { vector: vectors[key], fingerprint: 'meaning' } : null
+      })
+      await write(projectId, 'Offene Notiz zur Fassade')
+      await write(projectId, 'Nur Verträge: Honorar pauschal vereinbart', [restricted[0]])
+      await write(projectId, 'Verträge und Personal: Bauleitung durch Frau M.', [restricted[0], restricted[1]])
+      expect((await rowsOf(projectId)).every((row) => row.embeddingModel === 'meaning')).toBe(true)
+
+      const recall = (cleared: string[]) =>
+        inTenant(() =>
+          memory.buildProjectMemoryDigest(projectId, ORG, {
+            query: 'payment terms',
+            readableFolderIds: cleared,
+            admitRestricted: async (ids) => new Set(ids),
+          })
+        )
+
+      const uncleared = await recall([])
+      expect(uncleared).toContain('Offene Notiz zur Fassade')
+      expect(uncleared).not.toContain('Honorar')
+      expect(uncleared).not.toContain('Bauleitung')
+      const half = await recall([restricted[0]])
+      expect(half).toContain('Honorar')
+      expect(half).not.toContain('Bauleitung')
+      expect(await recall([...restricted])).toContain('Bauleitung')
+    })
+
     it('reaches a hidden note by id for nobody: update and delete answer as if it were missing', async () => {
       const { projectId, restricted } = await seedProject('by_id')
       const secret = await write(projectId, 'Honorarnotiz', [restricted[0]])
@@ -372,20 +407,13 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
 
       // Opened to every member: the note is everyone's now.
       await inTenant(() =>
-        db.execute(sql`
-          with gone as (delete from project_folder_grants where folder_id = ${restricted[0]}::uuid)
-          update project_folders set access_mode = 'inherit' where id = ${restricted[0]}::uuid`)
+        db.execute(sql`update project_folders set access_mode = 'inherit' where id = ${restricted[0]}::uuid`)
       )
       expect((await asMember()).map((item) => item.id)).toEqual([note.id])
 
       // Narrowed again: closed again, the same row unchanged.
       await inTenant(() =>
-        db.execute(sql`
-          with listed as (
-            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            values (${ORG}, ${projectId}::uuid, ${restricted[0]}::uuid, 'org-gf', 'read')
-          )
-          update project_folders set access_mode = 'custom' where id = ${restricted[0]}::uuid`)
+        db.execute(sql`update project_folders set access_mode = 'custom' where id = ${restricted[0]}::uuid`)
       )
       expect(await asMember()).toEqual([])
       expect((await rowsOf(projectId)).find((row) => row.id === note.id)?.restrictedFolderIds).toEqual([restricted[0]])
@@ -397,14 +425,16 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       await inTenant(() =>
         db.execute(sql`update project_folders set deleted_at = now(), deleted_by = ${USER} where id = ${restricted[0]}::uuid`)
       )
-      const readable = (roles: string[]) =>
-        folderAccess.readableFolderIdsFor(ORG, projectId, { roles, seesEverything: false })
-      const listed = async (roles: string[]) =>
+      // Someone holding the folder role on it, as WorkOS reports it (ADR-0097), and someone holding none.
+      const listed = async (levels: Record<string, 'read' | 'write'>) =>
         inTenant(async () =>
-          memory.listProjectMemory(projectId, { organizationId: ORG, readableFolderIds: await readable(roles) })
+          memory.listProjectMemory(projectId, {
+            organizationId: ORG,
+            readableFolderIds: await folderAccess.readableFolderIdsFor(ORG, projectId, { levels, seesEverything: false }),
+          })
         )
-      expect(await listed([])).toEqual([])
-      expect(await listed(['org-gf'])).toHaveLength(1)
+      expect(await listed({})).toEqual([])
+      expect(await listed({ [restricted[0]]: 'write' })).toHaveLength(1)
     })
   })
 
@@ -430,6 +460,27 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
           })
         )
       ).rejects.toThrow(/Not a restricted collection of this project/)
+    })
+
+    it('keeps the judge\'s verdict on a restricted note, and the CHECK refuses one on an open note', async () => {
+      const { projectId, collections } = await seedProject('judged')
+      const stored = await inTenant(() =>
+        memory.createProjectMemoryItemForProject(projectId, {
+          kind: 'decision',
+          content: 'Vom Modell eingeschränkt',
+          restrictedCollections: [collections[1]],
+          restrictionJudge: 'drawn',
+        })
+      )
+      expect(stored?.restrictionJudge).toBe('drawn')
+
+      const onOpenNote = () =>
+        inTenant(() =>
+          db.execute(sql`
+            insert into project_memory (scope, project_id, organization_id, kind, content, restriction_judge)
+            values ('project', ${projectId}::uuid, ${ORG}, 'decision', 'Offen, aber beurteilt', 'none')`)
+        )
+      expect(await failureOf(onOpenNote)).toContain('project_memory_restriction_judge_check')
     })
   })
 

@@ -104,15 +104,17 @@ export const organization = {
     access: { download: 'Download', open: 'Opened' },
     columns: { when: 'When', person: 'Person', action: 'What', document: 'Document', place: 'Where' },
     place: {
-      archiv: 'Archive',
+      archiv: 'Office filing',
       session: 'Chat attachment',
       project: 'Project',
       root: 'Project root',
       ownList: 'Own access list',
       projectGone: 'Project no longer exists',
       folderGone: 'Folder no longer exists',
+      folderWithheld: 'a folder you may not read',
     },
     unknownPerson: 'No longer in the organization',
+    nameWithheld: 'Name withheld: you may not read this folder',
     version: 'Version {id}',
     empty: 'Nothing recorded for these filters.',
     emptyHint: 'Downloads are recorded everywhere; opening a document only in folders with their own access list.',
@@ -171,6 +173,7 @@ export const organization = {
       org: 'Organization',
       project: 'Project',
       skill: 'Skill schedule',
+      folder: 'Folder',
       platform: 'Platform',
     },
     // The gate here is `org:members:manage`, NOT org admin — borrowing the
@@ -184,23 +187,23 @@ export const organization = {
   },
   /**
    * Personen & Zugriff → Eigene Rollen (ADR-0087): roles an office builds in
-   * WorkOS, assigned on the People tab, named by restricted folders.
+   * WorkOS and assigns on the People tab.
    */
   customRoles: {
     title: 'Custom roles',
     description:
       'Roles your office builds itself, beside Piloti’s. A role bundles permissions under a name such as “Management”.',
     howTo:
-      'You assign roles to people on the People tab. A project folder can be restricted to one or more roles: then only people holding one of them see the folder, its documents and what Piloti answers from them. Organization admins always see everything.',
+      'You assign roles to people on the People tab, and they apply across the organization. Who may see a single project folder is set on the folder, under “Access…”, person by person.',
     oneRoleTitle: 'One role per person',
     oneRoleBody:
-      'Unless your organization has multiple roles per person switched on, everyone holds exactly one role. A role you use for folders must then also carry the permissions its holders work with.',
+      'Unless your organization has multiple roles per person switched on, everyone holds exactly one role. A custom role must then carry every permission its holders work with.',
     create: 'New role',
     customGroup: 'Your office’s roles',
     environmentGroup: 'Piloti’s roles',
     environmentHint: 'Provided by Piloti for every organization. They cannot be changed here.',
     emptyTitle: 'No custom roles yet',
-    emptyDescription: 'Create a role such as “Management” to restrict folders to the people who hold it.',
+    emptyDescription: 'Create a role such as “Management” to bundle permissions under one name.',
     permissionCount: '{count, plural, one {# permission} other {# permissions}}',
     editRole: 'Edit role “{name}”',
     deleteRole: 'Delete role “{name}”',
@@ -238,19 +241,9 @@ export const organization = {
     },
     deleteDialog: {
       title: 'Delete the role “{name}”?',
-      description:
-        'A role can only be deleted once nobody holds it. A folder restricted to this role alone is then visible to organization admins only.',
+      description: 'A role can only be deleted once nobody holds it.',
       confirm: 'Delete role',
       deleted: 'Role “{name}” deleted.',
-      /** Folders whose own access list names the role (ADR-0088): shown before the deletion is confirmed. */
-      foldersCount: '{count, plural, one {# folder names} other {# folders name}} this role in its access list:',
-      foldersEffect:
-        'After the deletion those lists match nobody: only organization admins can read these folders until a valid role is set. The project settings list them under “Folders without a valid role”.',
-      foldersMore: 'and {count} more',
-      foldersNamesHidden: 'Only organization admins see which folders these are.',
-      confirmAnyway: 'Delete anyway',
-      usageError: 'Which folders use this role could not be checked. Please try again.',
-      usedByFoldersNow: 'Folders now use this role. Review the list and confirm again.',
       stillAssigned: 'Somebody still holds this role. Give them another role on the People tab first.',
       error: 'The role could not be deleted. Please try again.',
     },
@@ -266,8 +259,8 @@ export const organization = {
         hint: 'Who downloaded which document. Reading it is itself recorded.',
       },
       archiv_manage: {
-        name: 'Manage the Archiv',
-        hint: 'Upload, delete and re-read documents in the office Archiv. Everyone can read it.',
+        name: 'Manage Office filing',
+        hint: 'Upload, delete and re-read documents in Office filing. Everyone can read it.',
       },
       skills_manage: {
         name: 'Manage skills',
@@ -531,7 +524,7 @@ export const organization = {
     overQuota: 'Quota reached — new uploads are refused until space is freed',
     nearQuota: 'Almost full — new uploads will soon be refused',
     projectDocuments: 'Project documents',
-    archivDocuments: 'Organization Archiv',
+    archivDocuments: 'Office filing',
     /** Count-neutral: a scope with exactly one document renders this too. */
     documentCount: 'Documents: {count}',
     /** The per-file upload limit, read-only; `size` is formatted with its unit. */
@@ -612,6 +605,30 @@ export const organization = {
     open: 'View audit logs',
     error: 'Could not open the audit log viewer.',
   },
+  /** Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0088). */
+  deletedFolderContent: {
+    title: 'Content from deleted folders',
+    description:
+      'Who sees chats, answers and notes drawn from a folder once it is permanently deleted. Applies at once, to folders already deleted too.',
+    options: {
+      unchanged: 'Visible as before',
+      project: 'Visible to everyone in the project',
+      admins: 'Admins only',
+      remove: 'Remove with the folder',
+    },
+    hints: {
+      unchanged: 'Whoever could read the folder keeps seeing them, with the note “Source deleted on …”.',
+      project: 'Every project member sees them, with the same note.',
+      admins: 'Only organization admins see them.',
+      remove: 'The permanent deletion removes them too: notes deleted, answers replaced by “Content removed”.',
+    },
+    retentionNote:
+      'How long derived content stays once its source is deleted is your organization’s choice, made here.',
+    saved: 'Saved.',
+    saveError: 'The setting could not be saved. Please try again.',
+    loadError: 'The setting could not be loaded.',
+    readOnly: 'Only organization admins can change this.',
+  },
   /** Sensitive data: the lists Piloti checks every upload against (ADR-0086). */
   screening: {
     title: 'Screening list',
@@ -661,10 +678,13 @@ export const organization = {
     emptyHint: 'When the content check holds a file back, it appears here. You see the files you may release.',
     whereProject: 'Project {name}',
     whereProjectUnknown: 'A project',
-    whereArchiv: 'Archiv',
+    whereArchiv: 'Office filing',
     whereSession: 'Chat attachment',
     reasonsLabel: 'Reasons',
     noReason: 'Reason could not be read',
+    unscreened: 'Not checked: the file could not be read to the end. It stays held back until someone releases it.',
+    open: 'View',
+    openTitle: 'Open “{name}” where it is filed',
     release: 'Release',
     releaseTitle: 'Release “{name}”?',
     releaseDescription:

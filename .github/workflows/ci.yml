@@ -515,7 +515,7 @@ jobs:
           cache-dependency-path: packages/ifc-spatial/package-lock.json
       # Keyed on the package's OWN uv.lock: the root one would restore an
       # environment this suite never uses (IfcOpenShell + shapely wheels).
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
           cache-dependency-glob: packages/ifc-spatial-py/uv.lock

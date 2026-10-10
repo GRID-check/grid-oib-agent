@@ -42,7 +42,7 @@ export default function PageSheetDevPage(): JSX.Element {
       <PageSheet
         open={open}
         onOpenChange={setOpen}
-        title="Archiv"
+        title="Office filing"
         subtitle="Documents the whole organization shares, independent of any project."
         closeLabel="Close"
         bodyClassName="overflow-y-auto"

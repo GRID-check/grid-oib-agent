@@ -4,6 +4,7 @@ import { projects, documents } from '@/lib/db/schema'
 import type { ProjectOverviewData } from '@/features/projects/types'
 import { getApplicableStandards } from '@/lib/oib/applicable-standards'
 import { outsideHiddenFolders } from '@/lib/documents/repository'
+import { documentVisibleTo, type ShelfReader } from '@/lib/documents/visibility'
 
 export interface ProjectOverviewReader {
   /**
@@ -13,6 +14,13 @@ export interface ProjectOverviewReader {
    * folder's documents to everyone who can open the project.
    */
   hiddenFolderIds: readonly string[]
+  /**
+   * How this person reads the project (ADR-0086), from `shelfReaderFor`: a
+   * member or a reviewer of its quarantine. Required for the same reason as
+   * the key above: a held file is not there for anyone else, by name or in a
+   * number.
+   */
+  reader: ShelfReader
 }
 
 /**
@@ -25,12 +33,13 @@ export interface ProjectOverviewReader {
  *
  * The count, the total size and the recent list leave out the documents of
  * every folder hidden from the reader, as the document list does: a fee note
- * a member may not open must not appear here by name, nor move a number.
+ * a member may not open must not appear here by name, nor move a number. The
+ * same holds for a held file the reader neither uploaded nor reviews.
  */
 export async function getProjectOverviewData(
   projectId: string,
   organizationId: string,
-  { hiddenFolderIds }: ProjectOverviewReader
+  { hiddenFolderIds, reader }: ProjectOverviewReader
 ): Promise<ProjectOverviewData | null> {
   const db = getDb()
 
@@ -39,6 +48,8 @@ export async function getProjectOverviewData(
       id: projects.id,
       name: projects.name,
       collectionName: projects.collectionName,
+      status: projects.status,
+      closedAt: projects.closedAt,
       createdAt: projects.createdAt,
       profile: projects.profile,
       profileDisplay: projects.profileDisplay,
@@ -77,7 +88,8 @@ export async function getProjectOverviewData(
         // must be an invariant, not a coincidence — which is why migration 0049
         // also writes it into the table.
         eq(documents.scope, 'project'),
-        ...outsideHiddenFolders(hiddenFolderIds)
+        ...outsideHiddenFolders(hiddenFolderIds),
+        documentVisibleTo(reader)
       )
     )
 
@@ -100,7 +112,8 @@ export async function getProjectOverviewData(
         // that could show a row the count above excluded (or the reverse) is a
         // page that contradicts itself.
         eq(documents.scope, 'project'),
-        ...outsideHiddenFolders(hiddenFolderIds)
+        ...outsideHiddenFolders(hiddenFolderIds),
+        documentVisibleTo(reader)
       )
     )
     .orderBy(desc(documents.createdAt))
@@ -115,6 +128,8 @@ export async function getProjectOverviewData(
     id: project.id,
     name: project.name,
     collectionName: project.collectionName,
+    status: project.status,
+    closedAt: project.closedAt ? new Date(project.closedAt).toISOString() : null,
     createdAt: project.createdAt.toISOString(),
     profileDisplay: project.profileDisplay
       ? {

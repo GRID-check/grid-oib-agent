@@ -116,11 +116,24 @@ def index_rows(readme: Path, errors: list[str]) -> dict[str, str]:
     and the check passes while readers see contradictory statuses.
     """
     rows: dict[str, str] = {}
-    for m in INDEX_ROW_RE.finditer(readme.read_text(encoding="utf-8")):
+    text = readme.read_text(encoding="utf-8")
+    previous = 0
+    for m in INDEX_ROW_RE.finditer(text):
         name, status = m.group(2).strip(), m.group(4).strip()
         if name in rows:
             errors.append(f"docs/adr/README.md: {name} has more than one index row.")
         rows[name] = status
+        # A row is read wherever it stands, so one pasted above the intro or
+        # out of turn would pass while the rendered table never shows it there.
+        line_before = text[: m.start()].rstrip("\n").rpartition("\n")[2]
+        if not line_before.startswith("|"):
+            errors.append(f"docs/adr/README.md: the row for {name} stands outside the index table.")
+        number = int(m.group(1))
+        if number < previous:
+            errors.append(
+                f"docs/adr/README.md: the row for {name} comes after {previous:04d}; keep the index in order."
+            )
+        previous = max(previous, number)
     return rows
 
 

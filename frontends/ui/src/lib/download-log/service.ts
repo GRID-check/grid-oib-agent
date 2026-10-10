@@ -30,16 +30,39 @@
  *
  * ## Who reads it
  *
- * Holders of `org:downloads:view` (organization admins), and every read is
- * recorded in the audit trail BEFORE the rows are read, with the emitter that
- * throws: no record, no data.
+ * Holders of `org:downloads:view`: organization admins, and any custom role
+ * given it (it is an organization-tier permission). Every read is recorded in
+ * the audit trail BEFORE the rows are read, with the emitter that throws: no
+ * record, no data.
+ *
+ * The permission clears no folder. A row logged in a folder the viewer may not
+ * read now is shown without the document's name and the folder's path
+ * (`nameWithheld`); its person, time, kind and document id stay. A name filter
+ * matches only rows whose name the viewer may read, and the database applies
+ * that before the page's limit (`ReadableFolders`, `./repository`): a row
+ * dropped after it would still shape the page's length and its cursor, so
+ * typing a name could probe a restricted folder after all. The audit event says
+ * that a name filter was set, never its text: the text may be a restricted
+ * name, and the trail is read by roles that are not cleared for it.
  */
 
 import 'server-only'
+import type { ProjectStatus } from '@/lib/projects/project-status'
 import { BadRequestError, ForbiddenError, ServiceUnavailableError } from '@/lib/api/errors'
 import { recordAuditEvent, recordAuditEventOrThrow } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { folderTree, isUnderOwnList, loadCustomFolderTree } from '@/lib/authz/folder-access'
+import {
+  atLeast,
+  clearanceOf,
+  effectiveFolderLevel,
+  folderTree,
+  isUnderOwnList,
+  loadCustomFolderTree,
+  readableFoldersOfRestrictedProjects,
+  seesEveryFolder,
+  type FolderClearance,
+  type FolderTree,
+} from '@/lib/authz/folder-access'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import type { Document } from '@/lib/db/schema'
 import { documentDisplayName } from '@/lib/documents/display-name'
@@ -63,6 +86,7 @@ import {
   type AccessLogCursor,
   type AccessLogFilter,
   type AccessLogRow,
+  type ReadableFolders,
 } from './repository'
 
 /** What the log needs of a document row. */
@@ -173,12 +197,18 @@ export interface DownloadLogEntry {
   scope: AccessLogRow['scope']
   projectId: string | null
   projectName: string | null
+  /** `closed`: the file's project is closed (ADR-0090), said beside its name. */
+  projectStatus: ProjectStatus | null
   documentId: string
-  documentName: string
+  /** Null when {@link DownloadLogEntry.nameWithheld}. */
+  documentName: string | null
   versionId: string | null
   folderId: string | null
+  /** Null when the folder is gone, or when {@link DownloadLogEntry.nameWithheld}. */
   folderPath: string | null
   ownList: boolean
+  /** The viewer may not read the folder the row was logged in: its name and the folder's path are left out. */
+  nameWithheld: boolean
 }
 
 export interface DownloadLogPage {
@@ -230,11 +260,68 @@ function auditMetadata(filter: AccessLogFilter, continued: boolean) {
   return {
     userId: filter.userId,
     documentId: filter.documentId,
-    documentName: filter.documentName,
+    // That a name was typed, not the text: it may be a restricted document's name.
+    nameFiltered: filter.documentName ? true : undefined,
     kind: filter.kind,
     from: filter.from?.toISOString(),
     to: filter.to?.toISOString(),
     continued,
+  }
+}
+
+/**
+ * Which rows of a page the viewer may read the folder of, by their clearance
+ * now. A row on no project folder (the root, the Archiv, a chat) is readable.
+ * Folder trees are read once per project, and the clearance only when a
+ * project on the page has a folder with its own list or in the Papierkorb, or
+ * a row cannot be decided now. A folder the tree no longer holds is not
+ * readable (`effectiveFolderLevel`).
+ *
+ * A row whose folder is gone with its project (a purged project leaves no
+ * folder rows, so no tree and no path) cannot be decided by today's lists: it
+ * is decided by the record. One logged under its own list is readable only to
+ * someone who sees every folder.
+ */
+async function folderReadableBy(
+  session: AuthorizedSession,
+  rows: readonly AccessLogRow[]
+): Promise<(row: AccessLogRow) => boolean> {
+  const filed = (row: AccessLogRow): row is AccessLogRow & { projectId: string; folderId: string } =>
+    row.scope === 'project' && row.projectId !== null && row.folderId !== null
+  const projectIds = [...new Set(rows.filter(filed).map((row) => row.projectId))]
+  const trees = new Map<string, FolderTree>()
+  for (const projectId of projectIds) {
+    const folders = await loadCustomFolderTree(session.organizationId, projectId)
+    if (folders) trees.set(projectId, folderTree(folders))
+  }
+  const gone = (row: AccessLogRow & { projectId: string }) =>
+    !trees.has(row.projectId) && row.folderPath === null && row.ownList
+  const undecided = new Set(rows.flatMap((row) => (filed(row) && gone(row) ? [row.projectId] : [])))
+  if (trees.size === 0 && undecided.size === 0) return () => true
+  // A clearance is one project's (ADR-0090: a closed project clears someone
+  // who reads it only because it is closed as a member with no role).
+  const clearances = new Map<string, FolderClearance>()
+  for (const projectId of new Set([...trees.keys(), ...undecided])) {
+    clearances.set(projectId, await clearanceOf(session, projectId))
+  }
+  return (row) => {
+    if (!filed(row)) return true
+    const tree = trees.get(row.projectId)
+    const clearance = clearances.get(row.projectId)
+    if (!tree || !clearance) return !gone(row) || clearance?.seesEverything === true
+    return atLeast(effectiveFolderLevel(tree, clearance, row.folderId), 'read')
+  }
+}
+
+/**
+ * What a name filter is narrowed to: the folders the viewer may read now, in
+ * every project where a folder hides something, as the database applies it
+ * before the limit. The same decision {@link folderReadableBy} takes for a page.
+ */
+async function readableFoldersOf(session: AuthorizedSession): Promise<ReadableFolders> {
+  return {
+    folderIds: await readableFoldersOfRestrictedProjects(session),
+    recordedListReadable: await seesEveryFolder(session),
   }
 }
 
@@ -262,16 +349,22 @@ export async function listDownloadLog(
     request,
   })
 
+  // A name filter must not answer for a name the viewer may not read, or its
+  // hits would say what a restricted folder holds. Narrowed in the query, so
+  // the rows it leaves out shape neither the page nor its cursor.
+  const named = filter.documentName ? { ...filter, readable: await readableFoldersOf(session) } : null
   const [rows, settings] = await Promise.all([
-    listAccessLog(filter, cursor, limit + 1),
+    listAccessLog(named ?? filter, cursor, limit + 1),
     getOrgSettings(session.organizationId),
   ])
   const page = rows.slice(0, limit)
+  const readable = named ? () => true : await folderReadableBy(session, page)
   const people = await resolvePeople(session.organizationId, [...new Set(page.map((row) => row.userId))])
 
   return {
     entries: page.map((row) => {
       const person = people.get(row.userId)
+      const nameWithheld = !readable(row)
       return {
         id: row.id,
         occurredAt: row.occurredAt.toISOString(),
@@ -282,12 +375,14 @@ export async function listDownloadLog(
         scope: row.scope,
         projectId: row.projectId,
         projectName: row.projectName,
+        projectStatus: row.projectStatus,
         documentId: row.documentId,
-        documentName: row.documentName,
+        documentName: nameWithheld ? null : row.documentName,
         versionId: row.versionId,
         folderId: row.folderId,
-        folderPath: row.folderPath,
+        folderPath: nameWithheld ? null : row.folderPath,
         ownList: row.ownList,
+        nameWithheld,
       }
     }),
     nextCursor: rows.length > limit ? encodeCursor(page[page.length - 1].cursor) : null,

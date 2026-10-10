@@ -1221,7 +1221,7 @@ def lane_for_hit(
     """(stratum_key, human label) for a retrieval/citation hit — display tagging only.
 
     Strata match the product's data placement: Baurecht (authority: registry law +
-    OIB corpus), Projektwissen (project/session collections), Büroarchiv (org
+    OIB corpus), Projektwissen (project/session collections), Büroablage (org
     archiv), Web. Unknown inputs land in ("web", "Web") fail-open.
 
     An explicit, human-set ``doc_class`` (the "Dokumentart") is FIRST priority:
@@ -1229,7 +1229,7 @@ def lane_for_hit(
     url heuristic below. This is the authoritative signal the filename guess only
     approximates. The one exception is the DEFAULT class on a user's own shelf:
     ``sonstiges`` is what ingestion stamps on a file nobody classified, and on a
-    project, session or Büroarchiv document it says nothing a person decided —
+    project, session or Büroablage document it says nothing a person decided —
     it must not turn the user's plan into a "Basisdokument" in law blue.
 
     ``shelf`` is the shelf the caller knows the hit came from; without it the
@@ -1239,7 +1239,7 @@ def lane_for_hit(
     (``common/provenance.py``), and it outranks everything else here — the
     doc_class included. A published Piloti document is filed on the project or
     the Archiv shelf like any other document, so every rule below would place
-    it as Projektwissen or Büroarchiv and lose the one fact a reader must not
+    it as Projektwissen or Büroablage and lose the one fact a reader must not
     miss; and a doc_class stamped on it by ingest would place it in the norm
     hierarchy, in law blue, under the ``"Baurecht"`` label fallback. Who wrote
     a document is not a guess any of those signals can overturn.
@@ -1262,7 +1262,7 @@ def lane_for_hit(
             lane_key = DOCUMENT_CLASS_LANES[doc_class]
             return (lane_key, _LANE_LABELS.get(lane_key, "Baurecht"))
     if known_shelf is Shelf.ARCHIV:
-        return ("buero", "Büroarchiv")
+        return ("buero", "Büroablage")
     if known_shelf is Shelf.PROJECT:
         return ("projekt", "Projektwissen")
     if known_shelf is Shelf.SESSION:
@@ -1300,7 +1300,7 @@ def lane_for_knowledge_hit(
     """:func:`lane_for_hit` for a hit that came from the KNOWLEDGE LAYER.
 
     Identical, except that such a hit can never be Web. A retrieved document is
-    by definition something we hold — a project upload, the Büroarchiv, the base
+    by definition something we hold — a project upload, the Büroablage, the base
     corpus — so ``("web", "Web")`` is not a classification, it is the fail-open
     value meaning "none of the signals matched" (no doc_class, no recognizable
     collection prefix, no OIB filename). Those land in Projektwissen.

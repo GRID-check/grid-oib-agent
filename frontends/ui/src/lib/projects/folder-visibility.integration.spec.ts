@@ -16,6 +16,7 @@
 
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { REVIEWER_READER } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 
@@ -38,25 +39,15 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
   const inTenant = <T>(run: () => Promise<T>): Promise<T> => withTenant({ organizationId: ORG, userId: USER }, run)
   const firstId = (rows: Iterable<{ id: string }>): string => String(Array.from(rows)[0]?.id)
 
-  /**
-   * A folder whose own list grants each of `roleSlugs` write, or one that inherits (null); one statement for the 0110 trigger.
-   * The slugs travel as one array literal: drizzle spreads a JS array into a parameter list, and an empty one into `()`.
-   */
-  async function insertFolder(name: string, parentId: string | null, path: string, roleSlugs: string[] | null) {
+  /** A folder with its own list everyone does not read (`restricted`), or one that inherits. Who is on a list is WorkOS's (ADR-0097). */
+  async function insertFolder(name: string, parentId: string | null, path: string, restricted: boolean) {
     return firstId(
       await inTenant(() =>
         db.execute<{ id: string }>(sql`
-          WITH folder AS (
-            INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
-            VALUES (${ORG}, ${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${roleSlugs ? 'custom' : 'inherit'},
-                    ${roleSlugs ? USER : null}, ${roleSlugs ? new Date().toISOString() : null}::timestamptz)
-            RETURNING id, project_id
-          ), listed AS (
-            INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            SELECT ${ORG}, folder.project_id, folder.id, slug, 'write'
-            FROM folder, unnest(${`{${(roleSlugs ?? []).join(',')}}`}::text[]) AS slug
-          )
-          SELECT id FROM folder
+          INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
+          VALUES (${ORG}, ${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${restricted ? 'custom' : 'inherit'},
+                  ${restricted ? USER : null}, ${restricted ? new Date().toISOString() : null}::timestamptz)
+          RETURNING id
         `)
       )
     )
@@ -106,9 +97,9 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
     )
     //   Lageplan.pdf             (root, 100 bytes)
     //   Verwaltung/              (open)    Protokoll.pdf (200)
-    //     Verträge/              (org-gf)  Honorarvertrag.pdf (4000)
-    folder.verwaltung = await insertFolder('Verwaltung', null, 'Verwaltung', null)
-    folder.vertraege = await insertFolder('Verträge', folder.verwaltung, 'Verwaltung/Verträge', ['org-gf'])
+    //     Verträge/              (own list) Honorarvertrag.pdf (4000)
+    folder.verwaltung = await insertFolder('Verwaltung', null, 'Verwaltung', false)
+    folder.vertraege = await insertFolder('Verträge', folder.verwaltung, 'Verwaltung/Verträge', true)
     await insertDocument('Lageplan.pdf', null, 100)
     await insertDocument('Protokoll.pdf', folder.verwaltung, 200)
     await insertDocument('Honorarvertrag.pdf', folder.vertraege, 4000)
@@ -129,13 +120,13 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
 
   it('leaves a hidden folder out of the overview count, size and recent list', async () => {
     const hiddenFolderIds = await access.getRestrictedFolderIds(ORG, projectId)
-    const data = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds }))
+    const data = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds, reader: REVIEWER_READER }))
 
     expect(data?.documentCount).toBe(2)
     expect(data?.totalFileSize).toBe(300)
     expect(data?.recentDocuments.map((row) => row.filename).sort()).toEqual(['Lageplan.pdf', 'Protokoll.pdf'])
 
-    const everything = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds: [] }))
+    const everything = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds: [], reader: REVIEWER_READER }))
     expect(everything?.documentCount).toBe(3)
     expect(everything?.totalFileSize).toBe(4300)
   })
@@ -143,32 +134,34 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
   it('leaves a hidden folder out of the number on the projects grid', async () => {
     const hiddenFolderIds = await access.getRestrictedFolderIds(ORG, projectId)
 
-    const counted = await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], hiddenFolderIds))
+    const counted = await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], hiddenFolderIds, REVIEWER_READER))
     expect(counted).toEqual({ [projectId]: 2 })
 
-    const everything = await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], []))
+    const everything = await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], [], REVIEWER_READER))
     expect(everything).toEqual({ [projectId]: 3 })
     // Without a reader's hidden list the count is what it always was.
-    expect(await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId]))).toEqual({ [projectId]: 3 })
+    expect(
+      await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], undefined, REVIEWER_READER))
+    ).toEqual({ [projectId]: 3 })
   })
 
   it('lists no binding to a document in a hidden folder', async () => {
     const hiddenFolderIds = await access.getRestrictedFolderIds(ORG, projectId)
-    const listed = await inTenant(() => roles.listProjectDocumentRoles(projectId, { hiddenFolderIds }))
+    const listed = await inTenant(() => roles.listProjectDocumentRoles(projectId, { hiddenFolderIds, documents: REVIEWER_READER }))
     expect(listed.map((row) => row.filename).sort()).toEqual(['Lageplan.pdf', 'Protokoll.pdf'])
 
-    const all = await inTenant(() => roles.listProjectDocumentRoles(projectId, { hiddenFolderIds: [] }))
+    const all = await inTenant(() => roles.listProjectDocumentRoles(projectId, { hiddenFolderIds: [], documents: REVIEWER_READER }))
     expect(all).toHaveLength(3)
   })
 
   it('names only unfiled documents when no folder can be decided', async () => {
-    const listed = await inTenant(() => roles.listProjectDocumentRoles(projectId, { unfiledOnly: true }))
+    const listed = await inTenant(() => roles.listProjectDocumentRoles(projectId, { unfiledOnly: true, documents: REVIEWER_READER }))
     expect(listed.map((row) => row.filename)).toEqual(['Lageplan.pdf'])
   })
 
   it('answers a hidden document like a missing one when it is to be bound', async () => {
     const hiddenFolderIds = await access.getRestrictedFolderIds(ORG, projectId)
-    const reader = { hiddenFolderIds }
+    const reader = { hiddenFolderIds, documents: REVIEWER_READER }
     expect(await inTenant(() => roles.documentBelongsToProject(doc['Honorarvertrag.pdf'], projectId, reader))).toBe(false)
     expect(await inTenant(() => roles.documentBelongsToProject(doc['Protokoll.pdf'], projectId, reader))).toBe(true)
   })

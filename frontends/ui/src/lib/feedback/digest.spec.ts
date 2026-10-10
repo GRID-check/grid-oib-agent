@@ -245,6 +245,29 @@ describe('getFeedbackDigest — caching', () => {
     expect(keys.some((k) => k.includes(':org_a,org_b:'))).toBe(true)
   })
 
+  /**
+   * A digest cached before the sampled turns left out restricted conversations
+   * may restate one of their comments. It must not be served after the deploy
+   * that leaves them out, for the rest of its six hours.
+   */
+  it('does not serve a digest cached before restricted votes were left out', async () => {
+    // The key this query has today, then the same key one version back.
+    await getFeedbackDigest(health(), Q)
+    const [current] = [...store.entries.keys()]
+    expect(current).toContain(':v4:')
+    store.entries.clear()
+    vi.mocked(globalThis.fetch).mockClear()
+    const stale = { headline: 'Zimmerer-Honorar 48.000 EUR falsch.', strengths: [], concerns: [] }
+    await store.set(current.replace(':v4:', ':v2:'), JSON.stringify(stale))
+    // v3 left out votes by conversation only; 0124's marks reach more (ADR-0093).
+    await store.set(current.replace(':v4:', ':v3:'), JSON.stringify(stale))
+
+    const result = await getFeedbackDigest(health(), Q)
+
+    expect(globalThis.fetch).toHaveBeenCalledOnce()
+    expect(result.digest?.headline).toBe('Mostly fine.')
+  })
+
   it('re-asks when the reader presses refresh', async () => {
     await getFeedbackDigest(health(), Q)
     await getFeedbackDigest(health(), Q, { refresh: true })

@@ -29,7 +29,7 @@ dieses Landes. Hol sie über RIS. Eine erinnerte Wiener Liste auf ein
 niederösterreichisches Vorhaben gelegt ist die teuerste Art, vollständig
 auszusehen.
 
-Was dieses Büro zusätzlich verlangt, steht im Büroarchiv, nicht in der
+Was dieses Büro zusätzlich verlangt, steht in der Büroablage, nicht in der
 Bauordnung. Beides getrennt führen: was die Behörde fordert, was das Büro
 fordert.
 

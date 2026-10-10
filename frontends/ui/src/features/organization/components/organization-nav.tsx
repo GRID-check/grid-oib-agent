@@ -15,16 +15,11 @@
  * in the browser would put a second, drifting copy of the access rules in the
  * client bundle; the nav is deliberately told, not left to work it out.
  *
- * A rail on `lg` and up (labels always visible — an admin surface visited
- * rarely should not ask you to decode icons), a horizontally scrolling tab
- * strip below that. Section switches `replace` the URL: the tabs are a
- * switcher, not a stack, so Back leaves the organization shell in one step
- * instead of walking Overview → Models → Knowledge.
+ * The rail and strip themselves are `components/shell/section-nav.tsx`, shared
+ * with the project settings so both tiers move between sections the same way.
  */
 
 import type { JSX } from 'react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import {
   Building2,
   Cpu,
@@ -38,9 +33,8 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
-import { motion, springGlide } from '@/components/motion'
+import { SectionNav } from '@/components/shell/section-nav'
 
 /**
  * Section order = reading order: the organization itself, then the people in
@@ -68,102 +62,20 @@ export interface OrganizationNavProps {
   sections: readonly OrganizationSectionKey[]
 }
 
-/**
- * The overview lives at the bare `/app/organization`, so it must match exactly —
- * a prefix test would light it up on every subsection. Subsections match their
- * own route and anything nested under it, but on a path boundary: a bare
- * `startsWith` would also mark `/app/organization/access` active on a sibling
- * route such as `/app/organization/access-log`.
- */
-function isActive(pathname: string | null, href: string): boolean {
-  if (!pathname) return false
-  if (href === '/app/organization') return pathname === href
-  return pathname === href || pathname.startsWith(`${href}/`)
-}
-
 export function OrganizationNav({ sections }: OrganizationNavProps): JSX.Element {
-  const pathname = usePathname()
   const t = useTranslations('organization')
 
-  const visible = ORGANIZATION_SECTIONS.filter((section) => sections.includes(section.key))
+  const items = ORGANIZATION_SECTIONS.filter((section) => sections.includes(section.key)).map(
+    (section) => ({ ...section, label: t(`nav.${section.key}`) })
+  )
 
   return (
-    <nav aria-label={t('nav.label')} data-testid="organization-nav">
-      {/* Mobile / tablet: a scrolling strip. Wide content scrolls in its own
-          container so the page body never scrolls horizontally. */}
-      <ul className="flex gap-1 overflow-x-auto pb-2 lg:hidden">
-        {visible.map(({ key, href, icon: Icon }) => {
-          const active = isActive(pathname, href)
-          return (
-            <li key={key} className="shrink-0">
-              <Link
-                href={href}
-                replace
-                aria-current={active ? 'page' : undefined}
-                className={cn(
-                  // `duration-quick ease-out`: this strip previously ran
-                  // `transition-colors` with no duration at all. `relative
-                  // isolate` + pill `-z-10` is the app-sidebar rail pattern:
-                  // the active surface glides on `springGlide` below the ink.
-                  'relative isolate inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors duration-quick ease-out focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
-                  active
-                    ? 'font-medium text-secondary-foreground'
-                    : 'text-muted-foreground hover:bg-accent',
-                )}
-              >
-                {active && (
-                  <motion.span
-                    layoutId="org-nav-pill"
-                    aria-hidden
-                    data-slot="org-nav-pill"
-                    className="absolute inset-0 -z-10 rounded-[inherit] bg-secondary"
-                    transition={springGlide}
-                  />
-                )}
-                <Icon className="size-4 shrink-0" aria-hidden />
-                {t(`nav.${key}`)}
-              </Link>
-            </li>
-          )
-        })}
-      </ul>
-
-      {/* Desktop: a sticky rail beside the content. */}
-      <ul className="hidden lg:sticky lg:top-24 lg:flex lg:flex-col lg:gap-0.5">
-        {visible.map(({ key, href, icon: Icon }) => {
-          const active = isActive(pathname, href)
-          return (
-            <li key={key}>
-              <Link
-                href={href}
-                replace
-                aria-current={active ? 'page' : undefined}
-                className={cn(
-                  // Same glide pill as the mobile strip above (one family, one
-                  // `layoutId`) and the same `duration-quick ease-out` ink
-                  // tween — mirroring the app-sidebar rail.
-                  'relative isolate flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors duration-quick ease-out focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
-                  active
-                    ? 'font-medium text-secondary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                )}
-              >
-                {active && (
-                  <motion.span
-                    layoutId="org-nav-pill"
-                    aria-hidden
-                    data-slot="org-nav-pill"
-                    className="absolute inset-0 -z-10 rounded-[inherit] bg-secondary"
-                    transition={springGlide}
-                  />
-                )}
-                <Icon className="size-4 shrink-0" aria-hidden />
-                {t(`nav.${key}`)}
-              </Link>
-            </li>
-          )
-        })}
-      </ul>
-    </nav>
+    <SectionNav
+      label={t('nav.label')}
+      items={items}
+      rootHref="/app/organization"
+      pillId="org-nav-pill"
+      data-testid="organization-nav"
+    />
   )
 }

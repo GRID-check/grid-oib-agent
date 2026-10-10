@@ -30,6 +30,7 @@ import {
   deleteAnswerFeedbackForUser,
   getAnswerFeedbackForUser,
   getAnswerTraceId,
+  isRestrictedUseVote,
   getFeedbackHealth,
   getPersistedAnswerConversationId,
   listAnswerFeedbackForConversation,
@@ -182,6 +183,10 @@ async function implicateFeedbackMemory(
  * Nothing is sent when Langfuse is not configured, and nothing when the answer's
  * row does not name its trace (an unpersisted turn, or one from before the agent
  * recorded traces): a score on a guessed trace id would attach to nothing.
+ *
+ * A vote on a conversation that drew on a restricted folder is scored without
+ * the voter's words (`isRestrictedUseVote`), as the platform's own feedback
+ * views leave it out: the number and the reason chip are not content.
  */
 async function scoreVoteInLangfuse(
   organizationId: string,
@@ -192,13 +197,14 @@ async function scoreVoteInLangfuse(
   try {
     const traceId = await getAnswerTraceId(row.messageId, organizationId)
     if (!traceId) return
+    const withWords = !(await isRestrictedUseVote(row.id, organizationId))
     await upsertFeedbackScore({
       feedbackId: row.id,
       traceId,
       verdict: row.verdict,
       reason: row.reason ?? null,
-      comment: row.comment ?? null,
-      expectedAnswer: row.expectedAnswer ?? null,
+      comment: withWords ? (row.comment ?? null) : null,
+      expectedAnswer: withWords ? (row.expectedAnswer ?? null) : null,
       previousVerdict,
     })
   } catch (error) {

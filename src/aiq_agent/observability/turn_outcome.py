@@ -99,6 +99,13 @@ def _quote_counts(stamps: list[Any]) -> dict[str, int]:
     return dict(Counter(getattr(stamp, "status", None) for stamp in stamps if getattr(stamp, "status", None)))
 
 
+def _source_project_id(source: Any) -> str | None:
+    """The other project (ADR-0094) a wire source came from, or None for this project's own scope."""
+    project = getattr(source, "project", None)
+    project_id = project.get("id") if isinstance(project, dict) else None
+    return str(project_id) if project_id else None
+
+
 def _level_for(outcome: str) -> str:
     """Cancelled is the asker's Stop: worth seeing, not a fault. Everything else that finished is DEFAULT."""
     return "WARNING" if outcome == "cancelled" else "DEFAULT"
@@ -108,12 +115,18 @@ def outcome_metadata(*, outcome: str, result: Any) -> dict[str, Any]:
     """The analyst-facing facts of one finished turn, absent values omitted."""
     removed = getattr(result, "citations_removed", None)
     quotes = _quote_counts(list(getattr(result, "quote_stamps", None) or []))
+    precedents = [pid for pid in map(_source_project_id, getattr(result, "sources", None) or []) if pid]
     facts: dict[str, Any] = {
         "turn_outcome": outcome,
         "answer_route": getattr(result, "routing_decision", None),
         "answer_confidence": getattr(result, "answer_confidence", None),
         "answer_confidence_capped": getattr(result, "answer_confidence_capped_reason", None),
         "answer_sources": len(getattr(result, "sources", None) or []),
+        # The office's experience reaching an answer (docs/roadmap/office-experience.md):
+        # how many cited sources came from another project, and from how many projects.
+        # Counts, never ids: the trace list slices by them.
+        "answer_precedent_sources": len(precedents) or None,
+        "answer_precedent_projects": len(set(precedents)) or None,
         "answer_cards": len(getattr(result, "cards", None) or []),
         "answer_card_types": _card_types(list(getattr(result, "cards", None) or [])) or None,
         "answer_chars": len(getattr(result, "text", "") or ""),
@@ -146,6 +159,8 @@ def outcome_tags(metadata: dict[str, Any]) -> list[str]:
         tags.append("research-truncated")
     if metadata.get("handed_off_to_run"):
         tags.append("handed-off")
+    if metadata.get("answer_precedent_sources"):
+        tags.append("cited-precedent")
     return tags
 
 

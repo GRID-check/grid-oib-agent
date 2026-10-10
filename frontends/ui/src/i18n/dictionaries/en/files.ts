@@ -357,11 +357,13 @@ export const files = {
     breadcrumb: 'Folder path',
     movedFolder: '“{name}” moved to “{parent}”.',
     moveFolderError: 'The folder could not be moved. Please try again.',
-    /** Folder access (ADR-0087): restricting a folder to roles. */
+    /** Folder access (ADR-0088, ADR-0097): restricting a folder to people. */
     access: {
       menu: 'Access…',
-      restrictedTo: 'Own access: {roles}',
-      openRestricted: 'Open folder “{name}”, access: {roles}',
+      /** The lock on a folder: who is on the list only the dialog says. */
+      ownList: 'Own access: only the listed people',
+      ownListEveryoneReads: 'Own access: all project members read, only the listed people edit',
+      openRestricted: 'Open folder “{name}”. {access}',
       title: 'Access to “{name}”',
       description: 'Who in this project may read and edit this folder, its subfolders and their documents.',
       inherit: 'Same as the parent folder',
@@ -369,22 +371,23 @@ export const files = {
         'The folder takes the access of the folder above it. At the top, the project applies: whoever may read reads, whoever may edit edits.',
       custom: 'Own access',
       customHint:
-        'Only the listed roles get into the folder, each with “Read” or “Edit”. Anyone not listed does not see it. Organization admins may always do everything.',
-      roles: 'Roles',
-      everyMember: 'All project members',
-      customRole: 'Custom role',
+        'Only the listed people get into the folder, each with “Read” or “Edit”. Anyone not listed does not see it, unless all project members may read. Organization admins may always do everything.',
+      everyoneReads: 'All project members may read',
+      everyoneReadsHint: 'The list then decides only who may edit.',
+      people: 'People',
+      unknownPerson: 'Person without project access',
       levelRead: 'Read',
       levelWrite: 'Edit',
-      levelFor: 'Access for {role}',
-      remove: 'Remove {role}',
-      add: 'Add a role…',
-      pickOne: 'Add at least one role.',
-      noRoles:
-        'Your organization has no roles to choose from yet. Custom roles are created under Organization → People & access.',
+      levelFor: 'Access for {name}',
+      remove: 'Remove {name}',
+      add: 'Add a person…',
+      pickOne: 'Add at least one person, or let all project members read.',
       nesting: 'A subfolder can only be narrower than its parent folder, never wider.',
       ceiling: '“Edit” applies only to people who may edit in the project; everyone else reads.',
       lockout:
-        'If you hold none of these roles yourself, the folder disappears for you too once you save, unless you are an organization admin.',
+        'If you are not on the list yourself, the folder disappears for you too once you save, unless you are an organization admin.',
+      lockoutEveryoneReads:
+        'If you are not on the list with “Edit” yourself, you may only read the folder once you save, unless you are an organization admin.',
       moveNotice:
         'If who may read changes, Piloti moves the folder’s documents and reads them again. For a large folder that takes a few minutes; meanwhile the documents show as “Reading”.',
       ifcNotice:
@@ -398,7 +401,7 @@ export const files = {
       readOnlyRefused: 'You may only read in this folder.',
       save: 'Save access',
       saving: 'Saving…',
-      loadError: 'The roles could not be loaded.',
+      loadError: 'The access list could not be loaded.',
       savedCustom: '“{name}” now has its own access.',
       savedInherit: '“{name}” now takes the access of its parent folder.',
       moving: '{count, plural, one {# document is} other {# documents are}} being moved and read again.',
@@ -408,6 +411,38 @@ export const files = {
       forbidden: 'Only project admins can change who may read and edit a folder.',
     },
   },
+  /** The Papierkorb of a project (ADR-0088). */
+  bin: {
+    title: 'Bin',
+    subtitle:
+      'Deleted folders with their subfolders and documents. Until they are permanently deleted they can be restored with their access.',
+    back: 'Back to files',
+    empty: 'The bin is empty.',
+    emptyHint: 'Deleted folders appear here and can be restored.',
+    deletedBy: 'Deleted by {name} on {date}',
+    deletedOn: 'Deleted on {date}',
+    contents:
+      '{documents, plural, one {# document} other {# documents}} · {folders, plural, one {# folder} other {# folders}}',
+    purgeOn: 'Permanently deleted on {date}',
+    purging: 'Being permanently deleted',
+    failed: 'The permanent deletion has stopped. An admin is looking into it.',
+    restore: 'Restore',
+    restored: '“{name}” is restored. Its documents are being read again.',
+    restoredToRoot: '“{name}” is restored at the top of the project, because its parent folder is deleted.',
+    restoreNameTaken: 'A folder named “{name}” already exists there. Rename it, then restore again.',
+    restoreReadOnly: 'It can be restored by someone who could edit the folder.',
+    restoreError: 'The folder could not be restored. Please try again.',
+    purge: 'Delete permanently',
+    purgeTitle: 'Permanently delete “{name}”?',
+    purgeDescription:
+      'The folder, its subfolders and {documents, plural, one {# document} other {# documents}} are deleted now, with every version and preview. This cannot be undone. What Piloti derived from them follows your organization’s setting.',
+    purged: '“{name}” is permanently deleted.',
+    held: 'This folder is under a retention obligation and cannot be deleted right now.',
+    purgeError: 'The folder could not be permanently deleted. Please try again.',
+    cancel: 'Cancel',
+    loadError: 'The bin could not be loaded.',
+    retry: 'Try again',
+  },
   workspace: {
     renameFolderError: 'The folder could not be renamed. Please try again.',
     deleteFolderError: 'The folder could not be deleted. Please try again.',
@@ -416,6 +451,13 @@ export const files = {
       'Delete the folder “{name}”?\n\nIts {documents} document(s) and {folders} subfolder(s) are not deleted — they move to “{parent}”.',
     deleteFolderDone: '“{name}” deleted.',
     deleteFolderMoved: 'Folder deleted. {count} document(s) moved to “{parent}”.',
+    binFolderConfirm:
+      'Move the folder “{name}” to the bin?\n\nIts subfolders and documents go with it. From the bin it can be restored with its access until it is permanently deleted.',
+    binFolderDone: '“{name}” is in the bin. Restorable until {date}.',
+    deleteFolderProtected:
+      'This folder holds content you may not delete. It can be deleted by someone who may edit all of its subfolders.',
+    deleteFolderIndexDown: 'The folder was not deleted because the search index did not answer. Please try again.',
+    openBin: 'Bin',
     corpusSubtitle: 'Project knowledge — these documents ground Piloti’s answers',
     uploadDocuments: 'Upload documents',
     uploadProblem: 'Upload problem',
@@ -527,6 +569,7 @@ export const files = {
     destinationFiles: 'The files go into “{folder}”.',
     close: 'Close',
     compareError: 'Could not compare with what is already here. Nothing was uploaded.',
+    planChanged: 'The preview has changed. Nothing was uploaded. Please review it and confirm again.',
     single: {
       updateTitle: 'Upload a new version of “{name}”?',
       updateExplain:
@@ -688,10 +731,15 @@ export const files = {
     uploadFiles: 'Choose files',
   },
   errors: {
+    projectClosed: 'This project is closed and read-only. Whoever manages it can reopen it in the settings.',
     // Held back by the office's name screening (ADR-0086) on a path with no
     // upload dialog, such as a chat attachment.
     screenedOut: '{count} file(s) not uploaded because your office marks them as sensitive: {files}',
     screenedOutFile: '“{name}” ({reason})',
+    // The office's list could not be read: without it nothing is sent, not
+    // even against Piloti's suggestion (ADR-0086).
+    screeningPolicyUnavailable:
+      "Your office's list of sensitive data could not be loaded. Nothing was uploaded. Please try again.",
     validation: {
       duplicateInBatch: '“{name}” is in this selection more than once',
       duplicateExisting: '“{name}” has already been added',
@@ -801,7 +849,7 @@ export const files = {
       rejected: 'Rejected',
       superseded: 'Superseded',
       /**
-       * NOT "archived". This product's Archiv is the office archive, where a
+       * NOT "archived". Office filing (Büroablage, once "Archiv") is where a
        * document is placed so that it BECOMES cross-project office knowledge.
        * This state is the opposite: the file leaves the working set and its
        * knowledge-base entries are purged. One word for both would be the same
@@ -949,6 +997,8 @@ export const files = {
     errors: {
       /** The compare-and-swap lost: somebody decided first, so re-read. */
       conflict: 'This has moved on — reloading the current state.',
+      /** The file has not passed its upload screening yet (ADR-0086). */
+      held: 'This file is still being checked. It can be submitted once the check has cleared it.',
       actionFailed: 'That did not go through. Nothing has changed.',
       loadFailed: 'The version history could not be loaded.',
     },
@@ -989,7 +1039,7 @@ export const files = {
     welcomeAbout:
       'This thread is about {name}. Ask it something — answers will cite the file and the law.',
     subjectHint:
-      'Piloti searches this document. Other project files and the office archive stay out.',
+      'Piloti searches this document. Other project files and Office filing stay out.',
     subjectClear: 'Stop focusing on this file',
     loadingPeople: 'Loading people…',
     noPeople: 'No one in this project yet',

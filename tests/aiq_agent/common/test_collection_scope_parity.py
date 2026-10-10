@@ -60,7 +60,8 @@ def test_the_legacy_qualifier_strings_resolve_to_the_same_shelf(mirror_source: s
         assert shelf_for_qualifier(label) == Shelf(shelf), f"{label!r} disagrees across the two runtimes"
     # The persisted vocabulary: keys already written into messages must keep
     # parsing on both ends whatever else either side adds.
-    assert {label for label, _ in mirrored} >= {"Büroarchiv", "Projektwissen", "Basiswissen"}
+    # „Büroarchiv" is the archiv shelf's name before 6 Oct 2026, retired but still read.
+    assert {label for label, _ in mirrored} >= {"Büroablage", "Büroarchiv", "Projektwissen", "Basiswissen"}
 
 
 # ---------------------------------------------------------------------------

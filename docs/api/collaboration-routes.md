@@ -63,7 +63,7 @@ Returns `ResourceSharingState` (`lib/sharing/types.ts`):
 | Field | Meaning |
 |---|---|
 | `visibility` | `private` \| `project` \| `organization` |
-| `allowedVisibilities` | What this type permits — drives the UI's options. Conversations expose only `private`/`project` in phase 1 (see ADR-0032 follow-ups) |
+| `allowedVisibilities` | What this type permits — drives the UI's options. Conversations expose only `private`/`project` in phase 1 (see ADR-0032 follow-ups). Documents expose only `project`: `private` on a document is refused, because no read path enforces it (per-document access comes separately). A document that already says `private` reads as before and can be set back to `project` |
 | `myRole` | The caller's effective role, or `null` |
 | `canManage` | Whether the caller may change sharing (`owner`) |
 | `canEscalate` | Project admin who may take ownership of a resource they were not party to |
@@ -73,7 +73,8 @@ Returns `ResourceSharingState` (`lib/sharing/types.ts`):
 ### `PATCH /api/sharing/{resourceType}/{resourceId}`
 
 Body `{ visibility }`. Requires `owner`. Rejects a visibility the registry does
-not permit for the type (`400`, `details.allowed`). A no-op save is a no-op: no
+not permit for the type (`400`, `details.allowed`), which includes `private` on a
+document. A no-op save is a no-op: no
 audit event, no events published. Widening a conversation whose answers drew on
 a restricted folder is refused with `409`, `details.reason = 'restricted-content'`
 (ADR-0087); narrowing back to `private` is always allowed.
@@ -130,12 +131,15 @@ rather than silently hiding them (spec SH-19) — an invite picker that omits a
 colleague with no explanation reads as a bug.
 
 For a conversation each candidate who could otherwise be invited (reachable, not
-yet in the room) also carries `lacksFolderAccess`: `true` when their roles do not
-reach every restricted folder the conversation drew on now (ADR-0088). The UI
-shows them disabled with „Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat
+yet in the room) also carries `lacksFolderAccess`: `true` when they may not read
+every restricted folder the conversation drew on now (ADR-0088): they hold no
+folder role on it and are not an organization admin (ADR-0097). The UI shows
+them disabled with „Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat
 stammt“ and never names the folder. At most 200 people are evaluated, a bounded
-number at a time against the membership roles cached for 60 s; anyone beyond
-that is reported as lacking access. Absent for a document.
+number at a time, each against their folder roles (cached for
+`GRID_AUTHZ_CACHE_TTL_MS`) and the membership roles behind the admin bypass
+(cached for 60 s); anyone beyond that, or whose lookup fails, is reported as
+lacking access. Absent for a document.
 
 Assignment (who is on the hook) does **not** use this endpoint. A project
 member who can assign is a `collaborator` on a project-visible document, not
@@ -286,6 +290,11 @@ For every distinct target on the page — resolved **once per resource**, not on
 per item — access is re-derived; anything unreachable, or already marked inert,
 comes back with `href: null` and `excerpt: null`. Such rows are **redacted, not
 dropped**: a redacted row explains itself, a vanished one looks like a bug.
+A run's row (`job.completed`, `job.failed`, `job.waiting`) targets its project,
+and is also judged by the run it names: a revision task whose document now sits
+in a folder the reader may not read is redacted like a revoked target
+(`unreadableRunIds`, `lib/tasks/subject-access.ts`, ADR-0093), as the task list
+and the run view withhold it.
 
 `InboxItemView` carries `type`, `state` (`unread`/`read`/`resolved`/`archived`/
 `inert`), `actionable`, `count`, `actorName`, `actorUserId`, `subject`,

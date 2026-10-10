@@ -232,6 +232,22 @@ inside the very process the boundary is meant to constrain. `frontend`,
 
 Runbook: [row-level security](../database/row-level-security.md), ADR-0041.
 
+### grid-workos-authz
+
+One-shot WorkOS authorization rollout from the frontend image, the compose
+equivalent of the Kubernetes Jobs `grid-app-authz-catalog` and
+`grid-app-folder-grants` (`deploy/pulumi/src/app/workos-authz-jobs.ts`). It
+runs `provision:authz --apply`, which creates the catalog's missing permissions
+and roles, then `migrate:folder-grants --apply`, which carries folder role
+grants over to WorkOS folder roles (ADR-0097) and is a no-op once done. Both are
+bundled to plain ESM in `dist-scripts/` by the image build, because the runtime
+image has neither bun nor tsx.
+
+It waits on `frontend` being healthy, and nothing waits on it: the carry-over
+must not run while the old dialog can still narrow a list
+([the rollout](workos-provisioning.md#rolling-out-folder-roles-adr-0097)). With
+`WORKOS_API_KEY` unset it prints one line and exits 0.
+
 ### grid-audit-schemas
 
 One-shot reconciler for the **WorkOS Audit Log schemas**, from the same frontend

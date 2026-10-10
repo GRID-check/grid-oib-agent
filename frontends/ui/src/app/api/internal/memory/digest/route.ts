@@ -60,6 +60,8 @@ const digestQuerySchema = z
     restrictedCollections: z.string().trim().max(5000).optional(),
     /** The turn's asker, as the BFF signed it; the admission checks them with the conversation's audience. */
     userId: z.string().trim().max(128).optional(),
+    /** The answer the turn writes; marked when a restricted note is admitted (ADR-0093). */
+    answerMessageId: z.string().uuid().optional(),
   })
   // Empty strings behave like absent params (previous `|| undefined` behavior).
   .transform((query) => ({
@@ -68,6 +70,7 @@ const digestQuerySchema = z
     query: query.query || undefined,
     conversationId: query.conversationId || undefined,
     userId: query.userId || undefined,
+    answerMessageId: query.answerMessageId || undefined,
     restrictedCollections: (query.restrictedCollections ?? '')
       .split(',')
       .map((name) => name.trim())
@@ -81,7 +84,7 @@ const digestQuerySchema = z
 export const GET = internalApiRoute(
   'Internal Memory Digest',
   async ({ request }) => {
-    const { projectId, organizationId, query, conversationId, userId, restrictedCollections } = parseQuery(
+    const { projectId, organizationId, query, conversationId, userId, answerMessageId, restrictedCollections } = parseQuery(
       request,
       digestQuerySchema
     )
@@ -117,7 +120,7 @@ export const GET = internalApiRoute(
       const open = projectId ? new Set(await readableFolderIdsFor(tenant, projectId, ANY_MEMBER)) : new Set<string>()
       const readable =
         projectId && eligible && userId
-          ? await readableFolderIdsFor(tenant, projectId, await clearanceOfMember(tenant, userId))
+          ? await readableFolderIdsFor(tenant, projectId, await clearanceOfMember(tenant, userId, projectId))
           : [...open]
       let restrictedFoldersServed: string[] = []
       const digest = await buildProjectMemoryDigest(projectId, tenant, {
@@ -126,7 +129,7 @@ export const GET = internalApiRoute(
         admitRestricted: async (folderIds) => {
           if (!eligible || !conversationId || !userId) return new Set(folderIds.filter((id) => open.has(id)))
           const admission = await admitSourceFolders(
-            { organizationId: tenant, conversationId, userId, projectId: projectId ?? null },
+            { organizationId: tenant, conversationId, userId, projectId: projectId ?? null, answerMessageId },
             folderIds
           )
           restrictedFoldersServed = admission.admitted.filter((id) => !open.has(id))

@@ -123,7 +123,7 @@ vi.mock('./repository', () => ({
   findProjectDocumentsByNames: vi.fn().mockResolvedValue([]),
   deleteProjectDocument: vi.fn().mockResolvedValue(undefined),
   setDocumentDisplayName: vi.fn().mockResolvedValue(undefined),
-  setDocumentReconciledStatus: vi.fn().mockResolvedValue(undefined),
+  setDocumentReconciledStatus: vi.fn().mockResolvedValue(true),
   listFailedDocumentPageInOrg: vi.fn().mockResolvedValue({ ids: [], nextCursor: null }),
 }))
 
@@ -136,10 +136,16 @@ vi.mock('@/lib/jobs-queue/repository', () => ({
   findOpenJobId: vi.fn().mockResolvedValue(null),
 }))
 
-vi.mock('./reconcile-status', () => ({
+vi.mock('./reconcile-status', async (importOriginal) => ({
+  // Reading the job id off a row is pure; the reconciler itself is mocked.
+  extractIngestJobId: (await importOriginal<typeof import('./reconcile-status')>()).extractIngestJobId,
   reconcileDocumentStatuses: vi.fn(),
   describeBackendIngestState: vi.fn(),
 }))
+
+// What a row that came to rest sets off (its upload settles, a quarantine is
+// audited and its reviewers told) is `upload-batches/settle`'s subject.
+vi.mock('@/lib/upload-batches/settle', () => ({ onDocumentsSettled: vi.fn().mockResolvedValue(undefined) }))
 
 // The hold predicate is SQL (`grid_legal_hold_blocks`, migration 0093), proven
 // against Postgres in `legal-hold.integration.spec.ts`; the gate runs for real.
@@ -154,6 +160,7 @@ vi.mock('@/lib/compliance/repository', () => ({
 }))
 
 import { findProjectInOrg } from '@/lib/projects/repository'
+import { onDocumentsSettled } from '@/lib/upload-batches/settle'
 import { isCoveredByActiveHold } from '@/lib/compliance/repository'
 import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -232,7 +239,8 @@ import {
 import { LiveFilenameTakenError, ReplacedDocumentGoneError } from './unique-conflicts'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
-import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
+import { makeDocument, makeLiveDocumentMatch, makeProject } from '@/test-utils/db-fixtures'
+import { mayReadDocument } from './document-reader'
 import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
 import { s3Client, bucketAdminS3Client } from '@/lib/s3'
 import { __resetBucketCache, tenantBucketName } from '@/lib/storage/bucket'
@@ -805,6 +813,9 @@ describe('listDocuments', () => {
         publishedVersionId: null,
         originPath: null,
         contentHash: null,
+        createdBy: 'user-1',
+        screeningOutcome: null,
+        screenedHash: null,
         fileSize: 1024,
         contentType: 'application/pdf',
         status: 'completed',
@@ -856,6 +867,7 @@ describe('probeProjectDocumentNames', () => {
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
     expect(findProjectDocumentsByNames).toHaveBeenCalledWith('proj-1', session.organizationId, ['EG.pdf'], {
       hiddenFolderIds: [],
+      reader: { kind: 'reviewer' },
     })
   })
 
@@ -1089,7 +1101,7 @@ describe('deriveSearchTopK', () => {
 
 describe('resolveProjectDocumentsByName', () => {
   it('gates on project:view, looks the names up directly, and hydrates like the listing', async () => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     const row = {
       id: 'doc-old',
       filename: 'Bestand-1962.pdf',
@@ -1108,6 +1120,7 @@ describe('resolveProjectDocumentsByName', () => {
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
     expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith('proj-1', 'org-1', ['bestand-1962.pdf'], {
       hiddenFolderIds: [],
+      reader: { kind: 'reviewer' },
     })
     expect(listProjectDocumentPage).not.toHaveBeenCalled()
     expect(documents).toEqual([expect.objectContaining({ id: 'doc-old', assignees: [] })])
@@ -1150,7 +1163,7 @@ describe('searchProjectDocuments', () => {
   ]
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([])
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue(
       fileRows.map((r) => ({ ...r, metadata: { ingestJobId: 'j' } }))
@@ -1213,9 +1226,42 @@ describe('searchProjectDocuments', () => {
       'proj-1',
       'org-1',
       ['permit.pdf', 'plan.pdf'],
-      { hiddenFolderIds: [] }
+      { hiddenFolderIds: [], reader: { kind: 'reviewer' } }
     )
     expect(listProjectDocumentPage).not.toHaveBeenCalled()
+  })
+
+  it('joins only screened rows when the hits go to a model, even for a reviewer (ADR-0086)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          hits: [
+            { file_name: 'permit.pdf', score: 0.91, snippet: 'permit snippet', page_number: 2, collection: 'proj_abc' },
+            { file_name: 'plan.pdf', score: 0.44, snippet: 'plan snippet', page_number: null, collection: 'proj_abc' },
+          ],
+        }),
+    })
+    // plan.pdf is held: the query let it through on an earlier pass, the reconcile quarantined it.
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue(
+      fileRows.map((r) => ({
+        ...r,
+        ...(r.id === 'doc-a' ? { status: 'quarantined' } : {}),
+        createdBy: 'user-1',
+        metadata: { ingestJobId: 'j' },
+      }))
+    )
+
+    const forPerson = await searchProjectDocuments(session, 'proj-1', 'fire escape', 20)
+    const forModel = await searchProjectDocuments(session, 'proj-1', 'fire escape', 20, { forModel: true })
+
+    expect(forPerson.hits.map((h) => h.id)).toEqual(['doc-b', 'doc-a'])
+    expect(forModel.hits.map((h) => h.id)).toEqual(['doc-b'])
+    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[1][3]).toEqual({
+      hiddenFolderIds: [],
+      reader: { kind: 'screened-only' },
+    })
   })
 
   it('asks for no rows when the search found nothing', async () => {
@@ -1433,7 +1479,12 @@ describe('reingestDocument', () => {
     // would churn the chunks citations point at, so the row is written back
     // and the retry refused.
     vi.mocked(findDocumentInOrg).mockResolvedValue(
-      makeDocument({ id: 'doc-99', status: 'processing', storageKey: 'org/proj/doc/file.pdf' })
+      makeDocument({
+        id: 'doc-99',
+        status: 'processing',
+        storageKey: 'org/proj/doc/file.pdf',
+        metadata: { ingestJobId: 'job-80' },
+      })
     )
     vi.mocked(describeBackendIngestState).mockResolvedValue({
       state: 'terminal',
@@ -1444,13 +1495,51 @@ describe('reingestDocument', () => {
       status: 409,
       details: { status: 'completed', code: INGEST_ALREADY_DONE },
     })
+    // Guarded on the status AND the dispatch it read: a heal lands only on the
+    // job whose outcome it is.
     expect(setDocumentReconciledStatus).toHaveBeenCalledWith(
       'doc-99',
       'org-1',
-      { status: 'completed', errorMessage: null }
+      { status: 'completed', errorMessage: null },
+      { status: 'processing', jobId: 'job-80' }
     )
     expect(mockFetch).not.toHaveBeenCalled()
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  it('settles a row the retry finds quarantined, so the quarantine is audited and its reviewers told', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-99', status: 'processing', storageKey: 'org/proj/doc/file.pdf' })
+    )
+    const verdict = 'quarantined:{"reasons":[{"kind":"iban"}],"checked":"full"}'
+    vi.mocked(describeBackendIngestState).mockResolvedValue({
+      state: 'terminal',
+      resolution: { status: 'quarantined', errorMessage: verdict, screeningOutcome: 'quarantined' },
+    })
+
+    await expect(reingestDocument(session, 'doc-99')).rejects.toMatchObject({
+      details: { status: 'quarantined', code: INGEST_ALREADY_DONE },
+    })
+    expect(onDocumentsSettled).toHaveBeenCalledWith('org-1', [{ id: 'doc-99', status: 'quarantined' }])
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  it('leaves the settling to the listing read that moved the row first', async () => {
+    // The heal's guarded write found the row already quarantined by a listing
+    // read, which settled it. Settling again would audit the quarantine twice.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-99', status: 'processing', storageKey: 'org/proj/doc/file.pdf' })
+    )
+    vi.mocked(describeBackendIngestState).mockResolvedValue({
+      state: 'terminal',
+      resolution: { status: 'quarantined', errorMessage: 'quarantined:{}', screeningOutcome: 'quarantined' },
+    })
+    vi.mocked(setDocumentReconciledStatus).mockResolvedValueOnce(false)
+
+    await expect(reingestDocument(session, 'doc-99')).rejects.toMatchObject({
+      details: { status: 'quarantined', code: INGEST_ALREADY_DONE },
+    })
+    expect(onDocumentsSettled).not.toHaveBeenCalled()
   })
 
   it('heals a row the backend already failed, then retries it', async () => {
@@ -1471,11 +1560,15 @@ describe('reingestDocument', () => {
 
     const result = await reingestDocument(session, 'doc-99')
 
-    expect(setDocumentReconciledStatus).toHaveBeenCalledWith('doc-99', 'org-1', {
-      status: 'failed',
-      errorMessage: 'boom',
-    })
+    expect(setDocumentReconciledStatus).toHaveBeenCalledWith(
+      'doc-99',
+      'org-1',
+      { status: 'failed', errorMessage: 'boom' },
+      { status: 'processing', jobId: null }
+    )
     expect(result).toEqual({ id: 'doc-99', status: 'pending', jobId: 'job-81' })
+    // Dispatched again, so not at rest: nothing settles.
+    expect(onDocumentsSettled).not.toHaveBeenCalled()
   })
 
   it('refuses when the backend cannot be asked (fail-closed, row untouched)', async () => {
@@ -1683,7 +1776,7 @@ describe('deleteDocument', () => {
 
   it('refuses a held document with a 409 before erasing anything', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(isCoveredByActiveHold).mockResolvedValueOnce(true)
     vi.mocked(s3Client.send).mockClear()
     mockFetch.mockClear()
@@ -1715,7 +1808,7 @@ describe('deleteDocument', () => {
 
   it('purges chunks, deletes the object + row, and audits', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValue({ ok: true })
 
     await deleteDocument(session, 'doc-1', new Request('http://x'))
@@ -1738,7 +1831,7 @@ describe('deleteDocument', () => {
 
   it('erases every stored object (each version, _thumb, _img/, _bim/) before the row', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValue({ ok: true })
     const order: string[] = []
     vi.mocked(eraseDocumentObjectsOrKeepRow).mockImplementationOnce(async () => {
@@ -1756,7 +1849,7 @@ describe('deleteDocument', () => {
 
   it('keeps the row, and audits nothing, when the objects could not be erased', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValue({ ok: true })
     vi.mocked(eraseDocumentObjectsOrKeepRow).mockRejectedValueOnce(new UpstreamError('nope'))
 
@@ -1770,7 +1863,7 @@ describe('deleteDocument', () => {
 
   it('still deletes the row + audits when the best-effort chunk purge fails', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockRejectedValue(new Error('backend down'))
 
     await deleteDocument(session, 'doc-1', new Request('http://x'))
@@ -1787,7 +1880,7 @@ describe('deleteDocument', () => {
   // later ask reads „gone“ (ADR-0054, correction 18).
   it('purges the chunks again once the row is gone', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     const order: string[] = []
     mockFetch.mockImplementation(async (url: unknown, init?: RequestInit) => {
       if (String(url).endsWith('/documents') && init?.method === 'DELETE') order.push('purge')
@@ -1807,7 +1900,7 @@ describe('deleteDocument', () => {
 
   it('audits and answers normally when only the purge after the row fails', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error('backend down'))
 
     await deleteDocument(session, 'doc-1', new Request('http://x'))
@@ -1817,6 +1910,7 @@ describe('deleteDocument', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'document.deleted',
+        filedIn: { projectId: projectDoc.projectId, folderId: projectDoc.folderId },
         metadata: expect.objectContaining({ chunksPurged: true }),
       })
     )
@@ -1824,7 +1918,7 @@ describe('deleteDocument', () => {
 
   it('does not purge after a row it kept', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockClear()
     mockFetch.mockResolvedValue({ ok: true })
     vi.mocked(eraseDocumentObjectsOrKeepRow).mockRejectedValueOnce(new UpstreamError('nope'))
@@ -1845,7 +1939,7 @@ describe('renameDocument', () => {
   const request = () => new Request('http://x')
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) })
   })
 
@@ -1958,6 +2052,8 @@ describe('renameDocument', () => {
         action: 'document.renamed',
         targetType: 'document',
         targetId: 'doc-1',
+        // Where it is filed, so the emitter withholds the names under a restricted folder (ADR-0087).
+        filedIn: { projectId: projectDoc.projectId, folderId: projectDoc.folderId },
         metadata: expect.objectContaining({
           filename: 'plan.pdf',
           previousName: 'Alt.pdf',
@@ -1983,7 +2079,7 @@ describe('renameDocument', () => {
       renameDocument({ ...session, role: 'admin' }, 'doc-1', 'Musterordner.pdf', request())
     ).resolves.toMatchObject({ displayName: 'Musterordner.pdf' })
     expect(recordAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'archiv.document.renamed' })
+      expect.objectContaining({ action: 'archiv.document.renamed', filedIn: null })
     )
   })
 })
@@ -1997,7 +2093,7 @@ describe('getDocumentStatus', () => {
   const projectDoc = makeDocument({ displayName: 'Aufsicht 1:100' })
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
     vi.mocked(reconcileDocumentStatuses).mockImplementation(
       async (rows) => rows.map((row) => ({ ...row })) as never
@@ -2043,6 +2139,37 @@ describe('getDocumentStatus', () => {
 
     expect(status).toHaveProperty('versionCount', 2)
     expect(listDocumentVersionSummaries).toHaveBeenCalledWith([projectDoc.id], session.organizationId)
+  })
+
+  // A file re-read under an earlier pass comes back `quarantined` from the
+  // reconcile; the read let it through on the earlier verdict, so the rule is
+  // asked again of what the reconcile returned (ADR-0086).
+  describe('when the reconcile quarantines the file', () => {
+    const reread = makeDocument({ status: 'pending', screeningOutcome: 'clean', createdBy: 'someone-else' })
+
+    beforeEach(() => {
+      // A member of the project, not one of its admins: no reviewer.
+      vi.mocked(requireProjectAccess).mockImplementation(async (_session, _projectId, permission) => {
+        if (permission === 'project:manage') throw new NotFoundError('Project not found')
+        return { role: 'project-viewer', closed: false, readsBecauseClosed: false }
+      })
+      vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) =>
+        mayReadDocument(reread, reader) ? reread : null
+      )
+      vi.mocked(reconcileDocumentStatuses).mockImplementation(
+        async (rows) => rows.map((row) => ({ ...row, status: 'quarantined', screeningOutcome: 'quarantined' })) as never
+      )
+    })
+
+    it('answers 404 to a member who did not upload it', async () => {
+      await expect(getDocumentStatus(session, 'doc-1')).rejects.toBeInstanceOf(NotFoundError)
+    })
+
+    it('still answers its uploader', async () => {
+      await expect(getDocumentStatus({ ...session, userId: 'someone-else' }, 'doc-1')).resolves.toMatchObject({
+        status: 'quarantined',
+      })
+    })
   })
 
   it('reports a null versionCount when the document has no version row', async () => {
@@ -2095,7 +2222,7 @@ describe('the authorship gate on the (collection, filename) join', () => {
     mockFetch.mock.calls.filter(([url]) => String(url).includes('/v1/collections/'))
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
   })
 
@@ -2253,6 +2380,9 @@ describe('the authorship gate on the (collection, filename) join', () => {
           publishedVersionId: null,
           originPath: null,
           contentHash: null,
+          createdBy: 'user-1',
+          screeningOutcome: null,
+          screenedHash: null,
           fileSize: 1024,
           contentType: 'application/pdf',
           status: 'stored',
@@ -2284,7 +2414,7 @@ describe('the authorship gate on the (collection, filename) join', () => {
  */
 describe('reindexProject', () => {
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
   })
 
   it('checks the caller may rebuild the project, then queues ONE bulk job and answers with its id', async () => {
@@ -2348,6 +2478,9 @@ describe('runReindexSlice', () => {
     publishedVersionId: null,
     originPath: null,
     contentHash: null,
+    createdBy: 'user-1',
+    screeningOutcome: null,
+    screenedHash: null,
     fileSize: 1024,
     contentType: 'application/pdf',
     status: 'completed',
@@ -2361,7 +2494,7 @@ describe('runReindexSlice', () => {
   })
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
   })
 
   it('re-dispatches without deleting the current chunks first', async () => {
@@ -2422,6 +2555,27 @@ describe('runReindexSlice', () => {
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
+  // A quarantined file waits on a reviewer (ADR-0086); a re-index is not a
+  // release, even when the person pressing it could release it.
+  it('skips a quarantined document it may see, and reports it as skipped, not queued', async () => {
+    vi.mocked(listProjectDocumentPage).mockResolvedValueOnce({ rows: [listRow('doc-1', 'plan.pdf')], nextCursor: null })
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({
+        id: 'doc-1',
+        filename: 'plan.pdf',
+        status: 'quarantined',
+        storageKey: 'k/plan.pdf',
+        createdBy: session.userId,
+      })
+    )
+
+    const result = await runReindexSlice(session, sliceState())
+
+    expect(result.payload.counts).toEqual({ queued: 0, skipped: 1, failed: 0, failedNames: [] })
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
   /**
    * The walk used to read the newest `DOCUMENT_LIST_LIMIT` rows and stop, so
    * a project-wide reindex of a large project left its oldest documents on the
@@ -2450,11 +2604,13 @@ describe('runReindexSlice', () => {
     expect(second.done).toBe(true)
     expect(second.payload.counts.queued).toBe(2)
     expect(listProjectDocumentPage).toHaveBeenNthCalledWith(1, 'proj-1', 'org-1', {
+      reader: { kind: 'internal', why: 'ingest' },
       authoredBy: 'user',
       cursor: undefined,
       limit: REINDEX_SLICE_DOCUMENTS,
     })
     expect(listProjectDocumentPage).toHaveBeenNthCalledWith(2, 'proj-1', 'org-1', {
+      reader: { kind: 'internal', why: 'ingest' },
       authoredBy: 'user',
       cursor,
       limit: REINDEX_SLICE_DOCUMENTS,
@@ -2528,7 +2684,7 @@ describe('the org-wide rescan of failed ingestions', () => {
     const admin: AuthorizedSession = { ...session, role: 'admin', permissions: ['org:settings:manage'] }
 
     beforeEach(() => {
-      vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+      vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
       mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ job_id: 'job-1' }) })
     })
 
@@ -2628,7 +2784,7 @@ describe('getDocumentTextPreview', () => {
   })
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
   })
 
   it('returns the bytes as text for a format the pane renders itself', async () => {
@@ -2734,7 +2890,7 @@ describe('re-uploading a filename this collection already holds', () => {
    * downloadable, cited by nothing, findable by nothing, and charged to the
    * organization's quota twice. A ghost, and a paid-for one.
    */
-  const existing = {
+  const existing = makeLiveDocumentMatch({
     id: 'doc-existing',
     storageKey: 'org/org-1/project/proj-1/doc/doc-existing/plan.pdf',
     storageBucket: 'test-bucket',
@@ -2742,10 +2898,10 @@ describe('re-uploading a filename this collection already holds', () => {
     contentHash: null,
     folderId: null,
     status: 'ready',
-  }
+  })
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectInOrg).mockResolvedValue(
       makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
     )
@@ -2754,6 +2910,46 @@ describe('re-uploading a filename this collection already holds', () => {
 
   afterEach(() => {
     vi.mocked(findLiveDocumentByFilename).mockResolvedValue(null)
+  })
+
+  /*
+   * A re-upload keeps the replaced bytes as an earlier version (ADR-0054), and a
+   * version is served on the document's current status. Onto a quarantined file
+   * it would turn the held-back bytes into a version every member can open once
+   * the new bytes settle (ADR-0086): refused like a taken name for somebody who
+   * may not see the file, and with the reason for its uploader.
+   */
+  describe('onto a quarantined file', () => {
+    beforeEach(() => {
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({ ...existing, status: 'quarantined' })
+      // The uploader may view the project; nobody here manages it.
+      vi.mocked(requireProjectAccess).mockImplementation(async (_s, _projectId, permission) => {
+        if (permission === 'project:manage') throw new NotFoundError('Project not found')
+        return { role: 'project-viewer', closed: false, readsBecauseClosed: false }
+      })
+    })
+
+    it("refuses to replace somebody else's", async () => {
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+        ...existing,
+        createdBy: 'user-other',
+        status: 'quarantined',
+      })
+
+      await expect(
+        uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+      ).rejects.toBeInstanceOf(ConflictError)
+      expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
+    })
+
+    it('refuses its uploader too, saying it waits in quarantine', async () => {
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({ ...existing, createdBy: 'user-1', status: 'quarantined' })
+
+      const refusal = uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+      await expect(refusal).rejects.toBeInstanceOf(ConflictError)
+      await expect(refusal).rejects.toMatchObject({ details: { reason: 'quarantined' } })
+      expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
+    })
   })
 
   it('keeps the document id, so nothing that referenced it breaks', async () => {
@@ -2855,10 +3051,10 @@ describe('re-uploading a filename this collection already holds', () => {
     const digestOfInput = 'sha256:' + createHash('sha256').update(Buffer.from(new ArrayBuffer(8))).digest('hex')
 
     it('writes nothing, ingests nothing, and keeps the document', async () => {
-      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue(makeLiveDocumentMatch({
         ...existing,
         contentHash: digestOfInput,
-      })
+      }))
 
       const result = await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
 
@@ -2869,11 +3065,11 @@ describe('re-uploading a filename this collection already holds', () => {
     })
 
     it('still re-ingests when the document has not landed — a failure must be retryable', async () => {
-      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue(makeLiveDocumentMatch({
         ...existing,
         contentHash: digestOfInput,
         status: 'failed',
-      })
+      }))
 
       await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
 
@@ -2881,11 +3077,11 @@ describe('re-uploading a filename this collection already holds', () => {
     })
 
     it('still runs when the upload re-files it, because the move is the point', async () => {
-      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue(makeLiveDocumentMatch({
         ...existing,
         contentHash: digestOfInput,
         folderId: 'folder-elsewhere',
-      })
+      }))
 
       await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
 
@@ -2925,7 +3121,7 @@ describe('a delete that lands after the upload wrote its row', () => {
    * ingest and answered 200. It is a 409 now, and nothing downstream runs.
    */
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectInOrg).mockResolvedValue(
       makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
     )
@@ -2970,7 +3166,7 @@ describe('a re-upload whose document is deleted underneath it', () => {
    * for a document that no longer existed. Now it is a first upload of the
    * name again — what the same drop after the delete would have been.
    */
-  const existing = {
+  const existing = makeLiveDocumentMatch({
     id: 'doc-deleted',
     storageKey: 'org/org-1/project/proj-1/doc/doc-deleted/plan.pdf',
     storageBucket: 'test-bucket',
@@ -2978,10 +3174,10 @@ describe('a re-upload whose document is deleted underneath it', () => {
     contentHash: null,
     folderId: null,
     status: 'ready',
-  }
+  })
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectInOrg).mockResolvedValue(
       makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
     )
@@ -3017,7 +3213,7 @@ describe('two FIRST uploads of one filename at once', () => {
    * next version of the winner's document \u2014 what the same two drops one after
    * the other would have produced (ADR-0054 correction 14).
    */
-  const winner = {
+  const winner = makeLiveDocumentMatch({
     id: 'doc-winner',
     storageKey: 'org/org-1/project/proj-1/doc/doc-winner/plan.pdf',
     storageBucket: 'test-bucket',
@@ -3025,10 +3221,10 @@ describe('two FIRST uploads of one filename at once', () => {
     contentHash: null,
     folderId: null,
     status: 'uploaded',
-  }
+  })
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectInOrg).mockResolvedValue(
       makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
     )
@@ -3134,7 +3330,7 @@ describe('an office document is viewed through its PDF rendition', () => {
 
   beforeEach(() => {
     vi.stubEnv('GOTENBERG_URL', 'http://gotenberg:3000')
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findDocumentInOrg).mockResolvedValue(officeDoc())
     vi.mocked(getSignedUrl).mockClear()
     vi.mocked(s3Client.send).mockReset()
@@ -3254,7 +3450,7 @@ describe('restricted folders (ADR-0087)', () => {
   }
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectInOrg).mockResolvedValue(makeProject({ collectionName: 'proj_abc' }))
     vi.mocked(getHiddenFolderIds).mockResolvedValue([HIDDEN])
     vi.mocked(getProjectFolderAccess).mockResolvedValue(restricted)
@@ -3268,8 +3464,8 @@ describe('restricted folders (ADR-0087)', () => {
     await probeProjectDocumentNames(session, 'proj-1', ['Honorar.pdf'])
 
     expect(vi.mocked(listProjectDocumentPage).mock.calls[0][2]).toMatchObject({ hiddenFolderIds: [HIDDEN] })
-    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN] })
-    expect(vi.mocked(findProjectDocumentsByNames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN] })
+    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN], reader: { kind: 'reviewer' } })
+    expect(vi.mocked(findProjectDocumentsByNames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN], reader: { kind: 'reviewer' } })
   })
 
   it('searches the restricted collections this reader is cleared for, and joins only visible rows', async () => {
@@ -3283,6 +3479,17 @@ describe('restricted folders (ADR-0087)', () => {
       'http://backend:8000/v1/collections/proj_abc/search',
       `http://backend:8000/v1/collections/${RESTRICTED_COLLECTION}/search`,
     ])
+  })
+
+  it('asks for the longer snippet only when a caller wants it as evidence (ADR-0094)', async () => {
+    await searchProjectDocuments(session, 'proj-1', 'Honorar', 10, { snippetMaxChars: 900 })
+    await searchProjectDocuments(session, 'proj-1', 'Honorar', 10)
+
+    const bodies = mockFetch.mock.calls
+      .filter(([url]) => String(url).endsWith('/search'))
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>)
+    expect(bodies.filter((body) => body.snippet_max_chars === 900)).toHaveLength(2)
+    expect(bodies.filter((body) => !('snippet_max_chars' in body))).toHaveLength(2)
   })
 
   // Filenames are unique per collection. This search reads the project's own
@@ -3426,7 +3633,7 @@ describe('the download log records what leaves', () => {
     })
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findDocumentInOrg).mockResolvedValue(pdf())
     vi.mocked(s3Client.send).mockReset()
   })

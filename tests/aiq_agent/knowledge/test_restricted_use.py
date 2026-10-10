@@ -109,6 +109,48 @@ class TestTurnStart:
         assert bff.asked == []
 
 
+class TestTheAnswerTravels:
+    """ADR-0093: the BFF marks the answer the turn writes, so its id rides every question."""
+
+    @pytest.fixture
+    def posted(self, monkeypatch) -> list[dict[str, Any]]:
+        import json
+
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+        seen: list[dict[str, Any]] = []
+
+        class _Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc) -> bool:
+                return False
+
+            def read(self) -> bytes:
+                return b'{"drawable": ["%s"], "recorded": [], "admitted": ["%s"]}' % (
+                    VERTRAEGE.encode(),
+                    VERTRAEGE.encode(),
+                )
+
+        class _Opener:
+            def open(self, request, timeout=None):  # noqa: ANN001, ARG002
+                seen.append(json.loads(request.data))
+                return _Response()
+
+        monkeypatch.setattr(ru, "_opener", _Opener())
+        return seen
+
+    async def test_the_turn_start_and_every_admission_name_the_answer(self, posted):
+        use = await begin_restricted_use(_request(envelope_header="x"), "c1", answer_message_id="answer-1")
+        assert use is not None
+        assert ru.admit(use, [VERTRAEGE]) == {VERTRAEGE}
+        assert [body.get("answerMessageId") for body in posted] == ["answer-1", "answer-1"]
+
+    async def test_no_answer_to_name_sends_none(self, posted):
+        await begin_restricted_use(_request(envelope_header="x"), "c1")
+        assert "answerMessageId" not in posted[0]
+
+
 class TestTheScopeEveryReadPathTakes:
     def _entries(self, monkeypatch) -> None:
         monkeypatch.setattr(

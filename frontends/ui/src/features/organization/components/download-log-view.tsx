@@ -27,6 +27,7 @@ import {
 } from '@/adapters/api/download-log-client'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
+import { ProjectClosedChip } from '@/components/projects/project-status'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -107,6 +108,7 @@ export const DownloadLogView: FC<DownloadLogViewProps> = ({ people }) => {
     if (entry.scope === 'session') return t('downloadLog.place.session')
     const project = entry.projectName ?? t('downloadLog.place.projectGone')
     if (!entry.folderId) return `${project} · ${t('downloadLog.place.root')}`
+    if (entry.nameWithheld) return `${project} · ${t('downloadLog.place.folderWithheld')}`
     return `${project} · ${entry.folderPath ?? t('downloadLog.place.folderGone')}`
   }
 
@@ -258,7 +260,13 @@ export const DownloadLogView: FC<DownloadLogViewProps> = ({ people }) => {
                     </Chip>
                   </TableCell>
                   <TableCell>
-                    <span className="break-words">{entry.documentName}</span>
+                    {entry.documentName !== null ? (
+                      <span className="break-words">{entry.documentName}</span>
+                    ) : (
+                      <span className="text-muted-foreground italic" data-testid="download-log-name-withheld">
+                        {t('downloadLog.nameWithheld')}
+                      </span>
+                    )}
                     {entry.versionId && (
                       <span className="text-muted-foreground block text-xs">
                         {t('downloadLog.version', { id: entry.versionId.slice(0, 8) })}
@@ -267,6 +275,9 @@ export const DownloadLogView: FC<DownloadLogViewProps> = ({ people }) => {
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {placeLabel(entry)}
+                    {entry.projectStatus === 'closed' && (
+                      <ProjectClosedChip projectName={entry.projectName} className="ml-2" />
+                    )}
                     {entry.ownList && (
                       <Chip variant="warning" size="sm" className="ml-2">
                         {t('downloadLog.place.ownList')}

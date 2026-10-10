@@ -44,32 +44,6 @@ export async function listAssignmentsForResources(
   )
 }
 
-export async function listAssignmentsForSubject(
-  organizationId: string,
-  resourceType: ShareableResourceType,
-  subjectUserId: string,
-): Promise<AssignmentRow[]> {
-  const db = getDb()
-  return withTenant({ organizationId }, () =>
-    db
-      .select({
-        resourceType: resourceAssignments.resourceType,
-        resourceId: resourceAssignments.resourceId,
-        subjectUserId: resourceAssignments.subjectUserId,
-        assignedBy: resourceAssignments.assignedBy,
-        createdAt: resourceAssignments.createdAt,
-      })
-      .from(resourceAssignments)
-      .where(
-        and(
-          eq(resourceAssignments.organizationId, organizationId),
-          eq(resourceAssignments.resourceType, resourceType),
-          eq(resourceAssignments.subjectUserId, subjectUserId),
-        ),
-      ),
-  )
-}
-
 export async function insertAssignment(input: {
   organizationId: string
   resourceType: ShareableResourceType

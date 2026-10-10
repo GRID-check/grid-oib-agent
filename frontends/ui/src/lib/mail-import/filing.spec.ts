@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/documents/folder-path', () => ({ resolveShelfFolderPath: vi.fn() }))
@@ -297,6 +297,52 @@ describe('fileMail', () => {
     for (const [, input] of vi.mocked(uploadDocument).mock.calls) {
       expect(input).not.toHaveProperty('screeningRelease')
     }
+  })
+
+  describe('a retry over a file the content gate still holds (ADR-0086)', () => {
+    const PLAN = `${LEAF} – Plan.pdf`
+    const held = { folderId: 'folder_earlier', authoredBy: 'user', screeningOutcome: null, contentHash: 'h1', screenedHash: null }
+
+    async function retry(existing: Record<string, unknown>) {
+      // The project-wide probe finds the one holder, the mail's own folder's collection.
+      vi.mocked(findProjectCollectionsHoldingFilename).mockImplementation(async (_org, _project, name) =>
+        name === PLAN ? ['proj_p1'] : [],
+      )
+      vi.mocked(findLiveDocumentByFilename).mockImplementation(async (_org, _collection, name) =>
+        name === PLAN ? (existing as never) : null,
+      )
+      // What `assertMayReplaceHeld` answers a re-upload onto a quarantined file.
+      vi.mocked(uploadDocument).mockImplementation(async (_session, input) => {
+        if (input.file.name === PLAN && existing.status === 'quarantined') {
+          throw new ConflictError('waiting in quarantine', { reason: 'quarantined' })
+        }
+        return { documentId: 'd', jobId: null, status: 'uploaded', filename: input.file.name } as never
+      })
+      vi.mocked(resolveShelfFolderPath).mockResolvedValueOnce(`E-Mail-Import/Büro/${LEAF}`)
+      return fileMail(await context({ inflightPosition: 7, inflightFolderId: 'folder_earlier' }), mail)
+    }
+
+    afterEach(() => {
+      vi.mocked(findProjectCollectionsHoldingFilename).mockImplementation(async () => [])
+      vi.mocked(findLiveDocumentByFilename).mockReset()
+      vi.mocked(uploadDocument).mockReset()
+    })
+
+    it.each(['quarantined', 'processing'])('counts a %s file this import filed as filed, without uploading it again', async (status) => {
+      const result = await retry({ ...held, status, createdBy: 'user_anna' })
+
+      expect(uploadedNames()).toEqual([`${LEAF}.md`])
+      expect(result).toMatchObject({ filesFiled: 1, filesSkipped: 1, skipped: [{ file: 'Fwd', reason: 'embedded_message' }] })
+      const note = await vi.mocked(uploadDocument).mock.calls[0][1].file.text()
+      expect(note).toContain(`**Anhänge:** ${PLAN}`)
+    })
+
+    it.each(['quarantined', 'processing'])('takes the next free name over a %s file somebody else put there', async (status) => {
+      const result = await retry({ ...held, status, createdBy: 'user_bert' })
+
+      expect(uploadedNames()).toEqual([`${LEAF} – Plan (2).pdf`, `${LEAF}.md`])
+      expect(result.filesFiled).toBe(1)
+    })
   })
 
   it('skips a damaged attachment and files the rest', async () => {

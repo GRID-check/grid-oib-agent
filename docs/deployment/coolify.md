@@ -143,7 +143,9 @@ own domains, DB password, and internal token with no manual input.
 5. **Deploy.** On first boot: Postgres runs `init-db.sql` (creates the 3 DBs),
    `grid-migrate` runs the Drizzle migrations for `grid_app`, `seaweedfs-init`
    creates the bucket, `grid-audit-schemas` reconciles the WorkOS Audit Log
-   schemas, and the backend starts. It ingests nothing at boot; the base-corpus
+   schemas, and the backend starts. Once the frontend is healthy,
+   `grid-workos-authz` creates the authorization catalog's permissions and
+   roles in WorkOS and carries folder grants over (ADR-0097). It ingests nothing at boot; the base-corpus
    housekeeping route does that, every ten minutes.
    The frontend waits for the first three; they are `depends_on:
    service_completed_successfully`, so a failure in any of them stops the

@@ -65,4 +65,11 @@ regexes = [
   # gitleaks scans full history across refs, so one occurrence on any branch
   # fails the scan for every open PR in the repo.
   '''4dabf18193072939515e22adb298388d''', # pragma: allowlist secret
+  # The two pseudonymous voter keys in the feedback-export fixtures
+  # (`frontends/ui/src/test-utils/feedback-export-fixtures.ts`): a hex counting
+  # pattern and its reverse, standing in for the hashed voter id. Exact
+  # literals for the reason above; on a feature branch they failed the scan
+  # for every PR in the repo.
+  '''^a1b2c3d4e5f6$''', # pragma: allowlist secret
+  '''^f6e5d4c3b2a1$''', # pragma: allowlist secret
 ]

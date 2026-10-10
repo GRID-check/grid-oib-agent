@@ -21,7 +21,7 @@
 
 import 'server-only'
 import { ConflictError } from '@/lib/api/errors'
-import { computeFolderAccess, type AccessFolder, type FolderGrant } from '@/lib/authz/folder-access'
+import { computeFolderAccess, EVERY_FOLDER, type AccessFolder } from '@/lib/authz/folder-access'
 import {
   countIfcDocumentsInFolders,
   listProjectFolderTree,
@@ -45,17 +45,22 @@ export function assertIfcMayBeFiledIn(filename: string, targetCollection: string
   throw new ConflictError(WHY, { code: IFC_IN_RESTRICTED_FOLDER, models: 1 })
 }
 
-/** Giving `folderId` its own access list `grants` (`null` makes it inherit, which is always allowed). */
+/**
+ * Giving `folderId` its own access list, which every project member reads when
+ * `everyoneReads` (`null` makes it inherit). Only a list that restricts reading
+ * is checked: inheriting, or a list everyone reads, moves nothing out of the
+ * project's collection.
+ */
 export async function assertRestrictionKeepsIfcOpen(
   organizationId: string,
   projectId: string,
   folderId: string,
-  grants: readonly FolderGrant[] | null
+  everyoneReads: boolean | null
 ): Promise<void> {
-  if (!grants || grants.length === 0) return
+  if (everyoneReads === null || everyoneReads) return
   const tree = await listProjectFolderTree(organizationId, projectId)
   const next = tree.map((folder) =>
-    folder.id === folderId ? { ...folder, accessMode: 'custom' as const, grants } : folder
+    folder.id === folderId ? { ...folder, accessMode: 'custom' as const, everyoneReads: false } : folder
   )
   await refuseIfcUnderRestriction(organizationId, projectId, next, folderId, (models) =>
     `This folder or its subfolders hold ${countLabel(models)}. ${WHY} Move ${models === 1 ? 'it' : 'them'} out of the folder first.`
@@ -97,7 +102,7 @@ async function refuseIfcUnderRestriction(
   message: (models: number) => string
 ): Promise<void> {
   const OPEN = 'open'
-  const placement = computeFolderAccess(next, { roles: [], seesEverything: true }, OPEN)
+  const placement = computeFolderAccess(next, EVERY_FOLDER, OPEN)
   const living = next.filter((folder) => !folder.deleted)
   const covered = subtreeOf(living, rootId).filter((id) => placement.collectionFor(id) !== OPEN)
   const models = await countIfcDocumentsInFolders(organizationId, projectId, covered)

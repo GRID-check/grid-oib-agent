@@ -7,7 +7,7 @@
  * Which one is a function of the folder tree alone, so after anything that can
  * change it — a restriction drawn or lifted, a folder moved or deleted, a
  * document moved — this is called and moves exactly the documents that are now
- * in the wrong place. Idempotent: calling it again retries what failed and
+ * in the wrong place. A document in the Papierkorb is never moved. Idempotent: calling it again retries what failed and
  * moves nothing else.
  *
  * A move is purge, then re-point, then re-ingest. The purge comes FIRST so that
@@ -55,7 +55,7 @@
 import 'server-only'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { withTenant } from '@/lib/db/tenant-context'
-import { computeFolderAccess, type ProjectFolderAccess } from '@/lib/authz/folder-access'
+import { computeFolderAccess, EVERY_FOLDER, type ProjectFolderAccess } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from '@/lib/documents/document-status'
@@ -113,8 +113,10 @@ async function moveDocument(organizationId: string, row: PlacementRow, target: s
   if (ref && !(await purgeIngestedChunks(getBackendUrl(), ref, PURGE_TIMEOUT_MS))) return 'failed'
   // A row that owned no chunks (a draft Piloti wrote, never indexed) only needs
   // the pointer, and so does a machine's published document (see the module
-  // comment). A person's document with stored bytes is read again, by the job.
-  const reingest = Boolean(ref && row.storageKey && row.authoredBy === 'user')
+  // comment). A person's document with stored bytes is read again, by the job,
+  // unless it is quarantined: only a release takes it out of quarantine
+  // (ADR-0086), and the release dispatches it into the collection it is in.
+  const reingest = Boolean(ref && row.storageKey && row.authoredBy === 'user' && row.status !== 'quarantined')
   if (!(await repointPlacementRow(organizationId, row, target, { reingest }))) return 'failed'
   return reingest ? 'handed-off' : 'repointed'
 }
@@ -263,7 +265,7 @@ export async function runPlacementReingestSlice(
 async function projectPlacement(organizationId: string, projectId: string, projectCollection: string) {
   const tree = await listProjectFolderTree(organizationId, projectId)
   // An all-seeing clearance reads only the "which collection" half of the decision.
-  return { tree, placement: computeFolderAccess(tree, { roles: [], seesEverything: true }, projectCollection) }
+  return { tree, placement: computeFolderAccess(tree, EVERY_FOLDER, projectCollection) }
 }
 
 /**
@@ -304,10 +306,15 @@ export async function retryProjectPlacement(organizationId: string, projectId: s
   const restrictedSubtree = tree
     .filter((folder) => placement.collectionFor(folder.id) !== project.collectionName)
     .map((folder) => folder.id)
+  // A document in the Papierkorb is not placed: its chunks were purged when it
+  // went there, and re-ingesting it anywhere would make a deleted file
+  // searchable again. A restore places it (`lib/projects/folder-bin.ts`).
+  const deleted = new Set(tree.filter((folder) => folder.deleted).map((folder) => folder.id))
   let afterId: string | null = null
   for (;;) {
     const page = await listPlacementRows(organizationId, projectId, project.collectionName, restrictedSubtree, afterId)
     const misplaced = page
+      .filter((row) => row.folderId === null || !deleted.has(row.folderId))
       .map((row) => ({ row, target: placement.collectionFor(row.folderId) }))
       .filter(({ row, target }) => target !== row.collectionName)
     await placePage(organizationId, misplaced, run)

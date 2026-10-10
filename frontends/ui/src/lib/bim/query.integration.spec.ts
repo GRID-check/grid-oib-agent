@@ -20,6 +20,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { extractIfcModel } from './extract'
 import type { BimModelIndex } from './types'
 import { readZipEntries } from '@/test-utils/read-zip'
+import { REVIEWER_READER } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 
@@ -1074,7 +1075,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       note: 'Mit dem Brandschutzplaner abgeklärt.',
     })
 
-    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT, REVIEWER_READER)
     expect(stored).toHaveLength(1)
     expect(stored[0].confirmedBy).toBe('a.muster')
 
@@ -1118,7 +1119,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       note: 'Nebengebäude, mit dem Brandschutzplaner abgeklärt.',
     })
 
-    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT, REVIEWER_READER)
     const byModel = new Map(stored.map((entry) => [entry.modelId, entry.confirmedBy]))
     expect(byModel.get(modelId)).toBe('a.muster')
     expect(byModel.get(otherBuildingId)).toBe('c.nachbar')
@@ -1126,7 +1127,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
 
   it('does not show one building’s confirmation on another’s Prüfbuch', async () => {
     const repository = await import('./repository')
-    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT, REVIEWER_READER)
     const confirmations = stored.map((entry) => ({
       ...entry,
       confirmedAt: entry.confirmedAt.toISOString(),
@@ -1149,7 +1150,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
 
   it('re-confirming the same revision replaces that row rather than adding one', async () => {
     const repository = await import('./repository')
-    const before = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    const before = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT, REVIEWER_READER)
     await repository.upsertBimCheckConfirmation({
       organizationId: ORG,
       projectId: FIXTURE_PROJECT,
@@ -1158,7 +1159,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       confirmedBy: 'b.beispiel',
       note: null,
     })
-    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    const stored = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT, REVIEWER_READER)
     // Same count: the row for THIS revision was updated in place. A second
     // revision, or a second building, would each get their own — which is the
     // whole of 0045.
@@ -1169,7 +1170,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
   it('never shows another tenant’s confirmations', async () => {
     const repository = await import('./repository')
     // The row exists for ORG; a missing tenant scope would return it here.
-    expect(await repository.listBimCheckConfirmations(OTHER_ORG, FIXTURE_PROJECT)).toEqual([])
+    expect(await repository.listBimCheckConfirmations(OTHER_ORG, FIXTURE_PROJECT, REVIEWER_READER)).toEqual([])
   })
 
   it('withdrawing a confirmation returns the rule to the catalogue’s verdict', async () => {
@@ -1183,7 +1184,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       ruleId: 'oib2-feuerwiderstand-tragend',
       modelIds: [modelId, revisionModelId],
     })
-    const left = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT)
+    const left = await repository.listBimCheckConfirmations(ORG, FIXTURE_PROJECT, REVIEWER_READER)
     expect(left.map((entry) => entry.modelId)).toEqual([otherBuildingId])
   })
 

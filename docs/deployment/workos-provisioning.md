@@ -19,10 +19,33 @@ WORKOS_API_KEY=sk_… npm run provision:authz            # read-only drift check
 WORKOS_API_KEY=sk_… npm run provision:authz -- --apply # reconcile
 ```
 
+**Every deploy runs `--apply`.** The Kubernetes Job `grid-app-authz-catalog`
+(`deploy/pulumi/src/app/workos-authz-jobs.ts`) and the compose service
+`grid-workos-authz` run it against the environment the stack's
+`WORKOS_API_KEY` belongs to, so a permission or role added to the catalog
+exists in WorkOS once the release that checks it is deployed. It creates what
+is missing, sets a catalog role's permissions to the catalog's (a permission
+added to such a role in the dashboard is taken off again), and deletes no
+permission and no role. Custom roles are not in the catalog and are left alone. A tier whose resource type is missing fails
+the Job, and the stack update with it, naming the type. Running `--apply` by
+hand is for an environment no stack deploys against.
+
 The check is read-only and exits non-zero on drift — run it in CI. It exists
 because the two ⚠️ rows this runbook used to carry (`org:audit:view`,
 `org:archiv:manage`, both "create this in Staging", both still absent three
 weeks later) were invisible to everything except a human re-reading the file.
+
+**The catalog's wording follows the „Büroablage" rename on the next provisioning.**
+The product renamed the org-wide shelf from „Archiv" to „Büroablage" („Office
+filing" in English) on 6 Oct 2026. `org:archiv:manage` keeps its slug. Its
+label is NOT taken from the dictionary: Organisation → Zugriff
+(`frontends/ui/src/features/organization/components/permission-reference.tsx`) shows the `name` and `description` from
+`frontends/ui/src/lib/authz/catalog.ts`, so it still reads „Manage document Archiv" there until
+the next provisioning changes them. Changing them rewrites the permission's
+name and description in WorkOS, a provisioning step that waits for the
+product owner's go. Change the
+`name` and `description` in `catalog.ts` and run `--apply` together, never one
+without the other: the drift check would fail in between.
 
 **Resource types are the one manual step**: the Node SDK exposes no CRUD for
 them, so create them in the dashboard. The script still catches a missing one —
@@ -71,6 +94,18 @@ Everything below exists in **both** environments:
 Both carry the same three resource types, the same 24 GRID permissions and the
 same 13 roles, verified role-by-role against the catalog after each run.
 
+The **folder tier** (ADR-0097, 2026-10-09) came later and is not in either count
+yet: the `folder` resource type exists in Staging (created 2026-10-09) and in
+Production (created 2026-10-10, `authz_resource_type_01M4KGD04HGQMPAZR09R15538W`).
+In Production `folder:read`, `folder:write`, `folder-reader` and `folder-editor`
+were also created by hand on 2026-10-10, with the catalog's names, descriptions
+and permission sets, so the deploy's catalog Job finds them already in place. In
+Staging the next deploy creates them. A read-only comparison of Production on
+2026-10-10 found that `--apply` there also adds `platform:observability:view` and
+the `platform-observability-analyst` role, adds that permission to
+`org-platform-owner` and `org-platform-support`, and removes nothing.
+[Rolling out folder roles](#rolling-out-folder-roles-adr-0097) has the order.
+
 Two Production-specific notes:
 
 - **No users exist yet**, so the GRID Platform organization has no
@@ -87,7 +122,8 @@ Two Production-specific notes:
 
 ### 0. Resource topology
 
-`Organization → Project → Skill`. Organization is the immutable root:
+`Organization → Project → Skill`, and `Organization → Project → Folder`.
+Organization is the immutable root:
 creating a parentless resource type is rejected by the live API with
 *"At least one parent type is required"* (verified 2026-07-30), which is why the
 platform tier is modelled as an org-scoped role rather than a tier above
@@ -98,6 +134,19 @@ Organization.
 | `organization` | — | System root. Carries org-tier and platform-tier permissions. |
 | `project` | `organization` | Tenant workspace: documents, memory, conversations. |
 | `skill` | `project` | A scheduled agent-skill job attached to a project (Agent Skills). |
+| `folder` | `project` | A project folder with its own access list (ADR-0097). Who may read or change it is a folder role (§2a) assigned on it to a person. |
+
+**Only a folder with its own list is a resource**, and it sits directly under
+its project whatever its depth in the folder tree. A folder that inherits is not
+registered. WorkOS shapes this, verified against Staging on 2026-10-09: a
+`folder` cannot be the parent of a `folder` (*"Adding this parent type would
+create a cycle"*), a hierarchy is five levels deep at most, a resource cannot
+move to another parent, and roles only add down a tree. So moving a folder
+inside its project never touches WorkOS, and the narrowing over the folder's
+ancestors stays in Grid's code (`effectiveFolderLevel`). The app registers the
+folder when someone gives it its own list and deletes the resource when it goes
+back to inheriting; a deleted folder keeps its resource, as its row is kept.
+About 5,000 resources of one type per organization is WorkOS's soft limit.
 
 > `document` was **deleted** (2026-07-30). It existed with zero roles and zero
 > permissions and nothing ever checked it; document access is inheritance from
@@ -156,6 +205,19 @@ to check against); operating an existing one is skill-tier, with the
 project-tier fallback in `lib/authz/decide.ts` keeping project admins working
 without provisioning per-skill roles.
 
+### 1c. Folder-tier permissions (resource type: Folder)
+
+| Slug | Meaning |
+|---|---|
+| `folder:read` | See, open, download and search a folder with its own access list, and use it in answers |
+| `folder:write` | Change such a folder and what is filed in it. The project role still caps it: a project viewer holding it only reads |
+
+**No project role holds a `folder:*` permission**, and none may: being in the
+project grants nothing on a registered folder, which is how a folder is
+narrower than its project without the exclusions WorkOS does not have. Only the
+two folder roles in §2a hold them. Organization admins write every folder
+through `org:projects:administer`, not through this tier.
+
 ### 2. Platform-tier permissions (resource type: Organization)
 
 | Slug | Meaning |
@@ -187,13 +249,17 @@ environment-scoped role holds a `platform:*` permission.
 | `project-viewer` | environment (Project) | `project:view` |
 | `project-contributor` | environment (Project) | `project:view`, `project:chat` |
 | `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:documents:generate`, `project:memory:write` |
-| `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:workflows:manage` |
-| `workflow-viewer` / `workflow-operator` / `workflow-admin` | environment (Workflow) | `workflow:view` / +`run` / +`manage` |
-| `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:memory:write` |
 | `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:skills:manage` |
+| `folder-reader` | environment (Folder) | `folder:read` |
+| `folder-editor` | environment (Folder) | `folder:read`, `folder:write` |
 | `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |
 | `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view`, `platform:settings:view`, `platform:observability:view` — every read, no `*:manage`. `platformApiRoute` requires the specific permission per route, which is what makes "read-only" true rather than described. |
 | `platform-observability-analyst` | **GRID Platform org only** | `platform:observability:view` only: opens Langfuse at the edge for business analysts and the Fachbereich, and no platform surface in the app (ADR-0089). The scope must be assigned to the Connect application before the stack that checks it is deployed, or every Langfuse login fails with `invalid_scope` |
+
+The two folder roles are assigned on one folder resource to one organization
+membership, by the folder's access dialog in a project's Files
+(`setFolderAccess`), never on the **Personen** tab: a person's organization role
+says nothing about which folders they reach.
 
 The five fine-grained org personas exist to keep ADR-0016's extensibility
 contract honest: each holds a strict subset of Admin and works with no code
@@ -224,7 +290,7 @@ nobody. The current gap in both environments, and what it costs users, is in
   any other organization, which is the exclusivity guarantee. Permissions:
   the four `platform:*` + all five admin widget scopes (so platform-org
   widgets work on the platform dashboard).
-- The owner (biglmatthias@gmail.com, `user_01KEF12GR7XHBQXA5M42R9VC48`)
+- The owner (`biglmatthias@gmail.com`, `user_01KEF12GR7XHBQXA5M42R9VC48`)
   holds a GRID Platform membership with that role.
 
 ### 4. AuthKit / environment settings
@@ -321,6 +387,32 @@ drown the admin trail.
   `intent: 'audit_logs'`); exports (CSV) and SIEM **streaming** (Datadog,
   Splunk, S3, …) are configured via the existing audit-log-streaming widget
   (`widgets:audit-log-streaming:manage` on the Admin role).
+- **What a viewer reads.** `org:audit:view` opens the viewer, and roles that
+  are not organization admins hold it (`org-auditor`, `org-compliance-officer`,
+  any custom role given it). So an event emitted about a document filed, at
+  that moment, under a folder not every project member may read leaves its name
+  out (ADR-0087): for the actions in `DOCUMENT_NAME_ACTIONS`
+  (`lib/audit/document-names.ts`) the emitter drops `filename`, `previousName`
+  and `displayName`, and the screening `terms` (the name-gate words that
+  matched a piece of the name on an override, the office's words the content
+  check found in the text on a quarantine release; the release's `reasons` keep
+  only the kinds), and sets `nameWithheld: true`; the
+  target id still says
+  which document, and someone cleared for the folder opens it in Piloti. Folder
+  events carry the folder id, never its name. A folder rule that cannot be read
+  withholds the name too.
+- **What it does not cover.** The decision is taken once, when the event is
+  emitted, and WorkOS events cannot be changed afterwards. A viewer still reads
+  the name in: events emitted before this release; events emitted while the
+  folder was open (an upload or rename), after which the folder got its own list
+  (`project.folder.access_changed` removes nothing); and the earlier events of a
+  document moved into a restricted folder (a move emits no audit event). If such
+  names must not be read, limit `org:audit:view` to people cleared for those
+  folders. `nameWithheld` is
+  registered on those actions (and `terms` on `document.quarantine_released`);
+  the deploy's schema job reconciles them, and an
+  environment reconciled by hand needs `npm run provision:audit-schemas -- --apply`
+  before this release, or WorkOS rejects the event.
 
 ### 6. Feature Flags (native WorkOS product)
 
@@ -484,6 +576,10 @@ conversation graph refuses the escalation even when the model asks anyway. So a
 tenant without deep research is never shown a plan, and one without tasks is
 never told an Auftrag was created.
 
+The same answer carries a closed project (ADR-0090): the turn sends its
+`projectId`, and a closed project answers `deepResearch: false` and
+`tasks: false` whatever the flags say, because both file into the project.
+
 That is what the flags did NOT do before. Each was read at exactly one route —
 `POST /api/jobs/async/submit` for deep research, nothing at all for tasks — so
 the agent went on escalating into a queue that would refuse it, and the reader
@@ -540,20 +636,28 @@ Three things follow, and each has cost somebody an afternoon:
 >   enforcement was: Staging rehearses Production, so a capability Production
 >   does not have is not one Staging should be testing with.
 >
-> What a clean environment now looks like, and what the next diff should find:
-> 3 resource types (`organization` → `project` → `skill`), 33 permissions (27
-> custom plus 6 WorkOS-managed widget ones), 13 roles, and no others.
+> What a clean environment looked like then: 3 resource types (`organization` →
+> `project` → `skill`), 33 permissions (27 custom plus 6 WorkOS-managed widget
+> ones), 13 roles, and no others.
+>
+> Since then the catalog gained `org:downloads:view` (2026-10-06) and the folder
+> tier (ADR-0097, 2026-10-09). What the next diff should find: 4 resource types
+> (`folder` beside `skill` under `project`), 36 permissions (30 custom plus 6
+> widget ones), 15 roles.
 
 1. **Dashboard** (still manual — the SDK cannot create resource types): create
    the resource types from §0 — `project` (parent `organization`), then
-   `skill` (parent `project`). Descriptions are capped at 150 characters.
+   `skill` and `folder` (each parent `project`). Descriptions are capped at 150
+   characters.
 2. **Script**: `WORKOS_API_KEY=<key> npm run provision:workos-env -- --apply`
    from `frontends/ui` creates organization **GRID Platform** with external id
    `grid-platform` (the app resolves it by external id, so the name may differ
    but the external id may not). Was dashboard-only before.
 3. **Script**: `WORKOS_API_KEY=<key> npm run provision:authz -- --apply`.
-   This creates every permission from §1/§1a/§1b/§2 and every role from §2a,
-   including the two platform-org roles, and is idempotent.
+   This creates every permission from §1/§1a/§1b/§1c/§2 and every role from §2a,
+   including the two platform-org roles, and is idempotent. Nothing to do if
+   the environment is the one a stack deploys against: the
+   `grid-app-authz-catalog` Job runs it on the next rollout.
 4. **Script**: re-run both without `--apply` and confirm
    "WorkOS matches the catalog." / "WorkOS matches the desired environment."
 5. **Script**: re-run `provision:workos-env --apply` with
@@ -593,6 +697,74 @@ run: resource types, AuthKit's *Allow sign-ups* toggle, the
 Bootstrap alternative: set `GRID_PLATFORM_OWNER_EMAILS=<owner email>` until
 steps 3–5 are done, then clear it.
 
+## Rolling out folder roles (ADR-0097)
+
+Before ADR-0097 a folder with its own access list named organization roles, in
+`project_folder_grants`. Now the folder is a `folder` resource and the people on
+its list hold a folder role on it. Migration `0128` carries over what needs no
+WorkOS (the reserved `*` entry becomes `project_folders.everyone_reads`, or the
+folder goes back to inheriting when everyone wrote it). The role entries become
+folder roles of the people who hold those roles, which only WorkOS knows, so a
+script does that. **The deploy runs all of it**, after one dashboard step per
+environment:
+
+1. **Dashboard, once**: create the `folder` resource type, parent `project` (§0).
+   Staging and Production have it (Production since 2026-10-10). Neither the SDK nor the public API
+   can create a resource type, so this is the one step no deploy can take.
+   Without it the catalog Job fails on the folder permissions and roles, the
+   stack update reports it, and the carry-over does not run.
+2. **Deploy.** In order, with nothing to run by hand:
+   - `grid-app-authz-catalog` creates `folder:read`, `folder:write`,
+     `folder-reader` and `folder-editor` (`provision:authz --apply`).
+   - `grid-app-migrate` applies migration `0128`.
+   - The frontend that reads folder roles rolls out. From here until the
+     carry-over has run, a folder whose list named roles is readable only by
+     organization admins and, when everyone reads it, by every project member:
+     narrower than before, never wider.
+   - `grid-app-folder-grants` carries the role grants over
+     (`migrate:folder-grants --apply`). It waits on the frontend rollout, the
+     migrations and the catalog Job. Compose runs both scripts in
+     `grid-workos-authz`, once the frontend is healthy.
+
+For every folder with its own list, every active member of the organization who
+holds a role the list names gets the folder role for the best level those roles
+granted. The Job's log prints, per folder, the roles, how many people that is,
+and any role no active member holds. It reads `project_folder_grants` across
+every organization, so it runs with the schema owner's connection; the runtime
+role is subject to row-level security and sees nothing. It converts only folders
+not yet registered in WorkOS and never removes a folder role, and saving a list
+in the new dialog deletes that folder's old grant rows, so a list someone
+changed is never carried over again and every later deploy's run is a no-op.
+
+By hand, for an environment no stack deploys against, from `frontends/ui`:
+
+```bash
+WORKOS_API_KEY=sk_… GRID_APP_MIGRATION_DATABASE_URL=postgres://… \
+  bun run migrate:folder-grants             # the plan, changes nothing
+WORKOS_API_KEY=sk_… GRID_APP_MIGRATION_DATABASE_URL=postgres://… \
+  bun run migrate:folder-grants -- --apply  # register the folders, assign the roles
+```
+
+A folder a failed run registered but did not finish is finished with
+`-- --apply --finish=<folder id>`.
+
+**Why the carry-over waits for the frontend.** Run before the new frontend, the
+script would carry a list over as it stood then, and a list narrowed in the old
+dialog afterwards would come back wider, because a later run skips a folder an
+earlier one registered. Run after it, the old dialog is gone and the gap is
+only narrower.
+
+**What changes for the office.** A role grant followed the role: someone given
+the role later reached the folder. A folder role is given to a person, so after
+the carry-over a list is the people who held the role on the day it ran, and
+someone given the role afterwards is added to the folder by hand. The other
+way round too: someone who loses the role later keeps the folder role until
+someone takes them off the list.
+
+`project_folder_grants` stays until the carry-over has run in every
+environment; the migration that drops it also deletes the
+`grid-app-folder-grants` Job and the second half of `grid-workos-authz`.
+
 ## How the app consumes this
 
 - **Catalog** (`lib/authz/catalog.ts`) — the source of truth this runbook
@@ -610,6 +782,17 @@ steps 3–5 are done, then clear it.
   allowlist.
 - **Per-resource**: `lib/authz/resource-check.ts` is the single FGA round-trip
   for both the project and skill tiers, and fails closed.
+- **Folders** (ADR-0097): `lib/authz/folder-roles.ts` holds every WorkOS call of
+  the folder tier. A person's levels in a project are two
+  `listResourcesForMembership` calls (`folder:read`, `folder:write`) scoped to
+  the project, cached for `GRID_AUTHZ_CACHE_TTL_MS` like every FGA answer, and
+  never made for a project with no folder of its own (one indexed probe). A
+  lookup that fails clears nothing and is not cached. Changing a list registers
+  the folder, then removes the folder roles it no longer wants before assigning
+  the new ones, and drops the cached levels of everyone it changed.
+  `lib/authz/folder-access.ts` stays the one decision point: it walks the
+  folder's ancestors (`effectiveFolderLevel`, the minimum over the path), caps
+  writing at the project role, and lets organization admins write everywhere.
 - **Route postures**: every `app/api` handler declares how it is authorized
   (`{ permission }` / `{ enforcedBy }` / `{ sessionOnly, why }`); `tsc` rejects a
   route that does not, and `src/app/api/authz-coverage.spec.ts` fails when a

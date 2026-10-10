@@ -70,6 +70,7 @@ from .roles import WebRole
 from .roles import web_role
 from .routes.cards import add_card_catalog_routes
 from .routes.chat_occupancy import add_chat_occupancy_routes
+from .routes.cleanup_proposal import add_cleanup_proposal_routes
 from .routes.collections import add_collection_routes
 from .routes.config_info import add_config_info_routes
 from .routes.consistency_check import add_consistency_check_routes
@@ -88,6 +89,7 @@ from .routes.maintenance import add_maintenance_routes
 from .routes.norms import add_norm_routes
 from .routes.note_embeddings import add_note_embedding_routes
 from .routes.oib import add_oib_routes
+from .routes.project_experience import add_project_experience_routes
 from .routes.ris import add_ris_routes
 from .routes.skill_review import add_skill_review_routes
 from .routes.skills import add_skill_routes
@@ -318,12 +320,16 @@ def api_routers(llm_configs: Mapping[str, Any]) -> tuple[Callable[[APIRouter], N
         add_document_routes,
         add_document_search_routes,
         add_generate_summary_routes,
+        add_cleanup_proposal_routes,
         add_generate_conversation_title_routes,
         add_dictation_routes,
         add_consistency_check_routes,
         add_feedback_digest_routes,
         add_lesson_distill_routes,
         add_note_embedding_routes,
+        # A project's fingerprint and decisions read from its own documents, for
+        # the close dialog's suggestions (ADR-0096). Internal-token only.
+        add_project_experience_routes,
         add_ingest_routes,
         # Reads an Outlook archive the BFF staged, for its mail import (ADR-0085).
         # Internal-token only, off the external allowlist.

@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Deleting a role now also asks about folders in the Papierkorb or in a
+    deleted project whose access list names it, and marks them in the list.
+    Restoring one used to bring back a list naming a role that no longer existed.

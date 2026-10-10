@@ -308,6 +308,12 @@ def render_system_prompt(
         # to remember a cap; the template frames them as preferences that
         # neither supply a normative value nor outrank the static rules.
         org_instructions=state.org_instructions,
+        # The office's reference projects: only when the turn can look into
+        # them (`project_lookup` bound), else the catalog promises a door the
+        # model does not have.
+        reference_projects=(
+            state.reference_projects if any(tool.get("name") == "project_lookup" for tool in tools_info) else None
+        ),
         focus_file_name=state.focus_file_name,
         focus_shelf_label=shelf_label(state.focus_shelf),
         oib_applicability=oib_applicability(state.project_context),

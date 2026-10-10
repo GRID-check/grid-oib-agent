@@ -23,6 +23,8 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { getWorkOS } from '@/lib/workos/client'
 import { orgRoleHoldsPermission } from './org-role-permissions'
 import { ORG_PERMISSIONS, type ProjectPermission } from './permissions'
+import { findProjectTenancy } from '@/lib/projects/repository'
+import { CLOSED_PROJECT_KEEPS, CLOSED_PROJECT_OPEN_TO_ORGANIZATION, isProjectClosed } from '@/lib/projects/project-status'
 
 /** Matches the membership cache TTL in `@/lib/auth/session`. */
 const MEMBERSHIP_TTL_MS = 10 * 60 * 1000
@@ -127,6 +129,15 @@ export async function userHoldsProjectPermission(
 ): Promise<boolean> {
   const membership = await resolveSubjectMembership(session.organizationId, targetUserId)
   if (!membership) return false
+
+  // A closed project (ADR-0090), mirrored from requireProjectAccess: a write is
+  // nobody's, and reading and chatting are every member's.
+  const project = await findProjectTenancy(projectId)
+  if (!project || project.organizationId !== session.organizationId || project.deletedAt) return false
+  if (isProjectClosed(project)) {
+    if (!CLOSED_PROJECT_KEEPS.has(permission)) return false
+    if (CLOSED_PROJECT_OPEN_TO_ORGANIZATION.has(permission)) return true
+  }
 
   // Mirror requireProjectAccess exactly: the org-wide project bypass is a
   // PERMISSION, not the role slug `admin`. The subject has no session here, so

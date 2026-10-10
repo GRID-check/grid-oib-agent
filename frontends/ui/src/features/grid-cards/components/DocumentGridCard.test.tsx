@@ -1,6 +1,6 @@
 /**
  * Render tests for the DocumentGridCard — the chat surfacing card that presents
- * REAL project/Büroarchiv files. Focus: surfaced file names resolve to their
+ * REAL project/Büroablage files. Focus: surfaced file names resolve to their
  * live document rows (project + Archiv), the card shows the human summary
  * (never the retrieval snippet / score), and a file that no longer resolves
  * degrades to a lean "not available" card instead of vanishing or crashing.
@@ -208,7 +208,7 @@ describe('DocumentGridCard', () => {
     // source), never the same-named project file's card.
     expect(screen.getByText('The assistant referenced this file.')).toBeInTheDocument()
     expect(screen.getByTestId('document-grid-unresolved')).toHaveAttribute('href', '/app/archiv')
-    expect(screen.getByText('Open in archive')).toBeInTheDocument()
+    expect(screen.getByText('Open in Office filing')).toBeInTheDocument()
     expect(screen.queryByText('Project')).not.toBeInTheDocument()
   })
 })

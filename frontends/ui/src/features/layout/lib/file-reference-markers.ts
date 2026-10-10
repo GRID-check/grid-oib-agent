@@ -9,7 +9,7 @@
  * reader has a file by that name.
  *
  * That question is answered before this runs. The plugin is handed the names —
- * real filenames, from the reader's own project, Büroarchiv and chat
+ * real filenames, from the reader's own project, Büroablage and chat
  * attachments — so it does not need a filename grammar and cannot invent a
  * reference to a document nobody has. Matching is literal and
  * case-insensitive; the LABEL is whatever the answer wrote, so a name the model
