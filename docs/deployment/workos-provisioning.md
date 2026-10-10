@@ -95,14 +95,13 @@ Both carry the same three resource types, the same 24 GRID permissions and the
 same 13 roles, verified role-by-role against the catalog after each run.
 
 The **folder tier** (ADR-0097, 2026-10-09) came later and is not in either count
-yet: the `folder` resource type exists in Staging (checked 2026-10-09) and not in
-Production (checked 2026-10-10), and its two permissions and two roles are
-created by the first deploy after the type exists. A read-only comparison of
-Production on 2026-10-10 found that `--apply` there adds
-`platform:observability:view` and the `platform-observability-analyst` role,
-adds that permission to `org-platform-owner` and `org-platform-support`,
-removes nothing, and fails only on the four folder items while the type is
-missing.
+yet: the `folder` resource type exists in Staging (created 2026-10-09) and in
+Production (created 2026-10-10, `authz_resource_type_01M4KGD04HGQMPAZR09R15538W`),
+and its two permissions and two roles are created by the next deploy. A
+read-only comparison of Production on 2026-10-10 found that `--apply` there
+also adds `platform:observability:view` and the `platform-observability-analyst`
+role, adds that permission to `org-platform-owner` and `org-platform-support`,
+and removes nothing.
 [Rolling out folder roles](#rolling-out-folder-roles-adr-0097) has the order.
 
 Two Production-specific notes:
@@ -708,7 +707,7 @@ script does that. **The deploy runs all of it**, after one dashboard step per
 environment:
 
 1. **Dashboard, once**: create the `folder` resource type, parent `project` (§0).
-   Staging has it; Production does not yet. Neither the SDK nor the public API
+   Staging and Production have it (Production since 2026-10-10). Neither the SDK nor the public API
    can create a resource type, so this is the one step no deploy can take.
    Without it the catalog Job fails on the folder permissions and roles, the
    stack update reports it, and the carry-over does not run.
