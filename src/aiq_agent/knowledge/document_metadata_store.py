@@ -68,6 +68,10 @@ _OPTIONAL_COLUMNS: tuple[str, ...] = (
     "tags_set_by",
     "topics",
     "capture",
+    "superseded_by",
+    "revision_suggestion",
+    "change_summary",
+    "change_basis",
 )
 
 #: ``tags_set_by`` value for tags a PERSON chose. Machine writes (ingest, the
@@ -75,12 +79,24 @@ _OPTIONAL_COLUMNS: tuple[str, ...] = (
 #: Topics ride on the same marker: a person's curation covers both columns.
 TAGS_SET_BY_PERSON = "person"
 
+#: What a ``revision_suggestion`` may say its confidence rests on: the file names
+#: (the series grammar of ``revision_series.py``) or the model's reading of the
+#: content. Anything else is not stored.
+SUGGESTION_BASES = ("name", "content")
+
+#: The columns :meth:`DocumentMetadataStore.get_all` reads, in the order
+#: :meth:`DocumentMetadataStore._row_to_document` expects them.
+_DOCUMENT_COLUMNS = (
+    "filename, summary, tags, doc_class, display_title, folder_path, created_at, "
+    "topics, capture, superseded_by, revision_suggestion, change_summary, change_basis"
+)
+
 # Every raw-SQL statement in this module interpolates ONLY trusted, code-defined
 # SQL identifiers: the table/index name constants above, and column names drawn
 # from a fixed allowlist (``_OPTIONAL_COLUMNS`` plus the literal
 # ``"tags"``/``"doc_class"``/``"display_title"``/``"folder_path"``/``"provenance"``/
-# ``"doc_class_suggestion"``/``"topics"``/``"capture"``
-# passed by the typed accessors).
+# ``"doc_class_suggestion"``/``"topics"``/``"capture"``/``"superseded_by"``/
+# ``"revision_suggestion"`` passed by the typed accessors).
 # SQL identifiers cannot be bound parameters, so they must live in the statement
 # text. Every caller-supplied *value* (collection, filename, summary, tags,
 # display_title, …) is always passed as a bound ``:param`` and never interpolated.
@@ -684,6 +700,98 @@ class DocumentMetadataStore:
 
         return self._update_column(collection, filename, "capture", json.dumps(capture) if capture else None)
 
+    def set_superseded_by(self, collection: str, older: str, newer: str | None) -> bool:
+        """Record that a PERSON confirmed ``newer`` replaces ``older`` (sync), or lift it with ``None``.
+
+        The link lives on the OLDER document's row, as the file name of the newer
+        one in the same collection. Only a person's confirmation writes it
+        (the ``PUT .../fassung`` route); ingestion and models suggest through
+        :meth:`set_revision_suggestion` and never here. A re-ingest of either
+        file keeps it: :meth:`register` writes only the summary, tags and topics.
+        Same UPDATE-only contract as :meth:`set_doc_class`.
+        """
+        return self._update_column(collection, older, "superseded_by", newer or None)
+
+    def set_revision_suggestion(self, collection: str, filename: str, suggestion: dict[str, Any] | None) -> bool:
+        """Store (or clear, with ``None``) Piloti's suggestion that ``filename`` is a newer Fassung of another.
+
+        A suggestion, never a link: nothing hides or re-ranks a document because
+        of it. A dict that is not a valid suggestion (:meth:`_normalise_suggestion`)
+        is refused with ``False`` rather than stored. UPDATE-only, like the rest.
+        """
+        import json
+
+        if suggestion is None:
+            return self._update_column(collection, filename, "revision_suggestion", None)
+        normalised = self._normalise_suggestion(suggestion)
+        if normalised is None:
+            logger.warning("Refused an invalid revision suggestion for %s", filename)
+            return False
+        return self._update_column(collection, filename, "revision_suggestion", json.dumps(normalised))
+
+    def set_change_summary(self, collection: str, filename: str, summary: str | None, basis: str | None) -> bool:
+        """Store what changed in ``filename`` against the Fassung named ``basis`` (sync); ``None`` clears both.
+
+        ``basis`` is the file name compared against: the document's own name for
+        its previous upload, another name for a Fassung a person confirmed. One
+        UPDATE writes both columns, so a summary is never left with another
+        file's basis.
+        """
+        from sqlalchemy import text
+
+        text_value = (summary or "").strip() or None
+        basis_value = (basis or "").strip() or None if text_value else None
+        try:
+            with self._sync_engine.connect() as conn:
+                result = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(
+                        f"UPDATE {TABLE_NAME} SET change_summary = :summary, change_basis = :basis "
+                        "WHERE collection = :collection AND filename = :filename"
+                    ),
+                    {"summary": text_value, "basis": basis_value, "collection": collection, "filename": filename},
+                )
+                conn.commit()
+                return (result.rowcount or 0) > 0
+        except Exception as e:
+            logger.warning("Failed to set the change summary for %s: %s", filename, e)
+            return False
+
+    def get_superseded_by_batch(self, collection: str, filenames: list[str]) -> dict[str, str]:
+        """The confirmed ``superseded_by`` of the rows among ``filenames`` that have one."""
+        return self._get_column_batch(collection, filenames, "superseded_by")
+
+    def get_superseded_files(self, collection: str) -> dict[str, str]:
+        """Every file of ``collection`` a person replaced, with the file that replaced it (sync).
+
+        Read at search time, so the answer is the store's and a delete or an
+        unlink applies to the next search. A link counts only while the newer
+        document still has its row, which the same query checks. Fail-open to
+        ``{}``: a search that cannot read it hides nothing.
+        """
+        from sqlalchemy import text
+
+        try:
+            with self._sync_engine.connect() as conn:
+                rows = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(
+                        f"SELECT older.filename, older.superseded_by FROM {TABLE_NAME} older "
+                        "WHERE older.collection = :collection AND older.superseded_by IS NOT NULL "
+                        f"AND EXISTS (SELECT 1 FROM {TABLE_NAME} newer "
+                        "WHERE newer.collection = older.collection AND newer.filename = older.superseded_by)"
+                    ),
+                    {"collection": collection},
+                )
+                return {row[0]: row[1] for row in rows}
+        except Exception as e:
+            logger.warning("Failed to read the replaced files of %s: %s", collection, e)
+            return {}
+
+    def get_revision_suggestions_batch(self, collection: str, filenames: list[str]) -> dict[str, str]:
+        """The stored ``revision_suggestion`` JSON of the rows among ``filenames`` that have one (raw text)."""
+        return self._get_column_batch(collection, filenames, "revision_suggestion")
+
     def rewrite_folder_paths(self, collection: str, from_path: str, to_path: str | None) -> int:
         """Re-file a whole subtree after a folder was renamed, moved or deleted.
 
@@ -924,6 +1032,45 @@ class DocumentMetadataStore:
             kept[key] = value
         return kept or None
 
+    @staticmethod
+    def _normalise_suggestion(value: Any) -> dict[str, Any] | None:
+        """A revision suggestion as it is stored and read: exactly its five keys, each valid, or ``None``.
+
+        ``of`` is the older file name, ``confidence`` a number in 0..1 (a flag is
+        not one, and NaN is not one), ``reason`` a non-empty text, ``basis`` one
+        of :data:`SUGGESTION_BASES`. ``dismissed`` is ``True`` only when it says
+        so. A suggestion missing any of the first four is no suggestion.
+        """
+        if not isinstance(value, dict):
+            return None
+        older, confidence = value.get("of"), value.get("confidence")
+        reason, basis = value.get("reason"), value.get("basis")
+        if not isinstance(older, str) or not older.strip():
+            return None
+        if isinstance(confidence, bool) or not isinstance(confidence, int | float) or not 0.0 <= confidence <= 1.0:
+            return None
+        if not isinstance(reason, str) or not reason.strip() or basis not in SUGGESTION_BASES:
+            return None
+        return {
+            "of": older,
+            "confidence": float(confidence),
+            "reason": reason.strip(),
+            "basis": basis,
+            "dismissed": value.get("dismissed") is True,
+        }
+
+    @classmethod
+    def _decode_suggestion(cls, raw: Any) -> dict[str, Any] | None:
+        """Decode the JSON ``revision_suggestion`` column (fail-open to ``None``)."""
+        if not raw:
+            return None
+        import json
+
+        try:
+            return cls._normalise_suggestion(json.loads(raw))
+        except (TypeError, ValueError):
+            return None
+
     def _row_to_document(self, row: Any, collection: str | None = None) -> AvailableDocument:
         from .schema import AvailableDocument
 
@@ -937,8 +1084,33 @@ class DocumentMetadataStore:
             added_at=self._iso_date(row[6]) if len(row) > 6 else None,
             topics=self._decode_tags(row[7]) if len(row) > 7 else None,
             capture=self._decode_object(row[8]) if len(row) > 8 else None,
+            superseded_by=(row[9] or None) if len(row) > 9 else None,
+            revision_suggestion=self._decode_suggestion(row[10]) if len(row) > 10 else None,
+            change_summary=(row[11] or None) if len(row) > 11 else None,
+            change_basis=(row[12] or None) if len(row) > 12 else None,
             collection=collection,
         )
+
+    @staticmethod
+    def _attach_supersedes(documents: list[AvailableDocument]) -> list[AvailableDocument]:
+        """Fill ``supersedes``, the reverse of ``superseded_by``, over one collection's rows.
+
+        Derived on every read and never stored, so there is one fact to keep true.
+        A link counts only while the newer document still has its row: a delete
+        clears the links that pointed at it (:meth:`unregister`), and this guard
+        covers a row that went some other way. An older document whose newer one
+        is gone is current again, not hidden.
+        """
+        present = {doc.file_name for doc in documents}
+        replaced: dict[str, list[str]] = {}
+        for doc in documents:
+            if doc.superseded_by and doc.superseded_by in present:
+                replaced.setdefault(doc.superseded_by, []).append(doc.file_name)
+        for doc in documents:
+            if doc.superseded_by and doc.superseded_by not in present:
+                doc.superseded_by = None
+            doc.supersedes = sorted(replaced[doc.file_name]) if doc.file_name in replaced else None
+        return documents
 
     @staticmethod
     def _iso_date(raw: Any) -> str | None:
@@ -978,15 +1150,10 @@ class DocumentMetadataStore:
             with self._sync_engine.connect() as conn:
                 result = conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                    text(
-                        "SELECT filename, summary, tags, doc_class, display_title, folder_path, created_at, "
-                        "topics, capture "
-                        f"FROM {TABLE_NAME} "
-                        "WHERE collection = :collection"
-                    ),
+                    text(f"SELECT {_DOCUMENT_COLUMNS} FROM {TABLE_NAME} WHERE collection = :collection"),
                     {"collection": collection},
                 )
-                return [self._row_to_document(row, collection) for row in result]
+                return self._attach_supersedes([self._row_to_document(row, collection) for row in result])
         except Exception as e:
             logger.warning("Failed to get metadata for %s: %s", collection, e)
             return []
@@ -1001,15 +1168,10 @@ class DocumentMetadataStore:
             async with engine.connect() as conn:
                 result = await conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                    text(
-                        "SELECT filename, summary, tags, doc_class, display_title, folder_path, created_at, "
-                        "topics, capture "
-                        f"FROM {TABLE_NAME} "
-                        "WHERE collection = :collection"
-                    ),
+                    text(f"SELECT {_DOCUMENT_COLUMNS} FROM {TABLE_NAME} WHERE collection = :collection"),
                     {"collection": collection},
                 )
-                return [self._row_to_document(row, collection) for row in result]
+                return self._attach_supersedes([self._row_to_document(row, collection) for row in result])
         except Exception as e:
             logger.warning("Failed to get metadata async for %s: %s", collection, e)
             # Fallback to sync
@@ -1024,6 +1186,15 @@ class DocumentMetadataStore:
                 conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(f"DELETE FROM {TABLE_NAME} WHERE collection = :collection AND filename = :filename"),
+                    {"collection": collection, "filename": filename},
+                )
+                # A document that replaced others is gone: they are current again.
+                conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(
+                        f"UPDATE {TABLE_NAME} SET superseded_by = NULL "
+                        "WHERE collection = :collection AND superseded_by = :filename"
+                    ),
                     {"collection": collection, "filename": filename},
                 )
                 conn.commit()

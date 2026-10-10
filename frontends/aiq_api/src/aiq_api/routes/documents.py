@@ -13,18 +13,26 @@ import os
 import tempfile
 from typing import Any
 
+import httpx
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import File
+from fastapi import Header
 from fastapi import HTTPException
 from fastapi import UploadFile
 from pydantic import BaseModel
+from pydantic import ConfigDict
 from pydantic import Field
 
+from aiq_agent.common import provider_limiter
+from aiq_agent.common.openrouter import limited_async_http_client
 from aiq_agent.knowledge import get_available_documents_async
 from aiq_agent.knowledge import rewrite_document_folder_paths
+from aiq_agent.knowledge import set_document_change_summary
 from aiq_agent.knowledge import set_document_display_title
 from aiq_agent.knowledge import set_document_folder_path
+from aiq_agent.knowledge import set_document_revision_suggestion
+from aiq_agent.knowledge import set_document_superseded_by
 from aiq_agent.knowledge import set_document_tags_by_person
 from aiq_agent.knowledge import set_document_topics_by_person
 from aiq_agent.knowledge.base import BaseIngestor
@@ -32,14 +40,20 @@ from aiq_agent.knowledge.document_classification import ALLOWED_TAGS
 from aiq_agent.knowledge.document_classification import MAX_TAGS
 from aiq_agent.knowledge.document_classification import MAX_TOPICS
 from aiq_agent.knowledge.document_classification import normalize_topic
+from aiq_agent.knowledge.document_revisions import RevisionDocument
+from aiq_agent.knowledge.document_revisions import build_change_prompt
+from aiq_agent.knowledge.document_revisions import parse_change_summary
+from aiq_agent.knowledge.document_revisions import settled_change
 from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.schema import FileInfo
 from aiq_agent.knowledge.schema import IngestionJobStatus
+from aiq_agent.observability.direct_trace import observed_generation
 
 from ..jobs import ingest_dispatch
 from ..models.requests import DeleteFilesRequest
 from ..models.requests import UploadResponse
 from .collections import _require_ingestor
+from .generate_summary import _llm_settings
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +71,11 @@ def _merge_summaries(files: list[FileInfo], summaries: list[AvailableDocument]) 
     filename, unique within the summaries table, so a straight lookup is safe.
     A file without a stored summary/tags/folder is left untouched; already-populated
     values are never overwritten. Topics (Themen) and the camera's capture facts
-    travel the same way.
+    travel the same way, and so do the Fassungen: the confirmed link
+    (``superseded_by``, and ``supersedes`` as its reverse), the change summary with
+    the file name it compared against, and Piloti's open suggestion. A suggestion
+    a person dismissed, or one about a file that is gone or already replaced, is
+    not sent.
     """
     if not summaries:
         return files
@@ -76,7 +94,77 @@ def _merge_summaries(files: list[FileInfo], summaries: list[AvailableDocument]) 
             file.topics = doc.topics
         if file.capture is None and doc.capture:
             file.capture = doc.capture
+        if file.superseded_by is None and doc.superseded_by:
+            file.superseded_by = doc.superseded_by
+        if not file.supersedes and doc.supersedes:
+            file.supersedes = doc.supersedes
+        if file.change_summary is None and doc.change_summary:
+            file.change_summary = doc.change_summary
+            file.change_basis = doc.change_basis
+        if file.revision_suggestion is None:
+            file.revision_suggestion = _open_suggestion(doc, doc_by_name)
     return files
+
+
+def _open_suggestion(doc: AvailableDocument, known: dict[str, AvailableDocument]) -> dict[str, Any] | None:
+    """Piloti's suggestion for ``doc`` as the BFF gets it, or ``None`` when there is nothing to offer.
+
+    Nothing to offer: it was dismissed, the older file is no longer in the
+    collection, this document already replaces it, or it was replaced by another.
+    """
+    suggestion = doc.revision_suggestion
+    if not suggestion or suggestion.get("dismissed"):
+        return None
+    older = known.get(suggestion["of"])
+    if older is None or older.superseded_by or suggestion["of"] in (doc.supersedes or []):
+        return None
+    return {key: suggestion[key] for key in ("of", "confidence", "reason", "basis")}
+
+
+async def _request_change_summary(
+    older: AvailableDocument, newer: AvailableDocument, organization_id: str | None
+) -> str | None:
+    """What changed from ``older`` to ``newer``, German bullet lines, or ``None``. Never raises.
+
+    The same prompt and parser as ingestion's (``document_revisions``), posted over
+    the summary gateway like the other utility routes and traced as a
+    ``change-summary`` generation (ADR-0089). A person is waiting on the
+    confirmation, so the call queues as interactive (ADR-0081).
+    """
+    before = RevisionDocument(
+        file_name=older.file_name, summary=older.summary or "", doc_class=older.doc_class, tags=tuple(older.tags or ())
+    )
+    after = RevisionDocument(
+        file_name=newer.file_name, summary=newer.summary or "", doc_class=newer.doc_class, tags=tuple(newer.tags or ())
+    )
+    settled, answer = settled_change(before, after)
+    if settled:
+        return answer
+    cred = await asyncio.to_thread(_llm_settings, organization_id)
+    if not cred.api_key:
+        return None
+    payload = cred.request_body(
+        {
+            "model": cred.model,
+            "temperature": 0,
+            "max_tokens": 400,
+            "messages": [{"role": "user", "content": build_change_prompt(before, after)}],
+        }
+    )
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cred.api_key}"}
+    try:
+        async with (
+            observed_generation("change-summary", model=cred.model, messages=payload.get("messages")) as generation,
+            limited_async_http_client(cls=provider_limiter.INTERACTIVE, timeout=30.0) as client,
+        ):
+            response = await client.post(f"{cred.base_url}/chat/completions", json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            generation.finish(data)
+        return parse_change_summary(data["choices"][0]["message"]["content"] or "")
+    except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
+        logger.warning("Change summary request failed: %s", type(exc).__name__)
+        return None
 
 
 def _checked_tags(raw: list[str]) -> list[str]:
@@ -148,6 +236,47 @@ def _checked_topics(raw: list[str]) -> list[str]:
             },
         )
     return topics
+
+
+def _would_loop(documents: dict[str, AvailableDocument], *, newer: str, older: str) -> bool:
+    """Whether ``older -> newer`` would close a loop: ``newer`` already leads to ``older`` through replacements."""
+    seen: set[str] = set()
+    name: str | None = newer
+    while name and name not in seen:
+        if name == older:
+            return True
+        seen.add(name)
+        doc = documents.get(name)
+        name = doc.superseded_by if doc is not None else None
+    return False
+
+
+async def _refuse_fassung(collection_name: str, newer: AvailableDocument, older: AvailableDocument) -> dict[str, Any]:
+    """The ``linked=false`` half of the Fassung route: lift the link, drop its change line, dismiss the suggestion.
+
+    Answers the link ``older`` has and the change line ``newer`` has once this is done.
+    """
+    superseded_by, change_summary, change_basis = older.superseded_by, newer.change_summary, newer.change_basis
+    if older.superseded_by == newer.file_name:
+        await asyncio.to_thread(set_document_superseded_by, collection_name, older.file_name, None)
+        superseded_by = None
+        if newer.change_basis == older.file_name:
+            await asyncio.to_thread(set_document_change_summary, collection_name, newer.file_name, None, None)
+            change_summary = change_basis = None
+    suggestion = newer.revision_suggestion
+    if suggestion is None:
+        # A suggestion read from the file names lives only in the UI; the refusal still has to outlive it.
+        suggestion = {
+            "of": older.file_name,
+            "confidence": 0.0,
+            "reason": "Von einer Person abgelehnt.",
+            "basis": "name",
+        }
+    if suggestion.get("of") == older.file_name:
+        await asyncio.to_thread(
+            set_document_revision_suggestion, collection_name, newer.file_name, {**suggestion, "dismissed": True}
+        )
+    return {"superseded_by": superseded_by, "change_summary": change_summary, "change_basis": change_basis}
 
 
 def _no_summary_404(collection_name: str, file_name: str) -> HTTPException:
@@ -370,6 +499,84 @@ def add_document_routes(router: APIRouter):
                 raise _no_summary_404(collection_name, file_name)
             response["tags"] = tags
         return response
+
+    class FassungRequest(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+        newer: str = Field(..., min_length=1, max_length=512, description="File name of the newer Fassung.")
+        older: str = Field(..., min_length=1, max_length=512, description="File name of the Fassung it replaces.")
+        linked: bool = Field(
+            ...,
+            description="True: a person confirms newer replaces older. False: a person lifts or refuses that.",
+        )
+
+    @router.put(
+        "/v1/collections/{collection_name}/fassung",
+        tags=["documents"],
+        summary="Confirm or refuse that one file replaces another (a Fassung across different names)",
+    )
+    async def put_fassung_route(
+        collection_name: str,
+        request: FassungRequest,
+        ingestor: BaseIngestor = Depends(_require_ingestor),
+        x_grid_organization_id: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        """A person's decision about a Piloti suggestion (or a name series): ``newer`` replaces ``older``.
+
+        Follows the documents-router auth model: end-user access is enforced at the
+        BFF. Both files must have a metadata row in THIS collection, and differ.
+        Nothing here merges stored bytes: the older file stays whole and readable
+        by name, and only drops out of the ranked search.
+
+        - ``linked=true``: ``older.superseded_by = newer``; a suggestion on ``newer``
+          that pointed at ``older`` is cleared; what changed is written by the
+          summary model (traced as ``change-summary``) onto ``newer`` with
+          ``change_basis = older``. A model failure leaves the link in place and
+          ``change_summary`` null. A link that would close a loop (the newer file
+          already replaced by the older, directly or through others) is a 409.
+        - ``linked=false``: the link ``older -> newer`` is lifted when it exists, the
+          change summary written against ``older`` goes with it, and the suggestion
+          that ``newer`` is a newer Fassung of ``older`` is marked dismissed, so a
+          later reading does not offer it again. A suggestion about another file is
+          left alone.
+
+        Returns ``{"superseded_by", "change_summary", "change_basis"}``: the link ``older``
+        has and the change line ``newer`` has after the call (``null`` when none).
+        """
+        if request.newer == request.older:
+            raise HTTPException(status_code=400, detail="A file cannot replace itself")
+        documents = {doc.file_name: doc for doc in await get_available_documents_async(collection_name)}
+        missing = [name for name in (request.newer, request.older) if name not in documents]
+        if missing:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No document {missing!r} in collection '{collection_name}'",
+            )
+        newer, older = documents[request.newer], documents[request.older]
+
+        if not request.linked:
+            return await _refuse_fassung(collection_name, newer, older)
+
+        if _would_loop(documents, newer=request.newer, older=request.older):
+            raise HTTPException(
+                status_code=409,
+                detail=f"'{request.newer}' is already replaced by '{request.older}'; it cannot replace it in turn",
+            )
+        if not await asyncio.to_thread(set_document_superseded_by, collection_name, request.older, request.newer):
+            raise _no_summary_404(collection_name, request.older)
+        suggestion = newer.revision_suggestion
+        if suggestion and suggestion.get("of") == request.older:
+            await asyncio.to_thread(set_document_revision_suggestion, collection_name, request.newer, None)
+        change = await _request_change_summary(older, newer, x_grid_organization_id)
+        if change:
+            await asyncio.to_thread(set_document_change_summary, collection_name, request.newer, change, request.older)
+            return {"superseded_by": request.newer, "change_summary": change, "change_basis": request.older}
+        # No line could be told: whatever the newer file already says about itself stays, with its own basis.
+        return {
+            "superseded_by": request.newer,
+            "change_summary": newer.change_summary,
+            "change_basis": newer.change_basis,
+        }
 
     class UpdateDisplayTitleRequest(BaseModel):
         display_title: str | None = Field(

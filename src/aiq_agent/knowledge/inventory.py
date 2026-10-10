@@ -254,6 +254,29 @@ def _captured_on_of(doc: Any) -> str | None:
         return None
 
 
+#: Replaced file names one inventory row names before it counts the rest.
+_MAX_REPLACED_NAMED = 3
+
+
+def _confirmed_revision_bit(doc: Any) -> str:
+    """What a person confirmed about this file's Fassungen, as a short row suffix.
+
+    Only the confirmed link: a suggestion is not shown to the model, and a name
+    series is `list_files`'s to mark. The older file says which one replaced it,
+    the newer says which it replaced, so the model leans on the current one.
+    """
+    newer = doc.get("superseded_by") if isinstance(doc, dict) else getattr(doc, "superseded_by", None)
+    older = _list_of(doc, "supersedes")
+    parts: list[str] = []
+    if newer:
+        parts.append(f"ersetzt durch {newer} (bestätigt)")
+    if older:
+        named = ", ".join(older[:_MAX_REPLACED_NAMED])
+        rest = len(older) - _MAX_REPLACED_NAMED
+        parts.append(f"ersetzt {named}{f' und {rest} weitere' if rest > 0 else ''} (bestätigt)")
+    return f" · {'; '.join(parts)}" if parts else ""
+
+
 def document_identity(doc: Any) -> tuple[str, str]:
     """Primary key of an inventory row: ``(collection, file_name)``."""
     return (_collection_of(doc), _file_name_of(doc))
@@ -674,7 +697,10 @@ def render_inventory_block(
                 folder = _folder_of(doc)
                 folder_bit = f" (Ordner: {folder})" if folder else ""
                 summary = _summary_of(doc) or "No summary available"
-                lines.append(f"- **{_file_name_of(doc)}**{folder_bit}{tag_bit}{topic_bit}{captured_bit}: {summary}")
+                revision_bit = _confirmed_revision_bit(doc)
+                lines.append(
+                    f"- **{_file_name_of(doc)}**{folder_bit}{tag_bit}{topic_bit}{captured_bit}{revision_bit}: {summary}"
+                )
         # Never a silent cap. Without this line the model reads a truncated
         # shelf as the whole shelf, and the listing instruction above ("answer
         # ONLY from that shelf's group") turns that into a confident wrong

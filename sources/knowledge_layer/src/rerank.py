@@ -34,9 +34,9 @@ from aiq_agent.common.message_utils import response_text
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
-    "You are a retrieval relevance judge for an Austrian building-code (OIB-Richtlinien) "
-    "assistant. The candidates are German-language excerpts from building regulations, "
-    "guidance documents and project files.\n\n"
+    "You are a retrieval relevance judge for the workspace of an Austrian architecture "
+    "office. The candidates are German-language excerpts from the project's files, the "
+    "office's own documents, building regulations (OIB-Richtlinien) and guidance documents.\n\n"
     "Score every candidate 0-10 for how directly it answers the user's question:\n"
     "  10-8  states the governing requirement itself (the Punkt, the threshold, the "
     "dimension, the explicit obligation) for exactly what was asked\n"

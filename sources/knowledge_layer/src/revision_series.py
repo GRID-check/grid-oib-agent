@@ -161,6 +161,22 @@ def parse_revision_name(filename: str) -> RevisionName | None:
     return RevisionName(key=key, index=index, date=date) if key else None
 
 
+def series_key_of(filename: str) -> str:
+    """What this file name shares with the other Fassungen of its document, extension left out.
+
+    The key of the revision parse when the name carries an index or a date; the
+    folded name itself when it carries neither, because the FIRST state of a
+    document usually has none (``Grundriss EG.pdf`` beside ``Grundriss EG Index B.pdf``).
+    Backend only: the folder brief groups by :func:`find_revision_series`, which
+    needs two different revisions, so it has no use for a bare key.
+    """
+    revision = parse_revision_name(filename)
+    if revision is not None:
+        return revision.key
+    stem, _ = _split_extension(filename)
+    return _series_key(stem)
+
+
 def _newest_first(
     members: list[RevisionSeriesMember[T]], created_at: Callable[[T], str | None]
 ) -> list[RevisionSeriesMember[T]]:

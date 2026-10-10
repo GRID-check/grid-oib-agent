@@ -72,6 +72,7 @@ from aiq_agent.knowledge.schema import JobState
 from aiq_agent.knowledge.schema import RetrievalResult
 from aiq_agent.knowledge.schema import stable_file_id
 
+from . import fassungen
 from .pdfium_lock import detached_pil
 from .pdfium_lock import pdfium_lock
 
@@ -531,6 +532,8 @@ JOB_RETENTION_SECONDS = 3600  # 1 hour
 PERMIT_RECORD_TIMEOUT_SECONDS = 90
 #: Dropping a record is one internal call, no model: it must never hold up an ingest.
 PERMIT_RECORD_DROP_TIMEOUT_SECONDS = 5
+#: The bound on one file's Fassung step (a suggestion for a new name, a change line for a re-upload).
+FASSUNG_TIMEOUT_SECONDS = 45
 
 # The per-file error of an attempt whose document was deleted while it indexed
 # (see `document_presence`). FAILED rather than SUCCESS so the end-of-job
@@ -2519,6 +2522,8 @@ def _read_human_set_fields(collection_name: str, found: dict[str, _PreviousVersi
 
     ``tags`` is carried only when a person chose them, as their JSON text: the
     classifier's own tags are re-derived from the new bytes, as they should be.
+    ``superseded_by`` is always a person's confirmation, and ``revision_suggestion``
+    keeps a dismissal a person made.
     """
     try:
         from aiq_agent.knowledge import get_document_display_titles
@@ -2526,6 +2531,8 @@ def _read_human_set_fields(collection_name: str, found: dict[str, _PreviousVersi
         from aiq_agent.knowledge import get_document_folder_paths
         from aiq_agent.knowledge import get_document_person_tags
         from aiq_agent.knowledge import get_document_person_topics
+        from aiq_agent.knowledge import get_document_revision_suggestions
+        from aiq_agent.knowledge import get_document_superseded_by
 
         stored_names = [stored for version in found.values() for stored in version.stored_names]
         person_tags = {
@@ -2541,6 +2548,9 @@ def _read_human_set_fields(collection_name: str, found: dict[str, _PreviousVersi
             ("folder_path", get_document_folder_paths(collection_name, stored_names)),
             ("tags", person_tags),
             ("topics", person_topics),
+            # A person confirmed these (the link) or dismissed them (the suggestion).
+            ("superseded_by", get_document_superseded_by(collection_name, stored_names)),
+            ("revision_suggestion", get_document_revision_suggestions(collection_name, stored_names)),
         ):
             for stored, value in values.items():
                 version = found.get(_normalized_file_name(stored))
@@ -5264,6 +5274,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                     # Store summary + tags in FileInfo and centralized registry
                     if summary:
+                        # The rows as they are BEFORE the new summary overwrites this
+                        # name's: the previous summary is what a re-upload's change
+                        # line is told against, and the other rows are the candidates
+                        # a new name may be a newer Fassung of (`fassungen.py`).
+                        fassung_rows = (
+                            fassungen.read_rows(collection_name)
+                            if not base_corpus and self.generate_summary_enabled and self.summary_llm
+                            else []
+                        )
+                        summary_before = fassungen.previous_summary(
+                            fassung_rows, previous.stored_names if previous else ()
+                        )
                         # Register in centralized summary registry (backend-agnostic).
                         # Tags ride along in the same upsert (may be None).
                         from aiq_agent.knowledge import register_summary
@@ -5341,6 +5363,40 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             from aiq_agent.knowledge import set_document_provenance
 
                             set_document_provenance(collection_name, file_name, provenance)
+
+                        # A person's confirmed link and a dismissed suggestion survive
+                        # the re-read, the way their tags do: the same-name row keeps
+                        # them by itself, this carries them from another spelling.
+                        carried_link, carried_suggestion = fassungen.carried_links(preserved)
+                        if carried_link:
+                            from aiq_agent.knowledge import set_document_superseded_by
+
+                            set_document_superseded_by(collection_name, file_name, carried_link)
+                        if carried_suggestion:
+                            from aiq_agent.knowledge import set_document_revision_suggestion
+
+                            set_document_revision_suggestion(collection_name, file_name, carried_suggestion)
+
+                        # Fassungen: a new name may be a newer state of another document
+                        # (a suggestion), a re-upload says what changed (ADR-0054). Bounded,
+                        # fail-open, and only on a shelf of user documents: the base corpus
+                        # replaces by its own hash registry.
+                        if not base_corpus and self.generate_summary_enabled and self.summary_llm:
+                            self._bounded(
+                                "Fassung",
+                                file_name,
+                                FASSUNG_TIMEOUT_SECONDS,
+                                fassungen.record_fassungen,
+                                collection_name,
+                                file_name,
+                                replaced=previous is not None,
+                                rows=fassung_rows,
+                                previous=summary_before,
+                                summary=summary,
+                                doc_class=doc_class,
+                                tags=tags,
+                                llm=self.summary_llm,
+                            )
 
                         logger.info(f"  Summary generated ({len(summary)} chars)")
 

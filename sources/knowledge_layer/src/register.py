@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import os
+from collections.abc import Sequence
 from contextlib import nullcontext
 from contextlib import suppress
 from dataclasses import dataclass
@@ -1675,6 +1676,41 @@ _FAMILY_OVERVIEW_FAILED_NOTICE = (
 )
 
 
+#: Replaced files one notice names before it counts the rest.
+_HIDDEN_FASSUNGEN_NAMED = 5
+
+
+async def _superseded_files(collections: Sequence[str]) -> dict[str, list[str]]:
+    """Per collection, the files a PERSON replaced by a newer one, read from the metadata store now.
+
+    Resolved at query time, the way a folder is: whether a file is replaced is
+    not on its chunks, and a link made or lifted a minute ago must apply to the
+    next search. Fail-open: a collection that cannot be read hides nothing.
+    """
+    from aiq_agent.knowledge import get_superseded_files
+
+    answers = await asyncio.gather(
+        *(asyncio.to_thread(get_superseded_files, collection) for collection in collections),
+        return_exceptions=True,
+    )
+    return {
+        collection: sorted(answer)
+        for collection, answer in zip(collections, answers, strict=True)
+        if isinstance(answer, dict) and answer
+    }
+
+
+def _hidden_fassungen_notice(superseded: dict[str, list[str]]) -> str:
+    """The one line that tells the model older Fassungen were left out of the ranking, and how to read one."""
+    names = sorted({name for hidden in superseded.values() for name in hidden})
+    if not names:
+        return ""
+    shown = ", ".join(names[:_HIDDEN_FASSUNGEN_NAMED])
+    rest = len(names) - _HIDDEN_FASSUNGEN_NAMED
+    tail = f" und {rest} weitere" if rest > 0 else ""
+    return f"Ältere Fassungen ausgeblendet: {shown}{tail} — mit file_name=… gezielt lesbar.\n\n"
+
+
 @dataclass(frozen=True, slots=True)
 class _FamilyBranch:
     """What the family branch produced: an overview, or the fact that it broke.
@@ -2044,6 +2080,16 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     "`list_files` shows the folders that exist and what is in them."
                 )
 
+        # Files a person replaced by a newer one stay out of the RANKING on the
+        # user shelves, so a superseded Fassung cannot outrank its replacement on
+        # similarity alone. Naming the file (`file_name=`) is the way back to it.
+        # The base corpus is untouched: it replaces by its own hash registry.
+        superseded: dict[str, list[str]] = {}
+        if not file_name:
+            superseded = await _superseded_files(
+                [entry.collection for entry in target_collections if entry.collection != base_collection]
+            )
+
         # Cross-lingual bridge. The corpus is German; an English question reaches it
         # only weakly by embedding and not at all lexically. Measured on the golden
         # set, an English question scored MRR 0.276 against 0.605 for the same
@@ -2102,6 +2148,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             if folder_files is not None:
                 narrowing = {"file_name": {"$in": sorted(folder_files.get(coll) or [])}}
                 coll_filters = {**coll_filters, **narrowing} if coll_filters else narrowing
+            if superseded.get(coll):
+                hidden = {"file_name": {"$nin": superseded[coll]}}
+                coll_filters = {"$and": [coll_filters, hidden]} if coll_filters else hidden
             result = await retriever.retrieve(
                 query=search_query, collection_name=coll, top_k=candidate_k, filters=coll_filters
             )
@@ -2537,7 +2586,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # own formulation was already given a second chance.
             from knowledge_layer.requery import requery_notice
 
-            notice = requery_notice(requery_queries)
+            notice = _hidden_fassungen_notice(superseded) + requery_notice(requery_queries)
             # The overview raised, and the passages below are what is left of
             # the family question. Said only where there ARE passages: an empty
             # or failed search already tells the model the stronger thing.

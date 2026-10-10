@@ -239,6 +239,32 @@ class FileInfo(BaseModel):
             "never for a model."
         ),
     )
+    superseded_by: str | None = Field(
+        None,
+        description=(
+            "File name of the newer Fassung in this collection that a PERSON confirmed replaces this one. "
+            "Piloti never sets it on its own."
+        ),
+    )
+    supersedes: list[str] | None = Field(
+        None,
+        description="File names this document replaces by a person's confirmation (the reverse of superseded_by).",
+    )
+    revision_suggestion: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Piloti's open suggestion that this document is a newer Fassung of another: of (the older file name), "
+            "confidence (0..1), reason (German, short), basis ('name' or 'content'). Absent once dismissed."
+        ),
+    )
+    change_summary: str | None = Field(
+        None,
+        description="German bullet lines on what changed against the Fassung it replaces (change_basis).",
+    )
+    change_basis: str | None = Field(
+        None,
+        description="File name the change_summary compared against (this file's own name: its previous upload).",
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="File-specific metadata (e.g., page count, content types).",
@@ -360,6 +386,18 @@ class AvailableDocument(BaseModel):
             only. Coordinates ride along for the BFF, which shows them to the
             people who may open the file; they are never rendered to a model.
             Only ``captured_at`` (as a date) and ``camera`` may reach a prompt.
+        superseded_by: Optional file name of the newer document in the SAME
+            collection that a person confirmed replaces this one (a Fassung
+            across different names; ADR-0054 covers the same name). Never set by
+            a model.
+        supersedes: Derived, never stored: the file names whose ``superseded_by``
+            is this document.
+        revision_suggestion: Optional open suggestion, as a dict: ``of`` (the
+            older file name), ``confidence``, ``reason`` (German), ``basis``
+            (``name`` | ``content``), ``dismissed``. A suggestion is not a link.
+        change_summary: Optional German bullet lines: what changed against the
+            Fassung named by ``change_basis``.
+        change_basis: Optional file name ``change_summary`` compared against.
         added_at: Optional ``YYYY-MM-DD`` the document was first indexed under
             this name (the row's ``created_at``; a re-ingest keeps it). A
             string, not a datetime, because the row rides the checkpointed turn
@@ -377,6 +415,11 @@ class AvailableDocument(BaseModel):
     folder_path: str | None = None
     topics: list[str] | None = None
     capture: dict[str, Any] | None = None
+    superseded_by: str | None = None
+    supersedes: list[str] | None = None
+    revision_suggestion: dict[str, Any] | None = None
+    change_summary: str | None = None
+    change_basis: str | None = None
     added_at: str | None = None
     collection: str | None = None
     shelf: str | None = None

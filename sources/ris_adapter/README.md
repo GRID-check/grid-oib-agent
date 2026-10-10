@@ -160,7 +160,7 @@ Platform integration: per call, the planner model passes through
 `apply_model_override(..., AgentGroup.DEEP_RESEARCH_ROUTER)` and
 `apply_org_credential(...)` — the same policy wrappers other auxiliary LLM calls
 use — so per-org runtime model overrides (ADR-0014) and BYOK credentials
-(ADR-0022) apply consistently. Outside the Grid agent the wrappers degrade to
+(ADR-0022) apply consistently. Outside the Piloti agent the wrappers degrade to
 no-ops.
 
 ## Configuration

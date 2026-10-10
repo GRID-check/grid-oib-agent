@@ -582,6 +582,45 @@ def set_document_capture(collection: str, filename: str, capture: dict[str, Any]
     return _get_document_metadata_store().set_capture(collection, filename, capture or None)
 
 
+def set_document_superseded_by(collection: str, older: str, newer: str | None) -> bool:
+    """Record that a PERSON confirmed ``newer`` replaces ``older`` in this collection; ``None`` lifts it.
+
+    The only writer of the link is the ``PUT /v1/collections/{collection}/fassung`` route. A model's
+    reading of two documents goes through :func:`set_document_revision_suggestion`, which hides
+    nothing. UPDATE-only: ``False`` when ``older`` has no metadata row.
+    """
+    return _get_document_metadata_store().set_superseded_by(collection, older, newer)
+
+
+def get_document_superseded_by(collection: str, filenames: list[str]) -> dict[str, str]:
+    """The confirmed ``superseded_by`` of those of ``filenames`` that have one (carried across a re-ingest)."""
+    return _get_document_metadata_store().get_superseded_by_batch(collection, filenames)
+
+
+def get_superseded_files(collection: str) -> dict[str, str]:
+    """Files of ``collection`` a person replaced, mapped to the file that replaced them (read at search time)."""
+    return _get_document_metadata_store().get_superseded_files(collection)
+
+
+def set_document_revision_suggestion(collection: str, filename: str, suggestion: dict[str, Any] | None) -> bool:
+    """Store (or clear) Piloti's open suggestion that ``filename`` is a newer Fassung of another document.
+
+    ``suggestion`` is ``{"of", "confidence", "reason", "basis", "dismissed"}``; an invalid one is
+    refused (``False``). A suggestion is advice to a person, never a link.
+    """
+    return _get_document_metadata_store().set_revision_suggestion(collection, filename, suggestion)
+
+
+def get_document_revision_suggestions(collection: str, filenames: list[str]) -> dict[str, str]:
+    """The stored suggestion JSON of those of ``filenames`` that have one (carried across a re-ingest)."""
+    return _get_document_metadata_store().get_revision_suggestions_batch(collection, filenames)
+
+
+def set_document_change_summary(collection: str, filename: str, summary: str | None, basis: str | None) -> bool:
+    """Store what changed in ``filename`` against the Fassung named ``basis``; ``None`` clears it."""
+    return _get_document_metadata_store().set_change_summary(collection, filename, summary, basis)
+
+
 def set_document_doc_class(collection: str, filename: str, doc_class: str | None) -> bool:
     """Set the explicit ``doc_class`` ("Dokumentart") on an existing summary row.
 

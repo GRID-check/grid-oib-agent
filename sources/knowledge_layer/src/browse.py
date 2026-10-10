@@ -7,7 +7,7 @@ neither. What it saw of the project was the prompt inventory, capped at fifty
 rows, and what it could find was ``knowledge_search`` — a ranked top-k
 similarity search that answers "what passage best matches this" and never
 "which files say this". So on a project with three hundred files the agent
-answered „welche Pläne liegen in Brandschutz/?“ from whichever fifty names the
+answered „welche Unterlagen liegen in Brandschutz/?“ from whichever fifty names the
 cap kept, and „wo kommt BA-03 überall vor?“ from the three passages that ranked.
 
 - ``list_files`` is ``ls`` / the Files pane: every file on the reader's own
@@ -147,6 +147,12 @@ class FileRow:
     #: What the camera wrote: the ISO time it was taken, and make and model. Never a position.
     captured_at: str | None = None
     camera: str | None = None
+    #: The newer file a PERSON confirmed replaces this one, and the files this one replaces.
+    superseded_by: str | None = None
+    supersedes: tuple[str, ...] = ()
+    #: What changed against the Fassung it replaced, and the file name that was compared against.
+    change_summary: str | None = None
+    change_basis: str | None = None
 
     @property
     def searchable(self) -> str:
@@ -180,6 +186,10 @@ def file_row(row: Any) -> FileRow | None:
         topics=tuple(str(topic) for topic in (_attr(row, "topics") or ()) if topic),
         captured_at=(str(capture.get("captured_at") or "").strip() or None),
         camera=(str(capture.get("camera") or "").strip() or None),
+        superseded_by=(str(_attr(row, "superseded_by") or "").strip() or None),
+        supersedes=tuple(str(name) for name in (_attr(row, "supersedes") or ()) if name),
+        change_summary=(str(_attr(row, "change_summary") or "").strip() or None),
+        change_basis=(str(_attr(row, "change_basis") or "").strip() or None),
     )
 
 
@@ -240,6 +250,8 @@ class Listing:
     #: the mark a row carries, and how many documents in the selection have several.
     revision_marks: dict[tuple[str, str], str] = field(default_factory=dict)
     revision_series: int = 0
+    #: How many files a person confirmed as replaced, among the selection.
+    confirmed_replacements: int = 0
 
 
 def _type_profile(rows: Sequence[FileRow]) -> tuple[list[tuple[str, int]], int]:
@@ -340,6 +352,26 @@ def revision_marks(rows: Sequence[FileRow]) -> tuple[dict[_RowKey, str], dict[_R
     return marks, series_of
 
 
+def confirmed_revision_marks(rows: Sequence[FileRow]) -> dict[_RowKey, str]:
+    """The rows a PERSON linked as one replacing another, with the mark each carries.
+
+    The older file says by which it was replaced, the newer which it replaced.
+    These are confirmations, not readings of a name, so they beat the name
+    marks. A link counts only when both files are among ``rows``: the store
+    clears a link whose newer file is gone, and this guards a row it missed.
+    """
+    present = {(row.collection, row.file_name) for row in rows}
+    marks: dict[_RowKey, list[str]] = {}
+    for row in rows:
+        key = (row.collection, row.file_name)
+        if row.superseded_by and (row.collection, row.superseded_by) in present:
+            marks.setdefault(key, []).append(f"ersetzt durch {row.superseded_by} (bestätigt)")
+        replaced = [name for name in row.supersedes if (row.collection, name) in present]
+        if replaced:
+            marks.setdefault(key, []).append(f"ersetzt {', '.join(replaced)} (bestätigt)")
+    return {key: "; ".join(parts) for key, parts in marks.items()}
+
+
 def select_files(
     rows: Sequence[FileRow],
     *,
@@ -363,6 +395,7 @@ def select_files(
     shelves = (shelf,) if shelf else tuple(default_shelves)
     selected = [row for row in rows if row.shelf in shelves or (not shelf and row.shelf is None)]
     marks, series_of = revision_marks(selected)
+    confirmed = confirmed_revision_marks(selected)
 
     resolved_folder: str | None = None
     if folder:
@@ -412,9 +445,32 @@ def select_files(
         types,
         untyped,
         topics=_topic_profile(selected),
-        revision_marks={key: mark for key, mark in marks.items() if key in keys},
-        revision_series=len({series_of[key] for key in keys if key in series_of}),
+        revision_marks={key: mark for key, mark in {**marks, **confirmed}.items() if key in keys},
+        revision_series=len({series_of[key] for key in keys if key in series_of and key not in confirmed}),
+        confirmed_replacements=sum(
+            1 for row in selected if row.superseded_by and (row.collection, row.file_name) in confirmed
+        ),
     )
+
+
+#: What a row says of a file's change: a glance, so the model reads the files themselves for more.
+MAX_CHANGE_CHARS = 160
+
+
+def _change_bit(row: FileRow) -> str:
+    """„geändert: …“ for what changed against the Fassung this file replaced, bounded; empty when none is stored.
+
+    A change line against the file's own previous upload (``change_basis`` is its
+    own name) says so, because the previous upload is not another file.
+    """
+    if not row.change_summary:
+        return ""
+    lines = [line.lstrip("-•* ").strip() for line in row.change_summary.splitlines()]
+    text = "; ".join(line for line in lines if line)
+    if len(text) > MAX_CHANGE_CHARS:
+        text = text[: MAX_CHANGE_CHARS - 1].rstrip() + "…"
+    previous_upload = row.change_basis is not None and fold(row.change_basis) == fold(row.file_name)
+    return f"geändert (vorige Fassung): {text}" if previous_upload else f"geändert: {text}"
 
 
 def _row_line(row: FileRow, *, show_shelf: bool, mark: str | None = None) -> str:
@@ -435,6 +491,9 @@ def _row_line(row: FileRow, *, show_shelf: bool, mark: str | None = None) -> str
         bits.append(f"Kamera: {row.camera}")
     if mark:
         bits.append(mark)
+    change = _change_bit(row)
+    if change:
+        bits.append(change)
     if row.added_at:
         bits.append(f"hochgeladen {row.added_at}")
     if show_shelf and row.shelf:
@@ -470,6 +529,12 @@ def render_listing(listing: Listing, *, in_flight: Sequence[str] = ()) -> str:
         if listing.topics:
             profile = " · ".join(f"{topic} {count}" for topic, count in listing.topics[:MAX_TOPIC_COUNTS])
             lines.append(f"Themen (von Piloti erkannt): {profile}.")
+        if listing.confirmed_replacements:
+            lines.append(
+                f"Fassungen (bestätigt): {listing.confirmed_replacements} Datei(en) hat eine Person durch eine "
+                "neuere ersetzt; die Zeilen sagen welche. Stütze dich auf die neuere und nenne die ältere nur, "
+                "wenn danach gefragt ist oder du vergleichst. Die ältere bleibt mit file_name= lesbar."
+            )
         if listing.revision_series:
             lines.append(
                 f"Fassungen: {listing.revision_series} Dokument(e) liegen dem Dateinamen nach (Index, Datum) in "
@@ -889,7 +954,7 @@ _LIST_FILES_DESCRIPTION = (
     "Browse the reader's OWN files the way they would in the Files pane: which files exist, in which "
     "folder, of which Dokumentart, uploaded when. Deterministic listing, paged, never capped by the "
     "prompt inventory — the inventory in your prompt shows at most a few dozen names, this shows all.\n"
-    "WHEN TO CALL — the question is about WHICH files there are, not what they say: „welche Pläne "
+    "WHEN TO CALL — the question is about WHICH files there are, not what they say: „welche Unterlagen "
     "haben wir“, „was liegt im Ordner Brandschutz“, „was ist diese Woche neu“, „gibt es schon ein "
     "Protokoll zur Baubesprechung“, „wie heißt die Datei mit dem Schnitt genau“. Also first, when you "
     "need an exact file name for `read_passage`, `knowledge_search(file_name=…)` or a file operation "
@@ -906,7 +971,8 @@ _LIST_FILES_DESCRIPTION = (
     "WHEN NOT TO CALL — to learn what a file SAYS: that is `read_passage` / `knowledge_search`. To "
     'find which files MENTION a term: `knowledge_search(match="exact")`.\n'
     "RETURNS — a count, the subfolders, then one line per file: exact file name, title, folder, "
-    "Dokumentart, Themen, the date a photo was taken, upload date, a one-line summary. "
+    "Dokumentart, Themen, the date a photo was taken, a Fassung mark (read from the name, or a replacement "
+    "a person confirmed with what changed), upload date, a one-line summary. "
     "An index, not a source: never cite it and never "
     "answer what a file contains from its summary. Write file names exactly as returned — each "
     "becomes a link the reader can open."

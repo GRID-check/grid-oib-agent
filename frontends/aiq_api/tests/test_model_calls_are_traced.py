@@ -37,6 +37,7 @@ WRAPPER = "observed_generation"
 KNOWN = {
     "cleanup_proposal.py",
     "consistency_check.py",
+    "documents.py",
     "feedback_digest.py",
     "generate_conversation_title.py",
     "generate_summary.py",
