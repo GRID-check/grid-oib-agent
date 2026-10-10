@@ -8,6 +8,8 @@ import { getProjectOverviewData } from '@/lib/projects/overview-query'
 import { getHiddenFolderIds } from '@/lib/authz/folder-access'
 import { listFoldersWithoutValidRole } from '@/lib/projects/folder-access-settings'
 import { ProjectSettings } from '@/features/projects/components/project-settings'
+import { getSteckbrief } from '@/lib/projects/steckbrief-service'
+import { loadOrganizationDirectory } from '@/lib/sharing/directory'
 import { getTranslations } from '@/i18n/server'
 
 interface ProjectSettingsPageProps {
@@ -49,10 +51,21 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
     // Folders whose roles were deleted since (ADR-0088). Asked only of a
     // project manager, who is the one who can set a role again.
     const foldersWithoutRole = canManageProject ? await listFoldersWithoutValidRole(session, id) : []
+    const steckbrief = await getSteckbrief(session, id)
+    // The organization's people, to link a Steckbrief person to their account;
+    // asked only of someone who may edit it. Names only, never e-mail.
+    const accounts = steckbrief.canEdit
+      ? [...(await loadOrganizationDirectory(session.organizationId)).values()].map((person) => ({
+          userId: person.userId,
+          name: person.name,
+        }))
+      : []
 
     return (
       <ProjectSettings
         data={data}
+        steckbrief={steckbrief}
+        steckbriefAccounts={accounts}
         foldersWithoutRole={foldersWithoutRole}
         canManageProject={canManageProject}
         canManageMembers={managesProject}

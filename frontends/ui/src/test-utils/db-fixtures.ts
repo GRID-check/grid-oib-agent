@@ -42,6 +42,8 @@ export const makeProject = (overrides: Partial<Project> = {}): Project => ({
   status: 'active',
   closedAt: null,
   closedBy: null,
+  startedOn: null,
+  endedOn: null,
   deletedAt: null,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   ...overrides,

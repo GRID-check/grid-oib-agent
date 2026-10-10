@@ -820,6 +820,13 @@
       "when": 1792022400007,
       "tag": "0116_project_status",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1792108800007,
+      "tag": "0117_project_steckbrief",
+      "breakpoints": true
     }
   ]
 }
