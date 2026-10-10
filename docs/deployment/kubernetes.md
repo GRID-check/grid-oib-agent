@@ -436,11 +436,23 @@ directly while the old operator is still authoritative.
 5. Verify against Cloudflare directly, bypassing the delegation —
    `dig @<assigned-cloudflare-ns> <host>` for every host. This is the step that
    makes the cutover safe, and it has no equivalent in the other ordering.
-6. Point the nameservers at Cloudflare at the registrar, having lowered any TTL
+6. Check the parent zone for DNSSEC: `dig DS <zone> +short`. If it returns a
+   record, the old operator signs the zone, and Cloudflare cannot sign with the
+   same key. Moving the nameservers while that DS record stands makes every
+   validating resolver answer SERVFAIL for the whole zone. Remove the DS record
+   at the registrar, and wait out the DS record's TTL until
+   `dig DS <zone> +short` comes back empty. Turning DNSSEC off at the old
+   operator removes it only when that operator is also the registrar; anywhere
+   else it unsigns the zone while the DS record still stands, which is the same
+   SERVFAIL.
+7. Point the nameservers at Cloudflare at the registrar, having lowered any TTL
    still at an hour and waited out the *old* value first.
-7. Re-verify without the `@` override once `dig NS <zone>` shows Cloudflare.
+8. Re-verify without the `@` override once `dig NS <zone>` shows Cloudflare.
+9. To sign the zone again, enable DNSSEC in Cloudflare and enter the DS record
+   it shows at the registrar. Do this only after step 8, never in the same
+   change as the nameserver move.
 
-Abandonable up to step 6: everything before it is invisible to the internet, and
+Abandonable up to step 7: everything before it is invisible to the internet, and
 reverting is deleting a Cloudflare zone nobody is pointed at.
 
 ---
