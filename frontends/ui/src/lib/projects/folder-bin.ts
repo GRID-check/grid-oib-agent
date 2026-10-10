@@ -125,6 +125,7 @@ import {
   findLivingFolder,
   insertFolderBinEntry,
   listBinEntries,
+  listDocumentIdsInFolders,
   listDocumentsInFolders,
   listLivingSubtree,
   markDocumentsRestoring,
@@ -244,7 +245,17 @@ export interface BinFolderResult {
 interface BinOptions {
   /** When the purge may run; default now plus the folder grace period. */
   purgeAfter?: Date
+  /**
+   * Bin the folder only when it holds exactly these documents, checked under
+   * the bin lock, which every insert or move into a folder also takes: a
+   * caller that filled the folder itself („Ausmisten", ADR-0092) never bins a
+   * file someone else put there meanwhile. Otherwise 409, and nothing moves.
+   */
+  onlyDocuments?: readonly string[]
 }
+
+/** The 409 reason when a folder binned with `onlyDocuments` holds something else. */
+export const FOLDER_CONTENTS_CHANGED_REASON = 'folder-contents-changed'
 
 /**
  * Move a folder, its subfolders and their documents to the Papierkorb.
@@ -280,6 +291,15 @@ export async function moveFolderToBin(
       const known = new Set(checked)
       if (subtree.some((folderId) => !known.has(folderId))) {
         throw new ConflictError('The folder changed while it was being deleted. Please try again.')
+      }
+      if (options.onlyDocuments) {
+        const held = await listDocumentIdsInFolders(tx, project.id, subtree)
+        const expected = new Set(options.onlyDocuments)
+        if (held.length !== expected.size || held.some((id) => !expected.has(id))) {
+          throw new ConflictError('The folder changed while it was being deleted. Please try again.', {
+            reason: FOLDER_CONTENTS_CHANGED_REASON,
+          })
+        }
       }
       await markFoldersBinned(tx, project.id, subtree, root.id, session.userId, at)
       const payload: FolderBinPayload = {

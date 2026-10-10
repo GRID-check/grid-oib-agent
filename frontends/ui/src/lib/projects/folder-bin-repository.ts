@@ -22,6 +22,20 @@ import { withTenant } from '@/lib/db/tenant-context'
 import { deletionQueue, documents, projectFolders, projects, type Document } from '@/lib/db/schema'
 
 /**
+ * The ids of the documents filed in any of `folderIds`, inside the caller's
+ * transaction. Bounded by the caller: it asks only about a subtree whose
+ * documents it is about to bin anyway.
+ */
+export async function listDocumentIdsInFolders(tx: DbExecutor, projectId: string, folderIds: readonly string[]): Promise<string[]> {
+  if (folderIds.length === 0) return []
+  const rows = await tx
+    .select({ id: documents.id })
+    .from(documents)
+    .where(and(eq(documents.projectId, projectId), inArray(documents.folderId, [...folderIds])))
+  return rows.map((row) => row.id)
+}
+
+/**
  * Take the project's bin lock until the transaction ends. Inserts and moves of
  * documents and folders into a folder of the project take it SHARED in their
  * trigger (`grid_refuse_write_into_deleted_folder`), so once this returns no

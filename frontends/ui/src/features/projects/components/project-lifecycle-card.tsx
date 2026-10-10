@@ -17,6 +17,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { RaisedCard, RaisedCardBody } from '@/components/ui/raised-card'
 import { ProjectStatusChip } from '@/components/projects/project-status'
 import { useLocale, useTranslations } from '@/i18n'
+import { CloseProjectDialog } from './close-project-dialog'
 import type { ProjectStatus } from '@/lib/projects/project-status'
 
 export interface ProjectLifecycleCardProps {
@@ -40,7 +41,7 @@ export function ProjectLifecycleCard({ projectId, status, closedAt }: ProjectLif
     ? new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(closedAt))
     : null
 
-  const submit = async (): Promise<void> => {
+  const submit = async (): Promise<boolean> => {
     setPending(true)
     try {
       const res = await fetch(`/api/projects/${projectId}/status`, {
@@ -52,8 +53,10 @@ export function ProjectLifecycleCard({ projectId, status, closedAt }: ProjectLif
       toast.success(closed ? t('lifecycle.toast.reopened') : t('lifecycle.toast.closed'))
       setOpen(false)
       router.refresh()
+      return true
     } catch {
       toast.error(t('lifecycle.toast.error'))
+      return false
     } finally {
       setPending(false)
     }
@@ -74,15 +77,19 @@ export function ProjectLifecycleCard({ projectId, status, closedAt }: ProjectLif
           {closed ? <LockOpen className="size-4" aria-hidden /> : <Lock className="size-4" aria-hidden />}
           {closed ? t('lifecycle.card.reopen') : t('lifecycle.card.close')}
         </Button>
+        {/* Closing goes through „Ausmisten" first (ADR-0092); reopening asks once. */}
+        {!closed && <CloseProjectDialog projectId={projectId} open={open} onOpenChange={setOpen} onClose={submit} />}
         <ConfirmDialog
-          open={open}
+          open={closed && open}
           onOpenChange={setOpen}
           tone="default"
-          title={closed ? t('lifecycle.reopenDialog.title') : t('lifecycle.closeDialog.title')}
-          description={closed ? t('lifecycle.reopenDialog.description') : t('lifecycle.closeDialog.description')}
-          confirmLabel={closed ? t('lifecycle.reopenDialog.confirm') : t('lifecycle.closeDialog.confirm')}
+          title={t('lifecycle.reopenDialog.title')}
+          description={t('lifecycle.reopenDialog.description')}
+          confirmLabel={t('lifecycle.reopenDialog.confirm')}
           cancelLabel={tCommon('actions.cancel')}
-          onConfirm={submit}
+          onConfirm={async () => {
+            await submit()
+          }}
           pending={pending}
         />
       </RaisedCardBody>

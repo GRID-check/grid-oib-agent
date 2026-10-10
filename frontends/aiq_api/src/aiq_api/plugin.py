@@ -69,6 +69,7 @@ from .roles import WebRole
 from .roles import web_role
 from .routes.cards import add_card_catalog_routes
 from .routes.chat_occupancy import add_chat_occupancy_routes
+from .routes.cleanup_proposal import add_cleanup_proposal_routes
 from .routes.collections import add_collection_routes
 from .routes.config_info import add_config_info_routes
 from .routes.consistency_check import add_consistency_check_routes
@@ -283,6 +284,7 @@ def api_routers(llm_configs: Mapping[str, Any]) -> tuple[Callable[[APIRouter], N
         add_document_routes,
         add_document_search_routes,
         add_generate_summary_routes,
+        add_cleanup_proposal_routes,
         add_generate_conversation_title_routes,
         add_dictation_routes,
         add_consistency_check_routes,
