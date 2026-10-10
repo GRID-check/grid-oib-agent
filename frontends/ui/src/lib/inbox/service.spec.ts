@@ -5,6 +5,7 @@ vi.mock('@/lib/sharing/directory', () => ({ resolvePeople: vi.fn() }))
 vi.mock('@/lib/sharing/registry', () => ({ describeResource: vi.fn() }))
 vi.mock('@/lib/events/bus', () => ({ publishToUser: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+vi.mock('@/lib/tasks/subject-access', () => ({ unreadableRunIds: vi.fn() }))
 vi.mock('@/lib/authz/platform', () => ({
   hasPlatformPermission: vi.fn(),
   getPlatformOrganizationId: vi.fn(),
@@ -48,6 +49,7 @@ import { getPlatformOrganizationId, hasPlatformPermission } from '@/lib/authz/pl
 import { resolveResourceAccess } from '@/lib/sharing/access'
 import { resolvePeople } from '@/lib/sharing/directory'
 import { describeResource } from '@/lib/sharing/registry'
+import { unreadableRunIds } from '@/lib/tasks/subject-access'
 import * as repository from './repository'
 import {
   upsertWaves,
@@ -103,6 +105,7 @@ const ALL_TYPES = [
   'document.review_requested',
   'upload.completed',
   'document.quarantined',
+  'document.release_requested',
   'mail_import.completed',
   'mail_import.failed',
 ] as const satisfies readonly InboxItemType[]
@@ -123,6 +126,7 @@ const OPERATIONAL_TYPES = [
   // are about the office's own files, not about working together.
   'upload.completed',
   'document.quarantined',
+  'document.release_requested',
   // An Outlook archive import ended (ADR-0085): an office without
   // collaboration imports mail too.
   'mail_import.completed',
@@ -179,6 +183,7 @@ beforeEach(() => {
   vi.mocked(repository.countPendingInboxItems).mockResolvedValue(3)
   vi.mocked(resolveResourceAccess).mockResolvedValue(reachable)
   vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-viewer' } as never)
+  vi.mocked(unreadableRunIds).mockResolvedValue(new Set())
   vi.mocked(resolvePeople).mockResolvedValue(
     new Map([['user_2', { userId: 'user_2', email: 'anna@grid.test', name: 'Anna Berger', profilePictureUrl: null }]]),
   )
@@ -408,6 +413,53 @@ describe('listInbox — project href threads the delegated task', () => {
 
     expect(byId.get('job-no-task')!.href).toBe('/app/projects/proj_1/automation?tab=jobs')
     expect(byId.get('job-blank-task')!.href).toBe('/app/projects/proj_1/automation?tab=jobs')
+  })
+
+  /**
+   * The target is the project, and project access says nothing about a
+   * revision task whose document moved into a folder the recipient may not
+   * read (ADR-0093): its title and its link into the thread are withheld, as
+   * the task list and the run view withhold them.
+   */
+  it('redacts a run row whose task the recipient may not see now, by the run it names', async () => {
+    vi.mocked(repository.listInboxItems).mockResolvedValue([
+      row({
+        id: 'revision-done',
+        type: 'job.completed',
+        resourceType: 'project',
+        resourceId: 'proj_1',
+        anchorId: 'backend-job-1',
+        payload: {
+          subject: 'Überarbeitung: Honorar Zimmerer',
+          runId: 'run-revision',
+          taskId: 'run-revision',
+          conversationId: 's_thread',
+          runMessageId: 'msg-1',
+        },
+      }),
+      row({
+        id: 'plain-done',
+        type: 'job.completed',
+        resourceType: 'project',
+        resourceId: 'proj_1',
+        anchorId: 'backend-job-2',
+        payload: { subject: 'Aktenvermerk', taskId: 'run-plain' },
+      }),
+    ])
+    vi.mocked(unreadableRunIds).mockResolvedValue(new Set(['run-revision']))
+
+    const { items } = await listInbox(session)
+    const byId = new Map(items.map((item) => [item.id, item]))
+
+    expect(unreadableRunIds).toHaveBeenCalledWith(session, [
+      { projectId: 'proj_1', runId: 'run-revision' },
+      { projectId: 'proj_1', runId: 'run-plain' },
+    ])
+    expect(byId.get('revision-done')).toMatchObject({ href: null, subject: null, excerpt: null })
+    expect(byId.get('plain-done')).toMatchObject({
+      href: '/app/projects/proj_1/automation?tab=tasks&task=run-plain',
+      subject: 'Aktenvermerk',
+    })
   })
 })
 

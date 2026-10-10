@@ -58,6 +58,8 @@ import {
 } from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { ChatScreeningNotice } from '@/features/chat/components/ChatScreeningNotice'
+import { OtherProjectsNotice } from '@/features/chat/components/OtherProjectsNotice'
+import { useRestrictingOtherProjects } from '@/features/chat/hooks/use-restricting-other-projects'
 import { useChatScreening } from '@/features/chat/hooks/use-chat-screening'
 import type { MaskedText } from '@/lib/upload-screening/content-screen'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
@@ -175,6 +177,11 @@ function mentionRefusalMessage(
       return name
         ? tCollab('sharing.errors.restrictedContent', { name })
         : tCollab('sharing.errors.restrictedContentSomeone')
+    // Likewise a chat that drew on a running other project (ADR-0094).
+    case SHARING_ERROR_REASONS.crossProjectContent:
+      return name
+        ? tCollab('sharing.errors.crossProjectContent', { name })
+        : tCollab('sharing.errors.crossProjectContentSomeone')
     default:
       return null
   }
@@ -546,6 +553,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // File upload hook - provides session files and handles validation internally.
   // Attachments go through `/api/session/documents` (type gate, quota, a row).
   const chatProjectId = useChatStore((state) => state.projectId)
+  // The other projects that restrict this chat now (ADR-0094), as the server judges it, for the notice.
+  const otherProjects = useRestrictingOtherProjects(currentConversationId)
   const {
     uploadFiles,
     sessionFiles,
@@ -2024,6 +2033,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             {/* „Sensible Daten" (ADR-0086): what the screen found in the message
             that was not sent, and the only two ways on. Under the textarea, which
             still holds the text as typed. */}
+            {/* A chat that drew on another project (ADR-0094): which, and what that
+            closes, where the reader is about to share or ask for more. */}
+            {otherProjects.length > 0 && !screeningHold && <OtherProjectsNotice projects={otherProjects} />}
+
             {screeningHold && (
               <ChatScreeningNotice
                 findings={screeningHold.masked.findings}

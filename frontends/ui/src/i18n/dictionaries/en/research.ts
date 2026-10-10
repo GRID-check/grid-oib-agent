@@ -39,7 +39,7 @@ export const research = {
     },
     loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
-      'Sign in to unlock the project workspace: your files, the office archive, and the building-regulation corpus.',
+      'Sign in to unlock the project workspace: your files, Office filing, and the building-regulation corpus.',
     signInSso: 'Sign in with SSO',
     welcomeTitle: 'How can Piloti help with your project?',
   },
@@ -100,7 +100,7 @@ export const research = {
     /** Stratum wordmarks — always shown together with their icon and colour. */
     strata: {
       law: 'Building law',
-      office: 'Office archive',
+      office: 'Office filing',
       project: 'Project knowledge',
       auto: 'Web',
     },
@@ -109,7 +109,7 @@ export const research = {
       all: 'All sources',
       law: 'Building law & guidelines',
       project: 'Project documents',
-      office: 'Office archive',
+      office: 'Office filing',
     },
     /**
      * The knowledge layer is not a toggleable source — it rides along on every
@@ -119,7 +119,7 @@ export const research = {
     knowledge: {
       projectName: 'Project knowledge',
       projectDescription: 'Your project documents in this project.',
-      officeName: 'Office archive',
+      officeName: 'Office filing',
       officeDescription: 'Shared documents from your office.',
     },
   },

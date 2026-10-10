@@ -15,6 +15,7 @@
 
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { REVIEWER_READER } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 
@@ -110,7 +111,7 @@ describe.skipIf(!url)('document listing pages against Postgres', () => {
     const seen: string[] = []
     let cursor: import('./list-cursor').DocumentListCursor | undefined
     for (let guard = 0; guard < 10; guard++) {
-      const page = await repo.listProjectDocumentPage(projectId, ORG, { limit: 2, cursor })
+      const page = await repo.listProjectDocumentPage(projectId, ORG, { limit: 2, cursor, reader: REVIEWER_READER })
       seen.push(...page.rows.map((row) => row.id))
       if (!page.nextCursor) break
       cursor = page.nextCursor
@@ -123,7 +124,7 @@ describe.skipIf(!url)('document listing pages against Postgres', () => {
     const seen: string[] = []
     let cursor: import('./list-cursor').DocumentListCursor | undefined
     for (let guard = 0; guard < 10; guard++) {
-      const page = await inTenant(() => archiv.listArchivDocuments(ORG, { limit: 3, cursor }))
+      const page = await inTenant(() => archiv.listArchivDocuments(ORG, { limit: 3, cursor, reader: REVIEWER_READER }))
       seen.push(...page.rows.map((row) => row.id))
       if (!page.nextCursor) break
       cursor = page.nextCursor
@@ -132,7 +133,7 @@ describe.skipIf(!url)('document listing pages against Postgres', () => {
   })
 
   it('says a full last page is the last one', async () => {
-    const page = await repo.listProjectDocumentPage(projectId, ORG, { limit: CREATED_AT.length })
+    const page = await repo.listProjectDocumentPage(projectId, ORG, { limit: CREATED_AT.length, reader: REVIEWER_READER })
     expect(page.rows).toHaveLength(CREATED_AT.length)
     expect(page.nextCursor).toBeNull()
   })
@@ -181,7 +182,7 @@ describe.skipIf(!url)('document listing pages against Postgres', () => {
 
   it('finds an Archiv document by name whatever page it is on', async () => {
     const oldest = `norm-${CREATED_AT.length - 1}.pdf`
-    const rows = await inTenant(() => archiv.findArchivDocumentsByFilenames(ORG, [oldest]))
+    const rows = await inTenant(() => archiv.findArchivDocumentsByFilenames(ORG, [oldest], { reader: REVIEWER_READER }))
     expect(rows.map((row) => row.filename)).toEqual([oldest])
   })
 
@@ -219,7 +220,7 @@ describe.skipIf(!url)('document listing pages against Postgres', () => {
       'Übersicht.pdf'.normalize('NFC'),
       'grundriss eg.pdf',
       'plan-0.pdf',
-    ])
+    ], { reader: REVIEWER_READER })
 
     const byName = Object.fromEntries(rows.map((row) => [row.filename, row]))
     expect(Object.keys(byName).sort()).toEqual(

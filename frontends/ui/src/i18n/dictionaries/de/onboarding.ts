@@ -71,7 +71,7 @@ export const onboarding: typeof en.onboarding = {
         body: 'Ein Projekt umfasst ein Gebäude: Pläne und Dokumente, die Beteiligten und einen Chat, der aus OIB-Richtlinien und österreichischem Baurecht antwortet — jede Quelle belegt. Eine kurze Einrichtung fragt nach dem Gebäude, danach zeigen wir Ihnen das Projekt.',
       },
       archiv: {
-        title: 'Archiv',
+        title: 'Büroablage',
         body: 'Die gemeinsamen Unterlagen Ihres Büros — Regeldetails, Leistungsbeschreibungen, Vorlagen. Einmal hier abgelegt, kann jedes Projekt darauf zurückgreifen.',
       },
       inbox: {
@@ -109,20 +109,20 @@ export const onboarding: typeof en.onboarding = {
         body: 'Laden Sie Pläne, Gutachten und Schriftverkehr zu diesem Gebäude hoch. Sobald eine Datei gelesen ist, kann Piloti daraus zitieren, und zwar nur in diesem Projekt.',
       },
       projectArchiv: {
-        title: 'Archiv: die Unterlagen Ihres Büros',
-        body: 'Das Archiv steht über Ihren Projekten, und jedes Projekt durchsucht es automatisch mit. Es ist anfangs leer: Administratoren legen Unterlagen ab, alle in der Organisation können sie lesen und zitieren.',
+        title: 'Büroablage: die Unterlagen Ihres Büros',
+        body: 'Die Büroablage steht über Ihren Projekten, und jedes Projekt durchsucht sie automatisch mit. Sie ist anfangs leer: Administratoren legen Unterlagen ab, alle in der Organisation können sie lesen und zitieren.',
       },
       filesOrArchiv: {
-        title: 'Dateien oder Archiv?',
+        title: 'Dateien oder Büroablage?',
         body: 'Entscheidend ist, wem die Unterlage gehört.',
         filesTerm: 'Dateien — dieses Gebäude',
         filesDetail: 'Seine Pläne, Gutachten, Schriftverkehr. Zitiert nur in diesem Projekt.',
-        archivTerm: 'Archiv — das Büro',
+        archivTerm: 'Büroablage — das Büro',
         archivDetail: 'Regeldetails, Leistungsbeschreibungen, Vorlagen, frühere Einreichungen, die sich wiederverwenden lassen. Zitiert in jedem Projekt.',
       },
       projectSources: {
         title: 'Jede Antwort zeigt ihre Quellen',
-        body: 'Jede Aussage ist markiert, woher sie stammt — Baurecht, Projektwissen oder Büroarchiv — und öffnet die Stelle, auf der sie beruht. Hat Piloti keine Quelle, sagt es das.',
+        body: 'Jede Aussage ist markiert, woher sie stammt — Baurecht, Projektwissen oder Büroablage — und öffnet die Stelle, auf der sie beruht. Hat Piloti keine Quelle, sagt es das.',
       },
       projectSettings: {
         title: 'Einstellungen und Mitglieder',

@@ -9,8 +9,10 @@
  *
  * `task db:test:rls` (scripts/rls-test-db.sh) builds that database and runs it.
  *
- * Who holds which WorkOS role is the one thing faked (`clearanceOfMember`);
- * the folder tree, the conversation, its grants and the record are real rows.
+ * Who holds which folder role in WorkOS is the one thing faked
+ * (`clearanceOfMember` for a member, `heldFolderLevels` for a session,
+ * ADR-0097); the folder tree, the conversation, its grants and the record are
+ * real rows.
  * What it proves:
  *   - a chat of a cleared member that never admits restricted content records
  *     nothing and can be shared with anyone;
@@ -20,35 +22,62 @@
  *   - a share cannot slip between an admission's audience check and its
  *     record, nor an admission between a share's check and its write;
  *   - the erasure takes the record with the conversation, and another
- *     organization can neither see nor write one.
+ *     organization can neither see nor write one;
+ *   - the answer a turn writes is marked by its id at admission, and at the
+ *     start of a later turn, so a vote on it stays out of every cross-tenant
+ *     reader with no persisted answer and whatever conversation it names
+ *     (ADR-0093).
  */
 
+import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { FolderClearance } from '@/lib/authz/folder-access'
+import { NO_RATINGS_FILTERS, type FeedbackQuery } from '@/lib/feedback/filters'
 
 vi.mock('server-only', () => ({}))
 
 const STAMP = Date.now()
 const ORG = `org_ruse_${STAMP}`
+
+/** This organization's down-votes, over a range that holds every seeded vote. */
+const DOWN_IN_ORG: FeedbackQuery = {
+  scope: {
+    from: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
+    to: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+    organizationIds: [ORG],
+    projectIds: [],
+  },
+  ratings: { ...NO_RATINGS_FILTERS, verdict: 'down' },
+}
 const OTHER_ORG = `${ORG}_other`
 /** Owner of every chat here, cleared for the restricted folder. */
 const OWNER = `user_ruse_owner_${STAMP}`
 /** Cleared for the restricted folder too. */
 const CLEARED = `user_ruse_cleared_${STAMP}`
-/** A project member holding no clearance role. */
+/** A project member holding no folder role. */
 const UNCLEARED = `user_ruse_uncleared_${STAMP}`
 
 /**
  * The WorkOS answer, per person. `pause` holds the NEXT lookup until released,
  * which is how the interleaving tests put a share inside an admission's window.
  */
-const roles = new Map<string, FolderClearance>([
-  [OWNER, { roles: ['org-gf'], seesEverything: false }],
-  [CLEARED, { roles: ['org-gf'], seesEverything: false }],
-])
+const holders = new Set<string>([OWNER, CLEARED])
+/** The folders whose list holds OWNER and CLEARED, as folder-editor: every custom folder made here. */
+const listed = new Set<string>()
+const levelsOfHolder = (): FolderClearance['levels'] =>
+  Object.fromEntries([...listed].map((folderId) => [folderId, 'write' as const]))
+/** A session's membership: `om_holder` holds the folder roles, any other holds none. */
+const HOLDER_MEMBERSHIP = 'om_holder'
 let pause: { reached: () => void; release: Promise<void> } | null = null
+
+vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn(async () => ['member']) }))
+vi.mock('@/lib/authz/folder-roles', () => ({
+  heldFolderLevels: vi.fn(async (_org: string, membershipId: string) =>
+    membershipId === HOLDER_MEMBERSHIP ? levelsOfHolder() : {}
+  ),
+}))
 
 vi.mock('@/lib/authz/folder-access', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/authz/folder-access')>()
@@ -61,7 +90,7 @@ vi.mock('@/lib/authz/folder-access', async (importOriginal) => {
         held.reached()
         await held.release
       }
-      return roles.get(userId) ?? { roles: [], seesEverything: false }
+      return { levels: holders.has(userId) ? levelsOfHolder() : {}, seesEverything: false }
     }),
   }
 })
@@ -96,9 +125,9 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     name: 'Owner',
     accessToken: 'token',
     organizationId: ORG,
-    organizationMembershipId: 'om_owner',
-    role: 'org-gf',
-    roles: ['org-gf'],
+    organizationMembershipId: HOLDER_MEMBERSHIP,
+    role: 'member',
+    roles: ['member'],
     permissions: [],
     featureFlags: null,
   }
@@ -177,29 +206,24 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
       )
     )
     projectId = String(project.id)
-    // One statement: the 0110 trigger checks at commit that a custom list is
-    // not empty, and every statement here commits on its own.
+    // A folder with its own list; who is on it is WorkOS's (`listed`).
     const [folder] = Array.from(
       await inOrg(ORG, () =>
         db.execute<{ id: string }>(sql`
-          with folder as (
-            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            values (${ORG}, ${projectId}::uuid, 'Verträge', 'Verträge', 'custom', ${OWNER}, now())
-            returning id, project_id
-          ), grants as (
-            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            select ${ORG}, project_id, id, 'org-gf', 'write' from folder
-          )
-          select id from folder`)
+          insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+          values (${ORG}, ${projectId}::uuid, 'Verträge', 'Verträge', 'custom', ${OWNER}, now())
+          returning id`)
       )
     )
     folderId = String(folder.id)
+    listed.add(folderId)
     restricted = folderAccess.restrictedCollectionName(collection, folderId)
   })
 
   afterAll(async () => {
     if (!db) return
     await withPlatformAccess('test teardown', async () => {
+      await db.execute(sql`delete from answer_feedback where organization_id = ${ORG}`)
       await db.execute(sql`delete from conversation_restricted_folders where organization_id = ${ORG}`)
       await db.execute(sql`delete from resource_shares where organization_id = ${ORG}`)
       await db.execute(sql`delete from conversations where organization_id = ${ORG}`)
@@ -348,11 +372,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     expect(await reasonOf(shareWith(id, UNCLEARED))).toBe('restricted-content')
 
     // Everyone may read the folder now: nothing recorded restricts anyone.
-    await inOrg(ORG, () =>
-      db.execute(sql`
-        with gone as (delete from project_folder_grants where folder_id = ${folderId}::uuid)
-        update project_folders set access_mode = 'inherit' where id = ${folderId}::uuid`)
-    )
+    await inOrg(ORG, () => db.execute(sql`update project_folders set access_mode = 'inherit' where id = ${folderId}::uuid`))
     expect(await recorded(id)).toEqual([])
     const other = await chat()
     await inOrg(ORG, () =>
@@ -362,26 +382,18 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     )
     expect(await reasonOf(shareWith(other, UNCLEARED))).toBe('went through')
 
-    // Back to Geschäftsführung only: the same record restricts again, unrewritten.
-    await inOrg(ORG, () =>
-      db.execute(sql`
-        with listed as (
-          insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-          values (${ORG}, ${projectId}::uuid, ${folderId}::uuid, 'org-gf', 'write')
-        )
-        update project_folders set access_mode = 'custom' where id = ${folderId}::uuid`)
-    )
+    // Back to its own list: the same record restricts again, unrewritten.
+    await inOrg(ORG, () => db.execute(sql`update project_folders set access_mode = 'custom' where id = ${folderId}::uuid`))
     expect(await recorded(id)).toEqual([folderId])
     expect(await reasonOf(shareWith(id, UNCLEARED))).toBe('restricted-content')
   })
 
   describe('who may still read a chat that recorded the folder (ADR-0088)', () => {
-    /** The same people, with the roles WorkOS reports for them NOW. */
-    const withRoles = (userId: string, roleList: string[]): AuthorizedSession => ({
+    /** The same people, with the folder roles WorkOS reports for their membership NOW. */
+    const asHolder = (userId: string, holdsFolderRoles: boolean): AuthorizedSession => ({
       ...session,
       userId,
-      role: roleList[0] ?? '',
-      roles: roleList,
+      organizationMembershipId: holdsFolderRoles ? HOLDER_MEMBERSHIP : `om_${userId}`,
     })
 
     let own = ''
@@ -389,25 +401,20 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
       const [created] = Array.from(
         await inOrg(ORG, () =>
           db.execute<{ id: string }>(sql`
-            with folder as (
-              insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-              values (${ORG}, ${projectId}::uuid, 'Lesen', 'Lesen', 'custom', ${OWNER}, now())
-              returning id, project_id
-            ), grants as (
-              insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-              select ${ORG}, project_id, id, 'org-gf', 'write' from folder
-            )
-            select id from folder`)
+            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+            values (${ORG}, ${projectId}::uuid, 'Lesen', 'Lesen', 'custom', ${OWNER}, now())
+            returning id`)
         )
       )
       own = String(created.id)
+      listed.add(own)
     })
 
     /** Record that the chat drew on this block's folder. */
     const admitOwn = (conversationId: string) =>
       inOrg(ORG, () => use.admitSourceFolders({ organizationId: ORG, conversationId, userId: OWNER, projectId }, [own]))
 
-    it('locks the CREATOR and a grantee who lost the role, leaves the cleared one, and unlocks when the role is back', async () => {
+    it('locks the CREATOR and a grantee who lost the folder role, leaves the cleared one, and unlocks when it is back', async () => {
       // Shared only with a person cleared for it: an admission refuses a folder
       // somebody in the audience may not read, so this is the chat that has one.
       const id = await chat([CLEARED])
@@ -419,12 +426,12 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
       ]
       const locked = (who: AuthorizedSession) => inOrg(ORG, () => use.lockedConversationIds(who, asked))
 
-      expect([...(await locked(withRoles(OWNER, ['org-gf'])))]).toEqual([])
-      // The creator lost the role: ownership is not the right to read.
-      expect([...(await locked(withRoles(OWNER, ['member'])))]).toEqual([id])
-      expect([...(await locked(withRoles(UNCLEARED, ['member'])))]).toEqual([id])
+      expect([...(await locked(asHolder(OWNER, true)))]).toEqual([])
+      // The creator lost the folder role: ownership is not the right to read.
+      expect([...(await locked(asHolder(OWNER, false)))]).toEqual([id])
+      expect([...(await locked(asHolder(UNCLEARED, false)))]).toEqual([id])
       // Given back, with nothing rewritten, the chat opens again.
-      expect([...(await locked(withRoles(OWNER, ['org-gf'])))]).toEqual([])
+      expect([...(await locked(asHolder(OWNER, true)))]).toEqual([])
     })
 
     it('answers per person from the folder as it is now: tightened closes, loosened opens', async () => {
@@ -437,21 +444,10 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
 
       expect(await readers()).toEqual([CLEARED, OWNER].sort())
 
-      await inOrg(ORG, () =>
-        db.execute(sql`
-          with gone as (delete from project_folder_grants where folder_id = ${own}::uuid)
-          update project_folders set access_mode = 'inherit' where id = ${own}::uuid`)
-      )
+      await inOrg(ORG, () => db.execute(sql`update project_folders set access_mode = 'inherit' where id = ${own}::uuid`))
       expect(await readers()).toEqual([CLEARED, OWNER, UNCLEARED].sort())
 
-      await inOrg(ORG, () =>
-        db.execute(sql`
-          with listed as (
-            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            values (${ORG}, ${projectId}::uuid, ${own}::uuid, 'org-gf', 'write')
-          )
-          update project_folders set access_mode = 'custom' where id = ${own}::uuid`)
-      )
+      await inOrg(ORG, () => db.execute(sql`update project_folders set access_mode = 'custom' where id = ${own}::uuid`))
       expect(await readers()).toEqual([CLEARED, OWNER].sort())
     })
 
@@ -460,12 +456,76 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
       const b = await chat()
       await admitOwn(a)
       const read = (organizationId: string) =>
-        inOrg(organizationId, () => use.lockedConversationIds(withRoles(OWNER, ['member']), [{ id: a, projectId }, { id: b, projectId }]))
+        inOrg(organizationId, () => use.lockedConversationIds(asHolder(OWNER, false), [{ id: a, projectId }, { id: b, projectId }]))
 
       expect([...(await read(ORG))]).toEqual([a])
       // Another organization cannot read the record at all, so it cannot lock anything.
       expect([...(await read(OTHER_ORG))]).toEqual([])
     })
+  })
+
+  /**
+   * The answer's id is minted by the agent for the turn (`answer_message_id`),
+   * streamed to the browser and persisted under it, and a vote names it. The
+   * server marks it when the turn admits restricted content, so no persisted
+   * answer is needed, and the conversation id a vote is sent with only adds.
+   */
+  it('marks the answer a turn writes at admission, so a vote on it stays out whatever conversation it names', async () => {
+    const drew = await chat()
+    const open = await chat()
+    const admitted = randomUUID()
+    const later = randomUUID()
+    const openAnswer = randomUUID()
+    const request = (conversationId: string, answerMessageId: string) => ({
+      organizationId: ORG,
+      conversationId,
+      userId: OWNER,
+      projectId,
+      answerMessageId,
+    })
+    const admission = await inOrg(ORG, () => use.admitRestrictedUse(request(drew, admitted), [restricted]))
+    expect(admission.admitted).toEqual([restricted])
+    // A later turn of the same chat, asked at its start, before the model reads the history.
+    await inOrg(ORG, () => use.markTurnAnswer(request(drew, later)))
+    // A turn of a chat that drew on nothing: no mark.
+    await inOrg(ORG, () => use.markTurnAnswer(request(open, openAnswer)))
+
+    // No `messages` row for any of these answers: the turn's persist is fail-soft.
+    const vote = (messageId: string, claimed: string | null, voter: string, comment: string) =>
+      inOrg(ORG, () =>
+        db.execute(sql`
+          insert into answer_feedback (organization_id, conversation_id, message_id, user_id, verdict, reason, comment, expected_answer)
+          values (${ORG}, ${claimed}, ${messageId}, ${voter}, 'down', 'inaccurate', ${comment}, ${comment})`)
+      )
+    await vote(admitted, null, OWNER, `Laut Vertrag ZIMMERER-DDD ${STAMP}`)
+    await vote(admitted, open, CLEARED, `Laut Vertrag ZIMMERER-EEE ${STAMP}`)
+    await vote(later, open, OWNER, `Laut Vertrag ZIMMERER-FFF ${STAMP}`)
+    await vote(openAnswer, open, OWNER, `Treppe offen ${STAMP}`)
+
+    const { listFeedbackTurns, isRestrictedUseVote } = await import('@/lib/feedback/repository')
+    const { listUnprocessedDownvotes } = await import('@/lib/platform-lessons/repository')
+    const turns = await withPlatformAccess('test: feedback drill-in', () =>
+      listFeedbackTurns(DOWN_IN_ORG)
+    )
+    const reports = (await withPlatformAccess('test: lessons input', () => listUnprocessedDownvotes(500))).filter(
+      (report) => report.organizationId === ORG
+    )
+    expect(turns.map((turn) => turn.comment)).toEqual([`Treppe offen ${STAMP}`])
+    expect(JSON.stringify(reports)).not.toContain('ZIMMERER')
+    expect(reports.map((report) => report.comment)).toEqual([`Treppe offen ${STAMP}`])
+
+    // Langfuse asks the same rule: the restricted votes are scored without their words.
+    const ids = Array.from(
+      await inOrg(ORG, () =>
+        db.execute<{ id: string; message_id: string; user_id: string }>(
+          sql`select id, message_id, user_id from answer_feedback where organization_id = ${ORG} order by comment`
+        )
+      )
+    )
+    const stripped = await inOrg(ORG, async () =>
+      Promise.all(ids.map(async (row) => [String(row.message_id), await isRestrictedUseVote(String(row.id), ORG)]))
+    )
+    expect(Object.fromEntries(stripped)).toEqual({ [admitted]: true, [later]: true, [openAnswer]: false })
   })
 
   it('takes the record with the conversation when the chat is erased', async () => {

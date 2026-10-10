@@ -84,6 +84,8 @@ export const runs = {
     cancel: 'Stop',
     writeNow: 'Write now',
     continue: 'Update report',
+    /** In place of „Update report“ in a closed project (ADR-0090): a run would file into it. */
+    continueClosed: 'Closed project: no new research',
   },
   /**
    * Stopping a run. The confirmation says what survives, because the fear that
@@ -123,7 +125,7 @@ export const runs = {
     restrictedReason:
       'Sits in a folder with restricted access. A run’s documents and its report are visible to everyone in the project, so it cannot be added.',
     done: 'Done',
-    shelf: { project: 'Project', archiv: 'Office archive', session: 'This chat', base: 'Regulations' },
+    shelf: { project: 'Project', archiv: 'Office filing', session: 'This chat', base: 'Regulations' },
   },
   cancel: {
     confirmTitle: 'Stop this task?',

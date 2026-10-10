@@ -1,0 +1,7 @@
+---
+features:
+  - >
+    When you close a project, Piloti now proposes which files it no longer
+    needs, such as working copies, older versions, duplicates and temporary
+    files. It is marked as an AI proposal, you decide about every file, and
+    what you confirm goes to the Papierkorb for 14 days.

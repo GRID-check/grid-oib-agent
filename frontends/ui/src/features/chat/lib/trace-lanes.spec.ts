@@ -59,7 +59,7 @@ describe('deriveTraceLanes', () => {
       sources('s', [
         {
           key: 'buero',
-          label: 'Büroarchiv',
+          label: 'Büroablage',
           kind: 'buero',
           hit_count: 1,
           sources: [{ name: 'x.pdf' }],

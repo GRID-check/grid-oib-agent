@@ -42,7 +42,7 @@ import {
   widenConversationAudience,
   type AudienceWidening,
 } from '@/lib/conversations/restricted-use'
-import { clearanceOf, requireFolderWrite } from '@/lib/authz/folder-access'
+import { requireFolderWrite } from '@/lib/authz/folder-access'
 import {
   documentIdsExisting,
   findDocumentTenancy,
@@ -237,12 +237,7 @@ const conversationDescriptor: ShareableDescriptor = {
     widenConversationAudience(session, resourceId, widening, write),
   // The same record, asked per person at read time: who may still read it.
   readersAmong: async (organizationId, resourceId, userIds, asker) =>
-    peopleWhoMayRead(
-      organizationId,
-      resourceId,
-      userIds,
-      asker ? new Map([[asker.userId, await clearanceOf(asker)]]) : undefined,
-    ),
+    peopleWhoMayRead(organizationId, resourceId, userIds, undefined, asker),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
     // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).
@@ -260,7 +255,15 @@ const conversationDescriptor: ShareableDescriptor = {
   labelKey: 'conversation',
 }
 
-const DOCUMENT_VISIBILITIES = ['private', 'project'] as const
+/**
+ * `project` only. `private` on a document was a dead switch: it could be set
+ * here, and no read path enforces it (`getAccessibleDocument`, the listings and
+ * retrieval all ignore `documents.visibility`), so a person who set it believed
+ * a file private that everyone in the project could still open. It is refused
+ * until per-document access exists. A row that already says `private` is read
+ * exactly as before, and may be set back to `project`.
+ */
+const DOCUMENT_VISIBILITIES = ['project'] as const
 
 const documentDescriptor: ShareableDescriptor = {
   type: 'document',

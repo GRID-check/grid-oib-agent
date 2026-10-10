@@ -12,6 +12,7 @@ import 'server-only'
 import { and, desc, eq, inArray, isNotNull, lt, notInArray, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
+  documents,
   taskDefinitions,
   taskRuns,
   tasks,
@@ -271,6 +272,53 @@ export async function touchDefinitionLastRun(definitionId: string, at: Date): Pr
     .update(taskDefinitions)
     .set({ lastRunAt: at })
     .where(eq(taskDefinitions.id, definitionId))
+}
+
+/** Where a revision task's document is now, by document id. */
+export interface SubjectDocumentPlace {
+  projectId: string | null
+  folderId: string | null
+}
+
+/** The most subjects one read resolves: a run list is `RUN_LIST_LIMIT` long. */
+const SUBJECT_LOOKUP_LIMIT = 500
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The current project and folder of each of these documents, for the ones that
+ * still exist (`subject-access.ts`). Ids that are not uuids are left out
+ * rather than cast: a plan is jsonb, and a malformed id must not fail the list.
+ */
+export async function findSubjectDocumentPlaces(
+  organizationId: string,
+  documentIds: readonly string[],
+): Promise<Map<string, SubjectDocumentPlace>> {
+  const uuids = [...new Set(documentIds)].filter((id) => UUID_PATTERN.test(id)).slice(0, SUBJECT_LOOKUP_LIMIT)
+  if (uuids.length === 0) return new Map()
+  const db = getDb()
+  const rows = await db
+    .select({ id: documents.id, projectId: documents.projectId, folderId: documents.folderId })
+    .from(documents)
+    .where(and(eq(documents.organizationId, organizationId), inArray(documents.id, uuids)))
+    .limit(SUBJECT_LOOKUP_LIMIT)
+  return new Map(rows.map((row) => [String(row.id), { projectId: row.projectId ?? null, folderId: row.folderId ?? null }]))
+}
+
+/**
+ * The runs among these ids, in this organization: what the inbox reads to judge
+ * a run's row by its subject (`subject-access.ts`). Ids that are not uuids are
+ * left out rather than cast: they come from an inbox payload.
+ */
+export async function listRunsByIds(organizationId: string, runIds: readonly string[]): Promise<TaskRun[]> {
+  const uuids = [...new Set(runIds)].filter((id) => UUID_PATTERN.test(id)).slice(0, SUBJECT_LOOKUP_LIMIT)
+  if (uuids.length === 0) return []
+  const db = getDb()
+  return db
+    .select()
+    .from(taskRuns)
+    .where(and(eq(taskRuns.organizationId, organizationId), inArray(taskRuns.id, uuids)))
+    .limit(SUBJECT_LOOKUP_LIMIT)
 }
 
 export async function insertRun(values: NewTaskRun): Promise<TaskRun> {

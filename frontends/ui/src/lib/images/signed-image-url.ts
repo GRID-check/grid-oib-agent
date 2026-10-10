@@ -45,6 +45,14 @@
  * full-size original when it was issued for a thumbnail, and cannot be used
  * after the person it names has lost the folder.
  *
+ * Not to a standing the route cannot ask again. Who may see a document held
+ * back by the upload screen (ADR-0086) is its uploader and its reviewers, a
+ * rule over session roles the token does not carry, so the route serves
+ * screened files only and the mint issues no URL for a held one: a URL minted
+ * before a re-upload was held stops working, for everyone, the moment it is.
+ * The uploader and the reviewers preview a held image through the presigned
+ * object-store URL their own session check produced.
+ *
  * ## Why the expiry is bucketed rather than exact
  *
  * A per-request expiry would make every issued URL unique, so no cache could
@@ -166,6 +174,11 @@ export function imageUrlExpiry(nowMs: number = Date.now()): number {
   return (Math.floor(nowSeconds / IMAGE_URL_WINDOW_SECONDS) + 2) * IMAGE_URL_WINDOW_SECONDS
 }
 
+/** The clock tests pin. */
+export interface DocumentImageUrlOptions {
+  nowMs?: number
+}
+
 /**
  * Build the same-origin, signed path for a document image, or null when the
  * signing secret is unavailable (callers fall back to the presigned object-store
@@ -180,7 +193,7 @@ export function buildDocumentImageUrl(
   userId: string,
   documentId: string,
   variant: DocumentImageVariant,
-  nowMs: number = Date.now(),
+  { nowMs = Date.now() }: DocumentImageUrlOptions = {},
 ): string | null {
   const secret = signingSecret()
   if (!secret) return null

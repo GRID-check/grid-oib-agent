@@ -110,7 +110,7 @@ describe('every key the backend can emit has words in every locale', () => {
 
   test.each(['de', 'en'])('%s names every corpus the backend can send', (locale) => {
     const t = locale === 'de' ? tDe : tEn
-    for (const corpus of ['knowledge', 'ris', 'web', 'documents', 'ifc']) {
+    for (const corpus of ['knowledge', 'ris', 'web', 'documents', 'ifc', 'otherProjects']) {
       expect(liveLine([retrieval(0, 'status.retrieval.plain', { corpus })], t), corpus).toBeTruthy()
     }
   })

@@ -122,6 +122,10 @@ aiq_documents = "aiq_agent.tools.documents.register"
 # `aiq_documents`: the two call different BFF routes with different contracts,
 # and a deployment that turns one off must be able to keep the other.
 aiq_tasks = "aiq_agent.tools.tasks.register"
+# Cross-project lookups for a chat, shared or solo (`project_lookup`, ADR-0094). Its own
+# entry point: it imports the knowledge layer's lane fan-out lazily, and a
+# deployment without the lookups must keep every other tool.
+aiq_cross_project = "aiq_agent.tools.cross_project.register"
 # Grid telemetry `_type`s named in the shipped YAML. They register at import
 # via NAT decorators and used to ride in on `chat_researcher.register`. After
 # that package dissolved, `load_config` in a clean interpreter (the container's

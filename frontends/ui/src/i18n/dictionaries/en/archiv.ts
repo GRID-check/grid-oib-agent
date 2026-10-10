@@ -1,11 +1,11 @@
-/** Org-wide Archiv: the top-level, cross-project document store (ADR-0024). */
+/** Office filing (Büroablage): the org-wide, top-level, cross-project document store (ADR-0024). */
 export const archiv = {
-  title: 'Archiv',
+  title: 'Office filing',
   subtitle: 'Shared documents available to every project in your organization',
   backToApp: 'Back to projects',
   backToProject: 'Back to project',
   backToNamedProject: 'Back to {name}',
-  // What only the Büroarchiv card says: the gold kind chip and where it came from.
+  // What only the Büroablage card says: the gold kind chip and where it came from.
   library: {
     provenance: 'From: {source}',
     kind: {
@@ -26,10 +26,10 @@ export const archiv = {
   toast: {
     // Fired the instant async ingestion finishes and the document becomes
     // citable across every project in the organization.
-    ingestionComplete: '“{name}” is now in the office Archiv — citable',
+    ingestionComplete: '“{name}” is now in Office filing — citable',
   },
   workspace: {
-    dropToUpload: 'Drop files to add them to the Archiv',
+    dropToUpload: 'Drop files to add them to Office filing',
   },
   actions: {
     label: 'File actions for “{name}”',
@@ -73,13 +73,13 @@ export const archiv = {
     },
   },
   delete: {
-    action: 'Delete from Archiv',
+    action: 'Delete from Office filing',
     title: 'Delete “{name}”?',
     confirm: 'This removes the document for the whole organization. This cannot be undone.',
     confirmAction: 'Delete',
     cancel: 'Cancel',
     deleting: 'Deleting…',
-    success: '“{name}” was removed from the Archiv',
+    success: '“{name}” was removed from Office filing',
     error: 'The document could not be deleted',
     legalHold: 'The document is under a legal hold and cannot be deleted',
   },

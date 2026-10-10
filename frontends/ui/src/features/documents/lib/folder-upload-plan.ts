@@ -605,3 +605,24 @@ export function filesToUpload(
     (file) => file.action === 'new' || (includeUpdates && file.action === 'update'),
   )
 }
+
+/**
+ * Whether two plans of one drop do the same thing: every file the same action
+ * in the same place, the same folders made or matched, the same moves.
+ *
+ * The plan the reader confirmed is settled before it is applied (a release
+ * probe answered, the policy read afresh), and when that changes what would
+ * happen, the reader is shown the new plan instead of having it applied in
+ * their name.
+ */
+export function samePlanOutcome(a: FolderUploadPlan, b: FolderUploadPlan): boolean {
+  const fileKey = (planned: PlannedFile): string => `${planned.action}\u0000${planned.targetPath}`
+  return (
+    a.files.length === b.files.length &&
+    a.files.every((planned, index) => planned.file === b.files[index].file && fileKey(planned) === fileKey(b.files[index])) &&
+    a.folders.length === b.folders.length &&
+    a.folders.every((folder, index) => folder.path === b.folders[index].path && folder.existingId === b.folders[index].existingId) &&
+    a.moves.length === b.moves.length &&
+    a.moves.every((move, index) => move.documentId === b.moves[index].documentId && move.targetPath === b.moves[index].targetPath)
+  )
+}

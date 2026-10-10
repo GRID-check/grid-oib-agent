@@ -51,6 +51,27 @@ class TestOutcomeAttributes:
         assert attributes[f"{META}citations_removed"] == 2
         assert attributes[f"{META}quotes_not_found"] == 1
 
+    def test_a_source_from_another_project_counts_as_precedent(self):
+        """The office's experience reaching an answer is a slice, not a guess from the prose (ADR-0094)."""
+        graz = {"id": "p-graz", "name": "Wohnbau Graz", "status": "closed"}
+        sources = [
+            WireSource(content="OIB-RL 4", number=1),
+            WireSource(content="Detail Traufe", number=2, project=graz),
+            WireSource(content="Bescheid", number=3, project=graz),
+            WireSource(content="Gutachten", number=4, project={"id": "p-linz", "name": "Linz", "status": "active"}),
+        ]
+        attributes = outcome_attributes(outcome="answered", result=_result(sources=sources))
+
+        assert attributes[f"{META}answer_precedent_sources"] == 3
+        assert attributes[f"{META}answer_precedent_projects"] == 2
+        assert "cited-precedent" in attributes[TAGS_ATTRIBUTE]
+
+    def test_an_answer_from_its_own_project_says_nothing_of_precedent(self):
+        attributes = outcome_attributes(outcome="answered", result=_result())
+
+        assert f"{META}answer_precedent_sources" not in attributes
+        assert "cited-precedent" not in attributes[TAGS_ATTRIBUTE]
+
     def test_the_root_output_is_the_answer_not_the_stream_preview(self):
         attributes = outcome_attributes(outcome="answered", result=_result())
 

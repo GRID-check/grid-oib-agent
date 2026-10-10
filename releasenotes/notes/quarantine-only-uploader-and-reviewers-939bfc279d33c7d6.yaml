@@ -1,0 +1,18 @@
+---
+features:
+  - >
+    A file in quarantine can be asked for: press „Freigabe anfragen“ next to it
+    in the upload summary, and the people who may release it get an inbox
+    notice naming the file. In Organisation → Quarantäne, „Ansehen“ opens the
+    file where it is filed, so it can be looked at before it is released.
+fixes:
+  - >
+    A file cannot be uploaded over one waiting in quarantine, not even by its
+    uploader, so the held-back version never becomes part of its history.
+    Delete the quarantined file first, or have it released.
+security:
+  - >
+    A file in quarantine is now visible only to the person who uploaded it and
+    to those who may release it. Other project members, and in the Büroablage
+    other colleagues, no longer see it in the file list or search, and cannot
+    download or preview it.

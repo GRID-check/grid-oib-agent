@@ -124,6 +124,15 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN bun run build
 
+# The deploy-time WorkOS Jobs (deploy/pulumi/src/app/workos-authz-jobs.ts) run
+# TypeScript scripts, and the runner keeps neither bun nor tsx. Bundle each to
+# one plain ESM file here: `src/` imports such as the authorization catalog are
+# inlined, packages stay imports and resolve from the production node_modules.
+RUN for script in provision-workos-authz migrate-folder-grants-to-workos; do \
+      bun build "scripts/$script.ts" --target=node --packages=external --format=esm \
+        --outfile="dist-scripts/$script.mjs" || exit 1; \
+    done
+
 # Remove devDependencies — keeps dev-only packages out of the production image
 RUN bun install --frozen-lockfile --production --ignore-scripts
 
@@ -165,6 +174,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/observability ./observability
 # step up to the BYPASSRLS role (ADR-0041). Without it neither worker starts.
 COPY --from=builder --chown=nextjs:nodejs /app/workers ./workers
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+COPY --from=builder --chown=nextjs:nodejs /app/dist-scripts ./dist-scripts
 # The only `src/` file the runtime needs: the audit action+schema registry the
 # deploy-time provisioning script reconciles into WorkOS. It is shared with the
 # app (which reaches it through the bundle, not from disk), so it lives in

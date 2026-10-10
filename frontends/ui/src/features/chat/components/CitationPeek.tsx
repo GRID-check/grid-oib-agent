@@ -27,6 +27,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { useDelayedFlag } from '@/hooks/use-transient-flag'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import { documentPages, refPage, type CitationRef, type CitedDocument } from '../lib/citations'
+import { isPrecedent } from '../lib/precedent'
 import type { Shelf } from '../lib/source-kinds'
 import { useChatStore } from '../store'
 import { CopySourceCitationButton } from './CopyCitation'
@@ -268,6 +269,7 @@ export const CitationPeek: FC<CitationPeekProps> = ({
   downloadPending,
 }) => {
   const t = useTranslations('chat')
+  const projectId = useChatStore((s) => s.projectId)
   const { document: doc } = citation
   const tint = doc.tint
 
@@ -275,7 +277,9 @@ export const CitationPeek: FC<CitationPeekProps> = ({
     <div className="space-y-2">
       {/* What kind of source this is — the answer to "can I rely on it?" */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <SourceSignalChip signal={tint}>{t(`sourcePreview.kinds.${doc.kind}`)}</SourceSignalChip>
+        <SourceSignalChip signal={tint}>
+          {t(isPrecedent(doc, projectId) ? 'sourcePreview.kinds.praezedenz' : `sourcePreview.kinds.${doc.kind}`)}
+        </SourceSignalChip>
         {doc.laneLabel && (
           <span className="text-xs font-medium text-muted-foreground">{doc.laneLabel}</span>
         )}

@@ -127,7 +127,7 @@ describe('the fan-out is the model, grouped by document', () => {
       badgeFor(
         lane({
           key: 'buero',
-          label: 'Büroarchiv',
+          label: 'Büroablage',
           kind: 'buero',
           signal: 'office',
           sources: [{ name: 'detail.pdf' }],

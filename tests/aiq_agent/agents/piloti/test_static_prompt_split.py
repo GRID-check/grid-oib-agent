@@ -151,11 +151,17 @@ class TestStoreSeam:
         The seam itself: with a version being served, the bytes above the
         boundary are Langfuse's and the bytes below are still the template's.
         """
+        # Read the template before the store is swapped: its first call resolves
+        # the static half too (the boot fetch), so a worker that reaches this test
+        # with the cache cold would otherwise count that call as the render's.
+        # A disabled store keeps that first call off the network.
+        monkeypatch.setattr(prompt_module, "prompt_store", lambda: PromptStore(enabled=False))
+        template = system_prompt_template()
         served = _FakeStore(ResolvedPrompt(text="MANAGED STATIC HALF", name=STATIC_PROMPT_NAME, version="12"))
         monkeypatch.setattr(prompt_module, "prompt_store", lambda: served)
 
         resolved = resolve_static_block()
-        rendered = render_prompt_template(system_prompt_template(), static_block=resolved.text, **PINNED)
+        rendered = render_prompt_template(template, static_block=resolved.text, **PINNED)
 
         assert served.asked == [STATIC_PROMPT_NAME]
         assert rendered.startswith("MANAGED STATIC HALF## Context")

@@ -112,7 +112,7 @@ beforeEach(() => {
   vi.mocked(findProjectInOrg).mockResolvedValue(makeProject({ id: PROJECT, collectionName: COLLECTION }))
   // "Honorare" is restricted to one role: its documents belong in its own collection.
   vi.mocked(listProjectFolderTree).mockResolvedValue([
-    { id: FOLDER, parentId: null, accessMode: 'custom', grants: [{ role: 'org-geschaeftsfuehrung', level: 'write' }] },
+    { id: FOLDER, parentId: null, accessMode: 'custom', everyoneReads: false },
   ])
 })
 
@@ -220,7 +220,7 @@ describe('the placement_reingest job dispatches every branch at bulk priority', 
 
   it('re-points a row whose folder changed collection while it waited, and dispatches it there', async () => {
     // The restriction was lifted before the job ran: the row belongs in the open collection now.
-    vi.mocked(listProjectFolderTree).mockResolvedValue([{ id: FOLDER, parentId: null, accessMode: 'inherit', grants: [] }])
+    vi.mocked(listProjectFolderTree).mockResolvedValue([{ id: FOLDER, parentId: null, accessMode: 'inherit', everyoneReads: false }])
     taken(placementRow('Honorarnote.pdf'))
 
     await slice()

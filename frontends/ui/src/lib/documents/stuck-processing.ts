@@ -2,13 +2,15 @@
  * The sweep for documents stranded at `processing` (ADR-0079).
  *
  * `processing` is the status of work the BFF itself owns: an IFC model being
- * parsed, an office file being converted. Before those became `bff_job_queue`
+ * parsed, an office file being converted, a document of a folder restored from
+ * the Papierkorb waiting for its restore job. Before those became `bff_job_queue`
  * jobs, a restart mid-way left the row at `processing` with nothing behind it,
  * and the only way out was a person pressing "Erneut lesen". Two cases are still
  * left, and this is the clock behind both:
  *
- *   - **No job.** Rows written before the jobs existed, and a job that could not
- *     be queued after the row was marked. They get a new job.
+ *   - **No job.** Rows written before the jobs existed, a job that could not
+ *     be queued after the row was marked, and a restore's rows its job finished
+ *     without reaching (the requester lost the project). They get a new job.
  *   - **A dead job.** The queue gave up after its last attempt. The row says so
  *     and waits for a person's retry; queueing a fifth attempt for work that
  *     failed four times would only spend the same minutes again.

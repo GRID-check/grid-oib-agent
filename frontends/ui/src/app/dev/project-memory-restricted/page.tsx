@@ -41,6 +41,7 @@ function item(id: string, kind: string, content: string, overrides: Record<strin
     supersedesId: null,
     conflictsWithId: null,
     restrictedFolderIds: null,
+    restrictionJudge: null,
     salience: 0.5,
     pinned: false,
     createdBy: null,
@@ -65,6 +66,13 @@ const RESTRICTED = item(
   'Das Honorar für die Leistungsphasen 5–8 ist mit 184.000 € netto pauschal vereinbart.',
   { restrictedFolderIds: [RESTRICTED_FOLDER], restrictedFolderNames: ['Verträge'] }
 )
+// A note the memory judge restricted: the lock says a model helped decide.
+const JUDGED = item(
+  'm-restricted-2',
+  'decision',
+  'Die Nachtragsforderung des Statikers wird erst nach Prüfung der Mehrmassen freigegeben.',
+  { restrictedFolderIds: [RESTRICTED_FOLDER], restrictedFolderNames: ['Verträge'], restrictionJudge: 'drawn' }
+)
 
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const w = window as unknown as { __restrictedMemoryShim?: boolean }
@@ -73,7 +81,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url === `/api/projects/${CLEARED}/memory`) return Response.json({ items: [RESTRICTED, ...OPEN] })
+      if (url === `/api/projects/${CLEARED}/memory`) return Response.json({ items: [RESTRICTED, JUDGED, ...OPEN] })
       if (url === `/api/projects/${UNCLEARED}/memory`) return Response.json({ items: OPEN })
       return real(input, init)
     }

@@ -5,14 +5,21 @@ import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
 
-export type StatCardIconTone = 'muted' | 'success' | 'warning' | 'info' | 'destructive' | 'office'
+export type StatCardIconTone =
+  | 'muted'
+  | 'success'
+  | 'warning'
+  | 'info'
+  | 'destructive'
+  | 'office'
+  | 'project'
 export type StatCardIconSize = 'md' | 'sm'
 
 /**
  * Tint pairs for {@link StatCardIcon}. The five feedback tones reuse the
- * `chip.tsx` tint pairs verbatim; `office` is the Büroarchiv provenance tint
- * for surfaces (like the Archiv entry card) whose meaning is office, not
- * feedback.
+ * `chip.tsx` tint pairs verbatim; `office` and `project` are the Büroablage
+ * and project-document provenance tints, for surfaces whose meaning is that
+ * source (the Archiv entry card, a project's documents), not feedback.
  */
 const STAT_CARD_ICON_TONES: Record<StatCardIconTone, string> = {
   muted: 'bg-muted text-muted-foreground',
@@ -21,6 +28,7 @@ const STAT_CARD_ICON_TONES: Record<StatCardIconTone, string> = {
   info: 'bg-info-subtle text-info',
   destructive: 'bg-danger-subtle text-error',
   office: 'bg-source-office-tint text-source-office-text',
+  project: 'bg-source-project-tint text-source-project-text',
 }
 
 /**

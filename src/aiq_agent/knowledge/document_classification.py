@@ -357,9 +357,12 @@ def _parse_tags(raw: str) -> list[str] | None:
 # decision model in well under a second for a fraction of what the generative
 # call costs, and unable by construction to return a tag outside the
 # vocabulary or a JSON array that does not parse. The generative prompt above
-# stays as the fallback for a decision that did not run (no key, ZDR, BYOK
-# elsewhere, the endpoint down). Tags annotate a file (the inventory line, the
-# Files panel); nothing filters on them, so a wrong tag withholds nothing.
+# stays as the fallback for a decision that did not run (no key, a BYOK key
+# on another host, the endpoint down). Tags annotate a file (the inventory
+# line, the Files panel); a cross-project search narrows by them only when
+# its caller asked to, and a `Bescheid` tag adds a permit record (ADR-0064's
+# 2026-10-10 correction), so a wrong tag withholds nothing a search would
+# otherwise hand out.
 
 #: What each type tag means, in the decider's language; the German text is the state.
 DOCUMENT_TYPE_CRITERIA: dict[str, str] = {

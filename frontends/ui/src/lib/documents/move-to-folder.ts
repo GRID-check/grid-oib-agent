@@ -20,7 +20,7 @@
  * the backend mirror below.
  */
 
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documents } from '@/lib/db/schema'
 import { getProjectFolderAccess, requireFolderWrite } from '@/lib/authz/folder-access'
@@ -30,6 +30,7 @@ import { collectionFileRef, collectionFileUrl, type CollectionFileRef } from '@/
 import { placeProjectDocuments } from '@/lib/projects/collection-placement'
 import { assertIfcMayBeFiledIn } from '@/lib/projects/ifc-folder-guard'
 import { findProjectInOrg } from '@/lib/projects/repository'
+import { findDocumentForSession } from './access'
 import { documentShelf, type DocumentShelf } from './shelf'
 import { requireShelfWrite } from './shelf-authz'
 import { findShelfFolder } from './shelf-folders'
@@ -60,26 +61,12 @@ export async function moveDocumentToFolder(
 ): Promise<{ ok: true; document: MoveDocumentResult } | { ok: false; error: string }> {
   const db = getDb()
 
-  // The document is read FIRST and without a permission check, because the shelf
-  // it is on is what the permission is checked against — and it is read
-  // org-scoped, so a document in another tenant is simply not found.
-  const [document] = await db
-    .select({
-      id: documents.id,
-      projectId: documents.projectId,
-      scope: documents.scope,
-      folderId: documents.folderId,
-      filename: documents.filename,
-      collectionName: documents.collectionName,
-      authoredBy: documents.authoredBy,
-      // Selected for `collectionFileRef` below: a published Piloti document has
-      // chunks and a metadata row, so its folder move must be mirrored like any
-      // other document's (ADR-0054).
-      publishedVersionId: documents.publishedVersionId,
-    })
-    .from(documents)
-    .where(and(eq(documents.id, input.documentId), eq(documents.organizationId, session.organizationId)))
-    .limit(1)
+  // The document is read FIRST and without a shelf permission check, because
+  // the shelf it is on is what the permission is checked against. It is read
+  // org-scoped and through the hold (ADR-0086), so a document in another
+  // tenant, or a held file this session neither uploaded nor reviews, is
+  // simply not found.
+  const document = await findDocumentForSession(session, input.documentId)
 
   if (!document) return { ok: false, error: 'Document not found.' }
   const shelf = documentShelf(document)

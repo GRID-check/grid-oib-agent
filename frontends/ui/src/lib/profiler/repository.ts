@@ -37,13 +37,32 @@ export async function insertSpans(spans: NewAgentProfilerSpan[]): Promise<number
 export interface ProfiledConversationRow {
   conversationId: string
   organizationId: string | null
+  /** Null when withheld: see {@link RESTRICTED_USE}. */
   title: string | null
+  /** The conversation drew on a folder with restricted access, so its title is not shown. */
+  titleWithheld: boolean
   turnCount: number
   totalDurationMs: number
   lastActiveAt: Date
 }
 
 const CONVERSATION_LIST_CAP = 200
+
+/** The tenant a span's conversation belongs to: the conversation's, else the span's own. */
+const SPAN_ORGANIZATION = sql`coalesce(${conversations.organizationId}, ${agentProfilerSpans.organizationId})`
+
+/**
+ * The span's conversation drew on a folder with restricted access, as the
+ * database's one rule answers it (`grid_conversation_restricted_use`,
+ * migration 0124, ADR-0093): a restricted-use record, or a revision task
+ * whose document now sits where not every member may read. Its
+ * title is a person's words about that conversation, often the first question,
+ * and the profiler is a cross-organization staff view outside the folder's
+ * audience: the title is withheld from the list and from the search, which
+ * would otherwise confirm a word of it. The id stays, the operator's handle on
+ * the timeline.
+ */
+const RESTRICTED_USE = sql`grid_conversation_restricted_use(${SPAN_ORGANIZATION}, ${agentProfilerSpans.conversationId})`
 
 /**
  * Which conversations the directory lists: those with a turn that STARTED in
@@ -106,7 +125,10 @@ async function selectConversations(conditions: SQL[], limit: number) {
         organizationId: sql<
           string | null
         >`max(coalesce(${conversations.organizationId}, ${agentProfilerSpans.organizationId}))`,
-        title: sql<string | null>`max(${conversations.title})`,
+        title: sql<
+          string | null
+        >`max(case when ${RESTRICTED_USE} then null else ${conversations.title} end)`,
+        titleWithheld: sql<boolean>`bool_or(${RESTRICTED_USE})`,
         turnCount: sql<number>`count(*)::int`,
         totalDurationMsRaw: sql<string>`coalesce(sum(${agentProfilerSpans.durationMs}), 0)::bigint`,
         lastActiveAt: sql<Date>`max(${agentProfilerSpans.startedAt})`,
@@ -122,6 +144,8 @@ async function selectConversations(conditions: SQL[], limit: number) {
     conversationId: row.conversationId as string,
     organizationId: row.organizationId,
     title: row.title,
+    // Raw `sql` results are not runtime-validated — coerce at this boundary.
+    titleWithheld: row.titleWithheld === true,
     turnCount: Number(row.turnCount),
     totalDurationMs: Number(row.totalDurationMsRaw),
     // `max(started_at)` is annotated `sql<Date>` but the pg driver hands back
@@ -152,7 +176,8 @@ export async function listProfiledConversations(
     conditions.push(
       or(
         ilike(agentProfilerSpans.conversationId, pattern),
-        ilike(conversations.title, pattern)
+        // A withheld title is not searchable either: a hit would confirm a word of it.
+        and(ilike(conversations.title, pattern), sql`not ${RESTRICTED_USE}`)
       ) as SQL
     )
   }

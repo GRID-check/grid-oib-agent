@@ -1,9 +1,11 @@
 import { isUniqueViolation } from '@/lib/db/errors'
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { getDb } from '@/lib/db'
 import { executeRows } from '@/lib/db/execute-rows'
 import { BadRequestError } from '@/lib/api/errors'
 import { sourceFoldersOfCollections } from '@/lib/authz/folder-access'
+import { isProjectClosed, projectClosedError } from './project-status'
 import { PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS, projectMemory, projects } from '@/lib/db/schema'
 import type {
   NewProjectMemoryItem,
@@ -88,12 +90,19 @@ function sameRestriction(restriction: readonly string[] | null) {
  * source folders. `readable` is every folder of the project (tombstones
  * included) the reader may read NOW (`readableFolderIdsFor`); empty is the
  * default everywhere, so a caller that says nothing gets open memory only.
+ *
+ * `column` is the `restricted_folder_ids` column to judge: memory's own unless
+ * another table keeps the same ADR-0088 restriction (the permit records), so
+ * one rule decides what a reader may see of derived content.
  */
-export function memoryVisibleTo(readable: readonly string[] = []) {
+export function memoryVisibleTo(
+  readable: readonly string[] = [],
+  column: AnyPgColumn = projectMemory.restrictedFolderIds
+) {
   const restriction = canonicalRestriction(readable)
   return restriction
-    ? sql`(${projectMemory.restrictedFolderIds} is null or ${projectMemory.restrictedFolderIds} <@ ${arrayLiteral(restriction)}::uuid[])`
-    : isNull(projectMemory.restrictedFolderIds)
+    ? sql`(${column} is null or ${column} <@ ${arrayLiteral(restriction)}::uuid[])`
+    : isNull(column)
 }
 
 /** Digest budget in characters. Kept small: this rides a header on every turn. */
@@ -524,7 +533,11 @@ export async function createProjectMemoryItem(
   // rather than at each caller, so the memory panel, the organization route,
   // the agent's `remember` tool and reflection are all masked by construction.
   const content = await maskedNote(input.organizationId, input.content)
-  const values: NewProjectMemoryItem = { ...input, content, restrictedFolderIds }
+  // The judge's verdict rides only on a note that ended up restricted (the
+  // 0117 CHECK): on an open note it would tell any project member that the
+  // chat could list a restricted folder. The audit trail has every verdict.
+  const restrictionJudge = restrictedFolderIds ? (input.restrictionJudge ?? null) : null
+  const values: NewProjectMemoryItem = { ...input, content, restrictedFolderIds, restrictionJudge }
 
   // Write-time consolidation (design §3.2). Three outcomes, in order:
   //
@@ -699,11 +712,14 @@ export async function createProjectMemoryItemForProject(
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
   const [project] = await db
-    .select({ organizationId: projects.organizationId, collectionName: projects.collectionName })
+    .select({ organizationId: projects.organizationId, collectionName: projects.collectionName, status: projects.status })
     .from(projects)
     .where(eq(projects.id, projectId))
     .limit(1)
   if (!project) return null
+  // The agent's door has no session, so the seam in `requireProjectAccess`
+  // never sees it: a closed project's memory is read-only here too (ADR-0090).
+  if (isProjectClosed(project)) throw projectClosedError()
 
   const { restrictedCollections, ...rest } = values
   const restrictedFolderIds = await restrictionFromCollections(

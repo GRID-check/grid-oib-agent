@@ -72,6 +72,13 @@ _OUTPUT_AGENT_TYPES: dict[str, str] = {
 }
 
 
+#: The longest composed ``input`` a run accepts. The BFF mirrors it as
+#: ``AGENT_RUN_INPUT_MAX_CHARS`` (``frontends/ui/src/lib/jobs/types.ts``) and
+#: derives every prompt budget from that copy; ``test_skill_submit.py`` holds
+#: the two equal.
+SUBMIT_INPUT_MAX_CHARS = 48_000
+
+
 class SkillSubmitPayload(BaseModel):
     """Body of ``POST /v1/internal/skills/submit`` (Agent Skills contract).
 
@@ -83,16 +90,17 @@ class SkillSubmitPayload(BaseModel):
     """
 
     # `input` is a COMPOSED prompt: the job's own prompt, plus the full body of
-    # the attached skill when there is one. Either part alone fits inside the
-    # 32000-char skill-body limit (MAX_SKILL_BODY_LENGTH), but their sum need
-    # not, so the ceiling is 48000 here. It is a ceiling, not a target: an
-    # over-long prompt is rejected with a 422 and never silently truncated,
+    # the attached skill when there is one, or a revision task's instruction
+    # plus the document it revises. A job prompt and a skill body each fit
+    # inside the 32000-char skill-body limit (MAX_SKILL_BODY_LENGTH), but their
+    # sum need not, so the ceiling is 48000 here. It is a ceiling, not a target:
+    # an over-long prompt is rejected with a 422 and never silently truncated,
     # because a run that quietly drops half its instructions is worse than one
     # that refuses to start.
     input: str = Field(
         ...,
         min_length=1,
-        max_length=48000,
+        max_length=SUBMIT_INPUT_MAX_CHARS,
         description="Composed job prompt (job prompt + the attached skill's body, when a skill is attached)",
     )
     skills: list[str] = Field(

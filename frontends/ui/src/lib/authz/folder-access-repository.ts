@@ -2,18 +2,22 @@
  * The reads the folder-access decision makes (ADR-0087, ADR-0088). Kept apart
  * from the documents repository so the decision point owns its own SQL.
  *
- * The tree includes deleted folders' tombstones (migration 0111): content
- * derived from a deleted folder is still judged by the access it had. Every
- * other read here — names, the sweep — is of living folders only.
+ * The tree includes deleted folders (migration 0111): in the Papierkorb, and
+ * purged tombstones (0114). Content derived from a deleted folder is still
+ * judged by the access it had, and once it is purged by the organization's
+ * „Inhalte aus gelöschten Ordnern" setting, which the tree carries on each
+ * purged folder. Every other read here — names, the sweep — is of living
+ * folders only.
  */
 
 import 'server-only'
-import { and, asc, count, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, count, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
-import { documents, projectFolderGrants, projectFolders, projects } from '@/lib/db/schema'
+import { documents, projectFolders, projects } from '@/lib/db/schema'
 import { IFC_EXTENSIONS } from '@/lib/bim/types'
-import type { AccessFolder, FolderGrant } from './folder-access'
+import { getDeletedFolderContentPolicy } from '@/lib/organizations/deleted-folder-content'
+import type { AccessFolder } from './folder-access'
 
 /**
  * Whether any folder of the project, living or deleted, has its own access
@@ -39,49 +43,94 @@ export async function projectHasCustomFolders(organizationId: string, projectId:
   return rows.length > 0
 }
 
-/** Most grants one project's folders hold, read back; 20 per custom folder by the 0110 trigger. */
-const PROJECT_GRANTS_LIMIT = 20_000
+/**
+ * Whether the project has a folder that hides documents from someone: a folder
+ * with its own access list (living or deleted), or one in the Papierkorb. The
+ * two partial indexes make this two probes; false is the fast path, where every
+ * folder is what the project's permissions make it and every document is
+ * visible. A purged tombstone holds nothing and does not count.
+ */
+export async function projectHasCustomOrBinnedFolders(organizationId: string, projectId: string): Promise<boolean> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({ id: projectFolders.id })
+      .from(projectFolders)
+      .innerJoin(projects, eq(projects.id, projectFolders.projectId))
+      .where(
+        and(
+          eq(projectFolders.projectId, projectId),
+          eq(projects.organizationId, organizationId),
+          or(
+            eq(projectFolders.accessMode, 'custom'),
+            and(isNotNull(projectFolders.deletedAt), isNull(projectFolders.purgedAt))
+          )
+        )
+      )
+      .limit(1)
+  )
+  return rows.length > 0
+}
 
-/** The project's whole folder tree, tombstones included, with each custom folder's grants. */
+/** Most projects {@link listProjectsWithCustomOrBinnedFolders} answers with. */
+export const RESTRICTED_PROJECTS_LIMIT = 1_000
+
+/**
+ * The organization's projects for which {@link projectHasCustomOrBinnedFolders}
+ * is true, at most {@link RESTRICTED_PROJECTS_LIMIT}: the projects where a
+ * folder can hide something from someone. Served by the same two partial
+ * indexes, so it reads the restricted and binned folders alone.
+ */
+export async function listProjectsWithCustomOrBinnedFolders(organizationId: string): Promise<string[]> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .selectDistinct({ projectId: projectFolders.projectId })
+      .from(projectFolders)
+      .innerJoin(projects, eq(projects.id, projectFolders.projectId))
+      .where(
+        and(
+          eq(projects.organizationId, organizationId),
+          or(
+            eq(projectFolders.accessMode, 'custom'),
+            and(isNotNull(projectFolders.deletedAt), isNull(projectFolders.purgedAt))
+          )
+        )
+      )
+      .limit(RESTRICTED_PROJECTS_LIMIT)
+  )
+  return rows.flatMap((row) => (row.projectId ? [row.projectId] : []))
+}
+
+/** The project's whole folder tree, tombstones included. Who holds a folder role on a custom folder is WorkOS's (ADR-0097). */
 export async function listProjectFolderTree(organizationId: string, projectId: string): Promise<AccessFolder[]> {
   const db = getDb()
-  const [rows, grants] = await withTenant({ organizationId }, () =>
-    Promise.all([
-      db
-        .select({
-          id: projectFolders.id,
-          parentId: projectFolders.parentId,
-          accessMode: projectFolders.accessMode,
-          deletedAt: projectFolders.deletedAt,
-        })
-        .from(projectFolders)
-        .innerJoin(projects, eq(projects.id, projectFolders.projectId))
-        .where(and(eq(projectFolders.projectId, projectId), eq(projects.organizationId, organizationId))),
-      db
-        .select({
-          folderId: projectFolderGrants.folderId,
-          role: projectFolderGrants.roleSlug,
-          level: projectFolderGrants.level,
-        })
-        .from(projectFolderGrants)
-        .where(
-          and(eq(projectFolderGrants.projectId, projectId), eq(projectFolderGrants.organizationId, organizationId))
-        )
-        .limit(PROJECT_GRANTS_LIMIT),
-    ])
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({
+        id: projectFolders.id,
+        parentId: projectFolders.parentId,
+        accessMode: projectFolders.accessMode,
+        everyoneReads: projectFolders.everyoneReads,
+        deletedAt: projectFolders.deletedAt,
+        purgedAt: projectFolders.purgedAt,
+      })
+      .from(projectFolders)
+      .innerJoin(projects, eq(projects.id, projectFolders.projectId))
+      .where(and(eq(projectFolders.projectId, projectId), eq(projects.organizationId, organizationId)))
   )
-  const byFolder = new Map<string, FolderGrant[]>()
-  for (const grant of grants) {
-    const list = byFolder.get(grant.folderId) ?? []
-    list.push({ role: grant.role, level: grant.level })
-    byFolder.set(grant.folderId, list)
-  }
+  // The setting is read only when a purged folder is in the tree: almost no
+  // project has one, and the rest never pay for the read.
+  const purgedContent = rows.some((row) => row.purgedAt !== null)
+    ? await getDeletedFolderContentPolicy(organizationId)
+    : undefined
   return rows.map((row) => ({
     id: row.id,
     parentId: row.parentId,
     accessMode: row.accessMode,
-    grants: row.accessMode === 'custom' ? (byFolder.get(row.id) ?? []) : [],
+    everyoneReads: row.accessMode === 'custom' && row.everyoneReads,
     deleted: row.deletedAt !== null,
+    ...(row.purgedAt !== null ? { purgedAt: new Date(row.purgedAt), purgedContent } : {}),
   }))
 }
 
@@ -108,61 +157,6 @@ export async function listCustomFolderNames(
       )
       .limit(500)
   )
-}
-
-/** One living folder whose own access list names a role. */
-export interface FolderNamingRole {
-  folderId: string
-  folderName: string
-  projectId: string
-  projectName: string
-}
-
-/** Most folders one role's deletion confirmation lists; the total is still counted. */
-export const ROLE_USAGE_LIST_LIMIT = 50
-
-/**
- * The living folders of the organization's living projects whose own list names
- * `roleSlug`: what deleting the role would leave without that grant. The first
- * {@link ROLE_USAGE_LIST_LIMIT} by project and folder name, and how many there
- * are in all.
- */
-export async function listFoldersNamingRole(
-  organizationId: string,
-  roleSlug: string
-): Promise<{ folders: FolderNamingRole[]; total: number }> {
-  const db = getDb()
-  const where = and(
-    eq(projectFolderGrants.organizationId, organizationId),
-    eq(projectFolderGrants.roleSlug, roleSlug),
-    eq(projects.organizationId, organizationId),
-    isNull(projectFolders.deletedAt),
-    isNull(projects.deletedAt)
-  )
-  const [rows, totals] = await withTenant({ organizationId }, () =>
-    Promise.all([
-      db
-        .select({
-          folderId: projectFolders.id,
-          folderName: projectFolders.name,
-          projectId: projects.id,
-          projectName: projects.name,
-        })
-        .from(projectFolderGrants)
-        .innerJoin(projectFolders, eq(projectFolders.id, projectFolderGrants.folderId))
-        .innerJoin(projects, eq(projects.id, projectFolders.projectId))
-        .where(where)
-        .orderBy(asc(projects.name), asc(projectFolders.name))
-        .limit(ROLE_USAGE_LIST_LIMIT),
-      db
-        .select({ total: count() })
-        .from(projectFolderGrants)
-        .innerJoin(projectFolders, eq(projectFolders.id, projectFolderGrants.folderId))
-        .innerJoin(projects, eq(projects.id, projectFolders.projectId))
-        .where(where),
-    ])
-  )
-  return { folders: rows, total: Number(totals[0]?.total ?? 0) }
 }
 
 /**

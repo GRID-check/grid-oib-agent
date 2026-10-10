@@ -20,6 +20,7 @@ vi.mock('@/lib/skills/service', () => ({ resolveSkillSnapshot: vi.fn() }))
 // What the conversation recorded it drew on (ADR-0087): the real refusal runs against it.
 vi.mock('@/lib/conversations/restricted-use', () => ({
   recordedRestrictedFolders: vi.fn(async () => []),
+  recordedSourceProjects: vi.fn(async () => []),
 }))
 // The project's folders and the documents a plan names: the real Unterlagen refusal runs against them.
 vi.mock('@/lib/authz/folder-access-repository', () => ({ listProjectFolderTree: vi.fn(async () => []) }))
@@ -35,6 +36,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { TaskDefinition, TaskRun } from '@/lib/db/schema'
 import { JobSubmitError } from '@/lib/jobs/backend-client'
+import { AGENT_RUN_INPUT_MAX_CHARS } from '@/lib/jobs/types'
 import { createTaskThread, submitAgentRun } from '@/lib/jobs/service'
 import { resolveSkillSnapshot } from '@/lib/skills/service'
 import * as repository from './repository'
@@ -247,15 +249,56 @@ describe('delegateTask', () => {
     expect(insertedDefinition.requesterUserId).toBe('user_author')
   })
 
-  it('says so when the quoted version is cut rather than ending it mid-paragraph', async () => {
-    await delegateTask(session, {
-      projectId: PROJECT,
-      kind: 'revision',
-      goal: 'Kürzen',
-      subject: { documentId: 'doc-3', versionId: 'ver-1', comment: 'Kürzen' },
-      sourceText: 'x'.repeat(70_000),
+  describe('a document longer than one run can carry', () => {
+    const revise = (sourceText: string) =>
+      delegateTask(session, {
+        projectId: PROJECT,
+        kind: 'revision',
+        goal: 'Abschnitt 3 präzisieren',
+        subject: { documentId: 'doc-3', versionId: 'ver-1', comment: 'Abschnitt 3 präzisieren' },
+        sourceText,
+      })
+
+    it('never hands the submit route a prompt over its input ceiling', async () => {
+      // 52,018 characters: above the backend's ceiling, below the 60,000 the
+      // quote used to be allowed, so it failed at submission with a 422.
+      await revise('# Langer Bericht\n\n' + 'Absatz. '.repeat(6_500))
+
+      for (const [spec] of vi.mocked(submitAgentRun).mock.calls) {
+        expect(spec.prompt.length).toBeLessThanOrEqual(AGENT_RUN_INPUT_MAX_CHARS)
+      }
+      expect(insertedDefinition.plan.prompt.length).toBeLessThanOrEqual(AGENT_RUN_INPUT_MAX_CHARS)
     })
-    expect(insertedDefinition.plan.prompt).toContain('hier gekürzt')
+
+    it('is refused on the run in words, not cut: the answer replaces the whole version', async () => {
+      const { run } = await revise('# Langer Bericht\n\n' + 'Absatz. '.repeat(6_500) + '\n\n## Anhang')
+
+      expect(submitAgentRun).not.toHaveBeenCalled()
+      expect(run?.status).toBe('failed')
+      expect(run?.error).toContain('zu lang')
+      expect(run?.error).toContain('Besprechen')
+      // Nothing of the document is stored on a plan no run will read.
+      expect(insertedDefinition.plan.prompt).not.toContain('Absatz.')
+    })
+
+    it('quotes a document that fills the budget exactly, whole', async () => {
+      // The fence and instruction around a one-character document are the
+      // overhead; everything else the ceiling allows is the budget.
+      await revise('x')
+      const budget = AGENT_RUN_INPUT_MAX_CHARS - (insertedDefinition.plan.prompt.length - 1)
+      vi.mocked(submitAgentRun).mockClear()
+
+      const document = '# Bericht\n\n' + 'y'.repeat(budget - '# Bericht\n\n'.length - 1) + 'Z'
+      const { run } = await revise(document)
+
+      const submitted = vi.mocked(submitAgentRun).mock.calls[0][0].prompt
+      expect(submitted.length).toBe(AGENT_RUN_INPUT_MAX_CHARS)
+      expect(submitted).toContain(document)
+      expect(run?.status).toBe('running')
+
+      const { run: over } = await revise(`${document}!`)
+      expect(over?.status).toBe('failed')
+    })
   })
 
   it('refuses a revision with no version to revise', async () => {
@@ -637,8 +680,8 @@ describe('a run’s Unterlagen never name a document from a restricted folder (A
   const PERSONAL = 'folder-personal'
   const OPEN = 'folder-plaene'
   const TREE: AccessFolder[] = [
-    { id: PERSONAL, parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'read' }] },
-    { id: OPEN, parentId: null, accessMode: 'inherit', grants: [] },
+    { id: PERSONAL, parentId: null, accessMode: 'custom', everyoneReads: false },
+    { id: OPEN, parentId: null, accessMode: 'inherit', everyoneReads: false },
   ]
   const row = (filename: string, folderId: string | null) =>
     ({ id: `doc-${filename}`, filename, folderId }) as DocumentListRow
@@ -666,9 +709,10 @@ describe('a run’s Unterlagen never name a document from a restricted folder (A
     expect(error).toBeInstanceOf(ConversationConfinedError)
     expect((error as ConversationConfinedError).action).toBe('planDocument')
     expect((error as ConversationConfinedError).message).toContain('Ordner mit eingeschränktem Zugriff')
-    // Restricted folders and archived rows included: the lookup is not the reader's listing.
+    // Restricted folders, archived and held rows included: the lookup is not the reader's listing.
     expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith(PROJECT, 'org_1', ['Abmahnung_Meier_2026.pdf'], {
       includeArchived: true,
+      reader: { kind: 'internal', why: 'identity' },
     })
     expect(repository.insertRun).not.toHaveBeenCalled()
     expect(submitAgentRun).not.toHaveBeenCalled()
@@ -700,6 +744,7 @@ describe('a run’s Unterlagen never name a document from a restricted folder (A
     })
     expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith(PROJECT, 'org_1', ['Einreichplan.pdf'], {
       includeArchived: true,
+      reader: { kind: 'internal', why: 'identity' },
     })
     expect(submitAgentRun).toHaveBeenCalled()
   })

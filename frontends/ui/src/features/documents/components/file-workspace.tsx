@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
-import { AlertCircle, Archive, Boxes, FileText, LayoutGrid, List, RotateCcw, X } from 'lucide-react'
+import { AlertCircle, Archive, Boxes, FileText, LayoutGrid, List, RotateCcw, Trash2, X } from 'lucide-react'
+import Link from 'next/link'
 import { sourceBase } from '@/lib/ui/source-tint'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -42,7 +43,6 @@ import {
   READ_ONLY_DOCUMENT_ACTIONS,
   type DocumentActionKind,
 } from './document-actions/action-entries'
-import { roleNamesFor, useOrganizationRoles } from '@/features/organization/hooks/use-organization-roles'
 import { FileBrowserPane } from './file-browser-pane'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { FileFilterMenu } from './file-filter-menu'
@@ -150,6 +150,7 @@ export function FileWorkspace({
     selectedFolderId,
     onSelectFolder: selectFolder,
     reloadFiles: listing.load,
+    binHref: shelf.bin?.href,
   })
   const { folders } = tree
   const moves = useDocumentMoves(files, setFiles, folders)
@@ -314,6 +315,14 @@ export function FileWorkspace({
           <List />
         </ToggleGroupItem>
       </ToggleGroup>
+      {/* The Papierkorb: deleted folders, restorable until their purge (ADR-0088). */}
+      {shelf.bin && (
+        <Button asChild variant="ghost" size="icon" aria-label={t('workspace.openBin')} title={t('workspace.openBin')}>
+          <Link href={shelf.bin.href} data-testid="files-open-bin">
+            <Trash2 />
+          </Link>
+        </Button>
+      )}
       <FileFilterMenu
         canCollaborate={canCollaborate}
         filters={filters}
@@ -484,7 +493,7 @@ export function FileWorkspace({
         onConfirm={shelfUpload.applyFolderPlan}
         pending={shelfUpload.decision.pending}
         kind={shelfUpload.decision.kind}
-        onReleaseChange={shelfUpload.decision.setReleased}
+        onReleaseChange={shelfUpload.onReleaseChange}
       />
 
       {/* Who may read and write a folder (ADR-0088), a project's only. Saving
@@ -496,9 +505,6 @@ export function FileWorkspace({
           onOpenChange={(next) => !next && access.setEditingFolderId(null)}
           projectId={shelf.folderAccess.projectId}
           folder={folders.find((folder) => folder.id === access.editingFolderId) ?? null}
-          roles={access.roles.data}
-          rolesFailed={access.roles.failed}
-          onRetryRoles={() => void access.roles.reload()}
           onSaved={() => {
             void tree.load()
             void listing.load(true)
@@ -548,7 +554,7 @@ export function FileWorkspace({
  * A project's folders carry an `access` per reader and the listing says what
  * the reader may do at the root; a level they may only read offers no upload,
  * no new folder and no write action on its documents. The Archiv has no
- * per-role folder access (its folders are governed by `canManage`), so without
+ * folder access lists (its folders are governed by `canManage`), so without
  * `shelf.folderAccess` every level is writable here and the shelf's own
  * `canManage` decides. The server decides every write again either way.
  */
@@ -557,14 +563,6 @@ function useFolderAccess(shelf: FileShelf, folders: readonly FolderItem[], treeR
   const rootAccess: FolderAccessLevel = folderAccess ? treeRootAccess : 'write'
   /** The folder whose access dialog is open. */
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
-  // Role names are read only when something needs them: a lock to label, or
-  // the access dialog to fill.
-  const anyRestricted = folders.some((folder) => (folder.grants?.length ?? 0) > 0)
-  const roles = useOrganizationRoles(Boolean(folderAccess) && (anyRestricted || editingFolderId !== null))
-  const roleNames = useCallback(
-    (slugs: readonly string[]) => roleNamesFor(slugs, roles.data),
-    [roles.data]
-  )
 
   const accessAt = useCallback(
     (folderId: string | null): FolderAccessLevel => {
@@ -585,12 +583,11 @@ function useFolderAccess(shelf: FileShelf, folders: readonly FolderItem[], treeR
   const folderNav = folderAccess
     ? {
         onEditFolderAccess: folderAccess.canManage ? setEditingFolderId : undefined,
-        roleNames,
         rootAccess,
       }
     : {}
 
-  return { mayWriteAt, documentActionsAt, folderNav, editingFolderId, setEditingFolderId, roles }
+  return { mayWriteAt, documentActionsAt, folderNav, editingFolderId, setEditingFolderId }
 }
 
 /**

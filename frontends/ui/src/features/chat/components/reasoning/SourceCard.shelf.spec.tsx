@@ -48,7 +48,7 @@ describe('SourceCard — provenance tab', () => {
     expect(screen.getByText(en.chat.sourceTabs.shelves.project)).toBeInTheDocument()
   })
 
-  test('an org Archiv document is labelled Büroarchiv', () => {
+  test('an org Archiv document is labelled Büroablage', () => {
     renderCard('archiv')
 
     expect(screen.getByText(en.chat.sourceTabs.shelves.archiv)).toBeInTheDocument()

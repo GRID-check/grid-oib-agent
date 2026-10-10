@@ -1,0 +1,22 @@
+---
+features:
+  - >
+    Deleting a folder in a project now moves it to the project's Papierkorb
+    with its subfolders and documents. It disappears from lists, search and
+    answers at once and can be restored with its access for 14 days.
+  - >
+    Project admins can delete a folder in the Papierkorb for good at once. A
+    legal hold on the folder, its project or a document in it prevents that.
+  - >
+    Organization admins choose who still sees chats, answers and notes drawn
+    from a deleted folder, under Sensible Daten. Such content shows „Quelle
+    gelöscht am …“, or is removed with the folder if they choose so.
+upgrade:
+  - >
+    A folder deleted before this release stays deleted for good. A project
+    folder can no longer be deleted while it holds a subfolder you may not edit;
+    folders in the Archiv delete as before.
+fixes:
+  - >
+    A folder upload into a project with a restricted folder no longer refuses
+    the subfolders of a folder it has just created.

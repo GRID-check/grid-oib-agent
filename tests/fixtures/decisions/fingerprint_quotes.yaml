@@ -1,0 +1,81 @@
+# Fingerprint quotes: does the quote STATE the value? (ADR-0064 use 12, ADR-0096)
+#
+# Hand-labelled from the precedent fixture office's own passages
+# (frontends/ui/tests/fixtures/precedent/office.json) and lightly varied.
+# `stated: true` — the quoted words say the project has this value, in these or
+# equivalent words. `stated: false` — the quote names the value for something
+# else (a material, a neighbour, a norm), names another value, or does not
+# concern the fact. The negatives are the pen's realistic slips, not random
+# pairings. `scripts/decision_eval_office.py verify` sweeps STATED_THRESHOLD on
+# it; it is a tuning set, so a threshold read off it is checked on the next
+# labelled quotes, not on these.
+quotes:
+  # --- Bundesland -----------------------------------------------------------
+  - {id: bl-moedling, fact: bundesland, value: Niederösterreich, stated: true,
+     quote: "Stadtgemeinde Mödling, Baubehörde erster Instanz – Mängelbehebungsauftrag gemäß § 13 Abs. 3 AVG vom 18. Juni 2019"}
+  - {id: bl-ma37-wien, fact: bundesland, value: Wien, stated: true,
+     quote: "Magistrat der Stadt Wien, Magistratsabteilung 37 – Baupolizei – Die MA 37 fordert für das Sicherheitstreppenhaus vor Erteilung der Baubewilligung einen rechnerischen Nachweis der Druckbelüftung"}
+  - {id: bl-seefeld, fact: bundesland, value: Tirol, stated: true,
+     quote: "Gemeinde Seefeld in Tirol, Bürgermeister als Baubehörde – Die Baubewilligung wird am 20. Juni 2016 mit folgenden Auflagen erteilt"}
+  - {id: bl-klagenfurt, fact: bundesland, value: Kärnten, stated: true,
+     quote: "Magistrat der Landeshauptstadt Klagenfurt, Baubehörde – Die Baubewilligung wird am 27. März 2014 erteilt."}
+  - {id: bl-adresse-baden, fact: bundesland, value: Niederösterreich, stated: true,
+     quote: "Bauplatz: Wiener Straße 40, 2500 Baden, KG Baden, Bezirk Baden"}
+  - {id: bl-wien-for-baden, fact: bundesland, value: Wien, stated: false,
+     quote: "Bauplatz: Wiener Straße 40, 2500 Baden, KG Baden, Bezirk Baden"}
+  - {id: bl-gutachter-wien, fact: bundesland, value: Wien, stated: false,
+     quote: "Das Brandschutzgutachten erstellte das Ingenieurbüro Dr. Huber, 1040 Wien, im Auftrag der Bauherrschaft für den Holzwohnbau in Baden."}
+  - {id: bl-mortgage-tirol, fact: bundesland, value: Tirol, stated: false,
+     quote: "Lieferung der Brettsperrholzelemente durch einen Hersteller aus Tirol, Montage durch die Zimmerei vor Ort in Wels."}
+  # --- Bauweise -------------------------------------------------------------
+  - {id: bw-clt, fact: bauweise, value: Holzbau, stated: true,
+     quote: "Für die tragenden und aussteifenden Holzbauteile (Brettsperrholz) der Gebäudeklasse 4 wird REI 60 nachgewiesen."}
+  - {id: bw-holzriegel, fact: bauweise, value: Holzbau, stated: true,
+     quote: "Einreichplan Erdgeschoß und Obergeschoß, Holzriegelbau, Wohnnutzfläche 142 m², freistehend"}
+  - {id: bw-stb-stiege, fact: bauweise, value: Stahlbeton, stated: true,
+     quote: "Das Stiegenhaus wird als Fluchtweg in Stahlbeton (REI 90, A2) ausgeführt."}
+  - {id: bw-stahlhalle, fact: bauweise, value: Stahlbau, stated: true,
+     quote: "Tragwerk der Halle als Stahlrahmen mit Fachwerkbindern, Hülle aus Sandwichpaneelen mit Mineralwollkern."}
+  - {id: bw-hackschnitzel, fact: bauweise, value: Holzbau, stated: false,
+     quote: "Spielgeräte mit Fallhöhe bis 1,5 m auf Fallschutz aus Holzhackschnitzeln 30 cm, Prüfung der Geräte nach ÖNORM EN 1176 vor Eröffnung"}
+  - {id: bw-manschetten, fact: bauweise, value: Stahlbau, stated: false,
+     quote: "Zusätzliche Last aus dem Fachklassengeschoß 9 kN/m² auf die bestehenden Stahlbetonstützen; Verstärkung von elf Stützen durch Stahlmanschetten"}
+  - {id: bw-holzfenster, fact: bauweise, value: Holzbau, stated: false,
+     quote: "Fenster als Holz-Alu-Fenster mit Dreifachverglasung, Uw = 0,8 W/m²K, in der Stahlbetonaußenwand mit 20 cm Mineralwolle."}
+  - {id: bw-clt-not-massiv, fact: bauweise, value: Mauerwerk / Massivbau, stated: false,
+     quote: "Für die tragenden und aussteifenden Holzbauteile (Brettsperrholz) der Gebäudeklasse 4 wird REI 60 nachgewiesen."}
+  # --- Nutzungen ------------------------------------------------------------
+  - {id: nu-wohnnutz, fact: nutzungen, value: Wohnen, stated: true,
+     quote: "Einreichplan Erdgeschoß und Obergeschoß, Holzriegelbau, Wohnnutzfläche 142 m², freistehend, ein Stellplatz im Carport."}
+  - {id: nu-wohnungen, fact: nutzungen, value: Wohnen, stated: true,
+     quote: "In sechs Wohnungen gemessen: bewerteter Standard-Trittschallpegel L'nT,w 44 dB"}
+  - {id: nu-halle, fact: nutzungen, value: Produktion / Gewerbe / Lager, stated: true,
+     quote: "Die Produktionshalle erhält eine Sprinkleranlage nach TRVB S 127 und Rauch- und Wärmeabzugsgeräte"}
+  - {id: nu-klassen, fact: nutzungen, value: Bildung / Betreuung, stated: true,
+     quote: "Die Absturzsicherungen der Fensterbrüstungen müssen in Klassenräumen eine Höhe von mindestens 1,00 m aufweisen."}
+  - {id: nu-halle-wohnen, fact: nutzungen, value: Wohnen, stated: false,
+     quote: "Die Produktionshalle erhält eine Sprinkleranlage nach TRVB S 127 und Rauch- und Wärmeabzugsgeräte"}
+  - {id: nu-spiel-buero, fact: nutzungen, value: Büro / Verwaltung, stated: false,
+     quote: "Spielgeräte mit Fallhöhe bis 1,5 m auf Fallschutz aus Holzhackschnitzeln 30 cm, Zaun mit selbstschließendem Gartentor ohne Quetschstellen."}
+  - {id: nu-nachbar-hotel, fact: nutzungen, value: Beherbergung, stated: false,
+     quote: "Das Nachbargrundstück wird als Hotel genutzt; zu dessen Grenze ist ein Abstand von 4 m einzuhalten."}
+  # --- Vorhabensart ---------------------------------------------------------
+  - {id: va-zubau, fact: vorhabensart, value: Zubau, stated: true,
+     quote: "Marktgemeinde Hinterbrühl, Baubehörde erster Instanz – Baubewilligung vom 3. März 2012 für den Zubau eines Wintergartens"}
+  - {id: va-neubau-markt, fact: vorhabensart, value: Neubau, stated: true,
+     quote: "Verbesserungsauftrag gemäß § 13 Abs. 3 AVG vom 15. Oktober 2018 zum Bauansuchen für den Neubau des Lebensmittelmarktes"}
+  - {id: va-zubau-not-neubau, fact: vorhabensart, value: Neubau, stated: false,
+     quote: "Marktgemeinde Hinterbrühl, Baubehörde erster Instanz – Baubewilligung vom 3. März 2012 für den Zubau eines Wintergartens"}
+  - {id: va-dachausbau-umbau, fact: vorhabensart, value: Neubau, stated: false,
+     quote: "Zwischen dem Dachgeschoßausbau und dem Bestand ist eine brandabschnittsbildende Decke in REI 90 herzustellen"}
+  # --- OIB edition ----------------------------------------------------------
+  - {id: oib-2019, fact: oib_ausgabe, value: "2019", stated: true,
+     quote: "Abweichend von OIB-Richtlinie 2, Ausgabe 2019, Tabelle 1b, werden die Wände und Decken nicht in A2 ausgeführt"}
+  - {id: oib-april-2019, fact: oib_ausgabe, value: "2019", stated: true,
+     quote: "Der Energieausweis wurde nach OIB-Richtlinie 6, Ausgabe April 2019, berechnet."}
+  - {id: oib-2019-not-2015, fact: oib_ausgabe, value: "2015", stated: false,
+     quote: "Abweichend von OIB-Richtlinie 2, Ausgabe 2019, Tabelle 1b, werden die Wände und Decken nicht in A2 ausgeführt"}
+  - {id: oib-no-edition, fact: oib_ausgabe, value: "2019", stated: false,
+     quote: "Die Anforderungen der OIB-Richtlinie 5 sind eingehalten, die Haustechnik ist entkoppelt."}
+  - {id: oib-oenorm-year, fact: oib_ausgabe, value: "2019", stated: false,
+     quote: "Feuerwiderstand REI 90 nachgewiesen nach ÖNORM EN 1995-1-2:2019, Trittschall über schwimmenden Estrich."}
