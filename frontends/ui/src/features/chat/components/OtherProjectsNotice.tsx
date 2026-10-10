@@ -1,21 +1,27 @@
 /**
  * What the composer says while a chat is narrowed by other projects (ADR-0094):
- * which projects, and what that closes. The list is the server's CURRENT record
- * of the projects that restrict the chat (`restrictingOtherProjects` on the
- * conversation), not what the answers' citations said when they were written: a
- * project closed since restricts nobody and is gone from it, one reopened is
- * back, and a closed project whose restricted folder the chat drew on is named.
- * The chat stays with the people who may open them, and nothing from it reaches
- * what the whole project reads (memory, tasks, deep research, filing). Said
- * here, at the place the reader is about to act, rather than first in a refused
- * share.
+ * a small chip, „2 andere Projekte", whose popover names them and says what
+ * that closes. The list is the server's CURRENT record of the projects that
+ * restrict the chat (`restrictingOtherProjects` on the conversation), not what
+ * the answers' citations said when they were written: a project closed since
+ * restricts nobody and is gone from it, one reopened is back, and a closed
+ * project whose restricted folder the chat drew on is named.
  *
- * A molecule over the `Alert` atom; the composer decides when it shows.
+ * A chip, not an alert: the answers already name the projects they cite, so
+ * the reader needs no second banner saying so. What the answers do NOT say is
+ * the consequence — the chat stays with the people who may open them, and
+ * nothing from it reaches what the whole project reads (memory, tasks, deep
+ * research, filing) — and that is one click away, at the place the reader is
+ * about to act, rather than first in a refused share. A closed project's open
+ * folders restrict nobody, so a chat that only drew on those shows nothing.
+ *
+ * A molecule over the `Chip` and `Popover` atoms; the composer decides when it shows.
  */
 
 import type { FC } from 'react'
 import { FolderSymlink } from 'lucide-react'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Chip } from '@/components/ui/chip'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useLocale, useTranslations } from '@/i18n'
 import type { RestrictingOtherProject } from '@/adapters/api/conversations-client'
 
@@ -31,10 +37,21 @@ export const OtherProjectsNotice: FC<OtherProjectsNoticeProps> = ({ projects }) 
     projects.map((project) => project.name ?? t('otherProjects.gone'))
   )
   return (
-    <Alert variant="info" className="mt-2" role="status" data-testid="other-projects-notice">
-      <FolderSymlink aria-hidden="true" />
-      <AlertTitle className="line-clamp-none">{t('otherProjects.title', { projects: names })}</AlertTitle>
-      <AlertDescription>{t('otherProjects.body')}</AlertDescription>
-    </Alert>
+    <div className="mt-2 flex" data-testid="other-projects-notice">
+      <Popover>
+        <PopoverTrigger asChild>
+          <Chip asChild variant="muted" size="sm" interactive aria-label={t('otherProjects.title', { projects: names })}>
+            <button type="button">
+              <FolderSymlink aria-hidden="true" />
+              {t('otherProjects.chip', { count: projects.length })}
+            </button>
+          </Chip>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-80 space-y-1.5 p-4" role="status">
+          <p className="text-sm font-medium text-foreground">{t('otherProjects.title', { projects: names })}</p>
+          <p className="text-xs leading-relaxed text-muted-foreground">{t('otherProjects.body')}</p>
+        </PopoverContent>
+      </Popover>
+    </div>
   )
 }

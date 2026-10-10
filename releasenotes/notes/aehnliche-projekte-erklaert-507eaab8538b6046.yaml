@@ -6,7 +6,8 @@ improvements:
     and lets you ask Piloti about any of them in this project's chat.
   - >
     When Piloti looked into other projects for an answer, the steps above the
-    answer now keep saying so after it is done.
+    answer now keep saying so after it is done, and the banner above the
+    message field is a small chip that explains itself when clicked.
 fixes:
   - >
     When Piloti looks into past projects on its own, it now starts with the
