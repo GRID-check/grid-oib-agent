@@ -33,7 +33,7 @@
     "@ifc-lite/data": "^3.2.0",
     "@ifc-lite/geometry": "^3.8.1",
     "@ifc-lite/parser": "^3.15.0",
-    "@modelcontextprotocol/sdk": "^1.30.0"
+    "@modelcontextprotocol/sdk": "^1.31.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
