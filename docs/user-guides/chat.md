@@ -45,18 +45,18 @@ The whole header is hidden on an empty chat that has not started yet, apart from
 
 The composer is a white card with the message field on top and a control row below, separated by a hairline:
 
-- **Asking about … bar**: when this turn is about a project file (**Besprechen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Besprechen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
+- **Asking about … bar**: when this turn is about a project file (**Besprechen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Besprechen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroablage.
 - **Datengrundlage chip**: shows how many data sources are currently enabled and opens the existing Data Sources panel.
 - **Scope chip**: shows the current project with a lock icon. Retrieval is always scoped to this project; the popover lists a disabled "All projects" option — cross-project search is not available yet.
 - **Deep Research pill**: an on/off *preference*. Piloti escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.
 - **Attach / file counter / send**: unchanged file-upload and send affordances.
 
-Under the composer a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (base corpus + RIS), *Projektunterlagen* (this project's files, not the Büroarchiv), and *Büroarchiv* (office archive, not project files). They stay available after the first message. A pressed preset also tells retrieval which knowledge shelves to keep; it is not only an external-source toggle. Any manual change in the Data Sources panel takes you off the preset again. Uploading a file into the chat binds the next send to that file — "Fass den Inhalt zusammen" does not walk the rest of the project or the Archiv.
+Under the composer a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (base corpus + RIS), *Projektunterlagen* (this project's files, not the Büroablage), and *Büroablage* (the office's own files, not project files). They stay available after the first message. A pressed preset also tells retrieval which knowledge shelves to keep; it is not only an external-source toggle. Any manual change in the Data Sources panel takes you off the preset again. Uploading a file into the chat binds the next send to that file — "Fass den Inhalt zusammen" does not walk the rest of the project or the Büroablage.
 
 Documents sit on four nested shelves. Asking **which files** sit where is answered from that shelf only:
 
 - **Basiswissen** — always on the request (OIB / law corpus).
-- **Büroarchiv** — on every project in the organization. Not OIB, not this project's files.
+- **Büroablage** — on every project in the organization. Not OIB, not this project's files.
 - **Projektwissen** — on every session of this project.
 - **This chat** — only the current session.
 
@@ -168,7 +168,7 @@ dialog over the thread.
 
 **You choose what the run reads.** The Rechercheplan card before a deep
 research lists the sections and, under „Unterlagen", lets you pick documents
-from the project and the office archive: „Lesen" means read in full whatever
+from the project and the Büroablage: „Lesen" means read in full whatever
 else the research finds, „Ausschließen" means never used, not even when a
 search returns it. The chips under „Rahmen" show which data sources the
 research will search. Once the run goes, „Dokument hinzufügen" on its block
@@ -291,7 +291,7 @@ Note the name collision: "RIS" is both the Austrian Rechtsinformationssystem (a 
 
 ### Source preview (clicking a chip)
 
-When a finished answer cites **exactly one** project or Büroarchiv file, that
+When a finished answer cites **exactly one** project or Büroablage file, that
 file opens beside the chat on its own (the same peek used by "Ask about this
 file"). Law, RIS and web citations never auto-open, and neither do answers
 that cite two or more project files — picking would be a guess. Dismissing

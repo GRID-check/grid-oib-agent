@@ -285,7 +285,7 @@ absent for everyone, organization admins included: not listed, not searchable,
 not in Piloti's answers, not openable or downloadable from a link. Its
 documents are taken out of Piloti's search index at once.
 
-This is a project's Files. A folder in the office **Archiv** has no Papierkorb:
+This is a project's Files. A folder in the **Büroablage** has no Papierkorb:
 deleting it moves its documents and subfolders into the folder above.
 
 You may delete a folder when you may edit it and every folder inside it. If it

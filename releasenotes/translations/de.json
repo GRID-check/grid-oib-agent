@@ -2676,6 +2676,10 @@
     "de": "Die Inhaltsbegriffe und Nummernprüfungen Ihres Büros gelten jetzt auch für das, was Sie in den Chat schreiben: Bevor eine Nachricht mit einer IBAN oder einem gelisteten Begriff hinausgeht, zeigt Piloti, was es gefunden hat, und sendet sie nur maskiert – oder Sie bearbeiten sie zuerst."
   },
   {
+    "en": "Your office's shared documents now have one name everywhere: Büroablage, in the navigation, on source chips, in upload messages and in Piloti's answers. The English interface calls it Office filing.",
+    "de": "Die gemeinsamen Unterlagen Ihres Büros heißen jetzt überall gleich: Büroablage – in der Navigation, auf den Quellen-Chips, in den Upload-Meldungen und in den Antworten von Piloti. Die englische Oberfläche nennt sie „Office filing“."
+  },
+  {
     "en": "Your organization can now give Piloti standing instructions under Organisation, Anweisungen, such as result first, then reasons, or assume Vienna when no province is named. They apply to every question from everyone in the office.",
     "de": "Ihre Organisation kann Piloti jetzt unter Organisation, Anweisungen stehende Vorgaben mitgeben, etwa zuerst das Ergebnis, dann die Begründung, oder Wien annehmen, wenn kein Bundesland genannt ist. Sie gelten für jede Frage aller im Büro."
   },

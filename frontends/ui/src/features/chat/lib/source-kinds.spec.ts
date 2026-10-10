@@ -158,13 +158,28 @@ describe('scopeForQualifier (citation keys — the versioned fallback)', () => {
     // the one ADR-0047 added: the backend appends a qualifier to keep a key
     // unique when two shelves hold the same filename, so a session hit writes
     // `(Private Sitzung)`. A reader that knew only the legacy three would leave
-    // that qualifier in the filename and lose the citation entirely.
+    // that qualifier in the filename and lose the citation entirely. The last
+    // row is the archiv shelf's retired name, read and never written.
     expect(CITATION_KEY_QUALIFIERS.map(([, shelf]) => shelf)).toEqual([
       'archiv',
       'project',
       'base',
       'session',
+      'archiv',
     ])
+  })
+
+  test('the archiv shelf is written „Büroablage" and still read under its old name', () => {
+    expect(CITATION_KEY_QUALIFIERS[0]).toEqual(['Büroablage', 'archiv'])
+    expect(scopeForQualifier('Büroablage')).toBe('archiv')
+    expect(scopeForQualifier('Büroarchiv')).toBe('archiv')
+  })
+
+  test('the shelf label the reader sees is the qualifier the backend writes', () => {
+    // `chat.sourceTabs.shelves` renders the shelf; the qualifier is pinned to
+    // the backend's `SHELF_QUALIFIERS`. One name for one shelf on both sides.
+    expect(de.chat.sourceTabs.shelves.archiv).toBe(CITATION_KEY_QUALIFIERS[0][0])
+    expect(en.chat.sourceTabs.shelves.archiv).toBe('Office filing')
   })
 
   test('every shelf is reachable from a key, so no key can go unread', () => {

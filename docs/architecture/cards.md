@@ -134,7 +134,7 @@ catalog omits them entirely).
 
 | `type` | Shows | Emitted by |
 |---|---|---|
-| `document_grid` | project/Büroarchiv files the user asked to see — the same raised `FileCard` the Files grid uses | the `surface_documents` tool |
+| `document_grid` | project/Büroablage files the user asked to see — the same raised `FileCard` the Files grid uses | the `surface_documents` tool |
 | `memory_proposal` **(interactive)** | a finding to be written to org- or project-scoped memory, for the user to confirm | the `remember` tool |
 | `document_draft` | a document written into this conversation's working directory — title, path, `v{n}` and size, with the Files feature's „Von Piloti erstellt" byline. Its „Ins Projekt übernehmen" is drawn **inert**: filing is a later slice, and until it is wired the card reports the draft rather than offering to move it | the working directory's `write_file` / `edit_file` |
 | `task_created` | work Piloti has taken on, as a task row somebody can come back to — title, goal, due date and a link to the run's thread. Informational: the task is already queued when it renders, so there is no Accept | the `create_task` tool |
@@ -577,9 +577,9 @@ sanctioned path, carrying **real** data:
   opens a named file; **`mode=one` + `query`** opens the best match;
   **`mode=many`** only when two or three files of the same kind are
   nearly tied. **`shelf=archiv` / `shelf=project`** keeps the search on
-  one shelf so a Büroarchiv browse cannot pull project files. A question
+  one shelf so a Büroablage browse cannot pull project files. A question
   that only *lists* what is on a shelf ("welche Dateien hast du im
-  Büroarchiv") is answered from the shelf-grouped inventory, not this
+  Büroablage") is answered from the shelf-grouped inventory, not this
   tool. Never invent names. See [ADR-0026](../adr/) for
   source-kind doctrine.
 

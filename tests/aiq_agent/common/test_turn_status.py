@@ -69,7 +69,7 @@ class TestDocumentsLoading:
     def test_a_shelf_of_the_readers_own_is_named(self, steps) -> None:
         step = turn_status.documents_loading_step(["archiv"])
         # The SHELF is in the key, not in the values: German needs the dative
-        # ("aus dem Büroarchiv") and English needs no article at all, so a
+        # ("aus der Büroablage") and English needs no article at all, so a
         # shelf name cannot be interpolated into one shared template.
         assert step == StatusStep(
             id="status:documents", slot="documents", key="status.documents.archiv", detail={"shelves": ["archiv"]}

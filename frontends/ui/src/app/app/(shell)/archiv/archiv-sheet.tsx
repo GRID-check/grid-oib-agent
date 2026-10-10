@@ -11,7 +11,7 @@
  * member, with uploads and deletes gated on `org:archiv:manage`.
  *
  * Headerless on purpose: {@link ArchivWorkspace} already opens with the gold
- * Büroarchiv identity row (mark, name, count, upload). A sheet header above it
+ * Büroablage identity row (mark, name, count, upload). A sheet header above it
  * would say "Archiv" twice, so the sheet's close control slots into that row
  * instead and the workspace's header is the sheet's one header.
  */

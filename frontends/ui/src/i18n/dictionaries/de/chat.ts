@@ -50,7 +50,7 @@ export const chat: typeof en.chat = {
     // knowledge-base copy of a legal text reads as project material.
     kinds: {
       baurecht: 'Baurecht & Richtlinien',
-      buero: 'Büroarchiv',
+      buero: 'Büroablage',
       projekt: 'Projektwissen',
       web: 'Webquelle',
     },
@@ -60,7 +60,7 @@ export const chat: typeof en.chat = {
       web: 'Webquelle',
     },
   },
-  // Dokumentraster: echte Projekt-/Büroarchiv-Dateien, die der Assistent als
+  // Dokumentraster: echte Projekt-/Büroablage-Dateien, die der Assistent als
   // anklickbare Vorschaukarten anzeigt (`document_grid`-Karte / `surface_documents`).
   documentGrid: {
     countOne: '1 Dokument',
@@ -71,10 +71,10 @@ export const chat: typeof en.chat = {
       buero: 'Büro',
     },
     // Eine referenzierte Datei, die sich nicht mehr auf eine Dokumentzeile
-    // auflösen lässt — eine ehrliche, handlungsfähige Karte (im Archiv / in den
+    // auflösen lässt — eine ehrliche, handlungsfähige Karte (in der Büroablage / in den
     // Projektdateien öffnen) statt einer stummen toten Kachel.
     unresolvedHint: 'Der Assistent hat diese Datei referenziert.',
-    openInArchive: 'Im Archiv öffnen',
+    openInArchive: 'In der Büroablage öffnen',
     openInFiles: 'In den Projektdateien öffnen',
     // Der Auflösungs-Abruf ist fehlgeschlagen — eine Wiederholaktion statt einer
     // dauerhaft toten Kachel.
@@ -101,10 +101,10 @@ export const chat: typeof en.chat = {
     // Wenn die Antwort den Namen anders geschrieben hat als die Datei heißt.
     writtenAs: 'Im Text: {name}',
     // Regal, aus dem die Datei stammt — dieselbe Unterscheidung wie bei den
-    // Quellen: geteiltes Projektwissen, büroweites Archiv, private Beilage.
+    // Quellen: geteiltes Projektwissen, die Büroablage, private Beilage.
     shelf: {
       projekt: 'Projektdateien',
-      buero: 'Büroarchiv',
+      buero: 'Büroablage',
       session: 'Beilage in diesem Chat',
     },
     notIndexed:
@@ -157,11 +157,11 @@ export const chat: typeof en.chat = {
   sourceTabs: {
     law: 'Baurecht',
     project: 'Projektwissen',
-    office: 'Büroarchiv',
+    office: 'Büroablage',
     auto: 'Web',
     model: 'Modellmessung',
     shelves: {
-      archiv: 'Büroarchiv',
+      archiv: 'Büroablage',
       project: 'Projektwissen',
       session: 'Private Sitzung',
       base: 'Basiswissen',
@@ -173,7 +173,7 @@ export const chat: typeof en.chat = {
     presets: {
       law: 'Baurecht & Richtlinien',
       project: 'Projektunterlagen',
-      office: 'Büroarchiv',
+      office: 'Büroablage',
     },
   },
   greeting: {
@@ -788,14 +788,14 @@ export const chat: typeof en.chat = {
       status: {
         // Welche der eigenen Unterlagen gerade gesichtet werden. Ein
         // Schlüssel pro Ebene statt einer Vorlage mit Platzhalter: Deutsch
-        // braucht den Dativ („aus dem Büroarchiv“), Englisch gar keinen
+        // braucht den Dativ („aus der Büroablage“), Englisch gar keinen
         // Artikel, also lässt sich der Name nicht in EINEN Satz einsetzen.
         // Jede Zeile nennt den Namen, den die Lesenden im Produkt sehen —
-        // Büroarchiv, Projekt, Unterhaltung. Für mehrere Ebenen zugleich gibt
+        // Büroablage, Projekt, Unterhaltung. Für mehrere Ebenen zugleich gibt
         // es keinen: der Sammelbegriff dafür ist unser Wort, nicht ihres, also
         // sagt `several` schlicht, WAS gelesen wird.
         documents: {
-          archiv: 'Unterlagen aus dem Büroarchiv werden gesichtet …',
+          archiv: 'Unterlagen aus der Büroablage werden gesichtet …',
           project: 'Unterlagen aus dem Projekt werden gesichtet …',
           session: 'Unterlagen aus dieser Unterhaltung werden gesichtet …',
           several: 'Ihre Unterlagen werden gesichtet …',

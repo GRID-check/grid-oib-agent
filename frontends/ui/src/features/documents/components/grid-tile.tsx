@@ -30,7 +30,7 @@ export interface GridTileShellProps extends Omit<ComponentProps<'div'>, 'ref'> {
  * folder. That is why nobody ever noticed the branch was dead. It is gone, and
  * with it the last raw `amber-*` in this feature — chroma in this product
  * belongs to the source-signal system (`grid-design-language.md`), and gold
- * there means Büroarchiv provenance, which is what the `JPG` chip on the card
+ * there means Büroablage provenance, which is what the `JPG` chip on the card
  * two cells over is saying.
  */
 export function GridTileShell({ interactive = true, className, children, ...rest }: GridTileShellProps): JSX.Element {

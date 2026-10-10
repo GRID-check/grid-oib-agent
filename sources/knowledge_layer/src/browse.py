@@ -35,7 +35,7 @@ turn may read: the rows the turn's inventory resolved against the signed scope
 bound none — the same scope ``knowledge_search`` resolves. Both then subtract
 the shelves this turn did not ask for (``focus_file.get_turn_shelves``), the
 way ``register._restrict_scope_to_turn`` does for the ranked search, so a turn
-about one upload lists and greps that upload, not the Büroarchiv. The exact
+about one upload lists and greps that upload, not the Büroablage. The exact
 search reads the base corpus through the same store filter the ranked search
 uses (``register._base_collection_filters``): an excluded edition or a cover
 page is not evidence in either mode.
@@ -100,7 +100,7 @@ MAX_ALTERNATIVES = 6
 
 _SHELF_LABELS = {
     "project": "Projektwissen",
-    "archiv": "Büroarchiv",
+    "archiv": "Büroablage",
     "session": "Private Sitzung",
     "base": "Basiswissen",
 }
@@ -731,7 +731,7 @@ _LIST_FILES_DESCRIPTION = (
     "Protokoll zur Baubesprechung“, „wie heißt die Datei mit dem Schnitt genau“. Also first, when you "
     "need an exact file name for `read_passage`, `knowledge_search(file_name=…)` or a file operation "
     "and the inventory does not show it.\n"
-    "- no arguments: every file on Projektwissen, Büroarchiv and Private Sitzung, paged and ordered "
+    "- no arguments: every file on Projektwissen, Büroablage and Private Sitzung, paged and ordered "
     "by folder, after an overview of the top-level folders with their file counts. `folder=` narrows "
     "that to one folder and everything below it.\n"
     "- `name_contains=` words that must all appear in the file name or title („brandschutz eg“); "

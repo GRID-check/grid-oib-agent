@@ -2807,7 +2807,7 @@ class TestKnowledgeInventoryIsNotCitable:
     def test_piloti_prompt_teaches_the_four_shelves(self):
         source = self._prompt("piloti/prompts/piloti.j2")
         assert "<knowledge_shelves>" in source
-        assert "Büroarchiv" in source
+        assert "Büroablage" in source
         assert "NEVER the OIB corpus" in source
         assert "which files sit on which shelf" in source
 
@@ -2822,7 +2822,7 @@ class TestKnowledgeInventoryIsNotCitable:
             },
         ]
         rendered = self._render(self._prompt("piloti/prompts/piloti.j2"), documents)
-        archiv = rendered.split("### Büroarchiv", 1)[1].split("### ", 1)[0]
+        archiv = rendered.split("### Büroablage", 1)[1].split("### ", 1)[0]
         assert "Buero-Standard.pdf" in archiv
         assert "oib-rl_2.pdf" not in archiv
 

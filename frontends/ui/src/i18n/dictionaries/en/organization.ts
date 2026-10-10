@@ -104,7 +104,7 @@ export const organization = {
     access: { download: 'Download', open: 'Opened' },
     columns: { when: 'When', person: 'Person', action: 'What', document: 'Document', place: 'Where' },
     place: {
-      archiv: 'Archive',
+      archiv: 'Office filing',
       session: 'Chat attachment',
       project: 'Project',
       root: 'Project root',
@@ -266,8 +266,8 @@ export const organization = {
         hint: 'Who downloaded which document. Reading it is itself recorded.',
       },
       archiv_manage: {
-        name: 'Manage the Archiv',
-        hint: 'Upload, delete and re-read documents in the office Archiv. Everyone can read it.',
+        name: 'Manage Office filing',
+        hint: 'Upload, delete and re-read documents in Office filing. Everyone can read it.',
       },
       skills_manage: {
         name: 'Manage skills',
@@ -531,7 +531,7 @@ export const organization = {
     overQuota: 'Quota reached — new uploads are refused until space is freed',
     nearQuota: 'Almost full — new uploads will soon be refused',
     projectDocuments: 'Project documents',
-    archivDocuments: 'Organization Archiv',
+    archivDocuments: 'Office filing',
     /** Count-neutral: a scope with exactly one document renders this too. */
     documentCount: 'Documents: {count}',
     /** The per-file upload limit, read-only; `size` is formatted with its unit. */
@@ -685,7 +685,7 @@ export const organization = {
     emptyHint: 'When the content check holds a file back, it appears here. You see the files you may release.',
     whereProject: 'Project {name}',
     whereProjectUnknown: 'A project',
-    whereArchiv: 'Archiv',
+    whereArchiv: 'Office filing',
     whereSession: 'Chat attachment',
     reasonsLabel: 'Reasons',
     noReason: 'Reason could not be read',

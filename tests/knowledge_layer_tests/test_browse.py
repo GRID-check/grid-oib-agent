@@ -156,7 +156,7 @@ class TestListFilesTool:
 
     async def test_reads_the_turns_uncapped_rows(self, scope):
         text = await self._call(folder="Plaene/Grundrisse")
-        assert "2 Datei(en) auf Projektwissen und Büroarchiv und Private Sitzung" in text
+        assert "2 Datei(en) auf Projektwissen und Büroablage und Private Sitzung" in text
         assert "Grundriss_OG1.pdf" in text
 
     async def test_falls_back_to_the_scope_when_no_rows_are_bound(self, scope, monkeypatch):
@@ -274,7 +274,7 @@ class TestExactSearch:
         assert "Citation: Schnitt_A-A.pdf, p.4" in text
         assert "## Fundstellen für „BA-03“" in text
         assert "- Schnitt_A-A.pdf (Projektwissen): 2×, S. 4" in text
-        assert "- Leitfaden_Buero.pdf (Büroarchiv): 1×, S. 9" in text
+        assert "- Leitfaden_Buero.pdf (Büroablage): 1×, S. 9" in text
         # Same scope as the ranked search, but the reader's own files are listed first.
         table = text[text.index("## Fundstellen") :]
         assert table.index("Schnitt_A-A.pdf") < table.index("oib-rl_2.pdf")
@@ -526,7 +526,7 @@ class TestListFilesHonoursTheTurn:
         text = await self._call()
         assert "Leitfaden_Buero.pdf" in text
         assert "Grundriss_EG.pdf" not in text
-        assert "1 Datei(en) auf Büroarchiv und Private Sitzung" in text
+        assert "1 Datei(en) auf Büroablage und Private Sitzung" in text
 
     async def test_a_restriction_that_would_leave_nothing_keeps_everything(self, scope, turn_shelves):
         set_turn_documents([_doc("Grundriss_EG.pdf", "Plaene")])
@@ -657,7 +657,7 @@ class TestAShelfTheTurnRemoved:
         turn_shelves({"archiv", "session", "base"})
         text = await self._call(shelf="project")
         assert "Keine Datei" not in text
-        assert "auf Büroarchiv, Private Sitzung und Basiswissen beschränkt" in text
+        assert "auf Büroablage, Private Sitzung und Basiswissen beschränkt" in text
         assert "Projektwissen hier nicht gelistet" in text
         assert "Grundriss_EG.pdf" not in text
 

@@ -3,7 +3,7 @@ export const projects = {
   list: {
     heading: 'Projects',
     description:
-      'Every building project in one workspace — documents, members, and chat, grounded in the files, the office archive, and building law.',
+      'Every building project in one workspace — documents, members, and chat, grounded in the files, Office filing, and building law.',
     loading: 'Loading projects…',
     searchPlaceholder: 'Search projects…',
     searchAria: 'Search projects by name',
@@ -30,7 +30,7 @@ export const projects = {
     empty: {
       title: 'Start your first project',
       description:
-        'Piloti is the workspace in which a planning office runs a building project. Create a project to bring its documents, members, and chat together — then ask Piloti about the work, grounded in the files, the office archive, and Austrian building law.',
+        'Piloti is the workspace in which a planning office runs a building project. Create a project to bring its documents, members, and chat together — then ask Piloti about the work, grounded in the files, Office filing, and Austrian building law.',
       action: 'Create your first project',
     },
     filter: {
@@ -170,10 +170,10 @@ export const projects = {
     settingsAria: 'Open settings for {name}',
   },
   archivCard: {
-    title: 'Archiv',
+    title: 'Office filing',
     subtitle:
       "Your office's organization-wide knowledge — shared documents and proven details, available in every project.",
-    aria: 'Open the organization-wide Archiv',
+    aria: 'Open Office filing',
   },
   dialog: {
     newProject: 'New project',
@@ -201,7 +201,7 @@ export const projects = {
       oibBrandschutzAudit: { label: 'OIB fire-safety audit', name: 'OIB fire-safety audit' },
     },
     footnote:
-      'Create a workspace for documents, members, and chat, grounded in the project files, the office archive, and building law.',
+      'Create a workspace for documents, members, and chat, grounded in the project files, Office filing, and building law.',
     submit: 'Create project',
   },
   applicableStandards: {

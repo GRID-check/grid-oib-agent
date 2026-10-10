@@ -125,7 +125,7 @@ export const runs = {
     restrictedReason:
       'Sits in a folder with restricted access. A run’s documents and its report are visible to everyone in the project, so it cannot be added.',
     done: 'Done',
-    shelf: { project: 'Project', archiv: 'Office archive', session: 'This chat', base: 'Regulations' },
+    shelf: { project: 'Project', archiv: 'Office filing', session: 'This chat', base: 'Regulations' },
   },
   cancel: {
     confirmTitle: 'Stop this task?',

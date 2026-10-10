@@ -45,7 +45,7 @@ _TOOL_DESCRIPTIONS = {
     "ls": (
         "Listet die Entwürfe dieser Unterhaltung. Der Arbeitsordner liegt unter "
         f"`{DRAFT_ROOT}` und enthält nur, was in dieser Unterhaltung geschrieben wurde — "
-        "keine Projektdateien, kein Büroarchiv. Vor einer Überarbeitung aufrufen, wenn der "
+        "keine Projektdateien, keine Büroablage. Vor einer Überarbeitung aufrufen, wenn der "
         "Pfad des Entwurfs nicht bekannt ist."
     ),
     "read_file": (

@@ -142,7 +142,7 @@ interface FileBrowserPaneProps {
   view?: 'cards' | 'list'
   showAssignment?: boolean
   /**
-   * A shelf's own mark on a card: the Büroarchiv's gold kind chip and the line
+   * A shelf's own mark on a card: the Büroablage's gold kind chip and the line
    * saying where it came from. Cards only — a row has no room for either.
    */
   cardExtras?: (file: FileItem) => CardExtras

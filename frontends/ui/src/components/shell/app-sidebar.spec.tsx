@@ -146,7 +146,7 @@ describe('AppSidebar - Automation nav item', () => {
 describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
   test('shows Archiv when canAccessArchiv is true, linking to the org Archiv', () => {
     render(<AppSidebar {...baseProps} canAccessArchiv />)
-    const links = screen.getAllByText('Archiv').map((el) => el.closest('a'))
+    const links = screen.getAllByText('Office filing').map((el) => el.closest('a'))
     expect(links.length).toBeGreaterThan(0)
     for (const link of links) {
       expect(link).toHaveAttribute('href', '/app/archiv')
@@ -155,7 +155,7 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
 
   test('hides Archiv by default (org feature flag off)', () => {
     render(<AppSidebar {...baseProps} />)
-    expect(screen.queryByText('Archiv')).not.toBeInTheDocument()
+    expect(screen.queryByText('Office filing')).not.toBeInTheDocument()
   })
 
   test('orders Ask Piloti first and Inbox last in the section nav', () => {
@@ -172,7 +172,7 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
     // Ask Piloti · Files · Automation* · Archiv* · Inbox*, per
     // `project-sections.ts`. Automation is absent here because `showSkills`
     // is off.
-    expect(labels).toEqual(['Ask Piloti', 'Files', 'Archiv', 'Inbox'])
+    expect(labels).toEqual(['Ask Piloti', 'Files', 'Office filing', 'Inbox'])
   })
 })
 
@@ -301,7 +301,7 @@ describe('AppSidebar - the org doorways stay reachable from inside a project', (
     pathname = '/app/archiv'
     render(<AppSidebar {...baseProps} canAccessArchiv />)
     const archiv = screen
-      .getAllByText('Archiv')
+      .getAllByText('Office filing')
       .map((el) => el.closest('a'))
       .filter((link): link is HTMLAnchorElement => link !== null)
     expect(archiv.some((link) => link.getAttribute('aria-current') === 'page')).toBe(true)

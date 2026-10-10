@@ -47,7 +47,7 @@ from urllib.parse import urlunparse
 from aiq_agent.common.grounding_block import GroundingHit
 from aiq_agent.common.grounding_block import SourceRegion
 from aiq_agent.common.grounding_block import get_grounding_block
-from aiq_agent.common.source_kinds import SCOPE_QUALIFIERS
+from aiq_agent.common.source_kinds import READABLE_QUALIFIERS
 from aiq_agent.common.source_kinds import TOOL_RESULT_SOURCE_TYPE
 from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.common.source_kinds import kind_for_lane
@@ -253,10 +253,11 @@ _PAGE_RE = re.compile(r"[,\s]\s*(?:p\.?|page)\s*(\d+)(?=\s*(?:[,)\]]|$))", re.IG
 # from more than one shelf in the same turn: `Plan.pdf (Projektwissen), p.3`.
 # Only the known qualifiers match, so a parenthetical that is part of a real
 # filename ("Bescheid (Kopie).pdf") is never mistaken for one. The alternation is
-# built from the LEGACY table too, because those strings are persisted inside
-# citation keys in existing messages and must keep parsing (ADR-0047: German is
-# rendering, and a versioned reader keeps reading what was already written).
-_SCOPE_QUALIFIER_ALTERNATION = "|".join(re.escape(label) for label in dict.fromkeys(SCOPE_QUALIFIERS.values()).keys())
+# built from the LEGACY table and the retired names too („Büroarchiv"), because
+# those strings are persisted inside citation keys in existing messages and must
+# keep parsing (ADR-0047: German is rendering, and a versioned reader keeps
+# reading what was already written).
+_SCOPE_QUALIFIER_ALTERNATION = "|".join(re.escape(label) for label in READABLE_QUALIFIERS)
 #: The qualifier at the END of a key's filename part (parsing a whole key).
 _SCOPE_QUALIFIER_RE = re.compile(rf"\s*\(({_SCOPE_QUALIFIER_ALTERNATION})\)\s*$", re.IGNORECASE)
 #: The qualifier at the START of the text FOLLOWING a filename (scanning a line).
@@ -1523,7 +1524,7 @@ def _filename_token_ends(haystack_lower: str, needle_lower: str) -> Iterator[int
 
     Yields nothing when the filename only occurs as part of a longer one. Each
     occurrence is yielded because one source section can name the SAME filename
-    on two different shelves (`Plan.pdf (Büroarchiv)` and `Plan.pdf
+    on two different shelves (`Plan.pdf (Büroablage)` and `Plan.pdf
     (Projektwissen)`), and those are two citations, not one.
     """
     index = haystack_lower.find(needle_lower)
@@ -1719,7 +1720,7 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
     provenance row the moment any web source WAS cited.
 
     A document is `(collection, filename)`, so the shelf a source line names is
-    part of what it cites: a line reading `Plan.pdf (Büroarchiv), p.3` marks the
+    part of what it cites: a line reading `Plan.pdf (Büroablage), p.3` marks the
     Archiv document, not the project upload that happens to share the name and
     to sit earlier in the registry. Unqualified lines keep the fail-open
     reading (the first same-named entry), because a bare filename is proof the
@@ -1903,7 +1904,7 @@ def source_lane(entry: SourceEntry, registry: NormRegistry | None = None) -> tup
 
     Deterministic display tagging on top of ``source_origin_token``'s coarse
     origin: Baurecht lanes split by registry rank (RIS) or OIB filename class
-    (knowledge base), Projektwissen/Büroarchiv by collection prefix, Web
+    (knowledge base), Projektwissen/Büroablage by collection prefix, Web
     otherwise — see ``norm_registry.lane_for_hit``. The wire tokens
     (``[KB]``/``[RIS]``/``[Web]``) are unchanged; the fan-out UI reads this
     richer label from the structured source payloads instead.
