@@ -22,6 +22,7 @@ import {
   PROJECT_PERMISSION_SPECS,
   ROLES,
   SKILL_PERMISSION_SPECS,
+  FOLDER_PERMISSION_SPECS,
 } from './catalog'
 
 /** Organization-tier permissions (attached to org roles, e.g. Admin). */
@@ -104,10 +105,17 @@ export const SKILL_PERMISSIONS = {
   manage: 'skill:manage',
 } as const
 
+/** Folder tier (ADR-0097): held through a folder role on a folder with its own list. */
+export const FOLDER_PERMISSIONS = {
+  read: 'folder:read',
+  write: 'folder:write',
+} as const
+
 export type OrgPermission = (typeof ORG_PERMISSIONS)[keyof typeof ORG_PERMISSIONS]
 export type PlatformPermission = (typeof PLATFORM_PERMISSIONS)[keyof typeof PLATFORM_PERMISSIONS]
 export type ProjectPermission = (typeof PROJECT_PERMISSIONS)[keyof typeof PROJECT_PERMISSIONS]
 export type SkillPermission = (typeof SKILL_PERMISSIONS)[keyof typeof SKILL_PERMISSIONS]
+export type FolderPermission = (typeof FOLDER_PERMISSIONS)[keyof typeof FOLDER_PERMISSIONS]
 
 /**
  * A permission answerable from the JWT alone — no resource id, no I/O.
@@ -231,5 +239,8 @@ export const ALL_PROJECT_PERMISSION_SLUGS: readonly string[] = PROJECT_PERMISSIO
   (permission) => permission.slug
 )
 export const ALL_SKILL_PERMISSION_SLUGS: readonly string[] = SKILL_PERMISSION_SPECS.map(
+  (permission) => permission.slug
+)
+export const ALL_FOLDER_PERMISSION_SLUGS: readonly string[] = FOLDER_PERMISSION_SPECS.map(
   (permission) => permission.slug
 )

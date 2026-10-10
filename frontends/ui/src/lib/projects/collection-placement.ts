@@ -55,7 +55,7 @@
 import 'server-only'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { withTenant } from '@/lib/db/tenant-context'
-import { computeFolderAccess, type ProjectFolderAccess } from '@/lib/authz/folder-access'
+import { computeFolderAccess, EVERY_FOLDER, type ProjectFolderAccess } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from '@/lib/documents/document-status'
@@ -265,7 +265,7 @@ export async function runPlacementReingestSlice(
 async function projectPlacement(organizationId: string, projectId: string, projectCollection: string) {
   const tree = await listProjectFolderTree(organizationId, projectId)
   // An all-seeing clearance reads only the "which collection" half of the decision.
-  return { tree, placement: computeFolderAccess(tree, { roles: [], seesEverything: true }, projectCollection) }
+  return { tree, placement: computeFolderAccess(tree, EVERY_FOLDER, projectCollection) }
 }
 
 /**

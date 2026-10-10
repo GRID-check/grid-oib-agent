@@ -1,0 +1,14 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+features:
+  - >
+    A folder's own access list now names people instead of roles, each allowed
+    to read or also to edit. Switch on "Alle Projektmitglieder dürfen lesen"
+    when the whole project may read a folder and only some may change it.
+upgrade:
+  - >
+    A folder that was restricted to a role now lists the people who held that
+    role when the change was rolled out; someone given the role later has to be
+    added to the folder's list.

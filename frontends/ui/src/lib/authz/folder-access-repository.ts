@@ -14,10 +14,10 @@ import 'server-only'
 import { and, asc, count, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
-import { documents, projectFolderGrants, projectFolders, projects } from '@/lib/db/schema'
+import { documents, projectFolders, projects } from '@/lib/db/schema'
 import { IFC_EXTENSIONS } from '@/lib/bim/types'
 import { getDeletedFolderContentPolicy } from '@/lib/organizations/deleted-folder-content'
-import type { AccessFolder, FolderGrant } from './folder-access'
+import type { AccessFolder } from './folder-access'
 
 /**
  * Whether any folder of the project, living or deleted, has its own access
@@ -102,44 +102,23 @@ export async function listProjectsWithCustomOrBinnedFolders(organizationId: stri
   return rows.flatMap((row) => (row.projectId ? [row.projectId] : []))
 }
 
-/** Most grants one project's folders hold, read back; 20 per custom folder by the 0110 trigger. */
-const PROJECT_GRANTS_LIMIT = 20_000
-
-/** The project's whole folder tree, tombstones included, with each custom folder's grants. */
+/** The project's whole folder tree, tombstones included. Who holds a folder role on a custom folder is WorkOS's (ADR-0097). */
 export async function listProjectFolderTree(organizationId: string, projectId: string): Promise<AccessFolder[]> {
   const db = getDb()
-  const [rows, grants] = await withTenant({ organizationId }, () =>
-    Promise.all([
-      db
-        .select({
-          id: projectFolders.id,
-          parentId: projectFolders.parentId,
-          accessMode: projectFolders.accessMode,
-          deletedAt: projectFolders.deletedAt,
-          purgedAt: projectFolders.purgedAt,
-        })
-        .from(projectFolders)
-        .innerJoin(projects, eq(projects.id, projectFolders.projectId))
-        .where(and(eq(projectFolders.projectId, projectId), eq(projects.organizationId, organizationId))),
-      db
-        .select({
-          folderId: projectFolderGrants.folderId,
-          role: projectFolderGrants.roleSlug,
-          level: projectFolderGrants.level,
-        })
-        .from(projectFolderGrants)
-        .where(
-          and(eq(projectFolderGrants.projectId, projectId), eq(projectFolderGrants.organizationId, organizationId))
-        )
-        .limit(PROJECT_GRANTS_LIMIT),
-    ])
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({
+        id: projectFolders.id,
+        parentId: projectFolders.parentId,
+        accessMode: projectFolders.accessMode,
+        everyoneReads: projectFolders.everyoneReads,
+        deletedAt: projectFolders.deletedAt,
+        purgedAt: projectFolders.purgedAt,
+      })
+      .from(projectFolders)
+      .innerJoin(projects, eq(projects.id, projectFolders.projectId))
+      .where(and(eq(projectFolders.projectId, projectId), eq(projects.organizationId, organizationId)))
   )
-  const byFolder = new Map<string, FolderGrant[]>()
-  for (const grant of grants) {
-    const list = byFolder.get(grant.folderId) ?? []
-    list.push({ role: grant.role, level: grant.level })
-    byFolder.set(grant.folderId, list)
-  }
   // The setting is read only when a purged folder is in the tree: almost no
   // project has one, and the rest never pay for the read.
   const purgedContent = rows.some((row) => row.purgedAt !== null)
@@ -149,7 +128,7 @@ export async function listProjectFolderTree(organizationId: string, projectId: s
     id: row.id,
     parentId: row.parentId,
     accessMode: row.accessMode,
-    grants: row.accessMode === 'custom' ? (byFolder.get(row.id) ?? []) : [],
+    everyoneReads: row.accessMode === 'custom' && row.everyoneReads,
     deleted: row.deletedAt !== null,
     ...(row.purgedAt !== null ? { purgedAt: new Date(row.purgedAt), purgedContent } : {}),
   }))
@@ -178,82 +157,6 @@ export async function listCustomFolderNames(
       )
       .limit(500)
   )
-}
-
-/**
- * Why a folder that names a role is not in a living project's folder tree: its
- * project is pending deletion (`project`), or the folder is in the Papierkorb
- * (`folder`). Either can be restored with its list. `null` for a living folder.
- */
-export type FolderNamingRoleDeleted = 'folder' | 'project' | null
-
-/** One folder, living or restorable, whose own access list names a role. */
-export interface FolderNamingRole {
-  folderId: string
-  folderName: string
-  projectId: string
-  projectName: string
-  /** Set when the folder will not be found in the project's folder tree until a restore. */
-  deleted: FolderNamingRoleDeleted
-}
-
-/** Most folders one role's deletion confirmation lists; the total is still counted. */
-export const ROLE_USAGE_LIST_LIMIT = 50
-
-/**
- * The organization's folders whose own list names `roleSlug`: what deleting
- * the role would leave without that grant. The first
- * {@link ROLE_USAGE_LIST_LIMIT} by project and folder name, and how many there
- * are in all.
- *
- * Whatever a restore can bring back counts, because it comes back with its
- * list, which would then name a role that no longer exists: a folder in the
- * Papierkorb (`deleted_at` set, `purged_at` not), and every folder of a project
- * pending deletion (`restoreProject` clears the project's `deleted_at`). Only a
- * purged tombstone is out, and a purged project's rows are gone. `deleted` says
- * which of the two a row is, because neither is in the project's folder tree.
- */
-export async function listFoldersNamingRole(
-  organizationId: string,
-  roleSlug: string
-): Promise<{ folders: FolderNamingRole[]; total: number }> {
-  const db = getDb()
-  const where = and(
-    eq(projectFolderGrants.organizationId, organizationId),
-    eq(projectFolderGrants.roleSlug, roleSlug),
-    eq(projects.organizationId, organizationId),
-    isNull(projectFolders.purgedAt)
-  )
-  const [rows, totals] = await withTenant({ organizationId }, () =>
-    Promise.all([
-      db
-        .select({
-          folderId: projectFolders.id,
-          folderName: projectFolders.name,
-          projectId: projects.id,
-          projectName: projects.name,
-          folderDeletedAt: projectFolders.deletedAt,
-          projectDeletedAt: projects.deletedAt,
-        })
-        .from(projectFolderGrants)
-        .innerJoin(projectFolders, eq(projectFolders.id, projectFolderGrants.folderId))
-        .innerJoin(projects, eq(projects.id, projectFolders.projectId))
-        .where(where)
-        .orderBy(asc(projects.name), asc(projectFolders.name))
-        .limit(ROLE_USAGE_LIST_LIMIT),
-      db
-        .select({ total: count() })
-        .from(projectFolderGrants)
-        .innerJoin(projectFolders, eq(projectFolders.id, projectFolderGrants.folderId))
-        .innerJoin(projects, eq(projects.id, projectFolders.projectId))
-        .where(where),
-    ])
-  )
-  const folders = rows.map(({ folderDeletedAt, projectDeletedAt, ...folder }): FolderNamingRole => {
-    const deleted: FolderNamingRoleDeleted = projectDeletedAt ? 'project' : folderDeletedAt ? 'folder' : null
-    return { ...folder, deleted }
-  })
-  return { folders, total: Number(totals[0]?.total ?? 0) }
 }
 
 /**

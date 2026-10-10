@@ -23,7 +23,7 @@
  * Imports nothing from reconciliation, which imports this.
  */
 
-import { isFolderVisibleToClearance } from '@/lib/authz/folder-access'
+import { isFolderVisibleToMember } from '@/lib/authz/folder-access'
 import 'server-only'
 import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { orgRoleHoldsPermission } from '@/lib/authz/org-role-permissions'
@@ -132,10 +132,7 @@ export async function quarantineReviewersOf(organizationId: string, document: Do
       const manages = await userHoldsProjectPermission({ organizationId }, document.projectId, userId, 'project:manage')
       if (!manages) return null
       // Nor a project admin the document's folder is hidden from (ADR-0087).
-      const cleared = await isFolderVisibleToClearance(organizationId, document.projectId, document.folderId, {
-        roles: membership.role ? [membership.role] : [],
-        seesEverything: false,
-      })
+      const cleared = await isFolderVisibleToMember(organizationId, document.projectId, document.folderId, userId)
       return cleared ? userId : null
     })
   )

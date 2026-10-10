@@ -116,29 +116,17 @@ describe.skipIf(!url)('recorded decisions against live Postgres', () => {
     ids.folder = first(
       await inOrg(ORG, () =>
         db.execute<{ id: string }>(sql`
-          with folder as (
-            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            values (${ORG}, ${ids.baden}::uuid, 'Verträge', 'Verträge', 'custom', ${USER}, now())
-            returning id, project_id
-          ), grants as (
-            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            select ${ORG}, project_id, id, 'org-gf', 'read' from folder
-          )
-          select id from folder`)
+          insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+          values (${ORG}, ${ids.baden}::uuid, 'Verträge', 'Verträge', 'custom', ${USER}, now())
+          returning id`)
       )
     )
     ids.secondFolder = first(
       await inOrg(ORG, () =>
         db.execute<{ id: string }>(sql`
-          with folder as (
-            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            values (${ORG}, ${ids.baden}::uuid, 'Personal', 'Personal', 'custom', ${USER}, now())
-            returning id, project_id
-          ), grants as (
-            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            select ${ORG}, project_id, id, 'org-gf', 'read' from folder
-          )
-          select id from folder`)
+          insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+          values (${ORG}, ${ids.baden}::uuid, 'Personal', 'Personal', 'custom', ${USER}, now())
+          returning id`)
       )
     )
     await note(ORG, ids.baden, 'decision', 'Das Stiegenhaus wird in Stahlbeton ausgeführt, weil das Brandschutzgutachten nur so die Abweichung zulässt.', { vector: STAIRS })

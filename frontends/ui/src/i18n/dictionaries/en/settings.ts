@@ -28,12 +28,6 @@ export const settings = {
       documents: 'Documents & index',
       references: 'Similar projects',
     },
-    foldersWithoutRole: {
-      title: 'Folders without a valid role',
-      description:
-        'The access lists of these folders name only roles that no longer exist. Until a valid role is set there, only organization admins can read them.',
-      open: 'Open folder “{name}”',
-    },
     overview: {
       createdOn: 'Created {date}',
       documentsCount: '{count, plural, one {# document} other {# documents}}',

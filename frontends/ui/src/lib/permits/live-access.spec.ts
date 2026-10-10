@@ -27,11 +27,11 @@ const folder = (id: string, extra: Partial<AccessFolder> = {}): AccessFolder => 
   id,
   parentId: null,
   accessMode: 'inherit',
-  grants: [],
+  everyoneReads: false,
   ...extra,
 })
 const custom = (id: string, parentId: string | null = null): AccessFolder =>
-  folder(id, { parentId, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'read' }] })
+  folder(id, { parentId, accessMode: 'custom', everyoneReads: false })
 
 describe('liveFolderAccessOf', () => {
   it('serves every folder of a project with no restricted and no binned folder', () => {
@@ -56,7 +56,7 @@ describe('liveFolderAccessOf', () => {
   })
 
   it('a folder with its own list that every member may read restricts nobody', () => {
-    const tree = [folder('team', { accessMode: 'custom', grants: [{ role: '*', level: 'read' }] })]
+    const tree = [folder('team', { accessMode: 'custom', everyoneReads: true })]
     expect(liveFolderAccessOf(tree, []).visibleFolderIds).toEqual(['team'])
     expect(liveFolderAccessOf(tree, []).restrictionOf('team')).toBeNull()
   })

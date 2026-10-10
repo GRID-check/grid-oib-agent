@@ -15,8 +15,6 @@ import { BookOpenCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { UploadHistory } from '@/features/uploads/components/upload-history'
 import { useTranslations } from '@/i18n'
-import type { FolderWithoutRole } from '../../types'
-import { FoldersWithoutRole } from '../folders-without-role'
 import { ProjectReindexCard } from '../project-reindex-card'
 import { SettingsPanel } from './settings-panel'
 
@@ -28,8 +26,6 @@ export interface DocumentsSettingsProps {
   canReindex: boolean
   /** The flagged knowledge-base page, linked from here rather than the rail. */
   showKnowledgeLink: boolean
-  /** Folders whose roles were deleted since (ADR-0088), for a project manager. */
-  foldersWithoutRole?: readonly FolderWithoutRole[]
 }
 
 export function DocumentsSettings({
@@ -37,14 +33,12 @@ export function DocumentsSettings({
   currentUserId,
   canReindex,
   showKnowledgeLink,
-  foldersWithoutRole = [],
 }: DocumentsSettingsProps): JSX.Element {
   const t = useTranslations('settings')
   const tUploads = useTranslations('uploadBatches')
 
   return (
     <div className="flex flex-col gap-6">
-      <FoldersWithoutRole projectId={projectId} folders={foldersWithoutRole} />
       <SettingsPanel
         title={t('project.documents.uploadsTitle')}
         description={tUploads('history.description')}

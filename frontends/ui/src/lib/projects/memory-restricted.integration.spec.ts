@@ -90,17 +90,11 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       folderIds.push(
         firstId(
           await inTenant(() =>
-            // One statement: the 0110 trigger wants the list in the same commit.
+            // Its own list; who is on it is WorkOS's (ADR-0097).
             db.execute<{ id: string }>(sql`
-              with folder as (
-                insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-                values (${ORG}, ${projectId}::uuid, ${folder}, ${folder}, 'custom', ${USER}, now())
-                returning id, project_id
-              ), grants as (
-                insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-                select ${ORG}, project_id, id, 'org-gf', 'write' from folder
-              )
-              select id from folder`)
+              insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+              values (${ORG}, ${projectId}::uuid, ${folder}, ${folder}, 'custom', ${USER}, now())
+              returning id`)
           )
         )
       )
@@ -413,20 +407,13 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
 
       // Opened to every member: the note is everyone's now.
       await inTenant(() =>
-        db.execute(sql`
-          with gone as (delete from project_folder_grants where folder_id = ${restricted[0]}::uuid)
-          update project_folders set access_mode = 'inherit' where id = ${restricted[0]}::uuid`)
+        db.execute(sql`update project_folders set access_mode = 'inherit' where id = ${restricted[0]}::uuid`)
       )
       expect((await asMember()).map((item) => item.id)).toEqual([note.id])
 
       // Narrowed again: closed again, the same row unchanged.
       await inTenant(() =>
-        db.execute(sql`
-          with listed as (
-            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            values (${ORG}, ${projectId}::uuid, ${restricted[0]}::uuid, 'org-gf', 'read')
-          )
-          update project_folders set access_mode = 'custom' where id = ${restricted[0]}::uuid`)
+        db.execute(sql`update project_folders set access_mode = 'custom' where id = ${restricted[0]}::uuid`)
       )
       expect(await asMember()).toEqual([])
       expect((await rowsOf(projectId)).find((row) => row.id === note.id)?.restrictedFolderIds).toEqual([restricted[0]])
@@ -438,14 +425,16 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       await inTenant(() =>
         db.execute(sql`update project_folders set deleted_at = now(), deleted_by = ${USER} where id = ${restricted[0]}::uuid`)
       )
-      const readable = (roles: string[]) =>
-        folderAccess.readableFolderIdsFor(ORG, projectId, { roles, seesEverything: false })
-      const listed = async (roles: string[]) =>
+      // Someone holding the folder role on it, as WorkOS reports it (ADR-0097), and someone holding none.
+      const listed = async (levels: Record<string, 'read' | 'write'>) =>
         inTenant(async () =>
-          memory.listProjectMemory(projectId, { organizationId: ORG, readableFolderIds: await readable(roles) })
+          memory.listProjectMemory(projectId, {
+            organizationId: ORG,
+            readableFolderIds: await folderAccess.readableFolderIdsFor(ORG, projectId, { levels, seesEverything: false }),
+          })
         )
-      expect(await listed([])).toEqual([])
-      expect(await listed(['org-gf'])).toHaveLength(1)
+      expect(await listed({})).toEqual([])
+      expect(await listed({ [restricted[0]]: 'write' })).toHaveLength(1)
     })
   })
 

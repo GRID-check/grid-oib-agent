@@ -8,6 +8,9 @@ informed: everyone working in this repo
 
 # Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection
 
+> **Who is on a list is superseded by [ADR-0097](0097-who-holds-a-folder-s-own-list-is-a-workos-folder-role.md)** (2026-10-09):
+> people holding a WorkOS folder role on the folder, not organization roles.
+
 > **Partly superseded by [ADR-0088](0088-folder-access-is-read-write-per-role.md)** (2026-10-06):
 > who may see a folder (a role list on `restricted_roles`, replaced by per-role read/write
 > grants that only narrow when nested), the per-conversation mark and the per-socket

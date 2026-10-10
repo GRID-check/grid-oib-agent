@@ -39,25 +39,15 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
   const inTenant = <T>(run: () => Promise<T>): Promise<T> => withTenant({ organizationId: ORG, userId: USER }, run)
   const firstId = (rows: Iterable<{ id: string }>): string => String(Array.from(rows)[0]?.id)
 
-  /**
-   * A folder whose own list grants each of `roleSlugs` write, or one that inherits (null); one statement for the 0110 trigger.
-   * The slugs travel as one array literal: drizzle spreads a JS array into a parameter list, and an empty one into `()`.
-   */
-  async function insertFolder(name: string, parentId: string | null, path: string, roleSlugs: string[] | null) {
+  /** A folder with its own list everyone does not read (`restricted`), or one that inherits. Who is on a list is WorkOS's (ADR-0097). */
+  async function insertFolder(name: string, parentId: string | null, path: string, restricted: boolean) {
     return firstId(
       await inTenant(() =>
         db.execute<{ id: string }>(sql`
-          WITH folder AS (
-            INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
-            VALUES (${ORG}, ${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${roleSlugs ? 'custom' : 'inherit'},
-                    ${roleSlugs ? USER : null}, ${roleSlugs ? new Date().toISOString() : null}::timestamptz)
-            RETURNING id, project_id
-          ), listed AS (
-            INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            SELECT ${ORG}, folder.project_id, folder.id, slug, 'write'
-            FROM folder, unnest(${`{${(roleSlugs ?? []).join(',')}}`}::text[]) AS slug
-          )
-          SELECT id FROM folder
+          INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
+          VALUES (${ORG}, ${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${restricted ? 'custom' : 'inherit'},
+                  ${restricted ? USER : null}, ${restricted ? new Date().toISOString() : null}::timestamptz)
+          RETURNING id
         `)
       )
     )
@@ -107,9 +97,9 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
     )
     //   Lageplan.pdf             (root, 100 bytes)
     //   Verwaltung/              (open)    Protokoll.pdf (200)
-    //     Verträge/              (org-gf)  Honorarvertrag.pdf (4000)
-    folder.verwaltung = await insertFolder('Verwaltung', null, 'Verwaltung', null)
-    folder.vertraege = await insertFolder('Verträge', folder.verwaltung, 'Verwaltung/Verträge', ['org-gf'])
+    //     Verträge/              (own list) Honorarvertrag.pdf (4000)
+    folder.verwaltung = await insertFolder('Verwaltung', null, 'Verwaltung', false)
+    folder.vertraege = await insertFolder('Verträge', folder.verwaltung, 'Verwaltung/Verträge', true)
     await insertDocument('Lageplan.pdf', null, 100)
     await insertDocument('Protokoll.pdf', folder.verwaltung, 200)
     await insertDocument('Honorarvertrag.pdf', folder.vertraege, 4000)

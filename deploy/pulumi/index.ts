@@ -33,6 +33,7 @@ import { installChroma } from "./src/data/chroma";
 import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildScalerSecret, buildSecrets } from "./src/app/config";
 import { runMigrations } from "./src/app/migrations-job";
 import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
+import { carryOverFolderGrants, reconcileAuthzCatalog } from "./src/app/workos-authz-jobs";
 import { importLegacyCorpus } from "./src/app/legacy-corpus-import-job";
 import { installBackend } from "./src/app/backend";
 import { installBackendScaling } from "./src/app/backend-scaling";
@@ -214,6 +215,11 @@ const migrations = runMigrations(wiring, cfg, secrets, [
 // and the trail silently thins out (issues #255/#256). Reconciled per deploy so
 // the environment follows the code; skipped when auth is off, because then
 // there is no WorkOS environment and no key to reconcile against.
+//
+// The same goes for the authorization catalog: every permission and role the
+// code checks is created in WorkOS by the deploy that ships it, rather than by
+// a runbook step someone has to remember per environment.
+const authzCatalog = cfg.auth.requireAuth ? reconcileAuthzCatalog(wiring, cfg, secrets, [ns]) : undefined;
 if (cfg.auth.requireAuth) {
   reconcileAuditSchemas(wiring, cfg, secrets, [ns]);
 }
@@ -240,6 +246,14 @@ const api = installApi(wiring, cfg, secrets, [
 // Not after `aiq-agent`: the chat tier waits on the frontend (above), so the
 // reverse edge would be a cycle. The old chat pods serve the socket meanwhile.
 const frontend = installFrontend(wiring, cfg, secrets, [migrations, api.service]);
+
+// Folder lists move from role grants to WorkOS folder roles (ADR-0097). The
+// carry-over runs once the frontend that reads folder roles has rolled out,
+// never before: a list narrowed in the old dialog after an early run would come
+// back wider. Its folder roles come from the catalog Job.
+if (authzCatalog) {
+  carryOverFolderGrants(wiring, cfg, secrets, [migrations, frontend.deployment, authzCatalog]);
+}
 
 const backend = installBackend(wiring, cfg, secrets, [
   postgres.initJob,

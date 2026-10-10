@@ -30,7 +30,7 @@ vi.mock('@/lib/sharing/directory', () => ({ loadOrganizationDirectory: vi.fn() }
 
 import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { clearanceOf, loadCustomFolderTree, type AccessFolder, type FolderGrant } from '@/lib/authz/folder-access'
+import { clearanceOf, loadCustomFolderTree, type AccessFolder } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
@@ -90,20 +90,35 @@ const batch = (overrides: Partial<UploadBatch> = {}): UploadBatch => ({
   ...overrides,
 })
 
-const GF = 'org-geschaeftsfuehrung'
-const inherit = (id: string, parentId: string | null = null): AccessFolder => ({ id, parentId, accessMode: 'inherit', grants: [] })
-const ownList = (id: string, grants: FolderGrant[], extra: Partial<AccessFolder> = {}): AccessFolder => ({
+const inherit = (id: string, parentId: string | null = null): AccessFolder => ({
+  id,
+  parentId,
+  accessMode: 'inherit',
+  everyoneReads: false,
+})
+const ownList = (id: string, everyoneReads: boolean, extra: Partial<AccessFolder> = {}): AccessFolder => ({
   id,
   parentId: null,
   accessMode: 'custom',
-  grants,
+  everyoneReads,
   ...extra,
 })
+/** The folders whose list holds the Geschäftsführung, as WorkOS would report their folder roles (ADR-0097). */
+const gfFolders = new Set<string>()
 /** A folder only the Geschäftsführung may open: hidden from the member who reads these specs. */
-const gfOnly = (id: string, extra: Partial<AccessFolder> = {}): AccessFolder => ownList(id, [{ role: GF, level: 'write' }], extra)
+const gfOnly = (id: string, extra: Partial<AccessFolder> = {}): AccessFolder => {
+  gfFolders.add(id)
+  return ownList(id, false, extra)
+}
 const binned = (folder: AccessFolder): AccessFolder => ({ ...folder, deleted: true })
-const asMember = () => vi.mocked(clearanceOf).mockResolvedValue({ roles: ['member'], seesEverything: false })
-const asAdmin = () => vi.mocked(clearanceOf).mockResolvedValue({ roles: [], seesEverything: true })
+const asMember = () => vi.mocked(clearanceOf).mockResolvedValue({ levels: {}, seesEverything: false })
+const asAdmin = () => vi.mocked(clearanceOf).mockResolvedValue({ levels: {}, seesEverything: true })
+/** Someone on every Geschäftsführung list, with folder-editor on each. */
+const asGf = () =>
+  vi.mocked(clearanceOf).mockImplementation(async () => ({
+    levels: Object.fromEntries([...gfFolders].map((id) => [id, 'write' as const])),
+    seesEverything: false,
+  }))
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -286,15 +301,12 @@ describe('getUploadSummary', () => {
       // Every member reads it, only the Projektleitung changes it: still a folder with its own list.
       filed('statik', 'f-write-limited'),
     ])
-    vi.mocked(clearanceOf).mockResolvedValue({ roles: [GF], seesEverything: false })
+    asGf()
     vi.mocked(loadCustomFolderTree).mockResolvedValue([
       inherit('f-plain'),
       gfOnly('f-own-list'),
       inherit('f-below-own-list', 'f-own-list'),
-      ownList('f-write-limited', [
-        { role: '*', level: 'read' },
-        { role: 'org-projektleitung', level: 'write' },
-      ]),
+      ownList('f-write-limited', true),
     ])
 
     const summary = await getUploadSummary(session, BATCH_ID)

@@ -48,6 +48,7 @@ import {
   computeFolderAccess,
   customFolderNames,
   effectiveFolderLevel,
+  EVERY_FOLDER,
   folderTree,
   readableByEveryMember,
   type AccessFolder,
@@ -491,7 +492,7 @@ export interface RestrictedUseRequest {
 
 /** The folder each restricted collection is the collection of, for the collections that are current ones. */
 function sourceFolders(tree: FolderTree, project: ProjectRef, collections: readonly string[]): Map<string, string> {
-  const access = computeFolderAccess([...tree.values()], { roles: [], seesEverything: true }, project.projectCollection)
+  const access = computeFolderAccess([...tree.values()], EVERY_FOLDER, project.projectCollection)
   const found = new Map<string, string>()
   for (const collection of collections) {
     const folderId = access.sourceFolderOf(collection)
