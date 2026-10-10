@@ -529,22 +529,22 @@ def reconcile_image_tags(
     content_type: str | None,
     segment_types: Iterable[str],
 ) -> list[str] | None:
-    """Make an uploaded image the vision model saw as a photograph a ``Foto``.
+    """Make sure an uploaded image the vision model saw as a photograph says ``Foto``.
 
     The tag classifier reads TEXT — for an image, the vision model's caption —
-    so it never saw the pixels the vision model did. A site photo whose caption
-    describes the wall plan pinned up in it came out a ``Grundriss``, and a
-    photo with a sparse caption came out with no type at all, while the vision
-    model had already said "photograph". That verdict is the stronger evidence
-    about what the FILE is, so it decides the document type; the disciplines the
-    classifier found in the caption (a fire door in the photo is still
-    Brandschutz) are kept.
+    so it never saw the pixels the vision model did. A photo with a sparse
+    caption came out with no type at all, while the vision model had already
+    said "photograph". ``Foto`` is ADDED, first; what the classifier read from
+    the caption stays: a photo of the ground-floor plan pinned on the site
+    office wall is a Foto AND a Grundriss, and a photo of a fire door keeps its
+    Brandschutz. Capped at ``MAX_TAGS``, dropping from the end, so ``Foto`` and
+    the classifier's first reading survive.
 
     Only for an image whose dominant content is pictorial (``content_type ==
     "image"``): a scanned plan is typed ``drawing`` and keeps the classifier's
-    plan type. Deterministic and model-free.
+    plan type alone. Deterministic and model-free.
     """
     if content_type != "image" or PHOTO_SEGMENT_TYPE not in set(segment_types):
         return tags
-    disciplines = [tag for tag in (tags or []) if tag in DISCIPLINE_TAGS]
-    return [PHOTO_TAG, *disciplines][:MAX_TAGS]
+    rest = [tag for tag in (tags or []) if tag != PHOTO_TAG]
+    return [PHOTO_TAG, *rest][:MAX_TAGS]

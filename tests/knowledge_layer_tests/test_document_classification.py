@@ -294,21 +294,25 @@ class TestTheDokumentartIsSuggested:
 
 
 class TestReconcileImageTags:
-    """The classifier reads the vision model's caption, not the pixels, so a photo
-    of a site can come out a Grundriss. The vision model's photo verdict wins the
-    document type; the classifier's disciplines are kept."""
+    """The classifier reads the vision model's caption, not the pixels. When the
+    vision model saw a photograph, Foto is added first; what the classifier read
+    stays — a photo of a plan is a Foto AND a Grundriss."""
 
-    def test_a_photo_takes_foto_and_keeps_the_disciplines(self):
+    def test_a_photo_of_a_plan_is_foto_and_grundriss(self):
         result = reconcile_image_tags(
             ["Grundriss", "Brandschutz", "Schallschutz"], content_type="image", segment_types=["photo"]
         )
-        assert result == ["Foto", "Brandschutz", "Schallschutz"]
+        assert result == ["Foto", "Grundriss", "Brandschutz", "Schallschutz"]
 
-    def test_every_other_document_type_is_dropped(self):
+    def test_the_classifiers_types_are_kept_after_foto(self):
         result = reconcile_image_tags(
             ["Schnitt", "Gutachten", "Standsicherheit"], content_type="image", segment_types=["text", "photo"]
         )
-        assert result == ["Foto", "Standsicherheit"]
+        assert result == ["Foto", "Schnitt", "Gutachten", "Standsicherheit"]
+
+    def test_foto_is_not_doubled_when_the_classifier_already_said_it(self):
+        result = reconcile_image_tags(["Brandschutz", "Foto"], content_type="image", segment_types=["photo"])
+        assert result == ["Foto", "Brandschutz"]
 
     @pytest.mark.parametrize("tags", [None, []])
     def test_a_photo_with_no_classifier_tags_is_foto(self, tags):
@@ -316,7 +320,10 @@ class TestReconcileImageTags:
 
     def test_one_photo_segment_among_many_is_enough(self):
         segments = (kind for kind in ["legend", "photo"])  # a generator, as the adapter passes it
-        assert reconcile_image_tags(["Grundriss"], content_type="image", segment_types=segments) == ["Foto"]
+        assert reconcile_image_tags(["Grundriss"], content_type="image", segment_types=segments) == [
+            "Foto",
+            "Grundriss",
+        ]
 
     @pytest.mark.parametrize("content_type", ["drawing", "chart", None])
     def test_a_non_image_with_a_photo_segment_is_unchanged(self, content_type):

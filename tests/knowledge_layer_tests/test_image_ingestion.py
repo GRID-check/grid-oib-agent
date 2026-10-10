@@ -596,7 +596,7 @@ class TestRunIngestionImageBranch:
         assert not summary.startswith("[IMAGE from page")
         assert summary == "Ein Grundriss EG."
 
-    def test_a_photo_gets_foto_even_when_the_classifier_said_grundriss(
+    def test_a_photo_of_a_plan_gets_foto_beside_the_classifiers_grundriss(
         self, tmp_path, monkeypatch, ingestor, summary_db
     ):
         """The vision model typed the pixels a photograph; the classifier only read the caption and said Grundriss."""
@@ -627,4 +627,4 @@ class TestRunIngestionImageBranch:
         job_id = ingestor.submit_job([str(img)], "coll_photo", config={"original_filenames": ["baustelle.png"]})
         assert _wait_terminal(ingestor, job_id).is_success
 
-        assert get_available_documents("coll_photo")[0].tags == ["Foto"]
+        assert get_available_documents("coll_photo")[0].tags == ["Foto", "Grundriss"]

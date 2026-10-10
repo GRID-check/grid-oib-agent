@@ -262,8 +262,9 @@ Three things change for an uploaded image.
 - **The `Foto` tag.** The tag classifier reads text, and for an image the text is
   the vision model's caption, so the classifier never sees the pixels. When the
   vision model sees a photograph (segment type `photo`), `reconcile_image_tags`
-  sets the document type to `Foto` and keeps the disciplines the classifier found
-  in the caption. A fire door in a photo is still Brandschutz. The rule applies
+  adds `Foto` first and keeps everything the classifier read from the caption: a
+  photo of the ground-floor plan on the site-office wall is `Foto` and
+  `Grundriss`, and a fire door in a photo is still Brandschutz. The rule applies
   only when the image's dominant content is pictorial. A scanned plan is typed
   `drawing` and keeps the classifier's plan type.
 - **The summary.** The caption stored as the summary drops its

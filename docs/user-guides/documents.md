@@ -311,8 +311,8 @@ showing what ingestion extracted from the document:
 - **Your correction stays.** A correction is stored as yours. Reading the file
   again („Erneut lesen“) keeps it, and so does a backfill of tags. The editor says
   so: „Ihre Zuordnung bleibt, auch wenn Piloti die Datei neu liest.“
-- **Photographs** that Piloti recognises as photos are tagged „Foto“, whatever
-  their caption says. Phone photos taken in portrait are shown upright.
+- **Photographs** that Piloti recognises as photos are tagged „Foto“, beside
+  whatever else they show: a photo of a floor plan is „Foto“ and „Grundriss“. Phone photos taken in portrait are shown upright.
 - **What the tags do.** They do not decide which documents answers draw on;
   answers are found from the text of a document. The tags are used in three
   places: the tag filter and the search field of the file list, the folder brief
