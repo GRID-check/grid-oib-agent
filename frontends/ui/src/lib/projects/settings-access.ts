@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { can } from '@/lib/authz/decide'
 import { canManageBudgets } from '@/lib/authz/organizations'
@@ -57,11 +58,17 @@ async function holdsAny(
   permissions: readonly ProjectPermission[]
 ): Promise<boolean> {
   const resource = { type: 'project', id: projectId } as const
-  const held = await Promise.all(permissions.map((permission) => can(session, permission, resource)))
+  const held = await Promise.all(
+    permissions.map((permission) => can(session, permission, resource))
+  )
   return held.some(Boolean)
 }
 
-/** `project:manage` even when the project is closed; a denial is a plain no. */
+/**
+ * `project:manage` even when the project is closed. A denial (`NotFoundError`)
+ * is a plain no; anything else is an outage, and hiding the status controls
+ * would make it look like a permission.
+ */
 async function holdsManageEvenWhenClosed(
   session: AuthorizedSession,
   projectId: string
@@ -69,8 +76,9 @@ async function holdsManageEvenWhenClosed(
   try {
     await requireProjectAccess(session, projectId, 'project:manage', { evenWhenClosed: true })
     return true
-  } catch {
-    return false
+  } catch (error) {
+    if (error instanceof NotFoundError) return false
+    throw error
   }
 }
 

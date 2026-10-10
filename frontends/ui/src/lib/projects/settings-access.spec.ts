@@ -10,14 +10,17 @@ vi.mock('@/lib/authz/decide', () => ({
 
 let budgetAdmin = false
 let managesEvenWhenClosed = false
+let outage: Error | null = null
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: async () => {
-    if (!managesEvenWhenClosed) throw new Error('Not found')
+    if (outage) throw outage
+    if (!managesEvenWhenClosed) throw new NotFoundError()
     return { role: 'project-admin', closed: true, readsBecauseClosed: false }
   },
 }))
 vi.mock('@/lib/authz/organizations', () => ({ canManageBudgets: () => budgetAdmin }))
 
+import { NotFoundError } from '@/lib/api/errors'
 import { resolveProjectSettingsAccess } from './settings-access'
 
 const session = { organizationId: 'org-1', userId: 'u1' } as AuthorizedSession
@@ -26,6 +29,7 @@ beforeEach(() => {
   held = new Set()
   budgetAdmin = false
   managesEvenWhenClosed = false
+  outage = null
 })
 
 describe('resolveProjectSettingsAccess', () => {
@@ -63,7 +67,12 @@ describe('resolveProjectSettingsAccess', () => {
     held = new Set(['project:view', 'project:members:manage'])
     managesEvenWhenClosed = true
     const access = await resolveProjectSettingsAccess(session, 'p1')
-    expect(access).toMatchObject({ manage: false, changeStatus: true, manageMembers: true, writeMemory: false })
+    expect(access).toMatchObject({
+      manage: false,
+      changeStatus: true,
+      manageMembers: true,
+      writeMemory: false,
+    })
   })
 
   test('the project budget is open to project admins and to org budget admins', async () => {
@@ -73,5 +82,13 @@ describe('resolveProjectSettingsAccess', () => {
     held = new Set(['project:view'])
     budgetAdmin = true
     expect((await resolveProjectSettingsAccess(session, 'p1')).manageBudget).toBe(true)
+  })
+
+  test('an outage in the access check surfaces instead of reading as a denial', async () => {
+    held = new Set(['project:view', 'project:manage'])
+    outage = new Error('connection terminated')
+    await expect(resolveProjectSettingsAccess(session, 'p1')).rejects.toThrow(
+      'connection terminated'
+    )
   })
 })

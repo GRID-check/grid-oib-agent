@@ -180,8 +180,12 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url === `/api/projects/${PROJECT_ID}/uploads`) return Response.json({ uploads: HISTORY })
-      if (/\/api\/projects\/[^/]+\/members$/.test(url)) {
+      // Reads of this fixture project only: a write, or another project's read,
+      // reaches the real route, so the shim never swallows work it does not own.
+      const read = (init?.method ?? (input instanceof Request ? input.method : 'GET')) === 'GET'
+      if (read && url === `/api/projects/${PROJECT_ID}/uploads`)
+        return Response.json({ uploads: HISTORY })
+      if (read && url === `/api/projects/${PROJECT_ID}/members`) {
         return Response.json({
           members: [
             {
@@ -205,7 +209,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
           ],
         })
       }
-      if (/\/api\/projects\/[^/]+\/memory$/.test(url)) {
+      if (read && url === `/api/projects/${PROJECT_ID}/memory`) {
         return Response.json({
           items: [
             {
@@ -298,7 +302,12 @@ export default function SettingsDevPage({
                 manageMembers: admin,
               }}
               steckbrief={STECKBRIEF}
-              similar={<SimilarProjectsTile projects={SIMILAR} href="/dev/settings/references" />}
+              similar={
+                <SimilarProjectsTile
+                  projects={SIMILAR}
+                  href={`/dev/settings/references${suffix}`}
+                />
+              }
             />
           )}
           {current === 'members' && (
