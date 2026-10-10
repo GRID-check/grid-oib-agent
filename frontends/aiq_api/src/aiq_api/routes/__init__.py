@@ -1,5 +1,6 @@
 """FastAPI routes for unified AI-Q API."""
 
+from .cleanup_proposal import add_cleanup_proposal_routes
 from .collections import add_collection_routes
 from .consistency_check import add_consistency_check_routes
 from .documents import add_document_routes
@@ -21,6 +22,7 @@ __all__ = [
     "add_document_routes",
     "add_feedback_digest_routes",
     "add_generate_conversation_title_routes",
+    "add_cleanup_proposal_routes",
     "add_generate_summary_routes",
     "add_ingest_routes",
     "add_lesson_distill_routes",

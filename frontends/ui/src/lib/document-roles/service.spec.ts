@@ -16,6 +16,7 @@ import type { ProjectProfile } from '@/lib/project-profile/types'
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
 }))
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 
 function emptyProfile(): ProjectProfile {
   return { facts: {}, goals: {}, unknowns: [], assumptions: {} }
@@ -27,6 +28,17 @@ const repo = vi.hoisted(() => ({
   deleted: [] as string[],
   confirmed: [] as Array<{ bindingId: string; confidence: string; source: string }>,
   documentInProject: true,
+  /**
+   * Documents filed in a folder the session is not cleared for (ADR-0087). The
+   * fake answers "hidden" for these whenever the reader names any hidden
+   * folder, which is what the real SQL does for a document filed in one.
+   */
+  hiddenDocumentIds: [] as string[],
+  /**
+   * Documents held by their upload screening and uploaded by somebody else
+   * (ADR-0086): a member's reader does not see them, as the real SQL does not.
+   */
+  heldDocumentIds: [] as string[],
   // A project whose intake was never saved: the column holds `{}`, which
   // `findProjectProfile` hands out as this empty profile (never `null` for an
   // existing project). The implicit first building (`bw1`) is the only one.
@@ -34,15 +46,29 @@ const repo = vi.hoisted(() => ({
   profile: emptyProfile() as ProjectProfile | null,
 }))
 
+// How the session reads the project's held files (ADR-0086): a member here.
+vi.mock('@/lib/upload-screening/quarantine-reviewers', () => ({
+  shelfReaderFor: vi.fn(async () => ({ kind: 'member', userId: 'user-1' })),
+}))
 vi.mock('@/lib/projects/repository', () => ({
   // Read under the project's row lock, inside the binding's own transaction.
   lockProjectProfile: vi.fn(async () => repo.profile),
 }))
 
 vi.mock('./repository', () => ({
-  listProjectDocumentRoles: vi.fn(async () => repo.bindings),
+  listProjectDocumentRoles: vi.fn(
+    async (_projectId: string, reader: { hiddenFolderIds: string[]; documents?: { kind: string } }) =>
+      repo.bindings.filter(
+        (b) =>
+          (reader.hiddenFolderIds.length === 0 || !repo.hiddenDocumentIds.includes(b.documentId)) &&
+          (reader.documents?.kind !== 'member' || !repo.heldDocumentIds.includes(b.documentId))
+      )
+  ),
   findBindingsForRole: vi.fn(async () => repo.bindings),
-  documentBelongsToProject: vi.fn(async () => repo.documentInProject),
+  documentBelongsToProject: vi.fn(
+    async (documentId: string, _projectId: string, reader: { hiddenFolderIds: string[] }) =>
+      repo.documentInProject && (reader.hiddenFolderIds.length === 0 || !repo.hiddenDocumentIds.includes(documentId))
+  ),
   // The replacement is ONE call now, not a delete followed by an insert: the
   // two separate statements could leave a single-holder slot empty when the
   // insert failed. The double bookkeeping here mirrors that both still happen,
@@ -96,8 +122,10 @@ vi.mock('./repository', () => ({
   }),
 }))
 
-const { bauwerkIds, declareDocumentRole, revokeDocumentRole } = await import('./service')
+const { bauwerkIds, declareDocumentRole, listDocumentRoles, revokeDocumentRole } = await import('./service')
 const { requireProjectAccess } = await import('@/lib/authz/projects')
+const { getHiddenFolderIds } = await import('@/lib/authz/folder-access')
+const repository = await import('./repository')
 
 function binding(overrides: Partial<DocumentRoleBinding> = {}): DocumentRoleBinding {
   return {
@@ -123,7 +151,10 @@ beforeEach(() => {
   repo.inserted = []
   repo.deleted = []
   repo.documentInProject = true
+  repo.hiddenDocumentIds = []
+  repo.heldDocumentIds = []
   vi.clearAllMocks()
+  vi.mocked(getHiddenFolderIds).mockResolvedValue([])
 })
 
 describe('declareDocumentRole', () => {
@@ -243,6 +274,24 @@ describe('revokeDocumentRole', () => {
     repo.bindings = [binding({ id: 'binding-7' })]
     await expect(revokeDocumentRole('proj-1', 'binding-7', session)).resolves.toBeUndefined()
     expect(repo.deleted).toEqual(['binding-7'])
+  })
+
+  // The binding is answered the way its document is: a colleague's held upload
+  // (ADR-0086) and a file in a folder this session is not cleared for
+  // (ADR-0087) are not there for it, to list or to remove.
+  it('answers 404 for a binding to a held file the session may not see, and removes nothing', async () => {
+    repo.bindings = [binding({ id: 'binding-held', documentId: 'doc-held' })]
+    repo.heldDocumentIds = ['doc-held']
+    await expect(revokeDocumentRole('proj-1', 'binding-held', session)).rejects.toThrow(/not found/)
+    expect(repo.deleted).toEqual([])
+  })
+
+  it('answers 404 for a binding to a file in a hidden folder, and removes nothing', async () => {
+    vi.mocked(getHiddenFolderIds).mockResolvedValue(['folder-fees'])
+    repo.bindings = [binding({ id: 'binding-fee', documentId: 'doc-fee' })]
+    repo.hiddenDocumentIds = ['doc-fee']
+    await expect(revokeDocumentRole('proj-1', 'binding-fee', session)).rejects.toThrow(/not found/)
+    expect(repo.deleted).toEqual([])
   })
 })
 
@@ -395,5 +444,49 @@ describe('bauwerkIds', () => {
   it('names the implicit first building of a profile that names none, or of no profile', () => {
     expect(bauwerkIds(emptyProfile())).toEqual(['bw1'])
     expect(bauwerkIds(null)).toEqual(['bw1'])
+  })
+})
+
+describe('restricted folders (ADR-0087)', () => {
+  const HONORARE = 'folder-honorare'
+
+  beforeEach(() => {
+    vi.mocked(getHiddenFolderIds).mockResolvedValue([HONORARE])
+    repo.hiddenDocumentIds = ['doc-fee']
+  })
+
+  it('lists no binding to a document in a folder the session may not see', async () => {
+    repo.bindings = [
+      binding({ id: 'open', documentId: 'doc-1', filename: 'bplan.pdf' }),
+      binding({ id: 'fee', documentId: 'doc-fee', role: 'lageplan', filename: 'Honorarnote.pdf' }),
+    ]
+
+    const listed = await listDocumentRoles('proj-1', session)
+
+    expect(getHiddenFolderIds).toHaveBeenCalledWith(session, 'proj-1')
+    expect(repository.listProjectDocumentRoles).toHaveBeenCalledWith('proj-1', {
+      hiddenFolderIds: [HONORARE],
+      documents: { kind: 'member', userId: 'user-1' },
+    })
+    expect(listed.map((b) => b.filename)).toEqual(['bplan.pdf'])
+  })
+
+  it('answers a hidden document like a missing one when asked to bind it', async () => {
+    await expect(
+      declareDocumentRole({ projectId: 'proj-1', documentId: 'doc-fee', role: 'lageplan' }, session)
+    ).rejects.toThrow(/Document not found in this project/)
+    expect(repo.inserted).toHaveLength(0)
+  })
+
+  it('does not name a hidden holder it displaced', async () => {
+    // The slot holds one document and cardinality counts every holder, so the
+    // hidden one is displaced; the answer must not hand its filename over.
+    repo.bindings = [binding({ id: 'fee', documentId: 'doc-fee', filename: 'Honorarnote.pdf' })]
+    const result = await declareDocumentRole(
+      { projectId: 'proj-1', documentId: 'doc-new', role: 'bebauungsplan' },
+      session
+    )
+    expect(repo.deleted).toEqual(['fee'])
+    expect(result.replaced).toEqual([])
   })
 })

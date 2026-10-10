@@ -414,20 +414,6 @@ def test_infer_suffix_office_types():
 # --- Renditions and thumbnails (ADR-0070/0071) ---
 
 
-def _tiny_pdf_bytes() -> bytes:
-    """A one-page blank PDF, built with the renderer the route itself uses."""
-    import io
-
-    import pypdfium2 as pdfium
-
-    doc = pdfium.PdfDocument.new()
-    doc.new_page(200, 300)
-    buf = io.BytesIO()
-    doc.save(buf)
-    doc.close()
-    return buf.getvalue()
-
-
 _THUMB_URL = "http://seaweedfs.test/bucket/doc/_thumb.jpg?X-Amz-Signature=put"
 _PREVIEW_REF = "http://seaweedfs.test/bucket/doc/_render.pdf?X-Amz-Signature=get"
 _EXTRACTION_REF = "http://seaweedfs.test/bucket/doc/_render.pdf?X-Amz-Signature=secret-extract"
@@ -440,9 +426,9 @@ def _office_body(**extra) -> dict:
 
 @pytest.mark.asyncio
 async def test_ingest_rejects_non_object_store_preview_ref(app, mock_ingestor):
-    """preview_ref is fetched by a background task, so a URL off the object
-    store is the same SSRF primitive as a foreign file_ref: 400, before
-    anything is submitted."""
+    """preview_ref is downloaded by the job, so a URL off the object store is
+    the same SSRF primitive as a foreign file_ref: 400, before anything is
+    submitted."""
     response = await _post_json(app, _office_body(preview_ref="http://169.254.169.254/latest/meta-data"))
     assert response.status_code == 400
     assert "preview_ref" in response.json()["detail"]
@@ -450,35 +436,32 @@ async def test_ingest_rejects_non_object_store_preview_ref(app, mock_ingestor):
 
 
 @pytest.mark.asyncio
-async def test_a_spreadsheet_thumbnail_is_drawn_from_preview_ref_after_submitting(app, mock_ingestor):
+async def test_a_spreadsheet_preview_is_left_to_the_job_which_draws_it_after_the_screen(app, mock_ingestor, no_network):
     """An office original indexed from its own bytes (a workbook) has a
-    thumbnail only through its rendition, which the job never downloads; a
-    background task draws it once the job is in. The rendition is fetched
-    without redirects and stays out of the job config."""
-    order: list[str] = []
-    mock_ingestor.submit_job.side_effect = lambda *a, **k: order.append("submit") or "job_test_123"
-    with (
-        patch("httpx.get", return_value=_download(_tiny_pdf_bytes(), "application/pdf")) as rendition_get,
-        patch("httpx.put") as put,
-    ):
-        put.side_effect = lambda *a, **k: order.append("thumbnail") or MagicMock(raise_for_status=MagicMock())
-        response = await _post_json(
-            app,
-            {
-                "file_ref": "http://seaweedfs.test/bucket/doc/Raumliste.xlsx",
-                "collection": "proj_test123",
-                "thumbnail_upload_url": _THUMB_URL,
-                "preview_ref": _PREVIEW_REF,
-            },
-        )
+    thumbnail only through its rendition. The route used to draw it in a
+    background task, before the job had read a word of the file, so a workbook
+    the content gate quarantined already had a thumbnail (ADR-0086). Now the
+    route fetches and PUTs nothing: the rendition is the job's deferred
+    download (``preview_paths``), drawn only once the screen passes. The URL
+    stays out of the config's repr."""
+    response = await _post_json(
+        app,
+        {
+            "file_ref": "http://seaweedfs.test/bucket/doc/Raumliste.xlsx",
+            "collection": "proj_test123",
+            "thumbnail_upload_url": _THUMB_URL,
+            "preview_ref": _PREVIEW_REF,
+        },
+    )
 
     assert response.status_code == 202
-    assert order == ["submit", "thumbnail"]
-    assert rendition_get.call_args[0][0] == _PREVIEW_REF
-    assert rendition_get.call_args[1]["follow_redirects"] is False
-    assert put.call_args[0][0] == _THUMB_URL
-    assert put.call_args[1]["content"][:2] == b"\xff\xd8"  # a JPEG
-    assert _PREVIEW_REF not in repr(mock_ingestor.submit_job.call_args)
+    no_network["get"].assert_not_called()
+    no_network["put"].assert_not_called()
+    config = mock_ingestor.submit_job.call_args[1]["config"]
+    [deferred] = config["preview_paths"]
+    assert isinstance(deferred, DeferredObjectDownload)
+    assert "extraction_paths" not in config
+    assert _PREVIEW_REF not in repr(config)
 
 
 @pytest.mark.asyncio
@@ -591,6 +574,20 @@ async def test_a_new_version_of_the_same_document_is_submitted(app, keyed_ingest
 
 
 @pytest.mark.asyncio
+async def test_a_move_into_a_restricted_collection_does_not_join_the_open_collections_job(
+    app, keyed_ingestor, no_network
+):
+    """A document moved across a folder restriction (ADR-0087) keeps its id and
+    object and is dispatched again into the folder's collection. Joining the
+    job still writing into the open collection would index nothing where the
+    document now belongs."""
+    first = await _post_json(app, _doc_body())
+    moved = await _post_json(app, _doc_body(collection="proj_test123_r0123456789ab"))
+    assert (first.json()["job_id"], moved.json()["job_id"]) == ("job-1", "job-2")
+    assert len(keyed_ingestor.submitted) == 2
+
+
+@pytest.mark.asyncio
 async def test_concurrent_dispatches_of_one_document_submit_once(app, keyed_ingestor, no_network):
     """Two dispatches of one key arriving together on this replica: the second
     waits for the first's lookup and submit, then finds its job."""
@@ -620,17 +617,18 @@ async def test_without_a_document_id_every_dispatch_submits(app, keyed_ingestor,
     assert "dispatch_key" not in keyed_ingestor.submitted[0][1]
 
 
-def test_the_dispatch_key_is_a_digest_of_document_and_object_path():
+def test_the_dispatch_key_is_a_digest_of_document_object_path_and_collection():
     from aiq_api.models.requests import IngestRequest
     from aiq_api.routes.ingest import _dispatch_key
 
-    def key(file_ref: str, document_id: str | None = "doc-1") -> str | None:
-        return _dispatch_key(IngestRequest(file_ref=file_ref, collection="c", document_id=document_id))
+    def key(file_ref: str, document_id: str | None = "doc-1", collection: str = "c") -> str | None:
+        return _dispatch_key(IngestRequest(file_ref=file_ref, collection=collection, document_id=document_id))
 
     base = "http://seaweedfs.test/bucket/org/o1/doc/doc-1/Plan.pdf"
     assert key(base + "?X-Amz-Signature=a") == key(base + "?X-Amz-Signature=b")
     assert key(base) != key(base, document_id="doc-2")
     assert key(base) != key(base.replace("Plan", "Plan2"))
+    assert key(base) != key(base, collection="c_r0123456789ab")
     assert key(base, document_id=None) is None
     # Nothing of the tenant path is stored in the clear.
     assert "org" not in key(base) and len(key(base)) == 64

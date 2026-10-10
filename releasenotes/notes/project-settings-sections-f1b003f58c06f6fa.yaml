@@ -1,0 +1,11 @@
+---
+features:
+  - >
+    Each project now opens its Overview on a dashboard: this month's activity,
+    documents, memory, members and the most similar past projects at a glance,
+    each one click from where you change it. Project admins can set
+    a usage limit for the project.
+fixes:
+  - >
+    Opening a project's settings without permission to manage members no longer
+    shows an error, and buttons you are not allowed to use are no longer shown.

@@ -53,14 +53,30 @@ const querySchema = z.object({
    * exactly `conversationId` because the Python caller spells it that way.
    */
   conversationId: z.string().min(1),
+  /**
+   * The turn's asker, as the BFF signed it. A subject in a restricted folder
+   * is read only when the conversation may draw on that folder, which is
+   * checked against its audience with the asker (ADR-0087); without it such a
+   * subject is not found.
+   */
+  userId: z.string().min(1).max(128).optional(),
+  /**
+   * The answer the turn is writing (`answer_message_id(conversation, turn)`
+   * on the agent's side). When reading the subject admits a restricted folder,
+   * that answer is marked in the same transaction (ADR-0093).
+   */
+  answerMessageId: z.string().uuid().optional(),
 })
 
 export const GET = internalApiRoute<Params>(
   'document-version-content',
   async ({ request, params }) => {
-    const { organizationId, conversationId } = parseQuery(request, querySchema)
+    const { organizationId, conversationId, userId, answerMessageId } = parseQuery(request, querySchema)
     return withTenant({ organizationId }, async () => {
-      const version = await readVersionForService(params.versionId, organizationId, conversationId)
+      const version = await readVersionForService(params.versionId, organizationId, conversationId, {
+        askerUserId: userId ?? null,
+        answerMessageId: answerMessageId ?? null,
+      })
       // JSON and not `text/plain`: the caller needs the version's STATE and its
       // content hash beside the bytes — it stamps both onto the working-directory
       // file so a later `file_draft` on that path replaces this open version

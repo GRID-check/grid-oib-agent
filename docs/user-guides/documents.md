@@ -22,7 +22,9 @@ The folder tree in the left pane is the project's filing system, and it supports
 - **Create** — `New folder` at the bottom of the tree adds a top-level folder; hovering a row reveals a `+` (`Add subfolder in {name}`) that nests one inside it. Both open an inline name field; Enter commits, Escape cancels.
 - **Rename** — the row's `⋯` menu → `Rename…` turns the row itself into an input, pre-filled with the current name. Enter commits, Escape cancels, and a name that did not change makes no request at all. If the rename fails the row stays in edit mode with your text intact, so nothing is retyped.
 - **Move** — `PATCH …/folders/{folderId}` accepts a new `parentId`; moving a folder into itself or into one of its own subfolders is refused rather than silently producing a loop.
-- **Delete** — the same menu's `Delete…`. **A folder is a label, and deleting the label never deletes the work.** The confirmation names where things go — *"Its 4 document(s) and 1 subfolder(s) are not deleted — they move to 'Brandschutz'"* — and the documents and child folders are re-filed into the deleted folder's parent (the project root when it had none) before the row is removed. The toast afterwards repeats the count: *"Folder deleted. 4 document(s) moved to 'Brandschutz'."*
+- **Delete** — the same menu's `Delete…`. The folder goes to the project's **Papierkorb** with its subfolders and documents: *"Move the folder 'Brandschutz' to the bin? Its subfolders and documents go with it. From the bin it can be restored with its access until it is permanently deleted."* The toast says until when: *"'Brandschutz' is in the bin. Restorable until 20 Oct 2026."* It is gone from every listing, search and answer at once, and restorable for 14 days from the bin icon in Files; then it is deleted for good. A folder holding a folder you may not edit is refused. The whole story: [Deleting folders: the Papierkorb](sensitive-data-and-access.md#deleting-folders-the-papierkorb).
+
+Each of these is a write in the folder. In a folder whose access list gives you only **Lesen**, the tree and the file grid mark it **Nur lesen** and offer none of them, nor upload or moving a document in or out; the route refuses them too (403, `reason: folder-read-only`). Who may read and edit a folder: [sensitive data and access](sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
 
 Renaming or moving a folder rewrites the stored path of everything beneath it in the same transaction, so a deeply nested document is never left pointing at a path that no longer exists.
 
@@ -62,6 +64,8 @@ Files are validated before anything leaves the browser: type, individual size, t
 
 A partially rejected batch still uploads: the valid files go, and the panel says how many were skipped and why.
 
+Your office's sensitive-data list can also hold files back, by name before they are sent or by content before any model reads them: see [Sensitive data, quarantine and folder access](sensitive-data-and-access.md).
+
 ### Supported File Types
 
 The accepted file types are configured via `FILE_UPLOAD_ACCEPTED_TYPES` (default: `.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx`).
@@ -88,7 +92,7 @@ The total stored per organization is bounded separately by the storage quota.
 
 Additional limits:
 - **Chat-session attachments** also have a total: all files on one chat together may not exceed the deployment default (100 MB), or the organization's per-file limit when that is higher, so one admissible file always fits.
-- **Chat-session attachments**: `FILE_UPLOAD_MAX_FILE_COUNT` (default: **10 files**) caps how many files one chat session can hold. Project Dateiablage and the Büroarchiv are **not** under this cap — they are bounded by the organization's storage quota.
+- **Chat-session attachments**: `FILE_UPLOAD_MAX_FILE_COUNT` (default: **10 files**) caps how many files one chat session can hold. Project Dateiablage and the Büroablage are **not** under this cap — they are bounded by the organization's storage quota.
 - **Duplicate filenames** within a session are rejected
 - Files already tracked in the current session are skipped on re-upload
 - **A question asked while an attachment is still being read waits for it.**
@@ -138,7 +142,7 @@ reached you are told the upload is incomplete rather than left with a silently
 partial one — a bulk upload that quietly took the first half is worse than one
 that refuses, because the missing files look exactly like files nobody chose.
 
-Project and Büroarchiv uploads are bounded by the organization's **storage
+Project and Büroablage uploads are bounded by the organization's **storage
 quota** and by the **per-file** size limit. The batch total-size limit applies
 only to chat-session attachments: it exists for a conversation, which has no
 quota behind it.
@@ -172,7 +176,7 @@ File names in ZIPs made by very old Windows versions, which did not mark their
 names as UTF-8, can show garbled umlauts; renaming the folder in Piloti fixes it.
 
 **Re-uploading a file that is already there replaces it.** Dropping a corrected
-plan under the same name into the same project, the Büroarchiv, or the same chat
+plan under the same name into the same project, the Büroablage, or the same chat
 points the existing document at the new bytes and re-indexes it: the document
 keeps its identity, so citations, chat subjects and folder placement all
 survive, and the organization is charged for one copy rather than two. The
@@ -342,30 +346,33 @@ for indexing.
 
 | Scope | Collection Pattern | Visibility | TTL Cleanup |
 |-------|--------------------|------------|-------------|
-| **Archiv (org-wide)** | `archiv_{orgId}` | Every project in the organization | Never (persistent) |
+| **Büroablage (org-wide)** | `archiv_{orgId}` | Every project in the organization | Never (persistent) |
 | **Project** | `proj_{projectId}` | All project members | Never (persistent) |
 | **Session** | `s_{conversationId}` | Only within that conversation | Deleted after 24 hours (configurable via `AIQ_COLLECTION_TTL_HOURS`) |
 
 Session-scoped collections are prefixed with `s_` and are automatically reaped by the `TTLCleanupMixin` background thread that runs periodically (every `AIQ_TTL_CLEANUP_INTERVAL_SECONDS`, default 3600s).
 
-### The org-wide Archiv (ADR-0024)
+### The Büroablage (ADR-0024)
 
-The **Archiv** is a top-level document store that lives above projects, reachable
-from the user menu (Archiv). Anything uploaded there is shared with **every
+The **Büroablage** (English UI: *Office filing*) is a top-level document store
+that lives above projects, reachable from the navigation (Büroablage). Until
+October 2026 it was called „Archiv“; the URL `/app/archiv`, the permission
+`org:archiv:manage` and the collection `archiv_{orgId}` keep that name. It is a
+different thing from the „Stilllegen“ action on a project document. Anything uploaded there is shared with **every
 project in your organization** — every project's chat automatically searches the
-Archiv alongside its own documents and the base corpus, with no per-project
-re-upload. Any member can browse, preview, and download Archiv documents;
+Büroablage alongside its own documents and the base corpus, with no per-project
+re-upload. Any member can browse, preview, and download Büroablage documents;
 uploading and deleting require the **`org:archiv:manage`** permission (org admins
 have it). It is the same workspace as the project Files tab — upload, ingestion, preview and folders. The feature is gated by the `organization-archiv` feature flag
 (available to all orgs while flag enforcement is off; targeted per-org once on).
 
-The Archiv is the project Files workspace over the office's shelf: **one
+The Büroablage is the project Files workspace over the office's shelf: **one
 component, two shelves** (`FileWorkspace`; see
 [`docs/ux/file-upload-and-explorer.md`](../ux/file-upload-and-explorer.md#one-workspace-two-shelves)).
 Everything described for a project's Dateien above — folders, moving files by
 menu or drag, uploading a whole folder, the cards/list toggle, filters and sort,
 search, the preview and its `?doc=` link — works the same here, with the same
-words. It keeps the gold archive mark (the Büroarchiv provenance signal used
+words. It keeps the gold office mark (the Büroablage provenance signal used
 across the app) and what is specific to the office:
 
 - **Folders** — the office's own tree, separate from every project's. Members
@@ -376,19 +383,19 @@ across the app) and what is specific to the office:
 - **Gold kind chip and provenance footer** — a card shows the document's kind
   (floor plan, notice, …) on a gold chip, and cards whose documents carry
   ingestion tags show them as an "Aus: …"/"From: …" line. Documents without
-  tags show none, and there is no "verified" marker — the Archiv has no review
+  tags show none, and there is no "verified" marker — the Büroablage has no review
   workflow.
 - **Category filter** — the filter menu offers „Kategorie", derived from the
   controlled ingestion tags actually present on the loaded documents (document
   type + OIB discipline). Categories come from the documents themselves;
   creating custom categories is not (yet) supported. This filter is on every
-  shelf, not only the Archiv.
+  shelf, not only the Büroablage.
 - **Search** — as in a project: typing filters the listing by file name, ingestion
   tags and the AI description, across every folder; Enter runs the semantic
-  search over the whole Archiv. A semantic search that cannot RUN says so and
+  search over the whole Büroablage. A semantic search that cannot RUN says so and
   offers to run the same query again — it is never reported as "no matches".
 - **No assignments and no „Frage zur Datei"** — collaboration is project-scoped
-  and the Archiv has no project chat to ask in.
+  and the Büroablage has no project chat to ask in.
 - **A document that failed to index** carries the reason on its card, and the
   card's ⋯ menu offers „Erneut lesen“ for it, the same retry the preview
   has, where the failure is actually read. An indexed document gets the same

@@ -1,9 +1,15 @@
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
-import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
+import {
+  buildProjectMemoryDigest,
+  PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS,
+  resolveProjectOrganization,
+} from '@/lib/projects/memory-service'
+import { ANY_MEMBER, clearanceOfMember, readableFolderIdsFor } from '@/lib/authz/folder-access'
 import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'
 import { buildReviewDecisionsBlock } from '@/lib/documents/review-decisions'
+import { admitSourceFolders } from '@/lib/conversations/restricted-use'
 
 /**
  * INTERNAL service endpoint — the per-turn READ path for the agent's core
@@ -40,6 +46,22 @@ const digestQuerySchema = z
      * filed nothing looks like anyway.
      */
     conversationId: z.string().trim().max(200).optional(),
+    /**
+     * The restricted-folder collections this turn may draw on (ADR-0087,
+     * ADR-0088), comma-separated: the agent sends them only for an interactive
+     * chat turn, the one scope the BFF ever puts them in, and their presence is
+     * what makes the turn eligible for restricted memory at all. A restricted
+     * note is then served when its asker (`userId`) may read every one of its
+     * source folders NOW, and the conversation admits them
+     * (`admitSourceFolders`, which needs `conversationId`): a restricted note in
+     * the prompt is use of its folders. Absent (deep research, scheduled runs,
+     * the handshake): only notes whose folders every member may read now.
+     */
+    restrictedCollections: z.string().trim().max(5000).optional(),
+    /** The turn's asker, as the BFF signed it; the admission checks them with the conversation's audience. */
+    userId: z.string().trim().max(128).optional(),
+    /** The answer the turn writes; marked when a restricted note is admitted (ADR-0093). */
+    answerMessageId: z.string().uuid().optional(),
   })
   // Empty strings behave like absent params (previous `|| undefined` behavior).
   .transform((query) => ({
@@ -47,6 +69,13 @@ const digestQuerySchema = z
     organizationId: query.organizationId || undefined,
     query: query.query || undefined,
     conversationId: query.conversationId || undefined,
+    userId: query.userId || undefined,
+    answerMessageId: query.answerMessageId || undefined,
+    restrictedCollections: (query.restrictedCollections ?? '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .slice(0, PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS),
   }))
   .refine((query) => !!(query.projectId || query.organizationId), {
     message: 'projectId or organizationId is required',
@@ -55,7 +84,10 @@ const digestQuerySchema = z
 export const GET = internalApiRoute(
   'Internal Memory Digest',
   async ({ request }) => {
-    const { projectId, organizationId, query, conversationId } = parseQuery(request, digestQuerySchema)
+    const { projectId, organizationId, query, conversationId, userId, answerMessageId, restrictedCollections } = parseQuery(
+      request,
+      digestQuerySchema
+    )
 
     // The schema accepts a projectId on its own, so the organization is not
     // always known here. It has to be RESOLVED rather than skipped: reading the
@@ -80,7 +112,30 @@ export const GET = internalApiRoute(
       // rather than recency-ordered; without it the digest is what it always
       // was. Optional on purpose — a caller that has no question (the WS
       // handshake) must still get a digest.
-      const digest = await buildProjectMemoryDigest(projectId, tenant, { query })
+      // Restricted notes need a conversation to record their use in, and the
+      // asker to check with its audience. Without either, a note is served only
+      // when every member may read all of its folders now (a loosened folder
+      // has opened it), and needs no record.
+      const eligible = Boolean(projectId && conversationId && userId && restrictedCollections.length > 0)
+      const open = projectId ? new Set(await readableFolderIdsFor(tenant, projectId, ANY_MEMBER)) : new Set<string>()
+      const readable =
+        projectId && eligible && userId
+          ? await readableFolderIdsFor(tenant, projectId, await clearanceOfMember(tenant, userId, projectId))
+          : [...open]
+      let restrictedFoldersServed: string[] = []
+      const digest = await buildProjectMemoryDigest(projectId, tenant, {
+        query,
+        readableFolderIds: readable,
+        admitRestricted: async (folderIds) => {
+          if (!eligible || !conversationId || !userId) return new Set(folderIds.filter((id) => open.has(id)))
+          const admission = await admitSourceFolders(
+            { organizationId: tenant, conversationId, userId, projectId: projectId ?? null, answerMessageId },
+            folderIds
+          )
+          restrictedFoldersServed = admission.admitted.filter((id) => !open.has(id))
+          return new Set(admission.admitted)
+        },
+      })
       // The decisions the project made about the agent's own proposals ride
       // the same channel, so a declined patch is not proposed again. Best
       // effort: a failure here must not cost the turn its memory.
@@ -93,7 +148,9 @@ export const GET = internalApiRoute(
       const reviewDecisions = conversationId
         ? await buildReviewDecisionsBlock(conversationId, tenant).catch(() => null)
         : null
-      return { digest: composeMemoryContext(digest, decisions, reviewDecisions) }
+      // Which restricted folders the served notes drew on: the agent counts them
+      // as this turn's use (memory restriction, ADR-0087); ids, opaque to it.
+      return { digest: composeMemoryContext(digest, decisions, reviewDecisions), restrictedFoldersServed }
     })
   },
   { tenancy: { fromPayload: '?organizationId, else resolved from the project row' } }

@@ -26,6 +26,7 @@ import type {
   ShareableResourceType,
 } from '@/lib/db/schema'
 import { resolvePeople } from '@/lib/sharing/directory'
+import { unreadableRunIds, type RunRef } from '@/lib/tasks/subject-access'
 import { findInboxTarget, type InboxTargetAccess, type RunMessageRef } from './targets'
 import {
   archiveInboxItem,
@@ -70,6 +71,24 @@ export interface InboxEmission {
   payload?: Record<string, unknown>
 }
 
+/** Split rows into waves in which no (recipient, group key) repeats, keeping their order. */
+export function upsertWaves<T extends { recipientUserId: string; groupKey: string }>(rows: readonly T[]): T[][] {
+  const waves: T[][] = []
+  const seenByWave: Array<Set<string>> = []
+  for (const row of rows) {
+    const key = `${row.recipientUserId}\u0000${row.groupKey}`
+    let index = seenByWave.findIndex((seen) => !seen.has(key))
+    if (index < 0) {
+      index = waves.length
+      waves.push([])
+      seenByWave.push(new Set())
+    }
+    waves[index].push(row)
+    seenByWave[index].add(key)
+  }
+  return waves
+}
+
 /**
  * Create (or fold) notifications and nudge each recipient's badge.
  *
@@ -95,7 +114,13 @@ export async function emitInboxItems(emissions: InboxEmission[]): Promise<number
 
   if (rows.length === 0) return 0
 
-  const inserted = await upsertInboxItems(rows)
+  // One upsert per wave of distinct (recipient, group) keys. Postgres refuses
+  // an INSERT … ON CONFLICT DO UPDATE that touches the same row twice, so two
+  // emissions that fold into one row — two files quarantined in one settle —
+  // used to fail the whole call. Successive waves fold them one at a time, so
+  // the row's count still says two.
+  const inserted = []
+  for (const wave of upsertWaves(rows)) inserted.push(...(await upsertInboxItems(wave)))
 
   // Badge nudge per recipient. Publishing is fail-open by construction, and the
   // badge is re-read from Postgres anyway, so a miss costs latency only.
@@ -372,6 +397,35 @@ async function resolveTargets(
   return new Map(resolved)
 }
 
+/** The run a project row names (`job.*` rows carry `runId`, older ones `taskId`). */
+function runRefOf(row: InboxItem): RunRef | null {
+  if (row.inertAt || row.resourceType !== 'project') return null
+  const payload: Record<string, unknown> = row.payload ?? {}
+  const runId = nonEmpty(payload.runId) ?? nonEmpty(payload.taskId)
+  return runId ? { projectId: row.resourceId, runId } : null
+}
+
+/**
+ * The rows whose run the recipient may not see now, by id. A target is a
+ * project, and the project's access says nothing about a revision task whose
+ * document has since moved into a folder the recipient may not read: its row
+ * carries the task's title and a link into its thread, so it is judged by the
+ * same rule as the task list and the run view (`subject-access.ts`, ADR-0093)
+ * and redacted like a revoked one.
+ */
+async function rowsWithUnreadableRuns(session: AuthorizedSession, rows: readonly InboxItem[]): Promise<Set<string>> {
+  const refs = rows.flatMap((row) => {
+    const ref = runRefOf(row)
+    return ref ? [{ rowId: row.id, ref }] : []
+  })
+  if (refs.length === 0) return new Set()
+  const unreadable = await unreadableRunIds(
+    session,
+    refs.map(({ ref }) => ref),
+  )
+  return new Set(refs.filter(({ ref }) => unreadable.has(ref.runId)).map(({ rowId }) => rowId))
+}
+
 /**
  * Project one row onto the wire shape.
  *
@@ -398,8 +452,10 @@ function toItemView(
   row: InboxItem,
   targets: Map<string, InboxTargetAccess | null>,
   actorNames: Map<string, string>,
+  withheld: ReadonlySet<string>,
 ): InboxItemView {
-  const access = row.inertAt ? null : (targets.get(targetKey(row.resourceType, row.resourceId)) ?? null)
+  const access =
+    row.inertAt || withheld.has(row.id) ? null : (targets.get(targetKey(row.resourceType, row.resourceId)) ?? null)
   const payload: Record<string, unknown> = row.payload ?? {}
   // The delegated task this row is about, when the emitter named one
   // (`job.completed` / `job.failed` carry `taskId` beside `filedDocumentId`).
@@ -484,15 +540,16 @@ export async function listInbox(
 
   const actorIds = [...new Set(rows.flatMap((row) => (row.actorUserId ? [row.actorUserId] : [])))]
 
-  const [targets, people, pending] = await Promise.all([
+  const [targets, withheld, people, pending] = await Promise.all([
     resolveTargets(session, rows),
+    rowsWithUnreadableRuns(session, rows),
     resolvePeople(session.organizationId, actorIds),
     countPendingAcross(session, lanes),
   ])
 
   const actorNames = new Map([...people].map(([userId, person]) => [userId, person.name]))
 
-  return { items: rows.map((row) => toItemView(row, targets, actorNames)), pending }
+  return { items: rows.map((row) => toItemView(row, targets, actorNames, withheld)), pending }
 }
 
 /**

@@ -49,6 +49,15 @@ class TestFetchEnabledStages:
             flags.fetch_enabled_stages(organization_id="org_1")
         assert "organizationId=org_1" in urlopen.call_args.args[0].full_url
 
+    def test_the_project_is_asked_for_too_so_a_closed_one_can_withdraw_research(self):
+        with patch(
+            "urllib.request.urlopen",
+            return_value=_body({"enabled": [], "features": {"deepResearch": False, "tasks": False}}),
+        ) as urlopen:
+            turn = flags.fetch_turn_flags(organization_id="org_1", project_id="p-closed")
+        assert "projectId=p-closed" in urlopen.call_args.args[0].full_url
+        assert (turn.deep_research_allowed, turn.tasks_allowed) == (False, False)
+
     def test_a_malformed_body_raises_so_the_caller_can_fall_back(self):
         with patch("urllib.request.urlopen", return_value=_body({"stages": ["memory_reflection"]})):
             with pytest.raises(ValueError):

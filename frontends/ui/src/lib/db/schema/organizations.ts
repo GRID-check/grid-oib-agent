@@ -73,4 +73,10 @@ export type PlatformOwnedSetting = (typeof PLATFORM_OWNED_SETTINGS)[number]
 export const DEDICATED_ROUTE_SETTINGS = {
   zdrOnly:
     'zero data retention is switched through PUT /api/organization/model-config/zdr, which requires org:models:manage',
+  uploadScreening:
+    'upload screening is changed through PUT /api/organization/upload-screening, which validates the policy',
+  downloadLogRetentionDays:
+    'the download log retention is changed through PUT /api/organization/download-log/retention, which bounds it to 30-365 days and audits it',
+  deletedFolderContent:
+    'what happens to content derived from deleted folders is changed through PUT /api/organization/deleted-folder-content, which validates the choice',
 } as const

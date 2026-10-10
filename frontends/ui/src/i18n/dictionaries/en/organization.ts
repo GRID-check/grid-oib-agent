@@ -12,6 +12,9 @@ export const organization = {
     models: 'Models',
     budgets: 'Usage & budgets',
     storage: 'Storage',
+    screening: 'Sensitive data',
+    quarantine: 'Quarantine',
+    downloads: 'Download log',
     compliance: 'Compliance',
     enterprise: 'Enterprise',
   },
@@ -42,6 +45,19 @@ export const organization = {
       subtitle:
         'How much document storage this organization uses, and the quota that bounds it.',
     },
+    screening: {
+      title: 'Sensitive data',
+      subtitle: 'What your office wants no language model to see, and how Piloti recognises it.',
+    },
+    quarantine: {
+      title: 'Quarantine',
+      subtitle: 'Files the content check held back. No model has read them. Whoever may review them releases or deletes them here.',
+    },
+    downloads: {
+      title: 'Download log',
+      subtitle:
+        'Who took which document out, and who opened one in a folder with its own access list. Kept for a limited time, for security and accountability only.',
+    },
     compliance: {
       title: 'Compliance',
       subtitle:
@@ -51,6 +67,72 @@ export const organization = {
       title: 'Enterprise',
       subtitle:
         'SSO, directory sync, domain verification and audit-log streaming — the WorkOS controls only an admin may touch.',
+    },
+  },
+  /**
+   * Organization -> Download log (ADR-0088): who took which document out, and
+   * who opened one in a folder with its own access list. Personal data about
+   * staff, so the page says what it is for, how long it keeps it and that
+   * reading it is recorded.
+   */
+  downloadLog: {
+    purpose:
+      'This log exists for security and accountability: to find out who took a document out or opened one in a folder with its own access list. It is not an activity report and is not used to evaluate anyone.',
+    retention: 'Entries are kept for {days} days and then deleted automatically.',
+    readRecorded: 'Every time this page is read, the audit log records who looked and which filters they used.',
+    filters: {
+      label: 'Filter the download log',
+      person: 'Person',
+      allPeople: 'Everyone',
+      document: 'Document',
+      documentPlaceholder: 'Name, or a document id',
+      from: 'From',
+      to: 'To',
+      kind: 'What happened',
+      allKinds: 'Everything',
+      apply: 'Show',
+      reset: 'Reset',
+    },
+    kinds: {
+      download: 'Download',
+      preview: 'Preview',
+      pdf: 'Opened in the viewer',
+      text: 'Text preview',
+      version: 'Version opened',
+      model: '3D model opened',
+    },
+    access: { download: 'Download', open: 'Opened' },
+    columns: { when: 'When', person: 'Person', action: 'What', document: 'Document', place: 'Where' },
+    place: {
+      archiv: 'Office filing',
+      session: 'Chat attachment',
+      project: 'Project',
+      root: 'Project root',
+      ownList: 'Own access list',
+      projectGone: 'Project no longer exists',
+      folderGone: 'Folder no longer exists',
+      folderWithheld: 'a folder you may not read',
+    },
+    unknownPerson: 'No longer in the organization',
+    nameWithheld: 'Name withheld: you may not read this folder',
+    version: 'Version {id}',
+    empty: 'Nothing recorded for these filters.',
+    emptyHint: 'Downloads are recorded everywhere; opening a document only in folders with their own access list.',
+    loadError: 'The download log could not be loaded. Nothing was shown, and nothing was recorded as read.',
+    loadMore: 'Show older entries',
+    loading: 'Loading…',
+    retry: 'Try again',
+    retentionCard: {
+      title: 'Download log retention',
+      description:
+        'How long the download log keeps its entries. The default and the maximum are 365 days; an organization may shorten it to 30 days.',
+      label: 'Days',
+      hint: 'Between 30 and 365. A shorter time takes effect at the next daily clean-up.',
+      save: 'Save retention',
+      saving: 'Saving…',
+      saved: 'Retention saved',
+      invalid: 'Enter a whole number of days from 30 to 365.',
+      error: 'The retention could not be saved. Please try again.',
     },
   },
   /** People & access: the member directory, the role catalog, the permission map. */
@@ -91,6 +173,7 @@ export const organization = {
       org: 'Organization',
       project: 'Project',
       skill: 'Skill schedule',
+      folder: 'Folder',
       platform: 'Platform',
     },
     // The gate here is `org:members:manage`, NOT org admin — borrowing the
@@ -100,6 +183,98 @@ export const organization = {
       title: 'You cannot manage people here',
       description:
         'Managing people and roles needs the “Manage people and roles” permission. An organization admin can grant it.',
+    },
+  },
+  /**
+   * Personen & Zugriff → Eigene Rollen (ADR-0087): roles an office builds in
+   * WorkOS and assigns on the People tab.
+   */
+  customRoles: {
+    title: 'Custom roles',
+    description:
+      'Roles your office builds itself, beside Piloti’s. A role bundles permissions under a name such as “Management”.',
+    howTo:
+      'You assign roles to people on the People tab, and they apply across the organization. Who may see a single project folder is set on the folder, under “Access…”, person by person.',
+    oneRoleTitle: 'One role per person',
+    oneRoleBody:
+      'Unless your organization has multiple roles per person switched on, everyone holds exactly one role. A custom role must then carry every permission its holders work with.',
+    create: 'New role',
+    customGroup: 'Your office’s roles',
+    environmentGroup: 'Piloti’s roles',
+    environmentHint: 'Provided by Piloti for every organization. They cannot be changed here.',
+    emptyTitle: 'No custom roles yet',
+    emptyDescription: 'Create a role such as “Management” to bundle permissions under one name.',
+    permissionCount: '{count, plural, one {# permission} other {# permissions}}',
+    editRole: 'Edit role “{name}”',
+    deleteRole: 'Delete role “{name}”',
+    loadError: 'The roles could not be loaded right now.',
+    readOnly: 'Only people with the “Manage people and roles” permission can change custom roles.',
+    editor: {
+      createTitle: 'New role',
+      editTitle: 'Edit role “{name}”',
+      createDescription:
+        'Name the role and choose what it may do. You assign it to people on the People tab afterwards.',
+      editDescription: 'The identifier stays the same, and everyone who holds the role keeps it.',
+      name: 'Name',
+      namePlaceholder: 'e.g. Management',
+      nameHint:
+        'Piloti derives the role’s identifier from its name when you create it. The identifier stays the same afterwards, even if you rename the role.',
+      nameRequired: 'Give the role a name.',
+      description: 'Description (optional)',
+      descriptionPlaceholder: 'Who holds this role, and what for',
+      permissions: 'Permissions',
+      permissionsHint:
+        'These permissions apply across the whole organization. Access to individual projects is granted per project.',
+      notGrantable: 'You do not hold this permission yourself, so you cannot grant it.',
+      create: 'Create role',
+      save: 'Save',
+      saving: 'Saving…',
+      created: 'Role “{name}” created. Assign it on the People tab.',
+      saved: 'Role “{name}” saved.',
+      saveError: 'The role could not be saved. Please try again.',
+      nameTaken: 'A role with this name already exists.',
+      forbidden: 'You can only put permissions you hold yourself into a role.',
+      discardTitle: 'Discard your changes?',
+      discardDescription: 'What you entered for this role has not been saved.',
+      discardConfirm: 'Discard',
+      keepEditing: 'Keep editing',
+    },
+    deleteDialog: {
+      title: 'Delete the role “{name}”?',
+      description: 'A role can only be deleted once nobody holds it.',
+      confirm: 'Delete role',
+      deleted: 'Role “{name}” deleted.',
+      stillAssigned: 'Somebody still holds this role. Give them another role on the People tab first.',
+      error: 'The role could not be deleted. Please try again.',
+    },
+    /** One label and one line per organization permission, keyed by the slug after `org:` with `:` as `_`. */
+    permission: {
+      settings_manage: { name: 'Manage organization settings', hint: 'Name, language and defaults of the organization.' },
+      models_manage: { name: 'Manage AI models', hint: 'Which model each part of Piloti works with.' },
+      budgets_manage: { name: 'Manage budgets', hint: 'Spending limits and usage of the whole organization.' },
+      compliance_manage: { name: 'Manage compliance', hint: 'Legal holds and deletions.' },
+      audit_view: { name: 'View the audit log', hint: 'The record of every privileged change.' },
+      downloads_view: {
+        name: 'View the download log',
+        hint: 'Who downloaded which document. Reading it is itself recorded.',
+      },
+      archiv_manage: {
+        name: 'Manage Office filing',
+        hint: 'Upload, delete and re-read documents in Office filing. Everyone can read it.',
+      },
+      skills_manage: {
+        name: 'Manage skills',
+        hint: 'Write, change and delete the office’s skills. Everyone can use them.',
+      },
+      projects_create: { name: 'Create projects', hint: 'Start new projects.' },
+      projects_administer: {
+        name: 'Administer all projects',
+        hint: 'Reach every project without being added to it, and see every restricted folder.',
+      },
+      members_manage: {
+        name: 'Manage people and roles',
+        hint: 'Invite people, change their roles, and build roles here.',
+      },
     },
   },
   overview: {
@@ -349,7 +524,7 @@ export const organization = {
     overQuota: 'Quota reached — new uploads are refused until space is freed',
     nearQuota: 'Almost full — new uploads will soon be refused',
     projectDocuments: 'Project documents',
-    archivDocuments: 'Organization Archiv',
+    archivDocuments: 'Office filing',
     /** Count-neutral: a scope with exactly one document renders this too. */
     documentCount: 'Documents: {count}',
     /** The per-file upload limit, read-only; `size` is formatted with its unit. */
@@ -429,5 +604,100 @@ export const organization = {
       'Every privileged change — budgets, model configuration, settings, legal holds — is recorded in your organization’s WorkOS audit trail. The viewer opens in a new tab and can export events.',
     open: 'View audit logs',
     error: 'Could not open the audit log viewer.',
+  },
+  /** Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0088). */
+  deletedFolderContent: {
+    title: 'Content from deleted folders',
+    description:
+      'Who sees chats, answers and notes drawn from a folder once it is permanently deleted. Applies at once, to folders already deleted too.',
+    options: {
+      unchanged: 'Visible as before',
+      project: 'Visible to everyone in the project',
+      admins: 'Admins only',
+      remove: 'Remove with the folder',
+    },
+    hints: {
+      unchanged: 'Whoever could read the folder keeps seeing them, with the note “Source deleted on …”.',
+      project: 'Every project member sees them, with the same note.',
+      admins: 'Only organization admins see them.',
+      remove: 'The permanent deletion removes them too: notes deleted, answers replaced by “Content removed”.',
+    },
+    retentionNote:
+      'How long derived content stays once its source is deleted is your organization’s choice, made here.',
+    saved: 'Saved.',
+    saveError: 'The setting could not be saved. Please try again.',
+    loadError: 'The setting could not be loaded.',
+    readOnly: 'Only organization admins can change this.',
+  },
+  /** Sensitive data: the lists Piloti checks every upload against (ADR-0086). */
+  screening: {
+    title: 'Screening list',
+    description:
+      'Piloti checks every upload against these lists, and chat messages against the content terms and numbers. No model reads what matches.',
+    enabled: 'Screen uploads and chat',
+    enabledHint: 'When off, Piloti checks nothing. Your lists stay saved.',
+    suggestedTitle: 'Piloti’s suggestion applies',
+    suggestedBody:
+      'Your office has not saved its own list yet. Until it does, Piloti checks with this one. Once you save, yours applies.',
+    namesTitle: 'Before upload: file and folder names',
+    namesHint:
+      'The browser checks names before it sends anything. A matching file is not sent unless the person uploading releases it on its own.',
+    nameTerms: 'Name terms',
+    nameTermsHint: 'Matches inside words too: “Rechnung” finds “Schlussrechnung”.',
+    nameExceptions: 'Exceptions',
+    nameExceptionsHint: 'Words that contain a term but mean something else: “Berechnung” contains “Rechnung”.',
+    contentTitle: 'After upload: content',
+    contentHint:
+      'Piloti reads the text on its own server and checks it before any model sees it. Matches wait in quarantine until someone releases or deletes them. The same terms and numbers apply to chat messages: before sending, Piloti shows what it found and sends the message to the answering model only masked. A dictated message is first heard by an external speech model, which transcribes it.',
+    contentTerms: 'Content terms',
+    contentTermsHint: 'Matches words that start with the term: “Honorar” finds “Honorarnote”.',
+    detectors: 'Detect numbers',
+    detectorsHint: 'Piloti recomputes the check digit. A number that only looks right does not match.',
+    detector: {
+      iban: 'IBAN',
+      at_svnr: 'Social security number (AT)',
+      credit_card: 'Credit card number',
+    },
+    limits:
+      'The check sees words and numbers, not meaning. A fee agreement that contains none of your terms gets through. Piloti checks scanned pages and images without a text layer by name only.',
+    termPlaceholder: 'Type a term, press Enter',
+    removeTerm: 'Remove “{term}”',
+    emptyList: 'No terms',
+    useSuggestion: 'Use suggestion',
+    saved: 'List saved. It applies from the next upload, and in chat once the page is reloaded at the latest.',
+    saveError: 'Could not save the list. Please try again.',
+    saveForbidden: 'You cannot change this list. That needs the “Manage organization settings” permission.',
+    invalid: 'A term is too long. A term has at most 80 characters.',
+    readOnly: 'Only people with the “Manage organization settings” permission can change these lists.',
+    loadError: 'Could not load the lists.',
+  },
+  /** Quarantine: files the content check held back (ADR-0086). */
+  quarantine: {
+    listLabel: 'Files held back',
+    empty: 'Nothing is waiting for review',
+    emptyHint: 'When the content check holds a file back, it appears here. You see the files you may release.',
+    whereProject: 'Project {name}',
+    whereProjectUnknown: 'A project',
+    whereArchiv: 'Office filing',
+    whereSession: 'Chat attachment',
+    reasonsLabel: 'Reasons',
+    noReason: 'Reason could not be read',
+    unscreened: 'Not checked: the file could not be read to the end. It stays held back until someone releases it.',
+    open: 'View',
+    openTitle: 'Open “{name}” where it is filed',
+    release: 'Release',
+    releaseTitle: 'Release “{name}”?',
+    releaseDescription:
+      'Piloti then reads the file like any other upload: language models see its content, and search finds it. The release is logged under your name.',
+    released: '“{name}” is released and being read.',
+    releaseError: 'Could not release the file. Please try again.',
+    changed: 'Someone already acted on this file. The list is up to date now.',
+    delete: 'Delete',
+    deleteTitle: 'Delete “{name}”?',
+    deleteDescription: 'The file is removed from Piloti. This cannot be undone.',
+    deleted: '“{name}” was deleted.',
+    deleteError: 'Could not delete the file. Please try again.',
+    deleteErrorSession: 'Only people in that chat can delete a chat attachment.',
+    loadError: 'Could not load the quarantine.',
   },
 }

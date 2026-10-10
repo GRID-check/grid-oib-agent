@@ -15,13 +15,16 @@
  * (`documents_folder_id_organization_id_scope_fkey`).
  */
 
-import { and, eq, type SQL } from 'drizzle-orm'
+import { and, eq, isNull, type SQL } from 'drizzle-orm'
 import { documents, projectFolders } from '@/lib/db/schema'
 
 export type DocumentShelf = { kind: 'project'; projectId: string } | { kind: 'archiv' }
 
+/** The Archiv's shelf as a type: what an Archiv-only operation (a folder's re-filing delete) takes. */
+export type ArchivShelf = Extract<DocumentShelf, { kind: 'archiv' }>
+
 /** The org-wide Archiv. A constant, because it has no identity beyond the tenant. */
-export const ARCHIV_SHELF: DocumentShelf = { kind: 'archiv' }
+export const ARCHIV_SHELF: ArchivShelf = { kind: 'archiv' }
 
 export function projectShelf(projectId: string): DocumentShelf {
   return { kind: 'project', projectId }
@@ -70,6 +73,10 @@ export function shelfFolderWhere(shelf: DocumentShelf, organizationId: string): 
   return and(
     eq(projectFolders.organizationId, organizationId),
     eq(projectFolders.scope, shelfScope(shelf)),
+    // A deleted project folder, in the Papierkorb or a tombstone (migrations
+    // 0110, 0114), is no folder of the shelf: only the access rule and the bin
+    // read it, through their own repositories.
+    isNull(projectFolders.deletedAt),
     ...(shelf.kind === 'project' ? [eq(projectFolders.projectId, shelf.projectId)] : []),
   ) as SQL
 }

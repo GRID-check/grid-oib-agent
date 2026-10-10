@@ -7,7 +7,13 @@ vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
 
+// What happens after a row comes to rest (its upload completes, a quarantine's
+// reviewers hear of it) is `upload-batches/settle`'s subject; here it is the
+// call reconciliation makes.
+vi.mock('@/lib/upload-batches/settle', () => ({ onDocumentsSettled: vi.fn().mockResolvedValue(undefined) }))
+
 import { getDb } from '@/lib/db'
+import { onDocumentsSettled } from '@/lib/upload-batches/settle'
 import { asDb } from '@/test-utils/db-fixtures'
 import {
   reconcileDocumentStatuses,
@@ -17,12 +23,24 @@ import {
   type ReconcilableDocument,
 } from './reconcile-status'
 
-const makeDbMock = () => {
-  const where = vi.fn().mockResolvedValue(undefined)
+/**
+ * The guarded status write, in its transaction. `moved: false` is the write
+ * another read won: the row had already left the status (or the dispatch) this
+ * read saw, so the UPDATE matched nothing. `values` is the quarantine decision
+ * the same transaction records.
+ */
+const makeDbMock = ({ moved = true }: { moved?: boolean } = {}) => {
+  const movedRow = { scope: 'project', projectId: 'p1', filename: 'a.pdf', createdBy: 'user-1' }
+  const returning = vi.fn().mockResolvedValue(moved ? [movedRow] : [])
+  const where = vi.fn().mockReturnValue({ returning })
   const set = vi.fn().mockReturnValue({ where })
   const update = vi.fn().mockReturnValue({ set })
-  vi.mocked(getDb).mockReturnValue(asDb({ update }))
-  return { update, set, where }
+  const onConflictDoNothing = vi.fn().mockResolvedValue(undefined)
+  const values = vi.fn().mockReturnValue({ onConflictDoNothing })
+  const insert = vi.fn().mockReturnValue({ values })
+  const transaction = vi.fn((run: (tx: unknown) => Promise<unknown>) => run({ update, insert }))
+  vi.mocked(getDb).mockReturnValue(asDb({ transaction }))
+  return { update, set, where, insert, values }
 }
 
 /**
@@ -985,6 +1003,18 @@ describe('describeBackendIngestState', () => {
     expect(knowledge).toEqual({ state: 'terminal', resolution: { status: 'completed', errorMessage: null } })
   })
 
+  it("reports absent, not an earlier dispatch's failure, when the backend forgot the job", async () => {
+    // The persisted terminal would be the earlier job's verdict, recorded as
+    // this dispatch's; nothing the backend knows of is this dispatch.
+    routeBackend({}, [{ file_name: 'plan.pdf', status: 'failed', error_message: 'quarantined:{}' }])
+
+    expect(await describeBackendIngestState(makeRow({ status: 'processing' }))).toEqual({ state: 'absent' })
+    expect(await describeBackendIngestState(makeRow({ status: 'processing', metadata: null }))).toEqual({
+      state: 'terminal',
+      resolution: expect.objectContaining({ status: 'quarantined' }),
+    })
+  })
+
   it('reports in-progress when a file under this name is mid-flight', async () => {
     routeBackend({}, [{ file_name: 'plan.pdf', status: 'pending' }])
 
@@ -1007,5 +1037,209 @@ describe('describeBackendIngestState', () => {
     const knowledge = await describeBackendIngestState(makeRow({ status: 'processing', metadata: null }))
 
     expect(knowledge).toEqual({ state: 'unreachable' })
+  })
+})
+
+/**
+ * ADR-0086: the content gate stops a job on purpose. The row must read as
+ * quarantined (waiting on a person), never as an ordinary failure a retry
+ * would re-dispatch into the same gate, and the job's screening outcome lands
+ * on the row so the upload summary can say what was and was not checked.
+ */
+describe('reconcileDocumentStatuses — upload screening', () => {
+  const verdict =
+    'quarantined:{"reasons":[{"kind":"term","term":"Lohnzettel","count":1,"pages":[1]}],"checked":"full"}'
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch)
+    mockFetch.mockReset()
+    clearCollectionFilesCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('quarantines a row whose only file the content gate stopped', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(
+      batchResponse({
+        'job-1': {
+          status: 'completed',
+          file_details: [{ status: 'failed', error_message: verdict, screening: 'quarantined' }],
+        },
+      })
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(result.status).toBe('quarantined')
+    expect(result.errorMessage).toBe(verdict)
+    expect(db.set).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'quarantined', errorMessage: verdict, screeningOutcome: 'quarantined' })
+    )
+    // The decision, keyed on its dispatch, owed to the audit trail (ADR-0086):
+    // kinds and terms, never the masked sample or the page list.
+    expect(db.values).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      documentId: 'doc-1',
+      jobId: 'job-1',
+      scope: 'project',
+      projectId: 'p1',
+      filename: 'a.pdf',
+      reasons: 'term:Lohnzettel',
+      checked: 'full',
+      uploadedBy: 'user-1',
+    })
+  })
+
+  it('quarantines from a failed job too', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(batchResponse({ 'job-1': { status: 'failed', error_message: verdict } }))
+
+    const [result] = await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(result.status).toBe('quarantined')
+    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ status: 'quarantined' }))
+    expect(db.values).toHaveBeenCalledWith(expect.objectContaining({ jobId: 'job-1' }))
+  })
+
+  it('records no decision for a row it did not move, nor for one that came to rest otherwise', async () => {
+    const lost = makeDbMock({ moved: false })
+    mockFetch.mockResolvedValue(batchResponse({ 'job-1': { status: 'failed', error_message: verdict } }))
+    await reconcileDocumentStatuses([makeRow()], 'org-1')
+    expect(lost.insert).not.toHaveBeenCalled()
+
+    const completed = makeDbMock()
+    mockFetch.mockResolvedValue(batchResponse({ 'job-1': { status: 'completed' } }))
+    await reconcileDocumentStatuses([makeRow()], 'org-1')
+    expect(completed.update).toHaveBeenCalled()
+    expect(completed.insert).not.toHaveBeenCalled()
+  })
+
+  it('quarantines a row that carries no job from the collection file list, a decision of no dispatch', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([{ file_name: 'plan.pdf', status: 'failed', error_message: verdict }])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ metadata: null })], 'org-1')
+
+    expect(result.status).toBe('quarantined')
+    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ status: 'quarantined' }))
+    expect(db.values).toHaveBeenCalledWith(expect.objectContaining({ jobId: null }))
+  })
+
+  // The backend lists the first failed entry of a name it still tracks, so a
+  // released file's old quarantine is what the list says while the new
+  // dispatch's job is forgotten. Adopting it put the file back in quarantine
+  // and recorded job-2 as having quarantined it.
+  it('takes no failure from the file list for a row whose job the backend forgot', async () => {
+    const db = makeDbMock()
+    mockFetch
+      .mockResolvedValueOnce(batchResponse({}))
+      .mockResolvedValue(collectionResponse([{ file_name: 'plan.pdf', status: 'failed', error_message: verdict }]))
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ metadata: { ingestJobId: 'job-2' } })], 'org-1')
+
+    expect(result.status).toBe('pending')
+    expect(db.update).not.toHaveBeenCalled()
+    expect(db.insert).not.toHaveBeenCalled()
+  })
+
+  it.each(['clean', 'partial', 'unchecked'])('records the outcome %s of a completed, screened job', async (screening) => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(
+      batchResponse({ 'job-1': { status: 'completed', file_details: [{ status: 'success', screening }] } })
+    )
+
+    await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ status: 'completed', screeningOutcome: screening }))
+  })
+
+  it('leaves the outcome alone for a job that carried no rules (released, or screening off)', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(
+      batchResponse({ 'job-1': { status: 'completed', file_details: [{ status: 'success', screening: null }] } })
+    )
+
+    await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    const written = db.set.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(written.status).toBe('completed')
+    expect('screeningOutcome' in written).toBe(false)
+  })
+
+  it('does not mistake an ordinary failure for a quarantine', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(batchResponse({ 'job-1': { status: 'failed', error_message: 'unparseable PDF' } }))
+
+    const [result] = await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(result.status).toBe('failed')
+    const written = db.set.mock.calls[0]?.[0] as Record<string, unknown>
+    expect('screeningOutcome' in written).toBe(false)
+  })
+})
+
+describe('reconcileDocumentStatuses — settling uploads', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch)
+    mockFetch.mockReset()
+    clearCollectionFilesCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('hands every row it brought to rest to the settle hook, with its new status', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      batchResponse({
+        'job-1': { status: 'completed', file_details: [{ status: 'success' }] },
+        'job-2': { status: 'running' },
+      })
+    )
+
+    await reconcileDocumentStatuses(
+      [makeRow(), makeRow({ id: 'doc-2', metadata: { ingestJobId: 'job-2' } })],
+      'org-1'
+    )
+
+    expect(onDocumentsSettled).toHaveBeenCalledWith('org-1', [{ id: 'doc-1', status: 'completed' }])
+  })
+
+  it('settles nothing when another read moved the row first, and still reports its new status', async () => {
+    // Two reads (two tabs, uploader and reviewer, the sweep) resolve the same
+    // in-flight row at once. Only the read whose guarded write moved it may
+    // settle it, or the quarantine is audited and its reviewers told twice.
+    makeDbMock({ moved: false })
+    const verdict = 'quarantined:{"reasons":[{"kind":"iban"}],"checked":"full"}'
+    mockFetch.mockResolvedValue(
+      batchResponse({
+        'job-1': {
+          status: 'completed',
+          file_details: [{ status: 'failed', error_message: verdict, screening: 'quarantined' }],
+        },
+      })
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(result.status).toBe('quarantined')
+    expect(onDocumentsSettled).not.toHaveBeenCalled()
+  })
+
+  it('does not call it when nothing came to rest', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(batchResponse({ 'job-1': { status: 'running' } }))
+
+    await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(onDocumentsSettled).not.toHaveBeenCalled()
   })
 })

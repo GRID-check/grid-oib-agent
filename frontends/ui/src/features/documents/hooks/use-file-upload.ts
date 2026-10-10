@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useLocale, useTranslations } from '@/i18n'
+import { isProjectClosedBody } from '@/lib/projects/project-status'
 import { createDocumentsClient } from '@/adapters/api'
 import { deleteSessionDocument } from '@/adapters/api/session-documents-client'
 import { xhrUpload, XhrUploadError } from '@/lib/http/xhr-upload'
@@ -18,7 +19,7 @@ import { useDocumentsStore } from '../store'
 import { useAuth } from '@/adapters/auth'
 import { useAppConfig } from '@/shared/context'
 import { useLayoutStore } from '@/features/layout/store'
-import type { TrackedFile } from '../types'
+import type { TrackedFile, UploadIntent } from '../types'
 import { mapUploadResponseStatus } from '../utils'
 import { shouldEmitProgress } from '../lib/upload-progress'
 import { isJoblessIngesting } from '../lib/document-status-reads'
@@ -29,6 +30,11 @@ import { UploadOrchestrator } from '../orchestrator'
 import type { PendingJob } from '../orchestrator'
 import { markSessionHasCollection } from '../persistence'
 import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
+import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
+import { screenUploadName, type NameMatch } from '@/lib/upload-screening/name-screen'
+import { describeScreenedOut } from '@/lib/upload-screening/quarantine'
+import type { UploadScreeningPolicy } from '@/lib/upload-screening/policy'
+import { exclusionsByTerm, openUploadBatch, sealUploadBatch } from '../lib/upload-batch'
 
 /**
  * The upload endpoints' response: `/api/documents/upload`,
@@ -62,10 +68,13 @@ async function deleteShelfDocument(shelf: 'project' | 'archiv' | 'session', docu
 const isAbort = (error: unknown): boolean => error instanceof Error && error.name === 'AbortError'
 
 /** The clearest sentence available about why an upload did not happen. */
-const failureMessage = (error: unknown, fallback: string): string => {
+const failureMessage = (error: unknown, fallback: string, projectClosed?: string): string => {
   if (error instanceof XhrUploadError) {
     try {
       const body: unknown = JSON.parse(error.responseText)
+      // A closed project (ADR-0090) is named in the reader's language: the
+      // project closed while this tab was open.
+      if (projectClosed && isProjectClosedBody(body)) return projectClosed
       const message = (body as { error?: unknown })?.error
       if (typeof message === 'string' && message) return message
     } catch {
@@ -117,6 +126,31 @@ export interface UploadFilesOptions {
    * returning `undefined`, which defers to the batch's own folder.
    */
   folderIdFor?: (file: File) => string | null | undefined
+  /**
+   * The project folder a file lands in, as a path from the project root, for
+   * the upload screening (ADR-0086). The server screens against it too, so a
+   * caller that knows it must say it — or the browser lets through a file the
+   * server will then refuse, after its bytes have left the office.
+   */
+  folderPathFor?: (file: File) => string | null | undefined
+  /**
+   * The reader released this file from the upload screening in the upload
+   * dialog. Sent to the server as `screeningRelease`, which audits it.
+   */
+  screeningReleased?: (file: File) => boolean
+  /**
+   * What the upload dialog's screening already held back, one entry per file
+   * (its matches). Recorded on the upload's batch by term and count, so the
+   * summary can say why something is missing; never sent by name.
+   */
+  excludedByScreening?: ReadonlyArray<readonly NameMatch[]>
+  /**
+   * The office's policy, when the caller has just read it for this upload
+   * (the upload dialog settles its plan against a fresh read). Screened with
+   * as given; absent, it is read here. Never a kept copy: a stale list is the
+   * one this gate exists to refuse.
+   */
+  screeningPolicy?: UploadScreeningPolicy
 }
 
 interface UseFileUploadReturn {
@@ -300,10 +334,44 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         return
       }
 
-      const validFiles = validationResult.validFiles
+      /*
+       * The upload screening, last before a byte leaves (ADR-0086).
+       *
+       * The dialog already showed the reader what the office's policy holds
+       * back and took their releases; this is the gate for every path that
+       * does not pass the dialog (a chat attachment, a direct pick that met
+       * nothing) and the backstop for the ones that do. What it holds back is
+       * not sent at all. Neither is anything else while the policy cannot be
+       * read: an unknown list holds back nothing it should.
+       */
+      let policy: UploadScreeningPolicy
+      try {
+        policy = options?.screeningPolicy ?? (await loadUploadScreeningPolicy())
+      } catch {
+        setError(t('errors.screeningPolicyUnavailable'))
+        return
+      }
+      const screenedOut: Array<{ file: File; matches: NameMatch[] }> = []
+      const validFiles = validationResult.validFiles.filter((file) => {
+        if (options?.screeningReleased?.(file)) return true
+        const verdict = screenUploadName(policy, {
+          filename: file.name,
+          originPath: file.webkitRelativePath || null,
+          folderPath: options?.folderPathFor?.(file) ?? null,
+        })
+        if (verdict.blocked) screenedOut.push({ file, matches: verdict.matches })
+        return !verdict.blocked
+      })
+      const screenedMessage = describeScreenedOut(screenedOut, t)
+      if (validFiles.length === 0) {
+        setError(screenedMessage ?? localizedSummary)
+        return
+      }
       setUploading(true)
 
-      if (validationResult.fileErrors.length > 0) {
+      if (screenedMessage) {
+        setError(screenedMessage)
+      } else if (validationResult.fileErrors.length > 0) {
         const skippedCount = validationResult.fileErrors.length
         const uploadingCount = validFiles.length
         setError(
@@ -316,6 +384,14 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         )
       } else {
         clearError()
+      }
+
+      // Per file when the caller filed the batch (a folder upload), otherwise
+      // the folder the reader is standing in. `undefined` defers; `null` is a
+      // deliberate "the shelf's root".
+      const resolvedFolderId = (file: File): string | null => {
+        const target = options?.folderIdFor ? options.folderIdFor(file) : folderId
+        return (target === undefined ? folderId : target) ?? null
       }
 
       // Paired by INDEX, not by filename: two files selected in one batch can
@@ -333,6 +409,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           bytesUploaded: 0,
           collectionName: targetCollection,
           uploadedAt: new Date().toISOString(),
+          uploadIntent: {
+            folderId: resolvedFolderId(file),
+            folderPath: options?.folderPathFor?.(file) ?? null,
+            screeningReleased: options?.screeningReleased?.(file) === true,
+          },
         } satisfies TrackedFile as TrackedFile,
       }))
 
@@ -350,6 +431,22 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         // only the endpoint and form fields differ (Archiv resolves the org
         // server-side, a chat names its conversation).
         //
+        // The batch these uploads belong to (ADR-0086), opened before the
+        // first file goes so each upload can name it. Null: no summary, and
+        // the upload goes ahead regardless.
+        const batchId = await openUploadBatch({
+          id: uuidv4(),
+          scope: shelf,
+          projectId: shelf === 'project' ? (projectId ?? null) : null,
+          conversationId: shelf === 'session' ? targetCollection : null,
+          expectedCount: entries.length,
+          excluded: exclusionsByTerm([
+            ...(options?.excludedByScreening ?? []),
+            ...screenedOut.map(({ matches }) => matches),
+          ]),
+        })
+        let unchangedCount = 0
+
         // Several at a time, not one after another: each POST also writes to
         // object storage, checks the org quota and dispatches to the ingest
         // API, so a serial loop left the connection idle for most of every
@@ -376,14 +473,12 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           // Both durable shelves are filed into folders now (the Archiv's
           // are the office's own).
           if (shelf !== 'session') {
-            // Per file when the caller filed the batch (a folder upload),
-            // otherwise the folder the reader is standing in. `undefined`
-            // defers; `null` is a deliberate "the project root".
-            const target = options?.folderIdFor ? options.folderIdFor(file) : folderId
-            const resolved = target === undefined ? folderId : target
+            const resolved = resolvedFolderId(file)
             if (resolved) formData.append('folderId', resolved)
           }
           formData.append('file', file)
+          if (options?.screeningReleased?.(file)) formData.append('screeningRelease', 'name')
+          if (batchId) formData.append('uploadBatchId', batchId)
           // Where the file sat before it came here. Set by a folder INPUT
           // (`webkitdirectory`) and stamped onto a dropped tree's files by
           // `asPathStampedFiles`, so one property covers both ways of
@@ -415,6 +510,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             )
 
             const result = JSON.parse(responseText) as UploadDocumentResponse
+            if (result.unchanged) unchangedCount += 1
             // A re-upload replaces a document in place, under the same id: a
             // tombstone from an earlier delete must not hide it.
             if (result.documentId) removeRecentlyDeletedIds([result.documentId])
@@ -435,7 +531,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             // The failure belongs to THIS file. The other eleven documents in
             // an Einreichung are still wanted, and the row that refused is the
             // one that has to say so.
-            const message = failureMessage(err, 'Upload failed')
+            const message = failureMessage(err, 'Upload failed', t('errors.projectClosed'))
             updateTrackedFile(tracked.id, { status: 'failed', errorMessage: message })
             throw err instanceof Error ? err : new Error(message)
           } finally {
@@ -453,10 +549,19 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         // listings again for each one.
         notifyDocumentsChanged()
 
+        // Sealed once every request has answered: the files that wrote no row
+        // are counted here, the rest the server can see for itself.
+        if (batchId) {
+          await sealUploadBatch(batchId, {
+            unchanged: unchangedCount,
+            failed: results.filter((result) => result.status === 'rejected').length,
+          })
+        }
+
         const firstFailure = results.find((result) => result.status === 'rejected')
         if (firstFailure && firstFailure.status === 'rejected') {
           const failedCount = results.filter((result) => result.status === 'rejected').length
-          const message = failureMessage(firstFailure.reason, 'Upload failed')
+          const message = failureMessage(firstFailure.reason, 'Upload failed', t('errors.projectClosed'))
           setError(
             failedCount > 1
               ? t('errors.someUploadsFailed', { failed: failedCount, total: entries.length, reason: message })
@@ -618,6 +723,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
   // cap. One batch per row put every failed file in flight at once, straight
   // into the rate limit that had failed most of them.
   const pendingRetriesRef = useRef<{ files: File[]; done: Promise<void> } | null>(null)
+  const retryIntentsRef = useRef(new Map<File, UploadIntent>())
   const retryFile = useCallback(
     async (fileId: string) => {
       const file = trackedFiles.find((f) => f.id === fileId)
@@ -629,6 +735,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       }
 
       removeTrackedFile(fileId)
+      if (file.uploadIntent) retryIntentsRef.current.set(file.file, file.uploadIntent)
       const pending = pendingRetriesRef.current
       if (pending) {
         pending.files.push(file.file)
@@ -642,8 +749,22 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         // validation although each file passed on its own, after their rows
         // were already removed. There, retry one file at a time; the durable
         // shelves have no batch cap and keep the single capped batch.
-        if (shelf !== 'session') return uploadFiles(files)
-        for (const each of files) await uploadFiles([each])
+        // The same destination and release as the first attempt: a file the
+        // reader released, or filed into a folder of its upload, goes there
+        // again instead of being screened out or landing where they stand now.
+        const intents = retryIntentsRef.current
+        const intentOf = (each: File): UploadIntent | undefined => intents.get(each)
+        const retryOptions: UploadFilesOptions = {
+          folderIdFor: (each) => intentOf(each)?.folderId,
+          folderPathFor: (each) => intentOf(each)?.folderPath,
+          screeningReleased: (each) => intentOf(each)?.screeningReleased === true,
+        }
+        try {
+          if (shelf !== 'session') return await uploadFiles(files, retryOptions)
+          for (const each of files) await uploadFiles([each], retryOptions)
+        } finally {
+          for (const each of files) intents.delete(each)
+        }
       })
       pendingRetriesRef.current = { files, done }
       await done

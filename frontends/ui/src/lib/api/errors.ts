@@ -57,6 +57,69 @@ export class OrgMemoryDisabledError extends ApiError {
 }
 
 /**
+ * 403 — a conversation that drew on a folder with restricted access may not
+ * carry its content to where others read it (ADR-0087): a deep-research run, a
+ * task, the project profile, or a folder not restricted at least as narrowly.
+ * `revision` is the same refusal for a document rather than a conversation: a
+ * draft in such a folder is not quoted into a project-wide revision task.
+ * The same refusal answers a run's Unterlagen naming a document from such a
+ * folder (`planDocument`): the run's Grundlage is read by the whole project.
+ * Its own code, so a caller (the agent's tools, a card) can tell this refusal
+ * from a missing permission; `details.action` says which door refused. The
+ * message is already the reader's sentence (`lib/conversations/restricted-egress.ts`).
+ */
+export class ConversationConfinedError extends ApiError {
+  constructor(
+    readonly action: 'deepResearch' | 'task' | 'profilePatch' | 'filing' | 'revision' | 'planDocument',
+    message: string
+  ) {
+    super(403, 'CONVERSATION_CONFINED', message, { action })
+  }
+}
+
+/**
+ * 409 — a cross-project lookup (ADR-0094) whose conversation changed who may
+ * read it while the lookup ran: the reach it searched was computed for the old
+ * audience, so nothing is handed out. Asking again searches as the new one. The
+ * message is the reader's sentence, relayed by the agent.
+ */
+export class CrossProjectAudienceChangedError extends ApiError {
+  constructor(message: string) {
+    super(409, 'CROSS_PROJECT_AUDIENCE_CHANGED', message)
+  }
+}
+
+/**
+ * 409 — a memory write from a conversation that drew on another project
+ * (ADR-0094). Project and organization memory are read by everyone in the
+ * project, so nothing found in another project may reach them from a chat.
+ */
+export class CrossProjectMemoryError extends ApiError {
+  constructor(message: string) {
+    super(409, 'CROSS_PROJECT_MEMORY', message)
+  }
+}
+
+/** The machine-readable reason a person no longer has the rights to read a resource's content. */
+export const RIGHTS_LOST_REASON = 'rights-lost'
+
+/**
+ * 403 — the caller is still a party to the resource (a grant, its creator) but
+ * can no longer read what it was drawn from: a conversation that recorded a
+ * folder they may not read now (ADR-0088). Its own code, so the client shows
+ * "you no longer have the rights" instead of "not found", and its message and
+ * details carry nothing of the content: not its title, not the folder.
+ */
+export class ResourceRightsLostError extends ApiError {
+  constructor(readonly resourceType: string) {
+    super(403, 'RESOURCE_RIGHTS_LOST', 'You no longer have the rights to view this content.', {
+      reason: RIGHTS_LOST_REASON,
+      resourceType,
+    })
+  }
+}
+
+/**
  * 404 — resource missing OR the caller may not know it exists.
  * Cross-tenant and no-access lookups throw this (never Forbidden) so
  * responses do not leak resource existence to unauthorized callers.

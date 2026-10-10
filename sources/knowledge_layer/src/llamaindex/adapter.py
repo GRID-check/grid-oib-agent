@@ -525,6 +525,13 @@ TTL_CLEANUP_INTERVAL_SECONDS = _env_int("AIQ_TTL_CLEANUP_INTERVAL_SECONDS", 3600
 # pruned so in-memory job tracking doesn't grow for the life of the process.
 JOB_RETENTION_SECONDS = 3600  # 1 hour
 
+# How long an ingest waits for a Bescheid's permit record (one structured model
+# call over the document, then the BFF embeds its requirements). Past it the
+# record is skipped, never the file.
+PERMIT_RECORD_TIMEOUT_SECONDS = 90
+#: Dropping a record is one internal call, no model: it must never hold up an ingest.
+PERMIT_RECORD_DROP_TIMEOUT_SECONDS = 5
+
 # The per-file error of an attempt whose document was deleted while it indexed
 # (see `document_presence`). FAILED rather than SUCCESS so the end-of-job
 # summary reconciliation, which backfills a row for every successful file,
@@ -1450,7 +1457,22 @@ def _read_pdf_page(page, page_num: int, previous, pdf_path: str) -> tuple[dict[s
     # Font size and weight per line, for the heading-aware chunker of tenant PDFs.
     styles = extract_line_styles(source) if text else []
     entry = {"page_number": page_num, "text": text, "tables": tables, "table_boxes": boxes, "line_styles": styles}
+    # Rasters on the page, counted from what pdfplumber already parsed: the
+    # upload screen reads it to know whether the VLM will see unscreened images.
+    entry["image_count"] = _raster_count(page)
     return entry, continued
+
+
+def _raster_count(page) -> int:
+    """How many rasters pdfplumber parsed on ``page``; one when it cannot say.
+
+    Never costs the page its text, and errs toward the screen calling the file
+    ``partial`` rather than claiming a raster-free page it did not see.
+    """
+    try:
+        return len(page.images)
+    except Exception:  # noqa: BLE001 - an uncountable page is counted as carrying one
+        return 1
 
 
 def _extract_text_from_pdf(pdf_path: str) -> PdfTextPages:
@@ -2872,6 +2894,114 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         # Persist outside the lock (DB I/O) so any replica can serve this status.
         self._persist(job)
 
+    def _record_screening(self, job: IngestionJobStatus, file_index: int, rules: Any, outcome: str) -> None:
+        """Put the upload screen's outcome on the file's status; nothing when the job is not screened."""
+        if rules is None:
+            return
+        with self._lock:
+            if file_index < len(job.file_details):
+                job.file_details[file_index].screening = outcome
+
+    def _record_unscreened_rasters(self, job: IngestionJobStatus, file_index: int) -> None:
+        """A file the screen called ``clean`` is ``partial`` once embedded rasters go to the VLM.
+
+        The screen decides before any model call from pdfplumber's raster count;
+        this is the backstop for rasters it could not see (a page with no text
+        has no entry to count them on), so the reported outcome never claims
+        more than was screened.
+        """
+        with self._lock:
+            if file_index < len(job.file_details) and job.file_details[file_index].screening == "clean":
+                job.file_details[file_index].screening = "partial"
+
+    def _screen_or_quarantine(
+        self,
+        job: IngestionJobStatus,
+        file_index: int,
+        rules: Any,
+        pages: list[tuple[int | None, str]],
+        checked: str,
+    ) -> bool:
+        """Screen one file's locally extracted ``pages``; True when it was quarantined.
+
+        A quarantined file is FAILED with ``quarantine_error``'s reason and must
+        go no further: nothing of it has reached a model yet, and nothing will.
+        The log line names reason kinds and counts, never a term, a value or
+        the file name, which can itself say what the document is.
+        """
+        from knowledge_layer.llamaindex import screening
+
+        if rules is None:
+            return False
+        if not any(text.strip() for _page, text in pages):
+            self._record_screening(job, file_index, rules, "unchecked")
+            return False
+        verdict = screening.screen_pages(pages, rules, checked=checked)
+        if not verdict.matched:
+            self._record_screening(job, file_index, rules, "clean" if checked == "full" else "partial")
+            return False
+        self._record_screening(job, file_index, rules, "quarantined")
+        self._update_file_status(job, file_index, FileStatus.FAILED, error=screening.quarantine_error(verdict))
+        logger.info(
+            "Quarantined file %d of job %s before any model call: %s (checked %s)",
+            file_index + 1,
+            job.job_id,
+            screening.log_summary(verdict),
+            verdict.checked,
+        )
+        return True
+
+    def _screen_pdf(
+        self,
+        job: IngestionJobStatus,
+        file_index: int,
+        rules: Any,
+        source_path: str,
+        text_pages: list[dict[str, Any]],
+        companions: list[Any],
+        *,
+        captions_rasters: bool,
+        tables: list[Any],
+    ) -> dict[str, Any] | None:
+        """Screen a PDF's text layer, its rendition's companions and its ``tables`` before any page reaches a model.
+
+        ``tables`` are the table pass's Documents: that pass opens the PDF on
+        its own and reads pages the text pass lost, so they are screened as
+        what they are, the text that will be embedded.
+
+        Returns what ``route_pdf_pages`` takes from it, the page triage measured
+        here so the PDF is measured once, or ``None`` when the file was
+        quarantined. ``checked`` is ``partial`` when the triage sends a page to
+        transcription or drawing analysis, or cannot measure the PDF, or when
+        ``captions_rasters`` (the VLM will caption embedded images) and a page
+        carries one: that content reaches a model without having been screened,
+        which the product accepts for content that cannot be read locally. A
+        page the text pass could not read (``failed_pages``) makes it
+        ``partial`` too: its text was never read, so never screened.
+        """
+        if rules is None:
+            return {}
+        from knowledge_layer.llamaindex import page_triage
+        from knowledge_layer.llamaindex.screening import document_pages
+
+        page_texts = page_texts_for_visual_heuristic(text_pages)
+        triage = page_triage.triage_pdf(
+            source_path, page_texts, min_text_chars=VISUAL_PAGE_MIN_TEXT_CHARS, min_paths=VISUAL_PAGE_MIN_PATHS
+        )
+        has_rasters = any(page.get("image_count") for page in text_pages)
+        lost_pages = bool(getattr(text_pages, "failed_pages", ()))
+        unscreened = (
+            triage is None
+            or bool(triage.transcribed or triage.drawings)
+            or (captions_rasters and has_rasters)
+            or lost_pages
+        )
+        pages = [*sorted(page_texts.items()), *document_pages(companions), *document_pages(tables)]
+        checked = "partial" if unscreened else "full"
+        if self._screen_or_quarantine(job, file_index, rules, pages, checked):
+            return None
+        return {"triage": triage}
+
     def _record_failed_pages(self, job: IngestionJobStatus, file_index: int, text_pages: list) -> None:
         """Put the pages a PDF read lost, below the failure threshold, on the file's result."""
         failed = len(getattr(text_pages, "failed_pages", ()))
@@ -2952,10 +3082,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         original_filenames = aligned_filenames
         # _run_ingestion re-reads this from the config; keep it aligned too.
         job_config["original_filenames"] = aligned_filenames
-        if "extraction_paths" in job_config:
-            from knowledge_layer.renditions import align_extraction_paths
+        from knowledge_layer.renditions import align_extraction_paths
 
-            align_extraction_paths(job_config, kept_indices)
+        align_extraction_paths(job_config, kept_indices)
 
         if not validated_paths:
             # Create failed job immediately
@@ -3783,6 +3912,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         items.sort(key=lambda it: (it["page"], it["content_type"], it["segment"]))
         return items
 
+    def _thumbnail_after_screen(self, thumbnail_upload_url: str | None, image_path: str | None) -> None:
+        """Draw the file card's thumbnail, called only once the file's screening passed.
+
+        Upload screening (ADR-0086) holds a file back until its content gate
+        passes, and a thumbnail is a derivative of that content: a first-page
+        render of a fee agreement shows the fee. It used to be drawn first, for
+        speed, so a quarantined file had one before its verdict, and the route
+        drew a spreadsheet's from its rendition before the job had read a
+        word. Every call site sits after the screen: a PDF's (or a rendition's)
+        text screen, an image's name-only pass, an office file's extracted text.
+        """
+        if thumbnail_upload_url and image_path:
+            self._generate_and_upload_thumbnail(image_path, thumbnail_upload_url)
+
     @staticmethod
     def _generate_and_upload_thumbnail(
         file_path: str,
@@ -3975,6 +4118,50 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 exc_info=True,
             )
 
+    def _quarantined(self, job: IngestionJobStatus, file_index: int) -> bool:
+        """Whether this job's upload screen quarantined file ``file_index``."""
+        with self._lock:
+            return file_index < len(job.file_details) and job.file_details[file_index].screening == "quarantined"
+
+    def _retire_held_predecessor(
+        self, chroma_collection, collection_name: str, file_name: str, previous: _PreviousVersion
+    ) -> None:
+        """Take a quarantined re-upload's predecessor out of retrieval.
+
+        A quarantine holds the whole document from everyone but its uploader and
+        its reviewers (ADR-0086), the earlier screened version included, and it
+        lasts until a reviewer releases or deletes it, not for the minutes a
+        reading takes. Its earlier chunks would answer retrieval for a document
+        no member may open, so they go now: from Chroma and the lexical mirror,
+        by the ids collected before the job, exactly as
+        :meth:`_retire_previous_version` takes them.
+
+        Unlike that retirement no metadata row goes, under any spelling: no new
+        version has written its row, and the rows carry what people set (the
+        Dokumentart, the title), which the release's reading takes over. A
+        failed re-upload is not handled here: its uploader retries it, and the
+        version it could not replace stays meanwhile, as it always has.
+        """
+        if not previous.chunk_ids:
+            return
+        try:
+            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+            chroma_collection.delete(ids=previous.chunk_ids)
+            bump_collection_version(collection_name)
+            get_chunk_text_store().delete_chunks(collection_name, previous.chunk_ids)
+            logger.info(
+                "Took %d chunk(s) of the previous version of a quarantined re-upload out of %s",
+                len(previous.chunk_ids),
+                collection_name,
+            )
+        except Exception:  # noqa: BLE001 — the verdict stands; a failed retire must not mask it
+            logger.warning(
+                "Could not take the previous version of a quarantined re-upload out of %s; it still answers",
+                collection_name,
+                exc_info=True,
+            )
+
     def _chunk_ids_under(self, chroma_collection, file_name: str) -> set[str] | None:
         """The ids stored under exactly ``file_name``, or None when they could not be read."""
         try:
@@ -4050,6 +4237,83 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         )
         return answer is False
 
+    def _remember_permit(
+        self,
+        config: dict[str, Any],
+        collection_name: str,
+        file_name: str,
+        tags: list[str] | None,
+        text_documents: list[Any],
+    ) -> None:
+        """Hand a Bescheid's permit record to the BFF (permitting memory), fail-open and bounded.
+
+        Runs once the tags are known, and only when the job names the BFF row it was
+        dispatched for. A Bescheid is read: the extraction is a second model call over the
+        whole document, so it gets its own deadline, and a slow model costs the record,
+        never the ingest.
+
+        A document the tag decision positively typed as another kind (a document-type tag
+        other than Bescheid and Sonstiges, ``typed_as_something_else``) has its record
+        dropped, with no model call and under a short deadline, so a re-typed document
+        stops answering as a permit. Anything less is no decision: ``None`` (the tagger
+        timed out or failed, the classifier abstained, summaries are off), discipline tags
+        alone (the fallback drops an off-vocabulary type), or Sonstiges. Placement
+        re-ingests on every move, so dropping on any of them would erase a real Bescheid's
+        record whenever the tagger was slow or unsure (docs/design/permitting-memory.md).
+        """
+        from aiq_agent.knowledge.permit_extraction import extract_and_store_permit_record
+        from aiq_agent.knowledge.permit_extraction import is_bescheid
+        from aiq_agent.knowledge.permit_extraction import typed_as_something_else
+        from aiq_agent.knowledge.permit_records_client import store_permit_record
+
+        organization_id, document_id = config.get("organization_id"), config.get("document_id")
+        if not (organization_id and document_id):
+            return
+        if not is_bescheid(tags):
+            if typed_as_something_else(tags):
+                self._bounded(
+                    "Permit record drop",
+                    file_name,
+                    PERMIT_RECORD_DROP_TIMEOUT_SECONDS,
+                    store_permit_record,
+                    str(organization_id),
+                    str(document_id),
+                    collection_name,
+                    file_name,
+                    "",
+                    None,
+                )
+            return
+        if not (self.generate_summary_enabled and self.summary_llm):
+            return
+        pages = [(doc.metadata.get("page_label"), doc.get_content()) for doc in text_documents]
+        self._bounded(
+            "Permit record",
+            file_name,
+            PERMIT_RECORD_TIMEOUT_SECONDS,
+            extract_and_store_permit_record,
+            pages,
+            self.summary_llm,
+            organization_id=str(organization_id),
+            document_id=str(document_id),
+            collection=collection_name,
+            file_name=file_name,
+        )
+
+    @staticmethod
+    def _bounded(label: str, name: str, timeout: float, work: Callable[..., Any], /, *args: Any, **kwargs: Any) -> None:
+        """Run ``work`` on its own thread under ``timeout``: past it, or on a fault, the ingest goes on without it.
+
+        Positional-only, so ``work``'s own keywords (``file_name``) pass through untouched.
+        """
+        from aiq_agent.common.cost_tracking import submit_in_context
+
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            _future_result(submit_in_context(pool, work, *args, **kwargs), label, name, timeout=timeout)
+        finally:
+            pool.shutdown(wait=False)
+
     def _run_ingestion(
         self,
         job_id: str,
@@ -4104,6 +4368,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         from knowledge_layer.renditions import delete_quietly
         from knowledge_layer.renditions import handed_rendition_paths
         from knowledge_layer.renditions import requires_rendition
+        from knowledge_layer.renditions import resolve_preview
         from knowledge_layer.renditions import resolve_rendition
 
         # Originals and renditions this job downloaded itself: always its own
@@ -4198,6 +4463,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # Original filenames for temp file uploads (avoids tmp prefix in metadata)
             original_filenames = config.get("original_filenames", [])
 
+            # The office's upload screening, applied to each file's locally
+            # extracted text before its first model call; None: not screened.
+            from knowledge_layer.llamaindex.screening import ScreeningRules
+            from knowledge_layer.llamaindex.screening import document_pages
+
+            screening_rules = ScreeningRules.from_config(config.get("screening"))
+
             # Process each file, each under its own replacement lock (see
             # _find_previous_versions), released when the file is done.
             kept_previous: list[str] = []
@@ -4249,7 +4521,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Prefer a human-set stored class over the filename guess;
                     # stamped into every chunk's metadata below and persisted to
                     # the summaries row after ingestion. The guess is for the
-                    # base corpus only: on a project, session or Büroarchiv
+                    # base corpus only: on a project, session or Büroablage
                     # upload a guessed "sonstiges" is not harmless — it labelled
                     # every user document a "Basisdokument" in the Herleitung.
                     from aiq_agent.common.norm_registry import guess_doc_class
@@ -4307,17 +4579,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             job.file_details[i].status = FileStatus.INGESTING
                             job.file_details[i].progress_percent = (i / len(file_paths)) * 100
 
-                    # The card's thumbnail, first: the one thing a person sees
-                    # of this file before it is indexed, and a page-1 render is
-                    # the quickest step there is. The route downloads nothing
-                    # (knowledge_layer.deferred_files), so this is the first
-                    # moment anything has the bytes; drawn from the rendition
-                    # when there is one, so that one download serves both. An
-                    # office original indexed from itself (a spreadsheet) gets
-                    # its thumbnail from the route's `preview_ref` render.
+                    # The card's thumbnail is drawn once the file's screening
+                    # has passed, never before (ADR-0086): a thumbnail is a
+                    # derivative of the content, and a quarantined file has
+                    # none. See `_thumbnail_after_screen`.
                     thumbnail_upload_url = config.get("thumbnail_upload_url")
-                    if thumbnail_upload_url and (is_pdf or is_image):
-                        self._generate_and_upload_thumbnail(source_path, thumbnail_upload_url)
 
                     # Collect all documents for this file
                     all_documents = []
@@ -4326,6 +4592,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # SimpleDirectoryReader can fall back to indexing raw PDF bytes
                     # when optional LlamaIndex file readers are missing.
                     text_pages: list[dict[str, Any]] = []
+                    # What the PDF export dropped from the original (pptx
+                    # speaker notes), read before the screen so it is screened too.
+                    companions: list[Any] = []
+                    # The PDF's uncaptioned tables, likewise read before the screen.
+                    tables: list[dict[str, Any]] = []
+                    table_documents: list[Any] = []
                     if is_pdf:
                         text_pages = _extract_text_from_pdf(source_path)
                         unreadable = unreadable_pdf_verdict(text_pages)
@@ -4334,6 +4606,33 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             logger.warning("Failing %s: %s", file_name, unreadable)
                             continue
                         self._record_failed_pages(job, i, text_pages)
+                        if rendition:
+                            companions = _rendition_companions(file_path, file_name, file_size)
+                        if extract_tables:
+                            from knowledge_layer.llamaindex.section_chunking import uncaptioned_table_documents
+
+                            taken = {page["page_number"]: page.get("table_boxes") or [] for page in text_pages}
+                            tables = _extract_tables_from_pdf(source_path, taken)
+                            table_documents = [
+                                document
+                                for table in tables
+                                for document in uncaptioned_table_documents(table, file_name, file_size)
+                            ]
+                        # The upload screen: the last step before a page of
+                        # this file can reach a model (transcription, below).
+                        route_kwargs = self._screen_pdf(
+                            job,
+                            i,
+                            screening_rules,
+                            source_path,
+                            text_pages,
+                            companions,
+                            captions_rasters=bool(vlm_api_key) and (extract_images or extract_charts),
+                            tables=table_documents,
+                        )
+                        if route_kwargs is None:
+                            continue
+                        self._thumbnail_after_screen(thumbnail_upload_url, source_path)
                         page_routes = _transcription.route_pdf_pages(
                             source_path,
                             text_pages,
@@ -4345,6 +4644,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             min_paths=VISUAL_PAGE_MIN_PATHS,
                             max_ocr_pages=MAX_OCR_PAGES,
                             max_dim=PAGE_RENDER_MAX_DIM,
+                            **route_kwargs,
                         )
                         self._record_file_counts(job, i, **page_routes.counts())
                         if page_routes.not_transcribed and not text_pages:
@@ -4360,6 +4660,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # file with a specific, machine-readable reason the
                         # failed-doc UX can surface for retry. The key is the
                         # org-aware resolved one (BYOK), not the deployment key.
+                        # Nothing of an image is readable here, so it is not screened:
+                        # it passes on its name, and its thumbnail may be drawn.
+                        self._record_screening(job, i, screening_rules, "unchecked")
+                        self._thumbnail_after_screen(thumbnail_upload_url, source_path)
                         if not vlm_api_key:
                             self._update_file_status(
                                 job,
@@ -4422,6 +4726,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         office_documents = office_extractors.extract_office_documents(file_path, file_name, file_size)
                         if office_documents is None:
                             office_documents = extract_text_format_documents(file_path, file_name, file_size)
+                        over_cap = 0
                         if office_documents is not None:
                             text_documents = office_documents
                             over_cap = office_extractors.rows_over_cap(office_documents)
@@ -4436,14 +4741,24 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             for doc in text_documents:
                                 doc.metadata["file_name"] = file_name
                                 doc.metadata["file_size"] = file_size
+                        # The upload screen, before anything reads `text_documents`.
+                        # Rows past the cap, columns past it and the tail of an
+                        # over-long cell were never read: not screened, not indexed.
+                        cut = office_extractors.content_cut(text_documents)
+                        checked = "partial" if over_cap or cut else "full"
+                        if self._screen_or_quarantine(job, i, screening_rules, document_pages(text_documents), checked):
+                            continue
+                        # An office original indexed from its own bytes has a
+                        # thumbnail only through its rendition (`preview_paths`).
+                        if thumbnail_upload_url:
+                            self._thumbnail_after_screen(thumbnail_upload_url, resolve_preview(config, i, downloaded))
 
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")
-                    # What the PDF export dropped from the original (pptx
-                    # speaker notes). Kept out of `text_documents`, which feed
-                    # the summary: notes are not what the document says first.
-                    if rendition:
-                        all_documents.extend(_rendition_companions(file_path, file_name, file_size))
+                    # The rendition's companions (read above). Kept out of
+                    # `text_documents`, which feed the summary: notes are not
+                    # what the document says first.
+                    all_documents.extend(companions)
 
                     # Summary + tag classification are started AFTER visual
                     # extraction (below) so that for text-sparse drawing PDFs the
@@ -4455,14 +4770,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     executor = None
                     drawing_pages: list[dict[str, Any]] = []
 
-                    # 2. Extract tables (PDF only)
+                    # 2. Tables (PDF only), read and screened with the text above
                     if is_pdf and extract_tables:
-                        taken = {page["page_number"]: page.get("table_boxes") or [] for page in text_pages}
-                        tables = _extract_tables_from_pdf(source_path, taken)
-                        from knowledge_layer.llamaindex.section_chunking import uncaptioned_table_documents
-
-                        for table in tables:
-                            all_documents.extend(uncaptioned_table_documents(table, file_name, file_size))
+                        all_documents.extend(table_documents)
                         total_tables += len(tables)
                         logger.info(f"  Table extraction: {len(tables)} tables")
 
@@ -4503,6 +4813,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         )
                         if images_over_cap:
                             self._record_file_counts(job, i, images_over_cap=images_over_cap)
+                        if images and vlm_api_key:
+                            self._record_unscreened_rasters(job, i)
 
                         image_results, drawing_pages = _processing.enrich_vlm_batch(
                             image_records=images,
@@ -4678,6 +4990,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Clean up executor
                     if executor:
                         executor.shutdown(wait=False)
+
+                    self._remember_permit(config, collection_name, file_name, tags, text_documents)
 
                     # Standalone images must appear in the per-turn
                     # available_documents list to be usable in chat (summaries
@@ -4929,6 +5243,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     self._update_file_status(job, i, FileStatus.FAILED, error=str(e))
                     self._discard_partial_version(chroma_collection, collection_name, file_name, chunks_before)
                 finally:
+                    # Still under the replacement lock: a quarantined re-upload
+                    # holds its whole document (ADR-0086) until a reviewer
+                    # acts, so its predecessor stops answering now.
+                    if previous is not None and not retired and not deleted and self._quarantined(job, i):
+                        self._retire_held_predecessor(chroma_collection, collection_name, file_name, previous)
+                        retired = True
                     file_scope.close()
                     # A predecessor still here had a re-upload that did not
                     # index (raised, or reported FAILED and skipped ahead); it

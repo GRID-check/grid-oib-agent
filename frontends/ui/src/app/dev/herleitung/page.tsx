@@ -16,14 +16,15 @@
  *   - dense    → a research-heavy turn (9 documents across 5 lanes): more
  *     sources than fit in one row, so the fan packs into stacked COLUMNS
  *     instead of degrading to a single vertical chain.
- *   - branches → a live choice prompt WITHOUT findings, so the sources fan IN to
- *     the branches node directly (per-source handles, no single-point collapse);
- *     a long question + many branch options exercise the measured, content-driven
- *     layout (tall nodes must not overlap).
+ *   - branches → a long question and NO findings: a tall framing node over the
+ *     sources and no assessment below them, which exercises the measured,
+ *     content-driven layout (tall nodes must not overlap). The name is kept for
+ *     the captures that link it; ChatThinking draws no branches node (a choice
+ *     prompt is its own card in the thread, not part of the graph).
  *   - live     → a turn mid-stream: completed steps + an in-progress web search,
- *     so the live activity phrase, the marching connectors into the newest row
- *     (React Flow's `animated` edges), executed-step chips (with the running
- *     pulse) and the elapsed pill all render.
+ *     so the live activity phrase, executed-step chips (with the running pulse)
+ *     and the elapsed pill all render. The connectors into the newest row stay
+ *     still: the header's shimmer is the one ambient motion.
  *   - spine    → TWO retrieval rounds: the fan becomes a spine of checkpoints,
  *     each owning the files that fetch returned. Both layers open, because
  *     folding half of a comparison hides the comparison.
@@ -72,7 +73,7 @@ const step: StoredThinkingStep = {
     },
     {
       key: 'buero',
-      label: 'Büroarchiv',
+      label: 'Büroablage',
       hitCount: 1,
       signal: 'office',
       sources: [{ name: 'Brandschutzkonzept_2023.pdf', detail: 'Referenzprojekt' }],
@@ -180,7 +181,7 @@ const denseStep: StoredThinkingStep = {
     },
     {
       key: 'buero',
-      label: 'Büroarchiv',
+      label: 'Büroablage',
       hitCount: 1,
       signal: 'office',
       sources: [{ name: 'Brandschutzkonzept_2023.pdf', detail: 'Referenzprojekt' }],
@@ -244,7 +245,7 @@ const mergedHits = (
               ? 'OIB-Richtlinie'
               : signal === 'project'
                 ? 'Projektwissen'
-                : 'Büroarchiv',
+                : 'Büroablage',
           hitCount: laneHits.length,
           signal,
           sources: laneHits.map((hit) => ({ name: hit.name, detail: hit.detail, round })),
@@ -276,7 +277,7 @@ const SPINE_ROUNDS = [
   {
     query: 'Referenzprojekt Sicherheitstreppenhaus RWA',
     reason:
-      'Der Plan zeigt eine RWA im Treppenraum; wie das Büro das zuletzt nachgewiesen hat, steht im Archiv.',
+      'Der Plan zeigt eine RWA im Treppenraum; wie das Büro das zuletzt nachgewiesen hat, steht in der Büroablage.',
     hits: [
       { name: 'Brandschutzkonzept_2023.pdf', detail: 'Referenzprojekt', lane: 'office' as const },
     ],
@@ -296,10 +297,9 @@ const spineCommon = (roundCount: number) => ({
     'Reichen die beiden Rettungswege im Regelgeschoss, wenn der nördliche Treppenraum kein Sicherheitstreppenhaus ist?',
 })
 
-// Branches scenario: a live choice prompt and NO findings, so the parallel
-// sources converge directly onto the branches node. A long question and four
-// branch options make the framing + branches nodes tall — the measured layout
-// must place them without overlap.
+// Long-question scenario: NO findings, so the sources end the graph. The long
+// question makes the framing node tall, and the measured layout must place the
+// rows below it without overlap.
 const branchesCommon = {
   steps: [step],
   isThinking: false as const,
@@ -308,22 +308,11 @@ const branchesCommon = {
     'Für ein sechsgeschossiges Bürogebäude der Gebäudeklasse 5 in Wien mit einer Bruttogeschossfläche von 1.200 m² pro Ebene: Wie viele bauliche Rettungswege sind nach OIB-Richtlinie 2 erforderlich, und welche Anforderungen gelten für die maximale Fluchtweglänge sowie die Ausbildung der Treppenhäuser?',
   enabledDataSources: ['OIB-Korpus', 'RIS', 'Projektdokumente'],
   escalationReason: 'shallow→deep',
-  choicePrompt: {
-    promptId: 'p-dev',
-    text: 'Wie möchtest du die Rettungsweg-Prüfung fortsetzen?',
-    options: [
-      'Fluchtweglängen für jede Ebene einzeln prüfen',
-      'Treppenhaus-Anforderungen (Sicherheitstreppenhaus) vertiefen',
-      'Vergleich mit dem Referenzprojekt aus dem Büroarchiv',
-      'Zusammenfassung aller OIB-Anforderungen als Checkliste',
-    ],
-    isResponded: false,
-  },
 }
 
 // Live scenario: a turn mid-stream — the KB hit and an in-progress web
 // search. Exercises the live activity phrase (shown only
-// while the step actually runs), the animated edges, the executed-step chips
+// while the step actually runs), the executed-step chips
 // with the running pulse, and the elapsed-time pill.
 const liveCommon = {
   steps: [
@@ -369,7 +358,7 @@ export default function HerleitungPreviewPage() {
               : defaultCommon
   const label =
     variant === 'branches'
-      ? '/dev/herleitung?variant=branches — sources → branches (no findings)'
+      ? '/dev/herleitung?variant=branches — long question, sources without findings'
       : variant === 'live'
         ? '/dev/herleitung?variant=live — mid-stream turn (live status + chips)'
         : variant === 'dense'

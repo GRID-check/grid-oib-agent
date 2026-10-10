@@ -13,9 +13,17 @@
  * axis, nested by indentation (turn → step → model/tool call), the kind told
  * apart by icon, label and colour together. No chart dependency.
  *
+ * The list is read in the page's scope (`scope`: date range, organizations,
+ * projects): conversations with a turn in the range, their counts taken over
+ * those turns. The search narrows within it. The timeline is one whole
+ * conversation and ignores the range; a conversation with no turn in a NEW
+ * scope is deselected, so the right card never describes something the left
+ * one no longer lists.
+ *
  * A conversation can be preselected (`initialConversationId`, or
  * `?conversation=` on the URL), which is how citation health's recent findings
- * link into this view.
+ * link into this view. A link is honoured even when the conversation falls
+ * outside the scope the page opens with.
  */
 
 import type { JSX } from 'react'
@@ -50,8 +58,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { SeriesPaletteStyle } from '@/components/charts/palette'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
+import { qualityScopeQuery, readQualityScope, type QualityScope } from '@/lib/quality/scope'
 import { cn } from '@/lib/utils'
 import { CopyableId, shortId } from './copyable-id'
+import { useQualityScopeLabel } from './quality-scope-label'
 
 type SpanKind = 'turn' | 'node' | 'llm' | 'tool'
 type SpanStatus = 'ok' | 'error'
@@ -62,6 +72,8 @@ interface ConversationSummaryDto {
   /** Resolved display name; absent on servers that predate it. */
   organizationName?: string | null
   title: string | null
+  /** The conversation drew on a restricted folder; the server sends no title (ADR-0093). */
+  titleWithheld?: boolean
   turnCount: number
   totalDurationMs: number
   lastActiveAt: string
@@ -337,13 +349,28 @@ function ErrorAlert({
   )
 }
 
+interface ConversationListDto {
+  conversations: ConversationSummaryDto[]
+  capped: boolean
+  /** The asked-about conversation in the scope, null when it has no turn there. */
+  selected?: ConversationSummaryDto | null
+}
+
 export function AgentProfiler({
+  scope,
   initialConversationId,
-}: { initialConversationId?: string } = {}): JSX.Element {
+}: {
+  scope: QualityScope
+  initialConversationId?: string
+}): JSX.Element {
   const t = useTranslations('platform')
   const { locale } = useLocale()
+  const scopeLabel = useQualityScopeLabel()
   const searchParams = useSearchParams()
   const preselected = initialConversationId ?? searchParams?.get('conversation') ?? null
+  // The query string is the scope's identity: the page may rebuild the object
+  // on every render, and refetching on identity would loop.
+  const scopeQuery = qualityScopeQuery(scope)
 
   const [conversations, setConversations] = useState<ConversationSummaryDto[] | null>(null)
   const [capped, setCapped] = useState(false)
@@ -352,8 +379,14 @@ export function AgentProfiler({
   const [search, setSearch] = useState('')
   /** The query the shown list answers, for the no-match copy. */
   const [shownQuery, setShownQuery] = useState('')
+  /** The scope the shown list answers; differs from `scope` while a switch loads or after it failed. */
+  const [shownScopeQuery, setShownScopeQuery] = useState<string | null>(null)
 
   const [selectedId, setSelectedId] = useState<string | null>(preselected)
+  /** The selected conversation's row, from the server, when the list does not carry it. */
+  const [selectedSummary, setSelectedSummary] = useState<ConversationSummaryDto | null>(null)
+  /** True after a scope change dropped the selection, so the empty timeline says why. */
+  const [droppedByScope, setDroppedByScope] = useState(false)
   const [timeline, setTimeline] = useState<TimelineDto | null>(null)
   const [timelineLoading, setTimelineLoading] = useState(false)
   const [timelineError, setTimelineError] = useState(false)
@@ -364,25 +397,45 @@ export function AgentProfiler({
   const listRequest = useRef<AbortController | null>(null)
   const timelineRequest = useRef<AbortController | null>(null)
   const timelineCardRef = useRef<HTMLDivElement | null>(null)
+  // Read inside `load` without making it change identity on every selection.
+  const selectedRef = useRef(selectedId)
+  useEffect(() => {
+    selectedRef.current = selectedId
+  }, [selectedId])
+  /** The scope of the last list that landed; null until the first one has. */
+  const landedScope = useRef<string | null>(null)
 
-  const load = useCallback((query: string) => {
+  const load = useCallback((query: string, requestedScope: string) => {
     listRequest.current?.abort()
     const controller = new AbortController()
     listRequest.current = controller
     setLoading(true)
     setError(false)
-    const qs = query ? `?q=${encodeURIComponent(query)}` : ''
-    fetch(`/api/platform/profiler/conversations${qs}`, { signal: controller.signal })
+    const asked = selectedRef.current
+    const params = new URLSearchParams(requestedScope)
+    if (query) params.set('q', query)
+    if (asked) params.set('conversation', asked)
+    fetch(`/api/platform/profiler/conversations?${params.toString()}`, {
+      signal: controller.signal,
+    })
       .then(async (res) => {
         if (!res.ok) throw new Error(String(res.status))
-        const data = (await res.json()) as {
-          conversations: ConversationSummaryDto[]
-          capped: boolean
-        }
+        const data = (await res.json()) as ConversationListDto
         if (controller.signal.aborted) return
+        const scopeChanged = landedScope.current !== null && landedScope.current !== requestedScope
+        landedScope.current = requestedScope
         setConversations(data.conversations)
         setCapped(data.capped)
         setShownQuery(query)
+        setShownScopeQuery(requestedScope)
+        if (asked === null || asked !== selectedRef.current) return
+        setSelectedSummary(data.selected ?? null)
+        // Only a CHANGE of scope drops the selection: a link into a
+        // conversation outside the scope the page opened with still opens it.
+        if (scopeChanged && data.selected === null) {
+          setSelectedId(null)
+          setDroppedByScope(true)
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) setError(true)
@@ -394,9 +447,9 @@ export function AgentProfiler({
 
   useEffect(() => {
     const query = search.trim()
-    const handle = setTimeout(() => load(query), query ? SEARCH_DEBOUNCE_MS : 0)
+    const handle = setTimeout(() => load(query, scopeQuery), query ? SEARCH_DEBOUNCE_MS : 0)
     return () => clearTimeout(handle)
-  }, [search, load])
+  }, [search, scopeQuery, load])
 
   useEffect(() => () => listRequest.current?.abort(), [])
 
@@ -431,6 +484,7 @@ export function AgentProfiler({
   const selectConversation = (conversationId: string): void => {
     if (conversationId === selectedId) return
     setSelectedId(conversationId)
+    setDroppedByScope(false)
     // Stacked layout: the timeline sits under a long list, so bring it into
     // view, or the click appears to do nothing.
     if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 1023px)').matches) {
@@ -439,9 +493,14 @@ export function AgentProfiler({
   }
 
   const selected = useMemo(
-    () => conversations?.find((conversation) => conversation.conversationId === selectedId) ?? null,
-    [conversations, selectedId]
+    () =>
+      conversations?.find((conversation) => conversation.conversationId === selectedId) ??
+      (selectedSummary?.conversationId === selectedId ? selectedSummary : null),
+    [conversations, selectedId, selectedSummary]
   )
+  const shownScope = shownScopeQuery
+    ? readQualityScope(new URLSearchParams(shownScopeQuery))
+    : scope
 
   const organizationLabel = (conversation: ConversationSummaryDto): string =>
     conversation.organizationName ?? conversation.organizationId ?? t('profiler.noOrganization')
@@ -460,7 +519,7 @@ export function AgentProfiler({
       return error ? (
         <ErrorAlert
           title={t('profiler.loadError')}
-          onRetry={() => load(search.trim())}
+          onRetry={() => load(search.trim(), scopeQuery)}
           busy={loading}
         />
       ) : (
@@ -472,7 +531,7 @@ export function AgentProfiler({
         {error ? (
           <ErrorAlert
             title={t('profiler.loadError')}
-            onRetry={() => load(search.trim())}
+            onRetry={() => load(search.trim(), scopeQuery)}
             busy={loading}
           />
         ) : null}
@@ -508,6 +567,9 @@ export function AgentProfiler({
                           <ItemTitle>
                             {conversation.title || shortId(conversation.conversationId)}
                           </ItemTitle>
+                          {conversation.titleWithheld ? (
+                            <ItemDescription>{t('profiler.titleWithheld')}</ItemDescription>
+                          ) : null}
                           <ItemDescription className="tabular-nums">
                             {summaryLine(conversation)}
                           </ItemDescription>
@@ -543,7 +605,13 @@ export function AgentProfiler({
 
   const timelineBody = (): JSX.Element => {
     if (!selectedId)
-      return <EmptyState variant="bare" icon={Clock} title={t('profiler.detailEmpty')} />
+      return (
+        <EmptyState
+          variant="bare"
+          icon={Clock}
+          title={t(droppedByScope ? 'profiler.outOfScope' : 'profiler.detailEmpty')}
+        />
+      )
     if (timelineError) {
       return (
         <ErrorAlert
@@ -614,7 +682,9 @@ export function AgentProfiler({
       <Card>
         <CardHeader>
           <CardTitle>{t('profiler.listTitle')}</CardTitle>
-          <CardDescription>{t('profiler.listDescription')}</CardDescription>
+          <CardDescription>
+            {t('profiler.listDescription', { scope: scopeLabel(shownScope) })}
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <SearchField

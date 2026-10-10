@@ -55,6 +55,24 @@ export const formatDate = (isoDate: string, locale?: string): string => {
 }
 
 /**
+ * An inclusive range of UTC calendar days, `YYYY-MM-DD` at both ends, in the
+ * locale's own range form: "1.–30. Sept. 2026" / "Sep 1 – 30, 2026", and one
+ * date when both ends are the same day. UTC because the days are UTC buckets;
+ * read in the viewer's zone, the 1st would print as 31 August west of UTC.
+ */
+export const formatDayRange = (from: string, to: string, locale?: string): string => {
+  const start = new Date(`${from}T00:00:00Z`)
+  const end = new Date(`${to}T00:00:00Z`)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return `${from} – ${to}`
+  return new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).formatRange(start, end)
+}
+
+/**
  * Tokens — the usage unit of an organization on its own key (ADR-0053). Big
  * numbers, so compact once past a thousand ("1.2M"), exact below; the unit
  * word is the caller's, from the dictionary, like `formatCredits`.
@@ -196,6 +214,18 @@ export const formatTimeOfDay = (isoDate: string, locale?: string): string => {
   if (Number.isNaN(date.getTime())) return isoDate
 
   return new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(date)
+}
+
+/**
+ * Localized calendar date ("14 Jul 2026" / "14.07.2026"), for a day that
+ * matters and a time of day that does not: when a folder was deleted, when
+ * its purge runs.
+ */
+export const formatCalendarDate = (isoDate: string, locale?: string): string => {
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) return isoDate
+
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
 }
 
 /**

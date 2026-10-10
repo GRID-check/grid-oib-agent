@@ -60,6 +60,14 @@ class TestBuildResult:
             research_truncated=True,
             answer_meta={"kind": "ruling", "verdict": "40 m"},
             retrieval_ledger=ledger,
+            reasoning_effort="high",
+        )
+        assert result.reasoning_effort == "high"
+        assert (
+            to_frame(stamp(finished(result), conversation_id="c", turn_id="t", seq=0, ts=0))["result"][
+                "reasoning_effort"
+            ]
+            == "high"
         )
         assert result.routing_decision == "shallow"
         assert result.answer_confidence == "low"
@@ -112,6 +120,14 @@ class TestAnswerMessageId:
         assert answer_message_id("conv", "turn") == expected
         assert answer_message_id("conv", None) == str(uuid.uuid5(uuid.NAMESPACE_URL, "grid:assistant:conv:default"))
 
+    def test_the_running_turn_names_its_answer_before_it_exists(self, monkeypatch):
+        """ADR-0093: the BFF marks this id at admission; it must be the id the answer is streamed under."""
+        from aiq_agent import project_context
+        from aiq_agent.turn.response import turn_answer_message_id
+
+        monkeypatch.setattr(project_context, "get_user_message_id_from_context", lambda: "turn")
+        assert turn_answer_message_id("conv") == answer_message_id("conv", "turn")
+
 
 class TestPostAnswerTurnFacts:
     """The crossing from finished graph state to a stage's inputs.
@@ -138,6 +154,19 @@ class TestPostAnswerTurnFacts:
 
     def test_truncation_crosses(self):
         assert self._facts(_state(research_truncated=True)).research_truncated is True
+
+    def test_a_conversation_that_drew_on_another_project_crosses(self):
+        """Read while the turn is bound, because reflection runs after it is gone (ADR-0094)."""
+        from aiq_agent.knowledge.restricted_use import CrossProjectTurn
+        from aiq_agent.knowledge.restricted_use import bind_cross_project_turn
+        from aiq_agent.knowledge.restricted_use import reset_cross_project_turn
+
+        assert self._facts(_state()).drew_on_other_projects is False
+        token = bind_cross_project_turn(CrossProjectTurn(drew_on_others=True))
+        try:
+            assert self._facts(_state()).drew_on_other_projects is True
+        finally:
+            reset_cross_project_turn(token)
         assert self._facts(_state()).research_truncated is False
 
     def test_routing_decision_crosses(self):
@@ -154,3 +183,87 @@ class TestPostAnswerTurnFacts:
 
     def test_memory_writes_cross(self):
         assert self._facts(_state(), remembered_this_turn=("Firma: Grid",)).remembered_this_turn == ("Firma: Grid",)
+
+    def test_an_open_scope_crosses_as_no_restriction(self):
+        assert self._facts(_state(collection_scope=["oib_knowledge", "proj_1"])).restriction.restricted is False
+        assert self._facts(_state()).restriction.restricted is False
+
+    def test_the_restriction_evidence_crosses(self):
+        """ADR-0087: the reflection stage restricts what it writes from this.
+
+        Read is what the turn cited, what it read uncited, and what the
+        conversation's registry holds; listed is the uncapped inventory, else
+        the prompt's rows. A default would let the stage write open memory.
+        """
+        restricted_a = "proj_1_r0123456789ab"
+        restricted_b = "proj_1_rba9876543210"
+        restricted_c = "proj_1_rcccccccccccc"
+        state = _state(
+            collection_scope=["oib_knowledge", "proj_1", restricted_a, restricted_b, restricted_c],
+            verified_sources=[{"collection": restricted_a}, {"collection": "oib_knowledge"}],
+            read_sources=[{"collection": "proj_1"}],
+            available_documents=[
+                {"collection": restricted_c, "file_name": "prompt.pdf", "summary": "in the prompt"},
+            ],
+        )
+        facts = self._facts(
+            state,
+            registry_collections=(restricted_b,),
+            listed_documents=(
+                {"collection": restricted_c, "file_name": "Vertrag.pdf", "summary": "Honorar"},
+                {"collection": "proj_1", "file_name": "Plan.pdf", "summary": "open"},
+            ),
+        )
+        evidence = facts.restriction
+        assert evidence.scope == (restricted_a, restricted_b, restricted_c)
+        assert evidence.read == (restricted_a, restricted_b)
+        assert [doc.name for doc in evidence.documents] == ["Vertrag.pdf"]
+
+    def test_restricted_memory_in_the_prompt_crosses_as_notes(self):
+        """The digest's restricted lines and the tool's restricted writes this turn."""
+        restricted = "proj_1_r0123456789ab"
+        digest = '- [restricted | decision | high | unverified] "Honorar pauschal."'
+        facts = post_answer_turn_facts(
+            TurnFacts(project_id="proj_1", memory_digest=digest),
+            state=_state(collection_scope=["proj_1", restricted]),
+            query_text="q",
+            cards=[],
+            restricted_memory_writes=("Vertragsstrafe 0,1 %",),
+        )
+        assert [(note.content, note.collections) for note in facts.restriction.notes] == [
+            ("Honorar pauschal.", (restricted,)),
+            ("Vertragsstrafe 0,1 %", (restricted,)),
+        ]
+
+    def test_notes_earlier_turns_were_shown_cross_with_their_own_collections(self):
+        """ADR-0087: a restricted note gone from this turn's digest is still evidence."""
+        from aiq_agent.memory.restriction import RestrictedNote
+        from aiq_agent.memory.shown_notes import ShownNotes
+
+        earlier_folder = "proj_1_rba9876543210"
+        overflowed = "proj_1_r00000000000f"
+        facts = post_answer_turn_facts(
+            TurnFacts(project_id="proj_1", memory_digest=None),
+            state=_state(collection_scope=["proj_1"]),
+            query_text="q",
+            cards=[],
+            earlier_restricted_notes=ShownNotes(
+                notes=(RestrictedNote("Gehalt Bauleiter 5.200 brutto.", (earlier_folder,)),),
+                overflowed=(overflowed,),
+            ),
+        )
+        evidence = facts.restriction
+        assert evidence.restricted
+        assert evidence.scope == (earlier_folder, overflowed)
+        assert evidence.read == (overflowed,)
+        assert [(note.content, note.collections) for note in evidence.notes] == [
+            ("Gehalt Bauleiter 5.200 brutto.", (earlier_folder,))
+        ]
+
+    def test_the_prompt_rows_stand_in_when_no_listing_was_bound(self):
+        restricted = "proj_1_r0123456789ab"
+        state = _state(
+            collection_scope=["proj_1", restricted],
+            available_documents=[{"collection": restricted, "file_name": "prompt.pdf", "summary": "s"}],
+        )
+        assert [doc.name for doc in self._facts(state).restriction.documents] == ["prompt.pdf"]

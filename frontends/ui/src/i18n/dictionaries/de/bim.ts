@@ -9,7 +9,7 @@ export const bim: typeof en.bim = {
     structure: 'Struktur',
     quantities: 'Mengen',
     revisions: 'Revisionen',
-    // Im Büroarchiv gibt es kein Projekt – und damit keine Gebäudeklasse und
+    // In der Büroablage gibt es kein Projekt – und damit keine Gebäudeklasse und
     // keine Hauptnutzung, gegen die geprüft werden könnte. Deaktiviert statt
     // ausgeblendet: Ein fehlender Reiter liest sich, als wäre das Prüfbuch
     // verschwunden.

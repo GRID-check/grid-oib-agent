@@ -102,10 +102,13 @@ Chosen option 3.
   project (`purger/purge-project.js`) or, when an organization purge exists, its
   organization (`eraseLane`).
 * **A walk runs as the person's rights of today.** A job can wait, and a reindex
-  spans many slices, so `reindex_project` and `reingest_failed` resolve the
-  requester's membership and role again before every slice
-  (`resolvePinnedRequesterSession`) and the rescan re-checks `org:settings:manage`.
-  A role revoked, or a person who left, ends the job quietly. A reader's
+  spans many slices, so `reindex_project`, `reingest_failed` and the Papierkorb's
+  `restore_folder_bin` (ADR-0088) resolve the requester's membership and role
+  again before every slice (`resolvePinnedRequesterSession`) and the rescan
+  re-checks `org:settings:manage`. A role revoked, or a person who left, ends the
+  job quietly. One walk runs as the system instead: `purge_binned_chunks`
+  finishes the chunk purge of a folder delete whose request died, and a binned
+  folder must leave retrieval whoever deleted it. A reader's
   filing of a finished report asks for permission when the request is made, so a
   refusal is the answer they get rather than a job that is refused on every read.
 * **The scaler reads a count, not rows.** KEDA's login holds SELECT on the

@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
@@ -253,6 +254,16 @@ class FileProgress(BaseModel):
             "`drawing_pages_over_cap`: drawing pages past AIQ_MAX_RENDERED_PAGES."
         ),
     )
+    screening: Literal["clean", "partial", "unchecked", "quarantined"] | None = Field(
+        default=None,
+        description=(
+            "What the upload screen made of this file, when the job carried screening rules "
+            "(null otherwise): `clean` (all its content was screened, nothing matched), "
+            "`partial` (its text layer was clean, but some pages go to OCR or drawing analysis "
+            "unscreened), `unchecked` (an image, or no local text at all), `quarantined` "
+            "(a match; the file FAILED and `error_message` starts with `quarantined:`)."
+        ),
+    )
 
 
 class IngestionJobStatus(BaseModel):
@@ -306,7 +317,7 @@ class AvailableDocument(BaseModel):
     """One searchable document the agent may list in this turn.
 
     Identity is ``(collection, file_name)`` (ADR-0047): the same filename can
-    sit on the Büroarchiv and in a project as two different documents. ``shelf``
+    sit on the Büroablage and in a project as two different documents. ``shelf``
     is where it sits (``archiv`` / ``project`` / ``session`` / ``base``) and is
     stamped at aggregation from the signed scope — never guessed back from the
     filename. Missing shelf is unknown, not ``base``.

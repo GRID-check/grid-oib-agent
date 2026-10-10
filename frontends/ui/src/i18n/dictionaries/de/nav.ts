@@ -19,12 +19,14 @@ export const nav: typeof en.nav = {
     research: 'Recherche',
     /** Automatisierung — Tasks und Skills als Tabs in einem Bereich. */
     automation: 'Automatisierung',
+    // Ähnliche abgeschlossene Projekte, für dieses gelesen (ADR-0094).
+    referenzen: 'Ähnliche Projekte',
     skills: 'Skills',
     jobs: 'Jobs',
     // Der führende Tab: an Piloti übergebene Arbeit, eine Karte je Task (ADR-0051).
     tasks: 'Tasks',
-    archiv: 'Archiv',
-    settings: 'Einstellungen',
+    archiv: 'Büroablage',
+    settings: 'Übersicht',
     // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).
     intake: 'Einrichtung',
   },
@@ -37,7 +39,7 @@ export const nav: typeof en.nav = {
     automation:
       'Was Piloti erledigt hat, während Sie weg waren, was als Nächstes ansteht — und die Skills, mit denen es arbeitet.',
     knowledge: 'Was die Wissensbasis derzeit enthält.',
-    settings: 'Projektprofil, Mitglieder, Gedächtnis und Gefahrenzone.',
+    settings: 'Wo dieses Projekt steht und wie es eingerichtet ist.',
     intake: 'Geführtes Briefing für dieses Projekt.',
   },
   backTo: 'Zurück zu {label}',

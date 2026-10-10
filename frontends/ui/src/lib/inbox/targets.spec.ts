@@ -102,6 +102,7 @@ describe('the conversation target', () => {
       visibility: 'project',
       container: { organizationId: 'org_1', projectId: 'proj_1' },
       canEscalate: false,
+      contentLocked: false,
     })
     vi.mocked(describeResource).mockReturnValue({
       deepLink: (resourceId: string, options?: { anchorId?: string; projectId?: string | null }) =>
@@ -127,9 +128,25 @@ describe('the conversation target', () => {
       visibility: 'private',
       container: { organizationId: 'org_1', projectId: 'proj_1' },
       canEscalate: false,
+      contentLocked: false,
     })
 
     // `role: null` is "exists, but you have no access" — as unreachable as a 404.
+    expect(await conversationTarget.resolve(makeSession(), 'conv_1')).toBeNull()
+  })
+
+  it('is unreachable — so the row renders redacted, title and all — when the reader may no longer read what the chat drew on (ADR-0088)', async () => {
+    // A mention or an activity row carries the thread's TITLE, which is written
+    // from the conversation's content: restricted folders included.
+    vi.mocked(resolveResourceAccess).mockResolvedValue({
+      role: 'owner',
+      reason: 'creator',
+      visibility: 'private',
+      container: { organizationId: 'org_1', projectId: 'proj_1' },
+      canEscalate: false,
+      contentLocked: true,
+    })
+
     expect(await conversationTarget.resolve(makeSession(), 'conv_1')).toBeNull()
   })
 })
@@ -138,7 +155,7 @@ describe('the project target', () => {
   const projectTarget = INBOX_TARGET_REGISTRY.project
 
   it('lands a run outcome on the project automation page when the reader may view the project', async () => {
-    vi.mocked(requireProjectAccess).mockResolvedValueOnce({ role: 'project-viewer' })
+    vi.mocked(requireProjectAccess).mockResolvedValueOnce({ role: 'project-viewer', closed: false, readsBecauseClosed: false })
     const access = await projectTarget.resolve(makeSession(), 'proj_1')
     expect(access).not.toBeNull()
     expect(access!.deepLink({ itemType: 'job.completed', anchorId: 'backend-job-1' })).toBe(
@@ -148,7 +165,7 @@ describe('the project target', () => {
   })
 
   it('lands on the task detail when the payload names the delegated task', async () => {
-    vi.mocked(requireProjectAccess).mockResolvedValueOnce({ role: 'project-viewer' })
+    vi.mocked(requireProjectAccess).mockResolvedValueOnce({ role: 'project-viewer', closed: false, readsBecauseClosed: false })
     const access = await projectTarget.resolve(makeSession(), 'proj_1')
     expect(access).not.toBeNull()
     expect(
@@ -157,7 +174,7 @@ describe('the project target', () => {
   })
 
   it('falls back to the automation page when the task id is absent or blank', async () => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-viewer' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-viewer', closed: false, readsBecauseClosed: false })
     const access = await projectTarget.resolve(makeSession(), 'proj_1')
     expect(access).not.toBeNull()
     expect(access!.deepLink({ itemType: 'job.completed', anchorId: 'backend-job-1' })).toBe(

@@ -25,6 +25,7 @@ import type { InteractionSlice } from './stores/interaction-store'
 
 import type { Shelf, SourceKind } from './lib/source-kinds'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
+import type { ChatEffort } from '@/lib/reasoning-settings/catalog'
 
 /** Message role types */
 export type MessageRole = 'user' | 'assistant' | 'system'
@@ -102,6 +103,8 @@ export type ErrorCode =
   // Agent errors
   | 'agent.response_failed'
   | 'agent.response_interrupted'
+  // The server never acknowledged the question, not even on a second socket.
+  | 'agent.no_response'
   | 'agent.workflow_error'
   // The provider refused under the org's zero-data-retention policy: the model
   // has no ZDR endpoint. Not retryable until an admin picks a ZDR model.
@@ -301,6 +304,15 @@ export interface ChatMessage {
    */
   answerDurationMs?: number
   /**
+   * The Aufwand this answer's turn ran at: the level the asker's browser put on
+   * the `user_message`, per-turn override included. Recorded because the dial
+   * moves after the answer, and "Gründlicher neu beantworten" must step up
+   * from what THIS answer ran at, not from what the dial says now. Absent on
+   * turns the asking browser did not open (a colleague's, a resumed one) and
+   * on rows stored before it was recorded.
+   */
+  reasoningEffort?: ChatEffort
+  /**
    * Citation-verification result: how many citations were removed as
    * unverifiable, with de-duplicated reasons. Renders a muted note under the
    * sources row when present.
@@ -385,6 +397,27 @@ export interface ChatMessage {
    */
   stopped?: true
   /**
+   * The answer drew on a folder that was permanently deleted since (ADR-0088):
+   * when its purge ran, for the „Quelle gelöscht am …" note. Set by the purge
+   * (`metadata.sourceDeleted`); who may still read the answer is decided by
+   * the organization's setting, on the server.
+   */
+  sourceDeletedAt?: string
+  /**
+   * The answer was removed with its source folder (ADR-0088, „Mit dem Ordner
+   * entfernen“): its text is the stored replacement, every source and card is
+   * gone, and the chat shows the removal note in the reader's language
+   * (`metadata.sourceRemoved`).
+   */
+  erasedAt?: string
+  /**
+   * The turn failed (`RUN_ERROR`) after this much of the answer was written.
+   * Kept on screen, dimmed, above the error card, so the words the reader was
+   * on are not deleted under them. Local only: nothing persisted it, so a
+   * reload shows the error card alone, and a retry removes it.
+   */
+  failed?: true
+  /**
    * What a POST-ANSWER STAGE computed for this turn, arriving after the answer
    * (`docs/architecture/post-answer-stages.md` §4.3).
    *
@@ -427,6 +460,13 @@ export interface Conversation {
   messages: ChatMessage[]
   createdAt: Date
   updatedAt: Date
+  /**
+   * The person may no longer read what this chat drew on (ADR-0088). The server
+   * sent no title and the store holds no messages for it; the UI shows a neutral
+   * title and "you no longer have the rights". Set by the list and by a 403
+   * `RESOURCE_RIGHTS_LOST`, cleared by the next list that says otherwise.
+   */
+  contentLocked?: boolean
   /** Per-session enabled data source IDs (persisted across refresh) */
   enabledDataSourceIds?: string[]
 }
@@ -440,6 +480,18 @@ export interface PendingInteraction {
 }
 
 /** Citation source from research (deep SSE or shallow WS ``sources``). */
+/** The other project a cross-project lookup found a passage in (ADR-0094). */
+export interface CitationProject {
+  id: string
+  name: string
+  status: 'active' | 'closed'
+  /**
+   * The project's Bundesland as the agent states it, warning included when the
+   * Land is not the chat's (ADR-0094). Absent on messages from before it was sent.
+   */
+  landNote?: string | null
+}
+
 export interface CitationSource {
   id: string
   /**
@@ -532,6 +584,12 @@ export interface CitationSource {
    * passage is the model's description of the drawing, not words on the page.
    */
   regions?: PageRegion[]
+  /**
+   * The OTHER project a cross-project lookup found this passage in (ADR-0094).
+   * The chip names it and the preview opens the document there. Absent for
+   * every source of the chat's own scope.
+   */
+  project?: CitationProject
 }
 
 /** Wire shape of a structured source attached to a shallow ChatResponse. */
@@ -574,6 +632,8 @@ export interface WireCitationSource {
   binding_status?: string | null
   /** Boxes on the page, `[{box: [x0, y0, x1, y1], label}]` normalised 0-1 (issue #433). */
   regions?: unknown
+  /** `{id, name, status}` of the other project (ADR-0094); validated by `projectFromWire`. */
+  project?: unknown
 }
 
 /**

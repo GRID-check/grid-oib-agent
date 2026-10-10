@@ -132,7 +132,7 @@ def resolve_document(name: str) -> ResolvedDocument | Refusal:
     rows = _rows()
     if not rows:
         return Refusal(
-            "Fehler: Diese Unterhaltung sieht keine Projekt- oder Büroarchiv-Dateien, also gibt es nichts "
+            "Fehler: Diese Unterhaltung sieht keine Projekt- oder Büroablage-Dateien, also gibt es nichts "
             "zu ordnen. Sage das, statt einen Vorschlag zu machen."
         )
 

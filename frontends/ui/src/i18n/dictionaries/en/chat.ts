@@ -9,6 +9,8 @@ export const chat = {
     faster: 'Faster',
     smarter: 'Smarter',
     help: 'How long Piloti thinks before it answers. More effort helps with tricky questions but costs time and tokens. Applies to this chat.',
+    maximumWarning:
+      'Rarely smarter than High. Piloti thinks far longer, costs far more tokens and tends to overthink.',
     levels: {
       minimal: 'Minimal',
       low: 'Low',
@@ -53,8 +55,9 @@ export const chat = {
     // knowledge-base copy of a legal text reads as project material.
     kinds: {
       baurecht: 'Building law & guidelines',
-      buero: 'Office archive',
+      buero: 'Office filing',
       projekt: 'Project knowledge',
+      praezedenz: 'Precedent',
       web: 'Web source',
     },
     // Origin line in the info popover (no openable document).
@@ -64,7 +67,7 @@ export const chat = {
       web: 'Web source',
     },
   },
-  // Document grid: real project/Büroarchiv files the assistant surfaced as
+  // Document grid: real project/Büroablage files the assistant surfaced as
   // clickable preview cards (the `document_grid` card / `surface_documents` tool).
   documentGrid: {
     // Count pill — singular/plural chosen in the component (no ICU in this i18n).
@@ -77,10 +80,10 @@ export const chat = {
       buero: 'Office',
     },
     // A surfaced file that no longer resolves to a live document row — an honest,
-    // actionable card (the assistant referenced it; open the archive / project
+    // actionable card (the assistant referenced it; open in Office filing / project
     // files) rather than a silent dead tile.
     unresolvedHint: 'The assistant referenced this file.',
-    openInArchive: 'Open in archive',
+    openInArchive: 'Open in Office filing',
     openInFiles: 'Open in project files',
     // The resolve fetch failed — a retry affordance, not a permanent dead tile.
     loadError: 'Documents couldn’t be loaded.',
@@ -107,10 +110,10 @@ export const chat = {
     // Shown when the answer spelled the name differently from the file itself.
     writtenAs: 'In the text: {name}',
     // Which shelf the file came from — the same distinction the sources draw:
-    // shared project knowledge, the office-wide archive, a private attachment.
+    // shared project knowledge, Office filing, a private attachment.
     shelf: {
       projekt: 'Project files',
-      buero: 'Office archive',
+      buero: 'Office filing',
       session: 'Attachment in this chat',
     },
     notIndexed: 'Filed, not read. You can open it, but Piloti does not cite it.',
@@ -160,11 +163,11 @@ export const chat = {
   sourceTabs: {
     law: 'Building law',
     project: 'Project knowledge',
-    office: 'Office archive',
+    office: 'Office filing',
     auto: 'Web',
     model: 'Model measurement',
     shelves: {
-      archiv: 'Office archive',
+      archiv: 'Office filing',
       project: 'Project knowledge',
       session: 'Private session',
       base: 'Base knowledge',
@@ -176,7 +179,7 @@ export const chat = {
     presets: {
       law: 'Building law & guidelines',
       project: 'Project documents',
-      office: 'Office archive',
+      office: 'Office filing',
     },
   },
   // Time-of-day greeting on the empty chat state.
@@ -228,6 +231,8 @@ export const chat = {
     },
     grounding: { belegt: 'sourced', abgeleitet: 'derived', offen: 'unsourced' },
     clarify: 'Clarify',
+    /** Under the matrix in a closed project, where „Clarify“ would be (ADR-0090). */
+    clarifyClosed: 'Closed project: no new research to clarify open findings.',
     commissioned: 'Run commissioned',
     change: {
       new: 'new',
@@ -248,6 +253,9 @@ export const chat = {
     sourceNumber: 'Source {number}',
     page: 'p. {page}',
     pages: 'pp. {pages}',
+    // The meta line of a precedent from another project: project, status, then the Land.
+    precedentProject: '{name} · {status}',
+    projectStatus: { active: 'active', closed: 'closed' },
     // Sources past the eight chips fold behind the same control the read
     // sources use: the count first, every name on expand.
     more: '+{count} more',
@@ -697,13 +705,22 @@ export const chat = {
     responseApproved: 'Research started',
     responseShallow: 'Quick answer requested',
     responseCancelled: 'Research cancelled',
+    // An answered plan folds to one line; the plan as approved is behind it.
+    planRecord: 'Plan approved · {count, plural, one {# section} other {# sections}}',
+    showPlan: 'Show plan',
+    hidePlan: 'Hide plan',
   },
   // The single disclosure in the answer footer that holds everything past the
   // sources row and the copy actions (confidence, memory note, skills used,
   // verification notes, feedback, timestamp).
+  // Under an answer the reader stopped, where the writing ended.
+  answerStoppedMarker: 'Stopped',
   answerDetails: {
     trigger: 'Answer details',
     triggerAria: 'Show details for this answer',
+    // The trigger when the details hold a warning (cut-off, salvaged run,
+    // stripped citations, low confidence): the dot beside it says so visually.
+    triggerAriaAttention: 'Show details for this answer, including notes on it',
     // How long the turn took, question sent to answer final.
     duration: 'Answered in {duration}',
     costCredits: '{value} credits',
@@ -763,6 +780,17 @@ export const chat = {
     recovering: 'Fetching the answer',
     recoveringNotice: 'Piloti is still working — the answer appears here as soon as it is ready …',
     done: 'Done',
+    // The reader stopped the answer: no green check, no „Done“ — the same
+    // word a cancelled run carries.
+    stopped: 'Stopped',
+    // The turn commissioned a run: its work has only begun, in the run block
+    // below. No green check, no „Done“.
+    // The turn failed; the error card below says how.
+    failed: 'Failed',
+    handedOff: 'Run commissioned',
+    // Piloti did not take the question on (refused, or not admitted): the
+    // banner below says why. Neutral, never „Done“.
+    refused: 'Not handled',
     elapsedAria: 'Elapsed: {seconds, plural, one {# second} other {# seconds}}',
     // ── Turn events: the words for what the backend REPORTED ──────────────
     //
@@ -784,20 +812,21 @@ export const chat = {
         web: 'the web',
         documents: 'your documents',
         ifc: 'the building model',
+        otherProjects: 'other projects',
       },
       // Joins two corpora in one line. Grammar, so it lives here too.
       corpusJoin: ' and ',
       status: {
         // Which of the reader's OWN files are being read. One key per level
         // rather than one template with a slot: German needs the dative ("aus
-        // dem Büroarchiv") and English needs no article, so the level's name
+        // der Büroablage") and English needs no article, so the level's name
         // cannot be interpolated into one shared sentence. Every line names
-        // the level the way the product names it to the reader — office
-        // archive, project, conversation. There is no line for several at
+        // the level the way the product names it to the reader — Office
+        // filing, project, conversation. There is no line for several at
         // once, because the collective noun for them is OURS, not theirs, so
         // `several` states plainly WHAT is being read.
         documents: {
-          archiv: 'Reviewing documents from the office archive …',
+          archiv: 'Reviewing documents from Office filing …',
           project: 'Reviewing documents from the project …',
           session: 'Reviewing documents from this conversation …',
           several: 'Reviewing your documents …',
@@ -859,7 +888,8 @@ export const chat = {
         // A quotation no passage holds verbatim is corrected in place to the
         // cited passage's own wording (ADR-0067). No search, no rewrite; a quote
         // it cannot correct keeps its marker.
-        repair: 'A quotation differs from the source’s wording — correcting it against the original …',
+        repair:
+          'A quotation differs from the source’s wording — correcting it against the original …',
         escalation: 'A quick lookup is not enough — starting deep research',
       },
     },
@@ -877,6 +907,8 @@ export const chat = {
       webSearch: 'Web search',
       ris: 'RIS',
       corpus: 'Knowledge',
+      /** Looked in the office's other projects (ADR-0094), mostly its closed reference projects. */
+      otherProjects: 'Other projects',
       reading: 'Reading',
       /** The conversation's working directory: write, read, edit, list — one word. */
       draft: 'Draft',
@@ -1047,7 +1079,6 @@ export const chat = {
         },
       },
       branchesTab: 'Next steps',
-      branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },
   },
   error: {
@@ -1101,6 +1132,10 @@ export const chat = {
       title: 'Response Interrupted',
       message: 'Your previous request was not completed. Please resend your message.',
     },
+    noResponse: {
+      title: 'No response',
+      message: 'Piloti did not respond to your question, not even to a second attempt. Send it again.',
+    },
     zdrRefused: {
       title: 'Model not available under zero data retention',
       message:
@@ -1119,6 +1154,7 @@ export const chat = {
     // `job_admission_rejected`). Warning, not error: resending resolves it.
     researchQueueFull: {
       title: 'Research is busy',
+      full: 'The research queue is currently full.',
       message: 'The research queue is currently full. Please resend your request in a moment.',
       retryHint: 'Please try again in about {seconds, plural, one {# second} other {# seconds}}.',
     },
@@ -1223,5 +1259,28 @@ export const chat = {
     copy: 'Copy message',
     copied: 'Copied',
     failed: 'Message could not be copied',
+  },
+  /**
+   * Sensitive data in chat (ADR-0086): what the composer reports before sending.
+   * The placeholders themselves are domain data and come from `content-screen.ts`.
+   */
+  /** The notice once a chat's answers drew on another project (ADR-0094). */
+  otherProjects: {
+    chip: '{count, plural, one {One other project} other {# other projects}}',
+    title: 'This chat draws on other projects: {projects}.',
+    gone: 'a project that no longer exists',
+    body: 'It can be shared only with people who may open those projects. Nothing from it goes into project memory, tasks, deep research or the project’s files.',
+  },
+  screening: {
+    title: 'Contains {items} (Sensitive data).',
+    body: 'Piloti does not send this to the answering model.',
+    preview: 'The model sees: “{text}”',
+    iban: '{count, plural, one {an IBAN} other {# IBANs}}',
+    at_svnr: '{count, plural, one {a social security number} other {# social security numbers}}',
+    credit_card: '{count, plural, one {a card number} other {# card numbers}}',
+    term: 'the term “{term}”',
+    withSample: '{item} {sample}',
+    sendMasked: 'Send masked',
+    edit: 'Edit',
   },
 }

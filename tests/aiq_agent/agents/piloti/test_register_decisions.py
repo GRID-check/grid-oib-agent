@@ -219,6 +219,18 @@ class TestTheTurn:
         (record,) = emitted.steps
         assert (record.id, record.detail) == ("status:decision:turn", {"skipped": "too_short"})
 
+    async def test_the_level_the_answering_model_ran_at_is_reported(self):
+        # Read off the resolved provider's model, not the request: the level the
+        # turn actually sent, whichever layer chose it.
+        provider = MagicMock()
+        provider.get.return_value = MagicMock(reasoning_effort="high")
+        with patch.object(register_module, "_active_provider", new_callable=AsyncMock, return_value=provider):
+            _turn, state, _decide = await _run_turn(
+                ResearchAgentConfig(llm="research_llm", tools=["knowledge_search"], skills_enabled=False),
+                TurnDecisions.none(),
+            )
+        assert state.reasoning_effort == "high"
+
     async def test_the_prefetch_reaches_the_turn_config(self):
         decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.8)
         turn, _state, decide = await _run_turn(
@@ -368,3 +380,37 @@ class TestTheBuildingModelToolsNeedAProject:
             "ifc_measure",
             "read_passage",
         ]
+
+
+def test_the_catalog_is_counted_by_its_project_lines_not_its_tail():
+    from aiq_agent.agents.piloti.register import reference_project_count
+
+    catalog = (
+        "- Holzwohnbau Baden (id b1): 2020–2022, Niederösterreich\n"
+        "- Wohnhausanlage Mödling (id c1): 2019–2021\n"
+        "- … und 4 weitere abgeschlossene Projekte, über `project_lookup` auffindbar."
+    )
+    assert reference_project_count(catalog) == 2
+    assert reference_project_count(None) == 0
+
+
+def test_the_turn_start_records_the_catalog_the_precedent_and_whether_round_0_looked(monkeypatch):
+    """Langfuse sees the office's experience at the start of a turn (ADR-0089): the lookup's own span cannot."""
+    from aiq_agent.agents.piloti.register import record_reference_decision
+
+    recorded: dict = {}
+    tags: list[str] = []
+    monkeypatch.setattr(register_module, "record_trace_metadata", lambda **pairs: recorded.update(pairs))
+    monkeypatch.setattr(register_module, "add_trace_tag", tags.append)
+    decisions = TurnDecisions(decided=True, precedent=0.8123)
+
+    record_reference_decision(decisions, 12, ({"name": "knowledge_search", "args": {}}, {"name": "project_lookup"}))
+
+    assert recorded == {"reference_projects_offered": 12, "precedent_p": 0.812, "reference_prefetch": True}
+    assert tags == ["reference-prefetch"]
+
+    recorded.clear()
+    tags.clear()
+    record_reference_decision(TurnDecisions.none(), 0, ())
+    assert recorded == {"reference_projects_offered": 0, "precedent_p": None, "reference_prefetch": False}
+    assert tags == []

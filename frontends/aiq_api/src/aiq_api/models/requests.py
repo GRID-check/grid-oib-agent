@@ -4,7 +4,15 @@ from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
+from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
+
+#: Bounds of an office's screening terms. The ingest job applies the same ones
+#: (``aiq_agent.common.content_screen``) to whatever reaches it.
+SCREENING_MAX_TERMS = 200
+SCREENING_MIN_TERM_CHARS = 2
+SCREENING_MAX_TERM_CHARS = 80
 
 
 class CreateCollectionRequest(BaseModel):
@@ -19,6 +27,47 @@ class DeleteFilesRequest(BaseModel):
     """Request body for batch file deletion."""
 
     file_ids: list[str] = Field(..., description="List of file IDs to delete")
+
+
+class ScreeningPolicy(BaseModel):
+    """What an ingest job screens the document's locally extracted text for, before any model sees it.
+
+    A match fails the file with an ``error_message`` starting ``quarantined:``
+    (``knowledge_layer.llamaindex.screening``). Terms match case-, umlaut- and
+    whitespace-insensitively at a word start; the detectors count checksum-valid
+    matches only.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    content_terms: list[str] = Field(
+        default_factory=list,
+        max_length=SCREENING_MAX_TERMS,
+        description=(
+            f"Terms that quarantine a document, each {SCREENING_MIN_TERM_CHARS}..{SCREENING_MAX_TERM_CHARS} "
+            "characters after stripping; empty entries are dropped."
+        ),
+    )
+    detectors: list[Literal["iban", "at_svnr", "credit_card"]] = Field(
+        default_factory=list,
+        description="Identifiers that quarantine a document: IBAN, Austrian social-security number, card number.",
+    )
+
+    @field_validator("content_terms")
+    @classmethod
+    def _strip_terms(cls, terms: list[str]) -> list[str]:
+        stripped = [term.strip() for term in terms]
+        kept = [term for term in stripped if term]
+        for term in kept:
+            if not SCREENING_MIN_TERM_CHARS <= len(term) <= SCREENING_MAX_TERM_CHARS:
+                raise ValueError(
+                    f"each screening term must be {SCREENING_MIN_TERM_CHARS}..{SCREENING_MAX_TERM_CHARS} characters"
+                )
+        return kept
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.content_terms and not self.detectors
 
 
 class IngestRequest(BaseModel):
@@ -107,6 +156,15 @@ class IngestRequest(BaseModel):
         None,
         description="Which pipeline wrote an agent-authored document (`documents.authored_by_producer`).",
     )
+    screening: ScreeningPolicy | None = Field(
+        None,
+        description=(
+            "The organization's upload screening. The job checks the text it extracts locally "
+            "against it before its first model call, and fails a matching file with an "
+            "`error_message` starting `quarantined:`. Absent, null or empty: not screened "
+            "(the OIB base-corpus sync sends none)."
+        ),
+    )
 
 
 class DocumentSearchRequest(BaseModel):
@@ -115,6 +173,16 @@ class DocumentSearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=1000, description="Natural-language search query")
     top_k: int = Field(40, ge=1, le=100, description="Max chunks to retrieve before document-centric aggregation")
     top_k_files: int = Field(20, ge=1, le=100, description="Max documents to return after aggregation")
+    snippet_max_chars: int = Field(
+        300,
+        ge=100,
+        le=1500,
+        description=(
+            "Max characters kept from each document's best-matching chunk. 300 for a hit list a person scans; "
+            "the cross-project lookups (ADR-0094) ask for more, because their snippet is the evidence the agent "
+            "answers from and cites: it cannot open another project's document further."
+        ),
+    )
 
 
 class DocumentSearchHit(BaseModel):
@@ -122,7 +190,7 @@ class DocumentSearchHit(BaseModel):
 
     file_name: str = Field(..., description="Original filename of the matched document")
     score: float = Field(..., description="Similarity score (0.0 to 1.0) of the file's best-matching chunk")
-    snippet: str = Field(..., description="Snippet (~300 chars) from the file's best-matching chunk")
+    snippet: str = Field(..., description="Snippet (300 chars unless asked for more) of the best-matching chunk")
     page_number: int | None = Field(None, description="Page number of the best-matching chunk (None if N/A)")
     collection: str = Field(..., description="Collection the document belongs to")
 
@@ -157,6 +225,52 @@ class GenerateSummaryResponse(BaseModel):
             "None on success"
         ),
     )
+
+
+class CleanupDocumentFacts(BaseModel):
+    """What the index already holds about one document, and nothing more (ADR-0092).
+
+    No document content: the name, where it is filed, its type and tags, the
+    summary ingestion already wrote, and its editorial state.
+    Any other field is refused, so document text cannot ride along.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., max_length=64)
+    filename: str = Field(..., max_length=500)
+    folder_path: str | None = Field(default=None, max_length=1000)
+    content_type: str | None = Field(default=None, max_length=200)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    summary: str | None = Field(default=None, max_length=600)
+    version_state: str | None = Field(default=None, max_length=40)
+    authored_by: str | None = Field(default=None, max_length=40)
+    uploaded_at: str | None = Field(default=None, max_length=40)
+
+
+class CleanupProposalRequest(BaseModel):
+    """Request body for the „Ausmisten" proposal at a project's close."""
+
+    documents: list[CleanupDocumentFacts] = Field(..., max_length=2000)
+    locale: str = Field(default="de", description="UI locale; the reasons are written in it")
+
+
+class CleanupCandidate(BaseModel):
+    """One document the model proposes to remove, and why."""
+
+    id: str
+    category: str = Field(
+        ..., description="working_copy | superseded | duplicate | temporary | unpublished_draft | other"
+    )
+    reason: str
+
+
+class CleanupProposalResponse(BaseModel):
+    """The model's proposal. Empty with ``error`` set when it could not be made."""
+
+    candidates: list[CleanupCandidate] = Field(default_factory=list)
+    model: str | None = None
+    error: str | None = None
 
 
 class ConversationTitleMessage(BaseModel):

@@ -798,6 +798,30 @@ class TestUsageAttributeProcessor:
         assert span.attributes["gen_ai.usage.output_tokens"] == 331
         assert span.attributes["gen_ai.request.model"] == "openrouter/deepseek-v4"
 
+    async def test_a_decision_span_gains_its_tokens_cost_and_model_from_its_own_output(self):
+        """Jev bypasses LangChain (ADR-0064): its usage rides the decide.* observation's output."""
+        from aiq_agent.observability.decision_trace import decision_observation
+        from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
+        from nat.data_models.span import Span
+
+        _, body_out = decision_observation(
+            questions=["precedent"],
+            states=1,
+            model="typesafe/jev-1.13",
+            input_tokens=341,
+            output_tokens=22,
+            cost_usd=1.4e-05,
+        )
+        span = Span(
+            name="decide.turn", attributes={"nat.event_type": "FUNCTION_START", "output.value": json.dumps(body_out)}
+        )
+
+        span = await UsageAttributeProcessor().process(span)
+
+        assert span.attributes["gen_ai.usage.input_tokens"] == 341
+        assert span.attributes["gen_ai.usage.output_tokens"] == 22
+        assert span.attributes["gen_ai.request.model"] == "typesafe/jev-1.13"
+
     async def test_provider_object_in_metadata_beats_bare_counts(self):
         import json
 

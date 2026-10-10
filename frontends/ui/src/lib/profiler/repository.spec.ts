@@ -11,13 +11,28 @@ import { getDb } from '@/lib/db'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 import {
+  findProfiledConversation,
   getSpansForConversation,
   listProfiledConversations,
   TIMELINE_SPAN_CAP,
   TIMELINE_TURN_CAP,
+  type ProfiledConversationFilter,
 } from './repository'
 
 const mockGetDb = vi.mocked(getDb)
+
+/** September 2026, every organization and project. */
+const SEPTEMBER: ProfiledConversationFilter = {
+  start: new Date('2026-09-01T00:00:00.000Z'),
+  endExclusive: new Date('2026-10-01T00:00:00.000Z'),
+  organizationIds: [],
+  projectIds: [],
+}
+
+const PROJECT = '0f0f0f0f-0000-4000-8000-0000000000a1'
+
+const render = (condition: SQL): { sql: string; params: unknown[] } =>
+  new PgDialect().sqlToQuery(condition)
 
 /**
  * Build a db stand-in whose SELECT chain
@@ -79,7 +94,7 @@ describe('listProfiledConversations', () => {
       },
     ])
 
-    const { rows, capped } = await listProfiledConversations()
+    const { rows, capped } = await listProfiledConversations(SEPTEMBER)
 
     expect(capped).toBe(false)
     expect(rows).toHaveLength(1)
@@ -93,6 +108,8 @@ describe('listProfiledConversations', () => {
     expect(row.conversationId).toBe('conv_1')
     expect(row.organizationId).toBe('org_1')
     expect(row.title).toBe('Bauantrag Wien')
+    // Absent from the driver row (no restricted use): coerced to a real boolean.
+    expect(row.titleWithheld).toBe(false)
     expect(row.turnCount).toBe(2)
     // Chain terminates at the list cap + 1 probe.
     expect(limit).toHaveBeenCalledWith(201)
@@ -109,7 +126,7 @@ describe('listProfiledConversations', () => {
     }))
     mockSelect(driverRows)
 
-    const { rows, capped } = await listProfiledConversations()
+    const { rows, capped } = await listProfiledConversations(SEPTEMBER)
 
     expect(capped).toBe(true)
     // Capped back down to 200, and every retained row is still coerced.
@@ -123,11 +140,91 @@ describe('listProfiledConversations search', () => {
     // Regression: `100%` or `a_b` were used as raw patterns, so `%` matched
     // every conversation and `_` matched any character.
     const { where } = mockSelect([])
-    await listProfiledConversations('100%_x')
+    await listProfiledConversations(SEPTEMBER, '100%_x')
 
     const condition = where.mock.calls[0][0] as SQL
     const { params } = new PgDialect().sqlToQuery(condition)
     expect(params).toContain('%100\\%\\_x%')
+  })
+})
+
+describe('listProfiledConversations scope', () => {
+  it('lists conversations with a turn that started in [start, endExclusive)', async () => {
+    const { where } = mockSelect([])
+    await listProfiledConversations(SEPTEMBER)
+
+    const { sql: text, params } = render(where.mock.calls[0][0] as SQL)
+    expect(text).toContain('"agent_profiler_spans"."started_at" >= $')
+    expect(text).toContain('"agent_profiler_spans"."started_at" < $')
+    expect(params).toEqual(
+      expect.arrayContaining(['2026-09-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z'])
+    )
+    // Unnarrowed: no organization or project condition at all.
+    expect(text).not.toContain('coalesce(')
+    expect(text).not.toContain('"project_id"')
+  })
+
+  it("filters by the conversation's organization, falling back to the span's", async () => {
+    const { where } = mockSelect([])
+    await listProfiledConversations({ ...SEPTEMBER, organizationIds: ['org_1', 'org_2'] })
+
+    const { sql: text, params } = render(where.mock.calls[0][0] as SQL)
+    expect(text).toMatch(
+      /coalesce\("conversations"\."organization_id", "agent_profiler_spans"\."organization_id"\) in \(\$\d+, \$\d+\)/
+    )
+    expect(params).toEqual(expect.arrayContaining(['org_1', 'org_2']))
+  })
+
+  it("filters by the conversation's project, and a non-UUID project matches nothing", async () => {
+    const { where } = mockSelect([])
+    await listProfiledConversations({ ...SEPTEMBER, projectIds: [PROJECT, 'nope'] })
+    const scoped = render(where.mock.calls[0][0] as SQL)
+    expect(scoped.sql).toMatch(/"conversations"\."project_id" in \(\$\d+\)/)
+    expect(scoped.params).toContain(PROJECT)
+    expect(scoped.params).not.toContain('nope')
+
+    const { where: invalidWhere } = mockSelect([])
+    await listProfiledConversations({ ...SEPTEMBER, projectIds: ['nope'] })
+    expect(render(invalidWhere.mock.calls[0][0] as SQL).sql).toContain('false')
+  })
+
+  it('searches within the scope rather than instead of it', async () => {
+    const { where } = mockSelect([])
+    await listProfiledConversations({ ...SEPTEMBER, organizationIds: ['org_1'] }, 'Wien')
+    const { sql: text, params } = render(where.mock.calls[0][0] as SQL)
+    expect(text).toContain('ilike')
+    expect(text).toContain('"started_at" <')
+    expect(params).toEqual(expect.arrayContaining(['org_1', '%Wien%']))
+  })
+})
+
+describe('findProfiledConversation', () => {
+  it('reads one conversation in the same scope, or null when it has no turn there', async () => {
+    const { where, limit } = mockSelect([])
+    expect(
+      await findProfiledConversation({ ...SEPTEMBER, organizationIds: ['org_1'] }, 'conv_9')
+    ).toBeNull()
+    const { sql: text, params } = render(where.mock.calls[0][0] as SQL)
+    expect(text).toContain('"started_at" <')
+    expect(text).toContain('coalesce(')
+    expect(params).toEqual(expect.arrayContaining(['org_1', 'conv_9']))
+    expect(limit).toHaveBeenCalledWith(1)
+  })
+
+  it('shapes the row like the list does', async () => {
+    mockSelect([
+      {
+        conversationId: 'conv_9',
+        organizationId: 'org_1',
+        title: null,
+        turnCount: 3,
+        totalDurationMsRaw: '900',
+        lastActiveAt: '2026-09-12T08:00:00.000Z',
+      },
+    ])
+    const row = await findProfiledConversation(SEPTEMBER, 'conv_9')
+    expect(row).toMatchObject({ conversationId: 'conv_9', turnCount: 3, totalDurationMs: 900 })
+    expect(row?.lastActiveAt).toBeInstanceOf(Date)
   })
 })
 

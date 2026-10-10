@@ -116,9 +116,8 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `AIQ_RETRIEVER_TOP_K` | No | `10` | Default number of chunks a retrieval returns when a caller names no `top_k`. |
 | `AIQ_VERBOSE` | No | `false` | Verbose agent/callback logging (`1`/`true`/`yes` enable). Diagnostic only. |
 | `AIQ_ENABLE_DEBUG` | No | `true` | Mounts the debug console at `/debug`. Set to `0`/`false`/`no`/`off` to disable it — worth doing on any deployment where that surface should not be reachable. |
-| `AIQ_CHAT_URL` | No | `http://localhost:8001` | Base URL of the chat role (ADR-0082) that the Agent Skill helper's `chat` command posts `/chat` to (`skills/aiq-research/scripts/aiq.py`). Read by the skill helper, not the backend. Every other helper command uses `AIQ_SERVER_URL` (the api role, default `http://localhost:8000`). |
 | `GRID_INGEST_WAIT_SECONDS` | No | `20` | How long a chat turn holds for a file that is still being indexed into a collection the turn can read (a just-uploaded attachment), polling once a second, before answering with the inventory's "still being read" note instead. `0` disables the hold. The live status line says the turn is waiting. |
-| `GRID_AVAILABLE_DOCUMENTS_MAX` | No | `50` | Caps how many documents are listed in the agent's `available_documents` prompt block. User-shelf files (Büroarchiv / Projekt / session) are kept first so the OIB corpus cannot evict them; within a shelf the cut is filename-sorted and deterministic. `0`/negative disables the cap. |
+| `GRID_AVAILABLE_DOCUMENTS_MAX` | No | `50` | Caps how many documents are listed in the agent's `available_documents` prompt block. User-shelf files (Büroablage / Projekt / session) are kept first so the OIB corpus cannot evict them; within a shelf the cut is filename-sorted and deterministic. `0`/negative disables the cap. |
 | `AIQ_EXTRACT_TABLES` | No | `true` (set `false` to disable) | Adds a PDF's uncaptioned tables to the index as `[TABLE from page N]` chunks; off, they stay garbled inside the page text. Captioned tables (a „Tabelle 3“ with its caption) are always read as tables and indexed, whatever this says; the extra pass skips any table the captioned pass already took. Only `false`/`0`/`no`/`off` switch it off; no deployment sets it. |
 | `AIQ_EXTRACT_IMAGES` | No | `true` (set `false` to disable) | Extraction of **embedded raster images** (image XObjects) from PDFs for VLM captioning, so a photo inside a plan set is findable and can be shown with `view_knowledge_image`. For a document the BFF dispatched (project/Archiv/session upload, i.e. one with a `document_id`) each extracted raster is also stored beside the file as `_img/<index>.jpg` through the BFF presign route, at most `MAX_STORED_IMAGES_PER_DOCUMENT` (64) per document; the caption chunk records `image_key` and the tool can show the image itself instead of the page. Needs `FRONTEND_INTERNAL_URL` + `GRID_INTERNAL_API_TOKEN` on the aiq-agent tier; without them captions are kept and rasters dropped, as before. Does NOT capture vector CAD drawings — see `AIQ_RENDER_VISUAL_PAGES`. A page rendered whole as a visual page contributes no embedded rasters (the render already covers them, so each page is analysed once), and at most `AIQ_MAX_IMAGES_PER_DOCUMENT` rasters per PDF are analysed. Only `false`/`0`/`no`/`off` switch it off; no deployment sets it. |
 | `AIQ_EXTRACT_CHARTS` | No | `true` (set `false` to disable) | A visual the VLM types as a chart is indexed as a `chart` chunk. Off, the same chart is indexed as an `image` chunk rather than dropped (the analysis is already paid for). With `AIQ_EXTRACT_IMAGES=false` and this on, embedded rasters are still analysed and only charts are kept. Only `false`/`0`/`no`/`off` switch it off; no deployment sets it. |
@@ -173,6 +172,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `GRID_CHAT_SUPERSEDE_WAIT_SECONDS` | No | `13.5` | How long a newer question waits for the conversation's running turn to stop (and its marker to clear) before it is refused as "still finishing the previous answer", never run beside it. Keep it above `GRID_CHAT_RUNNING_TTL_SECONDS`, so a replica that died mid-turn never costs a refusal, and under the client's 15 s acknowledgement bound (`RUN_STARTED` follows the wait). Only used while the conversation bus spans replicas. |
 | `GRID_CHAT_DRAIN_SECONDS` | No | `2700` | How long a terminating `chat` replica (`aiq-agent`) waits for the chat turns it runs before it cancels them (each ends with a cancelled terminal and is persisted). It must fit inside the pod's grace period and, to lose no turn, cover `GRID_CHAT_TURN_DEADLINE_SECONDS`. Pulumi derives the grace period from `backendDrainSeconds`, the value it sets here. |
 | `GRID_CHAT_AFFINITY` | No | `1` (on) | Whether the BFF pins each conversation to one `aiq-agent` replica by a hash of its id (ADR-0028). **On by default**: routing is the hash and the replica count is static. Set to `0` on the BFF and the backend together (Pulumi: `chatAffinity: false`) and sockets go to the load-balanced Service while the conversation bus decides which replica runs each turn (ADR-0080), which is what lets KEDA scale the tier. The backend reads it for one decision: with it on, a question that cannot be fenced on a down bus still runs; with it off, it is refused. |
+| `GRID_WIRE_V2_ADDITIVE_FIELDS` | No | `off` | Whether the chat socket's frames carry the server-to-client fields this release added (`STAGED_SERVER_FIELDS` in `aiq_api/chat_socket.py`): the hello's `accepts` and `RUN_FINISHED.result.reasoning_effort`. Off for one release, because a tab opened before the deploy runs a bundle that parsed every frame strictly and would mark its socket outdated on either. While off, a Stop stores everything streamed so far (the page sends no `cancel_turn.shown` to a server whose hello names none) and the answer shows the level the asker chose; the stored row keeps the resolved level. Read per frame on the `chat` role. Planned: on by default in the next release, then the flag goes. See [`chat-wire-v2.md`](../design/chat-wire-v2.md#compatibility-additive-changes-are-safe). |
 | `GRID_MAX_RUN_COMPLETION_TOKENS` | No | `0` (disabled) | Per-run completion (output) token ceiling for `deep_research_agent` jobs, enforced across every LLM call in the run including concurrent researcher workers (backlog T4-4, 2026-07-16). Exceeding it fails the job with an explicit budget-exceeded message rather than a generic internal error. Independent of the USD budget ledger below. |
 | `GRID_RESEARCHER_RECURSION_LIMIT` | No | `100` | Per-worker LangGraph step cap for single-query researcher runnables (`RESEARCHER_RECURSION_LIMIT` in `tools/research.py`). A stuck researcher hits this and is caught by the `GraphRecursionError` → terminal unresearchable-note path instead of burning its budget or looping through plan → batch → resubmit. `0`/invalid values fall back to `100`. |
 | `GRID_MAX_QUERY_SUBMISSIONS` | No | `3` | Maximum times the same query digest may be re-submitted to `run_research_batch` before it is returned as a terminal unresearchable gap instead of being run again (`MAX_QUERY_SUBMISSIONS` in `tools/research.py`). `0`/invalid values fall back to `3`. |
@@ -242,6 +242,9 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 |----------|----------|---------|-------------|
 | `REC_OUT` | Set by the census | — | Path of the JSON-lines file `scripts/turn_census/sitecustomize.py` appends one record per model call to. `census.py` sets it for the agent process it starts; do not set it by hand. Empty or unset, nothing is recorded. The application never reads it. |
 | `STARTUP_PROBE_IN_TREE` | Set by the startup probe | — | Marks the process `scripts/turn_census/startup_probe.py` re-executed with this checkout first on `PYTHONPATH`, so it does not re-execute again. Do not set it by hand. |
+| `GRID_EVAL_ENVELOPE` | Set by the suite | — | The signed `X-Grid-Request-Context` envelope `scripts/turn_census/suite.py` mints for each run of the precedent eval (`--set precedent`). `scripts/turn_census/sitecustomize.py` hands it to the agent's `project_context` as the header a chat turn carries, so the turn reads the fixture office as the BFF would send it. Never set in a deployment; the agent reads the real header from the request. |
+| `GRID_EVAL_ENVELOPE_SIG` | Set by the suite | — | The signature over `GRID_EVAL_ENVELOPE`, made with the run's `GRID_INTERNAL_API_TOKEN`, read by the same `sitecustomize.py` patch as the signature header. Set together with `GRID_EVAL_ENVELOPE`; the agent verifies it as it would a real one. Never set in a deployment. |
+| `SUITE_JUDGE_MODEL` | No | `openai/gpt-6-luna` | The OpenRouter model `scripts/turn_census/judge.py` asks for the precedent eval's meaning checks (`says_none`, `caveat`): one yes/no question per check about what the answer means. Read once at import. Changing it changes the judge, so re-validate the rubric on captured answers before trusting a new score. Development and eval runs only. |
 
 ---
 
@@ -253,7 +256,7 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 | `FILE_UPLOAD_MAX_SIZE_MB` | No | `100` | Default maximum size of **one** uploaded file, in decimal MB (1 MB = 1,000,000 bytes), on every shelf: project Dateiablage, Büroarchiv and chat attachments. Not a batch or total limit (the storage quota bounds totals). **Per-organization override:** platform staff set an organization's own value in Platform → Storage (`maxUploadFileBytes` in `organizations.settings`, `PUT /api/platform/organizations/{id}/upload-limit`), from 1 MB up to the transport ceiling, max(this value, `BIM_MAX_IFC_BYTES`), fixed at boot in `next.config.ts`, because bytes beyond it never reach the app. The server (`assertFileSizeAllowed`, 413 naming the limit) and the browser's label and check use the organization's value; this variable is the value for organizations without one and for public pages. A `.ifc`/`.ifczip` is measured against `BIM_MAX_IFC_BYTES` instead, which no organization value overrides. The chat session's attachment total follows this value too, raised to the organization's per-file limit when that is higher. |
 | `GRID_DEFAULT_STORAGE_QUOTA_BYTES` | No | _(unset)_ | Fleet-wide default per-organization storage quota, in bytes (ADR-0042). Unset means unlimited, which is the pre-existing behaviour. An org-level value set in Organization → Storage always wins, and an explicit org-level "unlimited" beats this default. |
 | `GRID_STORAGE_ALERT_THRESHOLD_PERCENT` | No | `80` | Share of its storage quota at which an organization is warned that it is running out of space (ADR-0042), as a percentage. An hourly sweep (`POST /api/internal/storage/alerts`, driven by the `storage-alerts` CronJob) raises an inbox item for every active member holding `org:settings:manage`; escalation at 90% and 100% is automatic and not configurable, so that "you have run out" stays a distinct message from "you are nearly out". The alert fires **once per crossing** rather than once per sweep — an already-live row suppresses re-emission, so a dismissed warning is not resurfaced every hour — and outstanding rows are retired when usage falls back below the threshold, which is what lets a later re-crossing alert again. Organizations with no quota are skipped entirely. A value outside `(0, 100]` falls back to `80` rather than disabling the warning, because a typo must not silently switch off the notice that stops a tenant walking into a full disk. Frontend service. On Kubernetes it is set from the Pulumi stack key `grid-oib:storageAlertThresholdPercent`, which **rejects** an out-of-range value at deploy time (where an operator is present to read the error) instead of quietly clamping it; the schedule and on/off switch are `grid-oib:storageAlertSchedule` (default `0 * * * *`) and `grid-oib:storageAlertsEnabled` (default `true`). |
-| `FILE_UPLOAD_MAX_FILE_COUNT` | No | `10` | Maximum number of files a **chat session** may hold. Does not apply to the project Dateiablage or the Büroarchiv (those are bounded by storage quota). |
+| `FILE_UPLOAD_MAX_FILE_COUNT` | No | `10` | Maximum number of files a **chat session** may hold. Does not apply to the project Dateiablage or the Büroablage (those are bounded by storage quota). |
 | `FILE_EXPIRATION_CHECK_INTERVAL_HOURS` | No | `0` | Hours after upload before files may expire (0 = no expiry shown). Should match backend TTL (e.g., 12 hours). |
 | `GOTENBERG_URL` | No | `http://gotenberg:3000` (compose), `http://gotenberg:3000` when `grid-oib:gotenbergEnabled` (Kubernetes); unset elsewhere | Base URL of the Gotenberg converter that turns Word/Excel/PowerPoint/ODF/RTF files into a PDF rendition, stored beside the original as `_render.pdf` (ADR-0070). Frontend BFF only: the backend never calls it. It receives the finished PDF as `preview_ref` for the thumbnail and, for Word, presentation, `.xls` and `.ods` files, as `extraction_ref`, the only source it indexes them from (ADR-0071). **Required for those formats.** Unset or empty, and on a failed conversion, they are marked failed with a retryable reason, and "Erneut lesen" converts again. `.xlsx` and `.xlsm` still index, only without preview or thumbnail. The original is always kept and `/download` always serves it. The upload marks the row `processing` and converts in the background with a 120s timeout. Gotenberg runs with `--libreoffice-deny-private-ips` and `--libreoffice-deny-public-ips`, so LibreOffice fetches no URL an office file links. Network isolation is a second layer: compose puts it on an `internal: true` network, Kubernetes on a deny-all-egress NetworkPolicy when `networkPolicies` is on, and the Coolify stack has neither (see the comment there). |
 | `GOTENBERG_MAX_CONCURRENCY` | No | `2` | Conversions one frontend BFF process runs at Gotenberg at once (`frontends/ui/src/lib/documents/rendition.ts`). Gotenberg's LibreOffice converts one document at a time and counts queue time against its API timeout, so without a bound a folder upload of hundreds of office files timed out most of them. With N frontend replicas Gotenberg sees up to N × this value. A reader opening a preview queues ahead of background conversions, and the 120s conversion budget starts when a slot is held, not while waiting for one. Background conversions are `office_rendition` jobs on the `bff-jobs` pool (ADR-0079), where Pulumi sets this to `bffJobsRenditionConcurrency` (1); the pool's replicas times that value is the fleet-wide ceiling, held to Gotenberg's capacity (`gotenbergReplicas`) by a spec. A value that is not a positive integer falls back to the default. |
@@ -360,17 +363,18 @@ Read by `frontends/ui/workers/jobs/index.js`, the entry point of the `bff-jobs` 
 | `GRID_DECISIONS_ENABLED` | No | `true` | Whether the decision model (TypeSafe Jev via OpenRouter's alpha Decisions endpoint) is consulted at all: the turn-start decision, the retrieval judge's yes/no, the `jev` reranker. `false` runs every turn exactly as before the decisions existed. Every use is fail-open; this is the one switch that turns them all off. |
 | `GRID_DECISIONS_MODEL` | No | `typesafe/jev-1.13` | The decision model id on the Decisions endpoint. |
 | `GRID_DECISIONS_URL` | No | derived | The Decisions endpoint (`<openrouter origin>/api/alpha/decisions`). Only for a mock or a proxy. |
-| `GRID_DECISIONS_API_KEY` | No | — | A dedicated key for the endpoint; falls back to `OPENROUTER_API_KEY` through the shared credential resolver, BYOK first. A BYOK org whose key points anywhere but `openrouter.ai`, and a ZDR-only org, skip every decision. |
+| `GRID_DECISIONS_API_KEY` | No | — | A dedicated key for the endpoint; falls back to `OPENROUTER_API_KEY` through the shared credential resolver, BYOK first. A BYOK org whose key points anywhere but `openrouter.ai` skips every decision. A ZDR-only org is decided for: every call is pinned to zero-data-retention endpoints (ADR-0074). |
 
 ## Application
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `APP_ENV` | No | `development` | Application environment. Set to `production` in release Docker build. |
-| `GRID_GIT_SHA` | No | — (`unknown`) | The commit the running image was built from. **Not set by hand:** `publish-images.yml` passes `--build-arg GRID_GIT_SHA=${{ github.sha }}` and both Dockerfiles re-export it as an env var, so every published image carries its own commit. Nothing inside a container can read its own image tag, which is why a pilot report could not name a build. It appears in the `[boot]` startup line on **both** services and as `sha` on `/api/healthz` (BFF) and `/health` (aiq-agent) — so a deployment can be asked what it is running, over HTTP, days later. Unset (a locally built or hand-tagged image) reads back as `unknown` rather than a guess. Both services. |
+| `GRID_GIT_SHA` | No | — (`unknown`) | The commit the running image was built from. **Not set by hand:** CI's image build (`.github/actions/build-image`) passes `--build-arg GRID_GIT_SHA=${{ github.sha }}` and both Dockerfiles re-export it as an env var, so every published image carries the commit that built it. An image whose inputs did not change is re-tagged rather than rebuilt, so this is the commit its code came from, which can be older than the deployed tag. Nothing inside a container can read its own image tag, which is why a pilot report could not name a build. It appears in the `[boot]` startup line on **both** services and as `sha` on `/api/healthz` (BFF) and `/health` (aiq-agent) — so a deployment can be asked what it is running, over HTTP, days later. Unset (a locally built or hand-tagged image) reads back as `unknown` rather than a guess. Both services. |
 | `LOG_LEVEL` | No | `INFO` | Logging level: DEBUG, INFO, WARNING, ERROR. |
 | `PYTHONWARNINGS` | No | `ignore` | Python warnings filter. |
 | `PROJECT_PURGE_GRACE_DAYS` | No | see `docs/architecture/deletion-pipeline.md` | Grace period before soft-deleted projects are hard-purged (ADR-0011). |
+| `FOLDER_PURGE_GRACE_DAYS` | No | `14` | Days a deleted folder stays in the project's Papierkorb, restorable, before the purger erases its documents and keeps it as a tombstone (ADR-0088). Capped at 23, like every grace period, so an erasure still finishes inside the GDPR's one month; empty or invalid means 14. Read by the BFF when a folder is deleted. |
 
 ---
 
@@ -437,8 +441,10 @@ rendered with no network touched at all.
 The keys are the SAME Langfuse project keys the trace exporter already uses
 (`public-key` / `secret-key` in the Langfuse Secret,
 `deploy/pulumi/src/platform/langfuse.ts`), under Langfuse's own env names
-because its SDK reads them. The agent tiers do not receive them today — a
-deployment that wants prompt management injects them from that Secret.
+because its SDK reads them. Pulumi injects them into the chat, api and
+agent-worker tiers wherever the Langfuse tier is deployed, for the agent's
+scores ("Agent evaluation scores" below). That supplies the capability only: the prompt
+store stays on the bundled file until `LANGFUSE_PROMPTS_ENABLED` is set.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -449,18 +455,51 @@ deployment that wants prompt management injects them from that Secret.
 | `LANGFUSE_PROMPT_LABEL` | No | `production` | Which Langfuse label the fleet serves. `production` is what runs; other labels exist for experiments, and pointing a deployment at one is how an experiment is run without touching what everyone else gets. |
 | `LANGFUSE_PROMPT_CACHE_TTL_SECONDS` | No | `60` | How long a fetched version is served before the SDK refreshes it in the background (stale-while-revalidate: the turn is served immediately from cache either way). Also the window for which a FAILED fetch is not retried, which is what keeps a Langfuse outage from costing a network attempt on every turn. A change in Langfuse therefore reaches the fleet within this many seconds, not instantly. |
 
+## Trace deletion (Langfuse, purger and scheduler, ADR-0044)
+
+Langfuse keeps every prompt and answer a turn produced, and its automatic
+retention is Enterprise-only, so two of Piloti's own workers delete traces
+through Langfuse's public API (`frontends/ui/workers/langfuse-traces.js`): the
+**purger** deletes the traces of a conversation it erases (a chat's own erasure,
+and every chat of a purged project), and the **scheduler** deletes the traces of chats the BFF erased in the delete
+request, and traces older than the retention window once a day. Both read the SAME three variables as
+the prompt-management section above, with one difference: there is **no default
+host**. All three must be set or the step is a logged no-op, because a deletion
+sent to Langfuse Cloud, the SDK's default, would be the wrong place.
+`deploy/pulumi` injects them on both Deployments from the Langfuse Secret
+whenever the Langfuse tier is deployed; Compose does not (nothing sends traces
+there, see ADR-0044), so they stay unset and both steps no-op.
+
+The Langfuse behind them must run a v4 write mode (`dual` or `events_only`):
+the traces are found through `GET /api/public/v2/observations`, which answers
+404 otherwise.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGFUSE_HOST` | No | unset (step off) | Base URL of the Langfuse web tier, for the purger and scheduler services (Pulumi: `http://langfuse-web:3000`). |
+| `LANGFUSE_PUBLIC_KEY` | No | unset (step off) | Langfuse project public key (HTTP Basic user). Purger and scheduler services. |
+| `LANGFUSE_SECRET_KEY` | No | unset (step off) | Langfuse project secret key (HTTP Basic password). Purger and scheduler services. |
+| `GRID_LANGFUSE_TRACE_RETENTION_DAYS` | No | `30` | How long a trace lives before the scheduler's daily sweep asks Langfuse to delete it. Never below `3`, Langfuse's own minimum: a smaller number, zero, or text is corrected (to 3, or to the default) and the boot line says so. Each run sends at most 50 delete batches of 1,000 traces and stops after two minutes, so a backlog drains over days. Scheduler service. |
+
 ## Answer feedback scores (Langfuse)
 
 Every thumbs-up or thumbs-down a user leaves on an answer is also written to
 Langfuse, by the frontend (BFF) server side, as a `user-feedback` score on the
 trace that produced the answer (ADR-0044, Amendment 3;
-`frontends/ui/src/lib/langfuse/`). A retracted vote deletes its score. The
-platform answer-feedback view links each rated turn to its trace.
+`frontends/ui/src/lib/langfuse/`). A down-vote adds a categorical
+`user-feedback-reason` score (the reason key, `other` when none was chosen) and
+puts the trace in the `answer-review` annotation queue, if `task
+langfuse:provision` has created it. A retracted vote deletes its scores, and a
+re-vote to up deletes the reason score. The platform answer-feedback view links
+each rated turn to its trace.
 
 Capability only, read per call, and a silent no-op when anything is missing.
 Pulumi injects all five into the frontend only where the Langfuse tier is
 deployed (`frontendLangfuseEnv` in `deploy/pulumi/src/platform/langfuse.ts`),
 the keys by reference to the `langfuse-secrets` Secret; Compose sets none.
+The bff-jobs pool, whose environment is otherwise the frontend's, gets none of
+the five (`BFF_JOBS_WITHHELD` in `deploy/pulumi/src/app/config.ts`): only the
+request path scores a vote, and no NetworkPolicy admits that pool to Langfuse.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -468,6 +507,43 @@ the keys by reference to the `langfuse-secrets` Secret; Compose sets none.
 | `LANGFUSE_HOST` | No | unset | The Langfuse API the BFF writes scores to: the in-cluster web Service (`http://langfuse-web:3000`), which the `allow-frontend-to-langfuse` NetworkPolicy opens to the frontend pods. Not the public host: that one sits behind the edge's OIDC gate. Frontend. |
 | `LANGFUSE_PUBLIC_URL` | No | unset | Browser-facing origin of the Langfuse UI (`https://langfuse.<domain>`), for the trace and project links in the platform answer-feedback view (`turns[].langfuseTraceUrl`, `langfuse.projectUrl`). Without it, or without `LANGFUSE_PROJECT_ID`, both are null. Frontend. |
 | `LANGFUSE_PROJECT_ID` | No | unset | The Langfuse project id the traces and scores live in; Pulumi passes `langfuseProjectId` (default `grid-oib`), the id headless initialisation created. Frontend. |
+
+## Agent evaluation scores (Langfuse, ADR-0089)
+
+The agent writes the checks every answer passes through (citation
+verification, the quote check, card repair, the confidence cap) as scores on
+the turn's trace, through `POST /api/public/scores`
+(`src/aiq_agent/observability/langfuse_scores.py`). Capability only: without the
+host and both keys every call is a no-op. Pulumi injects all three into the chat
+(`aiq-agent`), api (`aiq-api`) and research-worker (`agent-worker`) tiers only
+where the Langfuse tier is deployed (`langfuseApiEnv` in
+`deploy/pulumi/src/app/config.ts`), the keys by reference to the
+`langfuse-secrets` Secret, and folds the keys into those pods' rollout checksum
+so a rotation restarts them. The ingest worker gets none of them. Compose sets
+none.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGFUSE_HOST` | No | unset | The in-cluster web Service (`http://langfuse-web:3000`), which the `allow-backend-to-langfuse` NetworkPolicy opens to the three backend tiers. Also the host the prompt store uses (section above). aiq-agent, aiq-api, agent-worker. |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | No | unset | The project keys the trace exporter and the BFF use (`public-key` / `secret-key` in `langfuse-secrets`). aiq-agent, aiq-api, agent-worker. |
+
+## Langfuse web tier: default membership (Kubernetes/Pulumi-injected)
+
+Set on `langfuse-web` only, by `langfuseDefaultMembershipEnv` in
+`deploy/pulumi/src/platform/langfuse.ts`. Upstream's automated access
+provisioning
+(<https://langfuse.com/self-hosting/administration/automated-access-provisioning>):
+when Langfuse creates an account, or first links an SSO identity to one, it adds
+the user to these with these roles. Existing memberships are never changed, so a
+promotion made in the Langfuse UI survives every deploy. Compose sets none (it
+has no SSO).
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGFUSE_DEFAULT_ORG_ID` | No | Pulumi: `langfuseOrgId` (`grid`) | The seeded organization a new user joins. |
+| `LANGFUSE_DEFAULT_ORG_ROLE` | No | Pulumi: `langfuseDefaultRole` (`VIEWER`) | `OWNER`, `ADMIN`, `MEMBER`, `VIEWER` or `NONE`; Langfuse refuses to start on anything else, so `loadConfig` refuses it first. In OSS Langfuse this is the role that decides access, because project-level roles are an Enterprise entitlement. |
+| `LANGFUSE_DEFAULT_PROJECT_ID` | No | Pulumi: `langfuseProjectId` (`grid-oib`) | The seeded project a new user joins. Not set when the role is `NONE`. |
+| `LANGFUSE_DEFAULT_PROJECT_ROLE` | No | Pulumi: same as the org role | `OWNER`, `ADMIN`, `MEMBER` or `VIEWER` (no `NONE`). Only takes effect with the Enterprise project-roles entitlement; not set when the role is `NONE`. |
 
 ## Data-tier authentication (Kubernetes/Pulumi-injected)
 
@@ -522,7 +598,7 @@ Tune the per-project FGA authorization path (`lib/authz/projects.ts`), the WorkO
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GRID_AUTHZ_SLOW_CALL_MS` | No | `2000` | Threshold (ms) above which a WorkOS authorization call on the project-authz path is logged as slow (`[WorkOS] slow call: …`), so a production stall names the exact leg instead of an anonymous hang. The fast path stays silent. `0` disables the warning. |
-| `GRID_AUTHZ_CACHE_TTL_MS` | No | `30000` | Caches per-resource FGA `authorization.check` results for `(organizationMembershipId, resourceType, resourceId, permission)` for this many ms in the shared cache (Redis/Dragonfly, fail-open). Cuts the WorkOS round-trips each websocket upgrade, save, summary and consistency-check makes down to zero on a cache hit. **Security tradeoff:** a project-role grant or revocation propagates up to TTL later — keep it short (30000–60000, matching the 30s feature-flag cache). The org **tenancy** check is never cached (runs every request), so a project can never be served cross-org from cache, and org-admin bypass is unaffected. `0` switches the cache off for a deployment that cannot accept a ≤TTL revocation lag. |
+| `GRID_AUTHZ_CACHE_TTL_MS` | No | `30000` | Caches per-resource FGA `authorization.check` results for `(organizationMembershipId, resourceType, resourceId, permission)` for this many ms in the shared cache (Redis/Dragonfly, fail-open), and, for the same period, the levels a membership's folder roles give in a project (`heldFolderLevels` in `lib/authz/folder-roles.ts`, ADR-0097; a lookup that fails is not cached and clears nothing). Cuts the WorkOS round-trips each websocket upgrade, save, summary and consistency-check makes down to zero on a cache hit. **Security tradeoff:** a project-role grant or revocation, and a person added to or taken off a folder's own list by anything but the access dialog (which drops the cached levels of everyone it changed), propagates up to TTL later — keep it short (30000–60000, matching the 30s feature-flag cache). The org **tenancy** check is never cached (runs every request), so a project can never be served cross-org from cache, and org-admin bypass is unaffected. `0` switches the cache off for a deployment that cannot accept a ≤TTL revocation lag. |
 | `BIM_MAX_IFC_BYTES` | No | `262144000` (250 MB) | **Three** limits in one number, so they cannot disagree about the same file: the upload ceiling for a `.ifc`, the largest file the BFF will extract, and — via `next.config.ts` — the server's request-body ceiling (`proxyClientMaxBodySize`, `serverActions.bodySizeLimit`), which is `max(FILE_UPLOAD_MAX_SIZE_MB, BIM_MAX_IFC_BYTES)`. That last one matters: when the transport limit followed the 100 MB document figure instead, a 149 MB model passed both validators and was then cut off in front of the handler, so `request.formData()` threw `TypeError: Failed to parse body as FormData` — an unhandled 500 naming neither the file nor a size. Deliberately independent of `FILE_UPLOAD_MAX_SIZE_MB` (100 MB), which is sized for documents; an Einreichung model is routinely 50–500 MB. Parsing runs in the Node process and allocates several times the file's own size, so raise this only alongside moving extraction out of the request process (ADR-0045). The batch total-size limit is also lifted to this value for a batch that carries a model, so one legal model cannot fail a limit it could never satisfy. |
 | `BIM_ELEMENT_LIMIT` | No | `200000` | Cap on `bim_elements` rows written per model. The summary's counts and totals stay EXACT above the cap (they are computed while walking, before it applies); only the per-element rows stop, and `summary.truncatedAt` records it so every surface says so out loud. |
 | `BIM_SPATIAL_MAX_MODEL_BYTES` | No | derived (see note) | Largest model the `ifc_measure` **geometry** engine will read into memory on the `aiq-agent` tier. Unset, it is derived at import from the memory the container actually has — cgroup v2 (`/sys/fs/cgroup/memory.max`), then v1, then the host — as `half the limit ÷ 20`, clamped to 16 MB–512 MB. The 20 is the LOW end of IfcOpenShell's measured resident footprint, which runs **20×–143× the file size** and tracks geometric complexity rather than bytes (2.3 MB of sample house occupies 47 MB; a 151 MB Revit export peaked at 5.3 GB). Two consequences worth stating: `os.sysconf` is deliberately not the first source, because inside a limited pod it reports the HOST's RAM and would size a 2 GB pod's ceiling for a 128 GB node — an OOM kill that takes the conversation with it and logs nothing useful; and the gate is **necessary, not sufficient** — a file under the ceiling may still be too complex, while one over it certainly is. Set this explicitly on a dedicated worker sized for large models. A refused model is reported to the user as a fact about the **file** (`ModelTooLargeError`), never as a service outage, and `ifc_query` keeps answering metadata questions about it because that path reads the extracted index and never the bytes. |

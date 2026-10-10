@@ -11,6 +11,7 @@ import {
   RESOURCE_TYPES,
   ROLES,
   SKILL_PERMISSION_SPECS,
+  FOLDER_PERMISSION_SPECS,
   findPermissionSpec,
   findRoleSpec,
   type PermissionTier,
@@ -20,6 +21,7 @@ import {
   PLATFORM_PERMISSIONS,
   PROJECT_PERMISSIONS,
   SKILL_PERMISSIONS,
+  FOLDER_PERMISSIONS,
 } from './permissions'
 
 /**
@@ -138,6 +140,7 @@ describe('authorization catalog', () => {
       ...Object.values(PLATFORM_PERMISSIONS),
       ...Object.values(PROJECT_PERMISSIONS),
       ...Object.values(SKILL_PERMISSIONS),
+      ...Object.values(FOLDER_PERMISSIONS),
     ]
     for (const slug of registrySlugs) {
       expect(findPermissionSpec(slug), `${slug} must exist in the catalog`).toBeDefined()
@@ -150,6 +153,7 @@ describe('authorization catalog', () => {
       ...PLATFORM_PERMISSION_SPECS,
       ...PROJECT_PERMISSION_SPECS,
       ...SKILL_PERMISSION_SPECS,
+      ...FOLDER_PERMISSION_SPECS,
     ]
       .filter((permission) => !registry.has(permission.slug))
       .map((permission) => permission.slug)
@@ -178,6 +182,37 @@ describe('authorization catalog', () => {
     const support = findRoleSpec('org-platform-support')
     expect(support).toBeDefined()
     expect(support!.permissions.filter((slug) => slug.endsWith(':manage'))).toEqual([])
+  })
+
+  describe('read-only observability (Langfuse)', () => {
+    // The edge in front of Langfuse admits `platform:organizations:view` OR
+    // `platform:observability:view` (deploy/pulumi/src/platform/platform-oidc.ts).
+    // The catalog grants the second explicitly wherever the first is held, so
+    // Langfuse access is a grant someone can read off a role, not a side effect
+    // of holding the operator permission.
+
+    it('the analyst role holds the observability permission and nothing else', () => {
+      const analyst = findRoleSpec('platform-observability-analyst')
+      expect(analyst).toMatchObject({ tier: 'platform', scope: 'platform-org' })
+      expect(analyst!.permissions).toEqual(['platform:observability:view'])
+    })
+
+    it('every role that sees all organizations also holds it', () => {
+      const missing = ROLES.filter(
+        (role) =>
+          role.permissions.includes('platform:organizations:view') &&
+          !role.permissions.includes('platform:observability:view')
+      ).map((role) => role.slug)
+      expect(missing).toEqual([])
+    })
+
+    it('only platform-org roles hold it', () => {
+      const holders = ROLES.filter((role) => role.permissions.includes('platform:observability:view'))
+      expect(holders.map((role) => role.scope)).toEqual(holders.map(() => 'platform-org'))
+      expect(holders.map((role) => role.slug).sort()).toEqual(
+        ['org-platform-owner', 'org-platform-support', 'platform-observability-analyst'].sort()
+      )
+    })
   })
 
   it('every project role is assignable through the members API', () => {

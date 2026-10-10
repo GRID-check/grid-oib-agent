@@ -53,6 +53,25 @@ export interface ShelfEndpoints {
   searchBody?: Record<string, unknown>
 }
 
+/** A project shelf's per-role folder access (ADR-0088). */
+export interface ShelfFolderAccess {
+  /** The project the access dialog writes to. */
+  projectId: string
+  /**
+   * Whether this reader may change who reads and writes a folder
+   * (`project:manage`, resolved on the server). Shows „Zugriff…" in the folder
+   * menu; the route checks again.
+   */
+  canManage: boolean
+  /**
+   * What the reader may do at the shelf's root, as the server read it for the
+   * first paint. The folder listing refreshes it.
+   */
+  initialRootAccess: FolderAccessLevel
+}
+
+export type FolderAccessLevel = 'read' | 'write'
+
 export interface FileShelf {
   /** Which provenance colour and icon the shelf wears (`--source-*`). */
   source: 'project' | 'office'
@@ -69,6 +88,19 @@ export interface FileShelf {
    * list, folders, search, filters, preview and download.
    */
   canManage: boolean
+  /**
+   * Who may read and write each folder, per WorkOS role (ADR-0088). A project's
+   * shelf only: the Archiv's folders are governed by `canManage` alone, so it
+   * leaves this out and shows no lock, no „Nur lesen" and no „Zugriff…".
+   */
+  folderAccess?: ShelfFolderAccess
+  /**
+   * The shelf's Papierkorb, a project's only (ADR-0088): deleting a folder
+   * moves it there with its subfolders and documents, the toast links to it,
+   * and the header carries a way in. Without it (the Archiv) deleting a folder
+   * re-files its contents into the parent and removes the folder.
+   */
+  bin?: { href: string }
   /** Faces, „Unvergeben", the assignment filter (the collaboration flag). */
   canCollaborate: boolean
   currentUserId?: string
@@ -86,7 +118,7 @@ export interface FileShelf {
    * for a surface no host is mounted on (the Archiv sheet).
    */
   preview: { kind: 'dialog' } | { kind: 'store'; projectName: string }
-  /** Per-card provenance chip and footer — the Büroarchiv's gold kind label. */
+  /** Per-card provenance chip and footer — the Büroablage's gold kind label. */
   cardExtras?: (file: FileItem) => CardExtras
   messages: {
     dropToUpload: string

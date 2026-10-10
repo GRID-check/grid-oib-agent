@@ -104,6 +104,32 @@ class SourceRegion:
         return cls(box=(x0, y0, x1, y1), label=label if isinstance(label, str) and label else None)
 
 
+#: How a project's status reads on the ``Projekt:`` line, and back.
+PROJECT_STATUS_LABELS: dict[str, str] = {"active": "laufend", "closed": "abgeschlossen"}
+
+
+class SourceProject(BaseModel):
+    """The project a hit from ANOTHER project came from (ADR-0094).
+
+    Only the cross-project lookup sets it: every other hit comes from the
+    turn's own scope and names no project. Rendered as the ``Projekt:`` line,
+    so the model can say where a passage is from and look the project up, and
+    carried to the source chip, so the reader can see it and open the document
+    in its own project.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    name: str
+    #: ``active`` or ``closed``.
+    status: str
+    #: Its Bundesland as the model reads it, with a warning when it is not
+    #: the chat project's: a precedent from another Land was decided under
+    #: another Bauordnung. Rendered as the ``Bundesland:`` line.
+    land_note: str | None = None
+
+
 class GroundingHit(BaseModel):
     """One citable passage, as data, before anything renders it.
 
@@ -164,6 +190,9 @@ class GroundingHit(BaseModel):
     #: Whether :attr:`body` was cut, which appends the truncation marker. The
     #: marker is protocol and not evidence, so the reader drops it again.
     body_truncated: bool = False
+    #: The other project this hit came from (ADR-0094); ``None`` for every hit
+    #: of the turn's own scope, which renders no ``Projekt:`` line.
+    project: SourceProject | None = None
     #: Where on the page the passage sits, for the viewer to mark (issue #433).
     #: Deliberately NOT rendered as a header line: it is geometry for the
     #: reader's viewer, and nothing the model could reason with, so the text the
@@ -259,11 +288,13 @@ def strip_trace_lanes(text: str) -> str:
 def render_grounding_block(block: GroundingBlock) -> str:
     """The block as the text a model reads, filed under the hash of that text.
 
-    The one place the grammar's line order and spacing live. Recording and the
-    ``sources`` step are done HERE rather than by the callers, so a producer
-    cannot emit a block and forget to make it readable back, or leave it out of
-    the Herleitung. That step is one producer site for every evidence tool, and
-    it is built from the records, never read back out of the text.
+    The one place the grammar's line order and spacing live. Recording, the
+    ``sources`` step and reporting the hits' collections to the restricted-use
+    admission are done HERE rather than by the callers, so a producer cannot
+    emit a block and forget to make it readable back, leave it out of the
+    Herleitung, or return a restricted passage unadmitted. That step is one
+    producer site for every evidence tool, and it is built from the records,
+    never read back out of the text.
     """
     lines: list[str] = block.preamble.split("\n") if block.preamble else []
     if block.coverage_gap:
@@ -278,6 +309,13 @@ def render_grounding_block(block: GroundingBlock) -> str:
         lines.append(block.trailer)
     rendered = block.degraded_banner + "\n".join(lines)
     record_grounding_block(block, rendered)
+    # Every passage's collection is reported for the tool call that returns this
+    # block, which is what admits a restricted folder's passages before the
+    # model reads them (ADR-0088). Here and not in the producers, for the
+    # reason recording is: no evidence tool can render a hit and skip it.
+    from aiq_agent.knowledge.restricted_use import note_collections_read
+
+    note_collections_read(hit.collection for hit in block.hits)
     if block.lanes:
         round_index = current_retrieval_round()
         step_id = f"sources:{round_index}:{block.tool}:{uuid.uuid4().hex[:8]}"
@@ -328,6 +366,10 @@ def _header_lines(hit: GroundingHit) -> Iterator[str]:
     newline, so they go in as they are.
     """
     yield f"Source: {_line(hit.display_title)}"
+    if hit.project is not None:
+        yield f"Projekt: {_project_line(hit.project)}"
+        if hit.project.land_note:
+            yield f"Bundesland: {_line(hit.project.land_note)}"
     if hit.collection:
         yield f"Collection: {_line(hit.collection)}"
     if hit.shelf is not None:
@@ -349,6 +391,12 @@ def _header_lines(hit: GroundingHit) -> Iterator[str]:
     if hit.stored_image_index is not None:
         yield f"Image: stored (view_knowledge_image image_index={hit.stored_image_index})"
     yield f"Relevance Score: {hit.score:.2f}"
+
+
+def _project_line(project: SourceProject) -> str:
+    """``Name — abgeschlossen (project_id …)``: what the model reads, and the text reader parses back."""
+    status = PROJECT_STATUS_LABELS.get(project.status, project.status)
+    return f"{_line(project.name)} — {_line(status)} (project_id {_line(project.id)})"
 
 
 def _line(value: str) -> str:

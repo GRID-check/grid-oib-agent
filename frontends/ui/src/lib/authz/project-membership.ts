@@ -23,6 +23,8 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { getWorkOS } from '@/lib/workos/client'
 import { orgRoleHoldsPermission } from './org-role-permissions'
 import { ORG_PERMISSIONS, type ProjectPermission } from './permissions'
+import { findProjectTenancy } from '@/lib/projects/repository'
+import { CLOSED_PROJECT_KEEPS, CLOSED_PROJECT_OPEN_TO_ORGANIZATION, isProjectClosed } from '@/lib/projects/project-status'
 
 /** Matches the membership cache TTL in `@/lib/auth/session`. */
 const MEMBERSHIP_TTL_MS = 10 * 60 * 1000
@@ -119,7 +121,8 @@ export async function canUserAccessProject(
  * bypass is checked first: it is a PERMISSION, not the role slug `admin`.
  */
 export async function userHoldsProjectPermission(
-  session: AuthorizedSession,
+  /** Only the organization is read, so a sweep with no session can ask too. */
+  session: Pick<AuthorizedSession, 'organizationId'>,
   projectId: string,
   targetUserId: string,
   permission: ProjectPermission
@@ -127,13 +130,22 @@ export async function userHoldsProjectPermission(
   const membership = await resolveSubjectMembership(session.organizationId, targetUserId)
   if (!membership) return false
 
+  // A closed project (ADR-0090), mirrored from requireProjectAccess: a write is
+  // nobody's, and reading and chatting are every member's.
+  const project = await findProjectTenancy(projectId)
+  if (!project || project.organizationId !== session.organizationId || project.deletedAt) return false
+  if (isProjectClosed(project)) {
+    if (!CLOSED_PROJECT_KEEPS.has(permission)) return false
+    if (CLOSED_PROJECT_OPEN_TO_ORGANIZATION.has(permission)) return true
+  }
+
   // Mirror requireProjectAccess exactly: the org-wide project bypass is a
   // PERMISSION, not the role slug `admin`. The subject has no session here, so
   // their role's permission list is resolved from WorkOS (cached, catalog
   // fallback) rather than guessed from its name — otherwise a custom org role
   // holding `org:projects:administer` would reach every project while this
   // refused to invite them to any of them.
-  if (await orgRoleHoldsPermission(membership.role, ORG_PERMISSIONS.projectsAdminister)) {
+  if (await orgRoleHoldsPermission(membership.role, ORG_PERMISSIONS.projectsAdminister, session.organizationId)) {
     return true
   }
 

@@ -10,7 +10,7 @@
  * ## Never a naked integer
  *
  * The old trigger rendered a count. The count was wrong (the knowledge layer is
- * stripped from the list yet appended to every turn) and, on the Büroarchiv
+ * stripped from the list yet appended to every turn) and, on the Büroablage
  * preset, it read **0** — the user names the office archive and the composer
  * reports zero sources. Worse, a bare number says nothing about *what* is in
  * scope. So the trigger renders one of four shapes instead, resolved by
@@ -44,7 +44,13 @@ import { ChevronDown, Layers } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
-import { AnimatePresence, motion, springSnap } from '@/components/motion'
+import {
+  AnimatePresence,
+  motion,
+  springSnap,
+  useIconSwapTransition,
+  useMotionToken,
+} from '@/components/motion'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/adapters/auth'
 import { useTranslations } from '@/i18n'
@@ -72,16 +78,21 @@ const PRESET_SIGNAL: Record<'law' | 'project' | 'office', SourceSignal> = {
   office: 'office',
 }
 
-/** One stratum, spelled out: icon + word + colour, never colour alone. */
+/**
+ * One stratum, spelled out: icon + word + colour, never colour alone. It swaps
+ * like an icon: the 4px slide and the layout shift land on `springSnap`, the
+ * fade is a tween (opacity never springs), and reduced motion is instant.
+ */
 const StratumUnit = ({ signal, label }: { signal: SourceSignal; label: string }) => {
   const Icon = iconForTint(signal)
+  const swap = useIconSwapTransition()
   return (
     <motion.span
       layout="position"
       initial={{ opacity: 0, x: 4 }}
       animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -4 }}
-      transition={springSnap}
+      exit={{ opacity: 0, x: -4, transition: swap.exit }}
+      transition={swap.enter}
       className={cn('inline-flex items-center gap-1', SIGNAL_TEXT[signal])}
     >
       <Icon className="size-3.5 shrink-0" aria-hidden="true" />
@@ -98,6 +109,8 @@ export interface SourceBasisTriggerProps extends ComponentProps<typeof Button> {
 export const SourceBasisTrigger = forwardRef<HTMLButtonElement, SourceBasisTriggerProps>(
   function SourceBasisTrigger({ className, pickerOpen = false, ...props }, ref) {
     const t = useTranslations('research')
+    // A 2px settle on the receipt: instant under reduced motion, like every token.
+    const receiptTransition = useMotionToken(springSnap)
     const { idToken } = useAuth()
 
     const enabledDataSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
@@ -165,7 +178,7 @@ export const SourceBasisTrigger = forwardRef<HTMLButtonElement, SourceBasisTrigg
           key={`receipt-${receipt}`}
           initial={{ y: -2 }}
           animate={{ y: 0 }}
-          transition={springSnap}
+          transition={receiptTransition}
           className="inline-flex items-center gap-2"
         >
           {summary.kind === 'all' ? (

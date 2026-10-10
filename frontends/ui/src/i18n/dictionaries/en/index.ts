@@ -33,6 +33,9 @@ import { legal } from './legal'
 import { answerExport } from './answer-export'
 import { diagrams } from './diagrams'
 import { feedback } from './feedback'
+import { feedbackExport } from './feedback-export'
+import { uploadBatches } from './upload-batches'
+import { references } from './references'
 
 export const en = {
   common,
@@ -62,4 +65,7 @@ export const en = {
   answerExport,
   diagrams,
   feedback,
+  feedbackExport,
+  uploadBatches,
+  references,
 } as const

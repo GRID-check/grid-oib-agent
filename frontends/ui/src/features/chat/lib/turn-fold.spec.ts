@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import type { WireEvent } from '@/adapters/api/wire-v2'
 import { WIRE_TURN_FILES, eventOf, frameOf, wireEvents } from '@/test-utils/wire-v2-fixtures'
-import { foldTurnEvent, foldTurnEvents, type TurnView } from './turn-fold'
+import { foldTurnEvent, foldTurnEvents, stopTurnView, type TurnView } from './turn-fold'
 
 const fold = (events: readonly WireEvent[]): TurnView => {
   const view = foldTurnEvents(undefined, events)
@@ -277,5 +277,127 @@ describe('a skill row replaced by a later phase', () => {
       eventOf(frameOf(3, { type: 'STEP_FINISHED', step: { ...step, phase: 'loaded' } })),
     ])
     expect(view?.steps[step.id]?.detail).toMatchObject({ phase: 'loaded', title: 'Brandschutznachweis' })
+  })
+})
+
+// L23: Stop pressed on this page marks the view cancelled before the server
+// has answered. What was on screen at the press is the answer.
+describe('after a Stop pressed on this page', () => {
+  const stoppedHere = (): TurnView => ({
+    ...fold([delta(1, 'Nach § 87 '), card(2, 0, 'k1')]),
+    phase: 'finished',
+    outcome: 'cancelled',
+    streaming: false,
+  })
+
+  it('takes no more text, snapshots, mastheads, cards or retractions', () => {
+    const view = stoppedHere()
+    const after = foldTurnEvents(view, [
+      delta(3, 'und mehr'),
+      body(4, { type: 'STATE_SNAPSHOT', snapshot: { text: 'anders', sources: [], answer_meta: null } }),
+      card(5, 1, 'k2'),
+      body(6, { type: 'CUSTOM', name: 'answer_retracted', value: {} }),
+    ])!
+    expect(after).toMatchObject({ text: 'Nach § 87 ', lastSeq: 6, outcome: 'cancelled' })
+    expect(after.cards).toBe(view.cards)
+  })
+
+  it('records the cancelled terminal but keeps its own text, sources and cards', () => {
+    const view = stoppedHere()
+    const after = foldTurnEvent(view, finished(3, { text: 'Nach § 87 der Wiener Bauordnung …', cards: [] }, 'cancelled'))
+    expect(after.result?.text).toBe('Nach § 87 der Wiener Bauordnung …')
+    expect(after).toMatchObject({ text: 'Nach § 87 ', phase: 'finished', outcome: 'cancelled' })
+    expect(after.cards).toBe(view.cards)
+  })
+
+  it('stays stopped when the run fails after the Stop, rather than turning failed', () => {
+    const view = stoppedHere()
+    const after = foldTurnEvent(view, body(3, { type: 'RUN_ERROR', code: 'workflow_error', message: 'boom' }))
+    expect(after).toMatchObject({ text: 'Nach § 87 ', phase: 'finished', outcome: 'cancelled', lastSeq: 3 })
+    expect(after.error).toBeUndefined()
+    expect(after.cards).toBe(view.cards)
+  })
+
+  it('folds the terminal as sent for a view that did not stop here (a replay, a spectator)', () => {
+    const view = fold([delta(1, 'Nach § 87 '), finished(2, { text: 'Nach § 87 der Wiener Bauordnung …' }, 'cancelled')])
+    expect(view.text).toBe('Nach § 87 der Wiener Bauordnung …')
+  })
+  // The Stop crossed the server's finished answer: the server stored it
+  // whole, and the view is cut to what was on screen, by the rule the BFF
+  // cuts that row by (`stopped-answer.ts`).
+  describe('when the terminal that comes back is not the cancelled one', () => {
+    const settled = 'Die Höhe beträgt 3 m [1].\n\n[[card:1]]\n\nWeiter [2].'
+    const answered = () =>
+      finished(4, {
+        text: settled,
+        sources: [
+          { content: 'a', number: 1 },
+          { content: 'b', number: 2 },
+        ],
+        cards: [
+          { key: 'k1', card: { type: 'summary', title: 'k1', content: 'x' } },
+          { key: 'k2', card: { type: 'summary', title: 'k2', content: 'x' } },
+        ],
+        answer_meta: { kind: 'ruling', topic: 'Höhe' },
+      })
+    const stoppedOn = (shown: string): TurnView =>
+      stopTurnView(
+        fold([
+          card(1, 0, 'k1'),
+          body(2, { type: 'STATE_SNAPSHOT', snapshot: { text: settled, sources: [{ content: 'a', number: 1 }] } }),
+          delta(3, ' Nachtrag'),
+        ]),
+        shown
+      ).view
+
+    it('cuts the result where the text on screen and the stored one part, and marks it for the BFF', () => {
+      const view = stoppedOn('Die Höhe beträgt 3 m [1].\n\n[[card:1]]\n\nWei')
+      const after = foldTurnEvent(view, answered())
+      expect(after).toMatchObject({
+        text: 'Die Höhe beträgt 3 m [1].\n\n[[card:1]]\n\nWei',
+        outcome: 'cancelled',
+        stoppedLate: true,
+        shownAtStop: 'Die Höhe beträgt 3 m [1].\n\n[[card:1]]\n\nWei',
+        answerMeta: { kind: 'ruling', topic: 'Höhe' },
+      })
+      expect(after.sources.map((source) => source.number)).toEqual([1, 2])
+      expect(after.cards.map((kept) => kept?.key)).toEqual(['k1'])
+      // The live card object is kept, so its node is.
+      expect(after.cards[0]).toBe(view.cards[0])
+    })
+
+    it('keeps nothing past the place the texts part, a card place included', () => {
+      const after = foldTurnEvent(stoppedOn('Die Höhe beträgt 3 m [1].\n\n[[ca'), answered())
+      expect(after).toMatchObject({ text: 'Die Höhe beträgt 3 m [1].', stoppedLate: true })
+      expect(after.cards).toEqual([])
+    })
+
+    it('leaves a turn that answered elsewhere (a commissioned run) to the projection', () => {
+      const view = stoppedOn('Die Höhe')
+      const run = { run_id: 'r1', run_message_id: 'm1' }
+      const after = foldTurnEvent(view, finished(4, { text: '', run }, 'handed_off'))
+      expect(after.stoppedLate).toBeUndefined()
+      expect(after.text).toBe(view.text)
+    })
+  })
+})
+
+describe('stopTurnView', () => {
+  it('names the position of the text on screen and cuts the view to it', () => {
+    const view = fold([delta(1, 'Nach § 87 [2] gilt. Danach [3] mehr.')])
+    const { view: stopped, shown } = stopTurnView(view, 'Nach § 87 [2] gilt.')
+    expect(shown).toEqual({ seq: 1, chars: 19 })
+    expect(stopped).toMatchObject({ text: 'Nach § 87 gilt.', phase: 'finished', outcome: 'cancelled', streaming: false })
+    expect(stopped.shownAtStop).toBe('Nach § 87 [2] gilt.')
+  })
+
+  it('reads a reveal that is not a prefix of the text (a snapshot replaced it) as the whole text', () => {
+    const view = fold([delta(1, 'Alt'), body(2, { type: 'STATE_SNAPSHOT', snapshot: { text: 'Neu [1].' } })])
+    expect(stopTurnView(view, 'Alt').shown).toEqual({ seq: 2, chars: 8 })
+  })
+
+  it('keeps the cards array when the cut keeps every card', () => {
+    const view = fold([card(1, 0, 'k1'), delta(2, 'A [[card:1]] B')])
+    expect(stopTurnView(view, 'A [[card:1]] B').view.cards).toBe(view.cards)
   })
 })

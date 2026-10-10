@@ -122,6 +122,7 @@ const addWireCitations = (
       laneLabel: citation.laneLabel,
       bindingNote: citation.bindingNote,
       bindingStatus: citation.bindingStatus,
+      project: citation.project,
       origin: citation.origin,
       tool: citation.tool,
       locus: {

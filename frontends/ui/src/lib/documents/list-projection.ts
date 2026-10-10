@@ -20,7 +20,7 @@
 import 'server-only'
 import type { FolderItem } from '@/features/documents/components/project-file-workspace'
 import type { DocumentWireRow } from '@/features/documents/lib/file-item'
-import type { FolderRow } from './shelf-folders'
+import type { ProjectFolderRow } from '@/lib/projects/folder-service'
 import type { ListedDocument } from './shelf-listing'
 import { summarizeDocumentVersions } from './lifecycle'
 import type { DocumentVersionState } from './lifecycle-types'
@@ -76,6 +76,7 @@ export function toDocumentWireRow(
     tags: row.tags ?? null,
     queueAhead: row.queueAhead ?? null,
     assignees: row.assignees,
+    sourceDeletedAt: row.sourceDeletedAt ?? null,
   }
 }
 
@@ -114,12 +115,17 @@ export async function toDocumentWireRows(
  * document listing, so it crosses the same boundary and needs the same
  * projection.
  */
-export function toFolderWireRow(row: FolderRow): FolderItem {
+export function toFolderWireRow(row: ProjectFolderRow): FolderItem {
   return {
     id: row.id,
     parentId: row.parentId,
     name: row.name,
     path: row.path,
+    // Only ever a folder the reader may read (ADR-0088); the lock needs to
+    // know it has its own list, and the write affordances need what this
+    // reader may do here. Who is on the list is not shipped (ADR-0097).
+    ownAccess: row.ownAccess,
+    access: row.access,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }

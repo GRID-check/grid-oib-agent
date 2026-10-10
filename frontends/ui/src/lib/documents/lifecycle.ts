@@ -46,6 +46,7 @@ import { ConflictError, ForbiddenError, NotFoundError, UnprocessableError } from
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { filedInOf } from '@/lib/audit/document-names'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import { inboxGroupKey } from '@/lib/inbox/registry'
@@ -53,10 +54,20 @@ import { getBackendUrl } from '@/lib/backend-proxy'
 import { resolvePeople } from '@/lib/sharing/directory'
 import type { Document, DocumentVersion } from '@/lib/db/schema'
 import { getAccessibleDocument } from './access'
+import {
+  AGENT_REFUSAL_LOCALE,
+  confinementRefusal,
+  folderRestrictsReading,
+  requireMayFileFrom,
+  type ConversationOrigin,
+} from '@/lib/conversations/restricted-egress'
+import type { Locale } from '@/i18n/config'
+import { findProjectInOrg } from '@/lib/projects/repository'
 import { isAgentDocumentFilename } from './agent-namespace'
 import { collectionFileRef, purgeIngestedChunks } from './collection-file-ref'
 import { documentDisplayName } from './display-name'
 import { findDocumentInOrg } from './repository'
+import { hasPassedScreening, internalRead } from '@/lib/documents/document-reader'
 import { resolveDocumentFolderPath } from './folder-path'
 import { listReviewCandidates, resolveReviewers } from './reviewers'
 import { DocumentDeletedError, OpenVersionExistsError } from './unique-conflicts'
@@ -64,11 +75,11 @@ import { discardObject } from '@/lib/storage/discard'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import {
   BACKEND_PURGE_TIMEOUT_MS,
-  readVersionContent,
+  readVersionTextForTask,
   renderVersionBytes,
   writeVersionContent,
 } from './version-content'
-import type { AgentDocumentProvenance } from './service'
+import type { AgentDocumentProvenance, DispatchDocumentResult, IngestPriority } from './service'
 import {
   DOCUMENT_VERSION_TRANSITIONS,
   findDocumentVersionTransition,
@@ -139,8 +150,13 @@ export interface TransitionInput {
    * it, a `revision` task is opened as well, because the reviewer has said they
    * do not want to wait for somebody to type the next message. A version with no
    * origin conversation opens one either way — see the `openRevisionTask` effect.
+   *
+   * Refused before the swap for a document in a folder some project member may
+   * not read: a task is listed to the whole project (ADR-0087).
    */
   delegateRevision?: boolean
+  /** The language of a refusal; the agent's route leaves it German. */
+  locale?: Locale
   /**
    * Set by {@link assertReviewGuards}, never by a caller.
    *
@@ -152,6 +168,37 @@ export interface TransitionInput {
 }
 
 /** The context every effect receives. Read-only; effects do not chain. */
+/**
+ * A person's document published from a draft: its new bytes are screened and
+ * indexed like an upload's (ADR-0086, migration 0123).
+ *
+ * The upload shelves dispatch what they store, and an upload's version is born
+ * `published` without passing through here. A draft forked from a person's
+ * document and published swaps the item's bytes in `promoteVersionToPublished`,
+ * and nothing dispatched them: the item served bytes nobody had screened under
+ * the previous bytes' `clean`. The verdict is now bound to the bytes it judged,
+ * so those bytes are held until this dispatch's verdict lands; bytes the gate
+ * already judged (a draft never edited) are not sent again.
+ */
+async function ingestPublishedUpload(
+  session: AuthorizedSession,
+  document: Document,
+  version: DocumentVersion,
+): Promise<void> {
+  if (version.contentHash !== null && version.contentHash === document.screenedHash) return
+  const { dispatchDocument } = await import('./service')
+  await dispatchDocument({
+    organizationId: session.organizationId,
+    projectId: document.projectId,
+    documentId: document.id,
+    filename: document.filename,
+    storageKey: version.storageKey,
+    storageBucket: version.storageBucket,
+    collectionName: document.collectionName,
+    folderPath: await resolveDocumentFolderPath(document, session.organizationId),
+  })
+}
+
 interface EffectContext {
   session: AuthorizedSession
   document: Document
@@ -257,6 +304,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
       action: transition.auditAction,
       targetType: 'document',
       targetId: document.id,
+      filedIn: filedInOf(document),
       metadata: {
         versionId: version.id,
         versionNumber: version.versionNumber,
@@ -384,7 +432,10 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
 
   /**
    * Index the version that was just published, with the provenance that says
-   * who wrote it and who cleared it (ADR-0054 § Indexing).
+   * who wrote it and who cleared it (ADR-0054 § Indexing). A person's document
+   * published from a draft is dispatched as an upload is, so its new bytes are
+   * screened before anyone but its uploader and reviewers sees them
+   * ({@link ingestPublishedUpload}).
    *
    * The slot was named before it did anything, and that is why the door could
    * be opened without moving a call site: "only a published version is ever
@@ -418,10 +469,10 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * which.
    */
   ingestPublished: async ({ session, document, version, previous }) => {
-    // Human-authored items are dispatched by whatever wrote their bytes — the
-    // three upload shelves — and re-dispatching here would double-ingest every
-    // re-upload. This effect exists for the door ADR-0054 opened.
-    if (document.authoredBy === 'user') return
+    if (document.authoredBy === 'user') {
+      await ingestPublishedUpload(session, document, version)
+      return
+    }
 
     // Both halves of `collectionFileRef`'s restated rule, asked before anything
     // is sent: a row outside the `piloti/` namespace would be indexed under a
@@ -495,6 +546,15 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * off — none of those is a reason to tell a Ziviltechniker that their
    * „Änderungen anfordern" did not go through. The failure is logged and the
    * comment still stands on the row, which is where the Files pane reads it.
+   *
+   * ## Why a restricted folder opens none
+   *
+   * The task's goal (the comment), its plan (the draft's text) and the filename
+   * it files are listed to every project member (`listTasks`), and tasks carry
+   * no folder audience of their own. So a draft in a folder some member may not
+   * read gets no task, whoever filed it: the reviewer who asked outright was
+   * refused with the reason before the swap, and a version nobody asked about
+   * keeps its comment on the row for its author (ADR-0087).
    */
   openRevisionTask: async ({ session, document, version, input }) => {
     const delegated = input.delegateRevision === true
@@ -503,8 +563,19 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
     // Archiv and a conversation's private attachments are both project-less, and
     // `tasks.project_id` is NOT NULL for the tenant predicate's sake.
     if (!document.projectId) return
+    // A held document (ADR-0086) opens no task: the run hands its text to a
+    // model, and the task's goal and file name are listed to the whole project.
+    if (!hasPassedScreening(document)) {
+      console.warn(`[documents] no revision task for version ${version.id}: its document has not passed screening`)
+      return
+    }
 
     try {
+      // Inside the try: a folder tree that cannot be read opens no task.
+      if (await folderRestrictsReading(session.organizationId, document.projectId, document.folderId)) {
+        console.warn(`[documents] no revision task for version ${version.id}: its folder restricts reading`)
+        return
+      }
       // Cycle-broken like the ingest dispatch above: `lib/tasks/delegation`
       // imports the jobs service, which imports the tasks service, which imports
       // THIS module for the filing it does at completion.
@@ -512,7 +583,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
       // Read in the REVIEWER's session, which has just been checked against this
       // document — the run itself has no session and the worker holds no
       // envelope, so the bytes have to be fetched by whoever is standing here.
-      const source = await readVersionContent(session, document.id, version.id).catch(() => null)
+      const source = await readVersionTextForTask(session, document.id, version.id).catch(() => null)
       await delegateTask(session, {
         projectId: document.projectId,
         kind: 'revision',
@@ -586,6 +657,43 @@ async function agentProvenance(
     approved_at: version.approvedAt?.toISOString() ?? null,
     producer: document.authoredByProducer,
   }
+}
+
+/**
+ * Read a machine's published document into the index again, as its published
+ * version: what a Papierkorb restore owes a Piloti document whose chunks went
+ * when its folder was deleted (`projects/folder-bin-jobs.ts`).
+ *
+ * The same dispatch `ingestPublished` makes, with the version and provenance it
+ * names, because `dispatchDocument` indexes a machine's row only for its
+ * published version. Without either half (no published version, a name outside
+ * the `piloti/` namespace) it refuses the way the dispatcher does, so a caller
+ * cannot mistake "not indexable" for a backend failure. No purge first: the
+ * chunks this replaces are already gone.
+ */
+export async function redispatchPublishedVersion(
+  organizationId: string,
+  document: Document,
+  priority: IngestPriority,
+): Promise<DispatchDocumentResult> {
+  const { dispatchDocument, AgentAuthoredDocumentNotIndexableError } = await import('./service')
+  const version = await findPublishedVersion(document.id, organizationId)
+  if (!version || !isAgentDocumentFilename(document.filename)) {
+    throw new AgentAuthoredDocumentNotIndexableError(document.id)
+  }
+  return dispatchDocument({
+    organizationId,
+    projectId: document.projectId,
+    documentId: document.id,
+    filename: document.filename,
+    storageKey: version.storageKey,
+    storageBucket: version.storageBucket,
+    collectionName: document.collectionName,
+    folderPath: await resolveDocumentFolderPath(document, organizationId),
+    versionId: version.id,
+    provenance: await agentProvenance(organizationId, document, version),
+    priority,
+  })
 }
 
 /** Every effect a transition names, in order. */
@@ -792,9 +900,25 @@ export async function transitionDocumentVersion(
 
   assertGuards(session, version, transition, input)
   await requireTransitionPermission(session, document, transition)
+  // A held document (ADR-0086) opens no review round: the inbox row names it,
+  // with its Auftragssatz, to reviewers who need be neither its uploader nor
+  // one of its quarantine reviewers. Its uploader reaches this path, because
+  // the hold lets them see their own file, so it is refused here, before the
+  // swap, while the version is still a draft they can submit once it passes.
+  if (transition.effects.includes('openReviewInbox') && !hasPassedScreening(document)) {
+    throw new ConflictError('The document has not passed screening yet', { op, reason: 'held' })
+  }
   // Before the swap, so a submission that would reach nobody is refused while
   // the version is still a draft the caller can fix.
   const review = await assertReviewGuards(session, document, version, transition, input)
+  // Before the swap too: „Piloti überarbeiten lassen" on a draft no task may
+  // quote is refused with the reason, and the reviewer can still ask for the
+  // changes without Piloti. The effect checks again for the case nobody asked.
+  if (input.delegateRevision === true && transition.effects.includes('openRevisionTask')) {
+    if (await folderRestrictsReading(session.organizationId, document.projectId, document.folderId)) {
+      throw confinementRefusal('revision', input.locale ?? AGENT_REFUSAL_LOCALE)
+    }
+  }
   const effectInput: TransitionInput = {
     ...input,
     ...(review.reviewers ? { reviewerUserIds: review.reviewers } : {}),
@@ -1060,6 +1184,12 @@ export async function replaceVersionContent(
     request?: Request
     /** False for the agent's internal route and the task outcome path. */
     actingHuman?: boolean
+    /**
+     * The conversation the new content came out of, for the agent's rewrite. Content from a thread that drew on a
+     * restricted folder goes only into a document filed at least as narrowly
+     * (ADR-0087, `restricted-egress.ts`), exactly as a new filing does.
+     */
+    origin?: ConversationOrigin
   } = {},
 ): Promise<DocumentVersion> {
   const document = await getAccessibleDocument(session, documentId, 'write')
@@ -1074,6 +1204,15 @@ export async function replaceVersionContent(
   }
   assertGuards(session, version, transition, { ifMatch, actingHuman: options.actingHuman })
   await requireTransitionPermission(session, document, transition)
+  if (options.origin) {
+    const project = document.projectId ? await findProjectInOrg(document.projectId, session.organizationId) : null
+    await requireMayFileFrom(options.origin, {
+      organizationId: session.organizationId,
+      projectId: project ? project.id : null,
+      projectCollection: project?.collectionName ?? document.collectionName,
+      folderId: document.folderId,
+    })
+  }
 
   const rendered = await renderVersionBytes(document, version, content)
   const swapped = await writeVersionContent({
@@ -1130,7 +1269,9 @@ export async function recordUploadedVersion(
   request?: Request,
   stored?: UploadedBytes,
 ): Promise<DocumentVersion | null> {
-  const document = await findDocumentInOrg(documentId, session.organizationId)
+  // The upload wrote this row a moment ago, and its bytes are still held
+  // (ADR-0086); the version records them whatever the gate will say.
+  const document = await findDocumentInOrg(documentId, session.organizationId, internalRead('just-written'))
   if (!document) return null
   const bytes = stored ?? document
   try {

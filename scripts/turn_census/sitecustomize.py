@@ -172,3 +172,34 @@ def _send_sync(self, request, *args, **kwargs):
 
 if _OUT:  # only when the census asked for a record
     httpx.Client.send = _send_sync
+
+
+def _eval_envelope():
+    """The precedent eval's signed envelope, handed to the agent as the BFF would hand it.
+
+    Only when the suite sets ``GRID_EVAL_ENVELOPE`` (``suite.py --set
+    precedent``): the agent then reads the two request headers a chat turn
+    carries (``X-Grid-Request-Context`` and its signature) from these
+    variables, and every other header as before. The envelope is signed with
+    the run's ``GRID_INTERNAL_API_TOKEN``, so the agent verifies it like a
+    real one; nothing else about the turn is faked here.
+    """
+    header = os.environ.get("GRID_EVAL_ENVELOPE")
+    if not header:
+        return
+    signature = os.environ.get("GRID_EVAL_ENVELOPE_SIG", "")
+    from aiq_agent import project_context
+
+    original = project_context._read_header
+    given = {
+        project_context.REQUEST_CONTEXT_ENVELOPE_HEADER: header,
+        project_context.REQUEST_CONTEXT_ENVELOPE_SIG_HEADER: signature,
+    }
+
+    def _read_header(name):
+        return given[name] if name in given else original(name)
+
+    project_context._read_header = _read_header
+
+
+_eval_envelope()

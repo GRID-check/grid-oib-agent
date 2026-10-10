@@ -49,13 +49,15 @@ import { agentDocumentFilename } from './agent-namespace'
 import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { admitOrDiscard } from '@/lib/storage/admission'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { placementCollectionFor, requireFolderWrite } from '@/lib/authz/folder-access'
 import { aiProvenanceMarking, markingIsInBytes, type AiProvenanceMarking } from '@/lib/ai-provenance'
-import { latinize } from '@/lib/text/latinize'
+import { fileSlug } from '@/lib/text/latinize'
 import { FEATURE_FLAGS, isAgentAuthoredDocumentsEnabled } from '@/lib/authz/feature-flags'
 import { recordAuditEventOrThrow } from '@/lib/audit/service'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { findProjectInOrg } from '@/lib/projects/repository'
-import { getOrCreateProjectFolderByName } from '@/lib/projects/folder-service'
+import { findRootProjectFolderByName, getOrCreateProjectFolderByName } from '@/lib/projects/folder-service'
+import { requireMayFileFrom, type ConversationOrigin } from '@/lib/conversations/restricted-egress'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { AuthoredRefKind } from './document-authors'
 import { deleteProjectDocument, findDocumentAuthoredByRef } from './repository'
@@ -301,6 +303,14 @@ export interface FileGeneratedDocumentInput {
   render: (context: GeneratedRenderContext) => Promise<GeneratedRendering> | GeneratedRendering
   /** Source request, for the audit event's IP + user agent context. */
   request?: Request
+  /**
+   * The conversation the content came out of. A thread that drew on a
+   * restricted folder files only into a folder restricted at least as narrowly
+   * (ADR-0087, `lib/conversations/restricted-egress.ts`); checked before anything is
+   * rendered or created. Absent for a producer whose input is not a
+   * conversation's (a deep-research run, whose scope is always open).
+   */
+  origin?: ConversationOrigin
 }
 
 export interface FiledGeneratedDocument {
@@ -387,11 +397,7 @@ const EXTENSION_BY_CONTENT_TYPE: Readonly<Record<string, string>> = {
  */
 export function generatedFilename(title: string, contentType: string, now: Date): string {
   const day = now.toISOString().slice(0, 10)
-  const slug = latinize(title)
-    .replace(/[^a-zA-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .toLowerCase()
-    .slice(0, 60)
+  const slug = fileSlug(title)
   const extension = EXTENSION_BY_CONTENT_TYPE[contentType.split(';')[0].trim()] ?? 'bin'
   return `${slug || 'piloti'}-${day}.${extension}`
 }
@@ -475,6 +481,16 @@ export async function assertMayFileGeneratedDocument(session: AuthorizedSession,
   // this one exists to replace.
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
   await requireProjectAccess(session, projectId, 'project:documents:generate')
+
+  // Filing is a write into the destination (ADR-0088): a „Berichte" this person
+  // may only read refuses (403), one they may not read is not found. Asked here,
+  // with the other gates, so a reader whose filing would be refused hears it
+  // when they ask rather than through a job refused on every read. Every
+  // producer lands in the same folder today; a destination that does not exist
+  // yet would be created at the root, inheriting the project, and is judged as
+  // such.
+  const destination = await findRootProjectFolderByName(projectId, GENERATED_DOCUMENT_FOLDER_NAME, session.organizationId)
+  await requireFolderWrite(session, projectId, [destination?.id ?? null])
 }
 
 /**
@@ -505,7 +521,7 @@ export async function assertMayFileGeneratedDocument(session: AuthorizedSession,
 export async function fileGeneratedDocument(
   input: FileGeneratedDocumentInput,
 ): Promise<FiledGeneratedDocument> {
-  const { session, projectId, producer, ref, title, render, request } = input
+  const { session, projectId, producer, ref, title, render, request, origin } = input
   // Not passed in, and that is the point — see the producer map's header.
   const refKind = GENERATED_DOCUMENT_PRODUCER_REF_KINDS[producer]
 
@@ -531,6 +547,27 @@ export async function fileGeneratedDocument(
 
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
+
+  // Where it will land, judged before the render and the folder creation, so a
+  // refusal leaves nothing behind. Write on it was asked with the other gates
+  // (`assertMayFileGeneratedDocument`); a destination that does not exist yet
+  // would be created at the root, inheriting the project, and is judged as such.
+  const existingDestination = await findRootProjectFolderByName(
+    projectId,
+    resolveGeneratedDocumentDestination(producer).folderName,
+    session.organizationId,
+  )
+  // Restricted-folder content stays where only people who may read it read it
+  // (ADR-0087).
+  if (origin) {
+    const destination = existingDestination
+    await requireMayFileFrom(origin, {
+      organizationId: session.organizationId,
+      projectId,
+      projectCollection: project.collectionName,
+      folderId: destination?.id ?? null,
+    })
+  }
 
   const marking = generatedDocumentMarking(producer, ref)
   const rendered = await render({ projectId, projectName: project.name, marking })
@@ -560,6 +597,9 @@ export async function fileGeneratedDocument(
   // folder standing in a project that never got a report.
   const destination = resolveGeneratedDocumentDestination(producer)
   const folder = await getOrCreateProjectFolderByName(projectId, destination.folderName, session.organizationId)
+  // A concurrent writer may have created it, or given it its own list, since
+  // the check above.
+  if (folder.id !== existingDestination?.id) await requireFolderWrite(session, projectId, [folder.id])
 
   const documentId = crypto.randomUUID()
   const storedName = generatedFilename(title, rendered.contentType, new Date())
@@ -626,7 +666,7 @@ export async function fileGeneratedDocument(
       // chunks until somebody publishes a version of it (ADR-0054), and the
       // safety comes from the dispatch that does not happen, never from this
       // string.
-      collectionName: project.collectionName,
+      collectionName: await placementCollectionFor(session.organizationId, projectId, project.collectionName, folder.id),
       fileSize: body.byteLength,
       contentType: rendered.contentType,
       // Terminal, and honest: the bytes are here and indexing was deliberately
@@ -699,6 +739,7 @@ export async function fileGeneratedDocument(
       action: 'document.generated',
       targetType: 'document',
       targetId: documentId,
+      filedIn: { projectId, folderId: folder.id },
       metadata: { projectId, producer, filename, fileSize: body.byteLength },
       request,
     })

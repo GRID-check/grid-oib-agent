@@ -6,24 +6,52 @@
  * org-wide Archiv, authorization included (`@/lib/documents/shelf-authz`:
  * `project:view` to read, `project:documents:write` or `project:edit` to
  * change). What is left here is the names and signatures a project's callers
- * know. The Archiv's twin is `@/lib/archiv/folder-service`.
+ * know, and the one thing only a project's folders have: access per role
+ * (ADR-0088). A folder the reader may not read, and everything below it, does
+ * not exist for them; a write asks `requireFolderWrite` first; a move that
+ * changes who reads what needs `project:manage`, is audited, and moves the
+ * documents into the collection their new access calls for. A delete is the
+ * other thing only a project has: the folder goes to the Papierkorb with its
+ * contents (`./folder-bin.ts`) instead of the shelf's re-filing delete, which
+ * stays the Archiv's. The Archiv's twin is `@/lib/archiv/folder-service`.
  */
 
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { recordAuditEvent } from '@/lib/audit/service'
+import {
+  clearanceOf,
+  computeFolderAccess,
+  folderReadOnlyError,
+  folderSubtreeUnreadableError,
+  getProjectFolderAccess,
+  projectMayWriteDocuments,
+  requireFolderWrite,
+  unreadableFoldersBelow,
+  withProjectCeiling,
+  type AccessFolder,
+} from '@/lib/authz/folder-access'
+import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
+import { requireProjectAccess } from '@/lib/authz/projects'
 import { projectShelf } from '@/lib/documents/shelf'
 import {
   createShelfFolder,
-  deleteShelfFolder,
   ensureShelfFolderPaths,
+  findShelfFolder,
+  findShelfRootFolder,
   getOrCreateShelfRootFolder,
   listShelfFolders,
   mirrorShelfFolderPathRewrite,
   updateShelfFolder,
   type FolderRow,
+  type ShelfFolderVisibility,
 } from '@/lib/documents/shelf-folders'
+import { findProjectInOrg } from '@/lib/projects/repository'
+import { placeProjectDocuments } from './collection-placement'
+import type { BinFolderResult } from './folder-bin'
+import { assertFolderMoveKeepsIfcOpen } from './ifc-folder-guard'
 
 export { toFolderRow } from '@/lib/documents/shelf-folders'
-export type { DeleteFolderResult, FolderRow } from '@/lib/documents/shelf-folders'
+export type { FolderRow } from '@/lib/documents/shelf-folders'
 
 export interface CreateFolderInput {
   projectId: string
@@ -53,12 +81,80 @@ export interface EnsureFolderPathsInput {
   paths: readonly string[]
 }
 
-export function listProjectFolders(projectId: string, session: AuthorizedSession) {
-  return listShelfFolders(session, projectShelf(projectId))
+/**
+ * A project folder as its reader sees it: the shelf's row, the folder's own
+ * access list (ADR-0088; null when it inherits, and only ever shown to someone
+ * who may read the folder), and what the reader may do there, the folder's
+ * level with the project permission as the ceiling. The server checks again
+ * on every write; `access` only shapes the UI.
+ */
+export interface ProjectFolderRow extends FolderRow {
+  /**
+   * Set when the folder has its own access list; who is on it is read on
+   * demand by whoever may change it (`getFolderAccess`), not shipped with every
+   * listing.
+   */
+  ownAccess: { everyoneReads: boolean } | null
+  access: 'read' | 'write'
 }
 
-export function createProjectFolder(input: CreateFolderInput, session: AuthorizedSession) {
+const DOCUMENT_WRITE = ['project:documents:write', 'project:edit'] as const
+
+/**
+ * The reader's view of the project's folders (ADR-0087, ADR-0088): a folder they
+ * may not read, and everything below it, does not exist for them.
+ */
+async function folderAccessFor(session: AuthorizedSession, projectId: string) {
+  const project = await findProjectInOrg(projectId, session.organizationId)
+  return getProjectFolderAccess(session, projectId, project?.collectionName ?? '')
+}
+
+export async function listProjectFolders(projectId: string, session: AuthorizedSession): Promise<ProjectFolderRow[]> {
+  const [rows, project, tree, projectWrite] = await Promise.all([
+    listShelfFolders(session, projectShelf(projectId)),
+    findProjectInOrg(projectId, session.organizationId),
+    listProjectFolderTree(session.organizationId, projectId),
+    projectMayWriteDocuments(session, projectId),
+  ])
+  const access = computeFolderAccess(tree, await clearanceOf(session, projectId), project?.collectionName ?? '')
+  const byId = new Map(tree.map((folder) => [folder.id, folder]))
+  return rows
+    .filter((row) => access.isVisible(row.id))
+    .map((row) => {
+      const own = byId.get(row.id)
+      return {
+        ...row,
+        ownAccess: own?.accessMode === 'custom' ? { everyoneReads: own.everyoneReads } : null,
+        access: withProjectCeiling(access.levelOf(row.id), projectWrite) === 'write' ? 'write' : 'read',
+      }
+    })
+}
+
+/** What the session may do at the project root: write with the project's document-write permission, else read. */
+export async function projectRootAccess(session: AuthorizedSession, projectId: string): Promise<'read' | 'write'> {
+  return (await projectMayWriteDocuments(session, projectId)) ? 'write' : 'read'
+}
+
+export async function createProjectFolder(input: CreateFolderInput, session: AuthorizedSession) {
+  // A new folder is a write into its parent (ADR-0088): the project's
+  // document-write permission, and write on the parent. A parent the session
+  // may not read is not found; one it may only read is refused (403).
+  await requireFolderWrite(session, input.projectId, [input.parentId ?? null])
   return createShelfFolder(session, projectShelf(input.projectId), input)
+}
+
+/**
+ * The root folder of this name, or null; never creates it. For a caller that
+ * must decide about the destination before anything exists (the restricted-
+ * folder filing check, `lib/conversations/restricted-egress.ts`). Like
+ * {@link getOrCreateProjectFolderByName} it does not authorize.
+ */
+export function findRootProjectFolderByName(
+  projectId: string,
+  name: string,
+  organizationId: string,
+): Promise<FolderRow | null> {
+  return findShelfRootFolder(projectShelf(projectId), organizationId, name)
 }
 
 /**
@@ -82,19 +178,164 @@ export function getOrCreateProjectFolderByName(
   return getOrCreateShelfRootFolder(projectShelf(projectId), organizationId, name)
 }
 
-export function ensureProjectFolderPaths(input: EnsureFolderPathsInput, session: AuthorizedSession) {
-  return ensureShelfFolderPaths(session, projectShelf(input.projectId), input)
+/** A folder upload into the project: what the reader may not see is skipped, and creating needs write (ADR-0088). */
+export async function ensureProjectFolderPaths(input: EnsureFolderPathsInput, session: AuthorizedSession) {
+  const access = await folderAccessFor(session, input.projectId)
+  const visibility: ShelfFolderVisibility = {
+    isVisible: (folderId) => access.isVisible(folderId),
+    assertMayCreateIn: (parentId) => {
+      if (access.levelOf(parentId) !== 'write') throw folderReadOnlyError()
+    },
+    recheckVisible: async (folderId) => (await folderAccessFor(session, input.projectId)).isVisible(folderId),
+  }
+  return ensureShelfFolderPaths(session, projectShelf(input.projectId), input, visibility)
 }
 
-export function updateProjectFolder(input: UpdateFolderInput, session: AuthorizedSession) {
-  return updateShelfFolder(session, projectShelf(input.projectId), input)
+/**
+ * The folders with their own access list at or above `folderId`, outermost
+ * first; empty for the project root or a path that inherits all the way up.
+ * The level on a folder is decided over exactly this list (ADR-0088: the
+ * minimum over every own list on the path), so two places with the same list
+ * give their contents the same access.
+ */
+function restrictionsAt(tree: ReadonlyMap<string, AccessFolder>, folderId: string | null): AccessFolder[] {
+  const chain: AccessFolder[] = []
+  const seen = new Set<string>()
+  for (let current = folderId ? tree.get(folderId) : undefined; current && !seen.has(current.id); ) {
+    seen.add(current.id)
+    if (current.accessMode === 'custom') chain.unshift(current)
+    current = current.parentId ? tree.get(current.parentId) : undefined
+  }
+  return chain
 }
 
-export function deleteProjectFolder(input: DeleteFolderInput, session: AuthorizedSession) {
-  return deleteShelfFolder(session, projectShelf(input.projectId), input.folderId)
+/**
+ * The audit form of {@link restrictionsAt}: each folder with its own list by
+ * id, `+*` when everyone reads it, folders `;`-joined. Who is on each list is
+ * the folder's folder roles in WorkOS (ADR-0097), so the folder names it.
+ */
+function describeRestrictions(chain: readonly AccessFolder[]): string {
+  return chain.map((folder) => `folder:${folder.id}${folder.everyoneReads ? '+*' : ''}`).join(';')
 }
 
-/** The path mirror onto a project's collection — see {@link mirrorShelfFolderPathRewrite}. */
+async function folderTree(organizationId: string, projectId: string): Promise<Map<string, AccessFolder>> {
+  return new Map((await listProjectFolderTree(organizationId, projectId)).map((entry) => [entry.id, entry]))
+}
+
+/**
+ * A move that changes who may read or write what is in a folder is a change
+ * of folder access: it needs what `setFolderAccess` needs (`project:manage`)
+ * and leaves the same audit line. Without this, `project:documents:write`
+ * could widen a folder by moving it out from under one that narrows it. (A
+ * delete no longer can: it takes the contents with it, `./folder-bin.ts`.)
+ */
+async function recordFolderAccessChange(
+  session: AuthorizedSession,
+  projectId: string,
+  folderId: string,
+  grants: string,
+  documentsMoved: number,
+  request: Request | undefined,
+): Promise<void> {
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'project.folder.access_changed',
+    targetType: 'project',
+    targetId: projectId,
+    // `roles` named the lists' roles while lists named roles; a list of people names none.
+    metadata: { folderId, grants, roles: '', documentsMoved },
+    request,
+  })
+}
+
+/**
+ * What a move changes about access, checked before anything is written: when
+ * the old and the new parent sit under different own access lists, it needs
+ * `project:manage`, is refused while the subtree holds a folder the mover
+ * cannot read (moving it widens or narrows that folder blind; an organization
+ * admin reads everything), and returns the lists that will govern the folder.
+ * Null when the move changes no one's access. Folders not every member may
+ * read hold no IFC model either (ADR-0087): a 409 when the move would put one
+ * under such a folder.
+ */
+async function checkMove(
+  session: AuthorizedSession,
+  projectId: string,
+  folder: { id: string; parentId: string | null },
+  parentId: string | null,
+): Promise<AccessFolder[] | null> {
+  const tree = await folderTree(session.organizationId, projectId)
+  const before = restrictionsAt(tree, folder.parentId)
+  const after = restrictionsAt(tree, parentId)
+  const unchanged = before.length === after.length && before.every((entry, i) => entry.id === after[i].id)
+  let accessAfter: AccessFolder[] | null = null
+  if (!unchanged) {
+    await requireProjectAccess(session, projectId, 'project:manage')
+    if (unreadableFoldersBelow(tree, await clearanceOf(session, projectId), folder.id).length > 0) {
+      throw folderSubtreeUnreadableError()
+    }
+    // What now governs the folder itself: its new ancestors' lists, then its own.
+    const own = tree.get(folder.id)
+    accessAfter = [...after, ...(own && own.accessMode === 'custom' ? [own] : [])]
+  }
+  await assertFolderMoveKeepsIfcOpen(session.organizationId, projectId, folder.id, parentId)
+  return accessAfter
+}
+
+/**
+ * Rename a folder and/or move it — see {@link updateShelfFolder}. A rename or
+ * move is a write on the folder (which, nesting only narrowing, is a write on
+ * its parent too); a move is also a write into the new parent. One the session
+ * may not read is not found, one it may only read is refused.
+ */
+export async function updateProjectFolder(input: UpdateFolderInput, session: AuthorizedSession, request?: Request) {
+  const shelf = projectShelf(input.projectId)
+  const folder = await findShelfFolder(shelf, session.organizationId, input.folderId)
+  if (!folder) {
+    await requireProjectAccess(session, input.projectId, [...DOCUMENT_WRITE])
+    return { ok: false as const, error: 'Folder not found.' }
+  }
+  const moving = input.parentId !== undefined && input.parentId !== folder.parentId
+  await requireFolderWrite(session, input.projectId, moving ? [folder.id, input.parentId ?? null] : [folder.id])
+  const accessAfter = moving ? await checkMove(session, input.projectId, folder, input.parentId ?? null) : null
+
+  const result = await updateShelfFolder(session, shelf, input)
+  if (!result.ok || !moving || result.folder.parentId === folder.parentId) return result
+  // A folder moved under (or out from under) one that restricts reading takes
+  // its documents into (or out of) that folder's collection.
+  const placement = await placeProjectDocuments(session.organizationId, input.projectId)
+  if (accessAfter) {
+    const grants = describeRestrictions(accessAfter)
+    await recordFolderAccessChange(session, input.projectId, folder.id, grants, placement.moved, request)
+  }
+  return result
+}
+
+/**
+ * Delete a folder: it goes to the Papierkorb with its subfolders and their
+ * documents ({@link moveFolderToBin}, ADR-0088), restorable with its access
+ * until the purge. Not the shelf's delete (`deleteShelfFolder`), which
+ * re-files the contents into the parent: that lifts the folder's own list from
+ * them, so for a project it would widen who reads them. The Archiv keeps it.
+ *
+ * Deleting is a write on the folder and on every folder below it, because
+ * their documents go too; the access lists over the contents do not change, so
+ * it needs no `project:manage` and is not an access change.
+ */
+export async function deleteProjectFolder(
+  input: DeleteFolderInput,
+  session: AuthorizedSession,
+  request?: Request,
+): Promise<BinFolderResult> {
+  // Loaded when a folder is deleted, not with this module: the bin erases and
+  // re-ingests through `@/lib/documents/service`, whose listing imports this
+  // module, and a static import would close that cycle at load time.
+  const { moveFolderToBin } = await import('./folder-bin')
+  return moveFolderToBin(session, input, request)
+}
+
+/** The path mirror onto a project's collections — see {@link mirrorShelfFolderPathRewrite}. */
 export function mirrorFolderPathRewrite(
   projectId: string,
   organizationId: string,

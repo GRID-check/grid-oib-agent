@@ -212,3 +212,33 @@ def test_redirect_handler_never_follows_redirects():
         )
     assert error.value.code == 302
     assert "other.example" not in str(error.value)
+
+
+def test_reference_projects_are_read_and_cut_at_a_whole_line(request_context, opener):
+    lines = [f"- Projekt {index} (id p{index}): 2019, GK 4" + " x" * 120 for index in range(40)]
+    opener.open.return_value.read.return_value = json.dumps(
+        {
+            "data": {
+                "projectContext": None,
+                "projectMemory": None,
+                "orgInstructions": None,
+                "referenceProjects": "\n".join(lines),
+            }
+        }
+    ).encode("utf-8")
+
+    blocks = client.fetch_turn_context(request_context)
+
+    assert blocks.reference_projects is not None
+    assert len(blocks.reference_projects) <= client.REFERENCE_PROJECTS_MAX_CHARS
+    assert blocks.reference_projects.splitlines() == lines[: len(blocks.reference_projects.splitlines())]
+
+
+@pytest.mark.parametrize("value", [None, 42, "  "])
+def test_reference_projects_absent_or_malformed_read_as_none(request_context, opener, value):
+    body = {"projectContext": None, "projectMemory": None, "orgInstructions": None}
+    if value is not None:
+        body["referenceProjects"] = value
+    opener.open.return_value.read.return_value = json.dumps({"data": body}).encode("utf-8")
+
+    assert client.fetch_turn_context(request_context).reference_projects is None

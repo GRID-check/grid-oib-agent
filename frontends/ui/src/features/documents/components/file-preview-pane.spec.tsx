@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { installLayoutObservers } from '@/test-utils/layout-observers'
 import { FAKE_FRAME_WIDTH, fakePdfjsRuntime, type FakePdfState } from '@/test-utils/pdfjs-fake'
 import { FilePreviewPane } from './file-preview-pane'
+import { CurrentProjectProvider } from '@/features/projects/lib/current-project'
 
 /**
  * pdf.js, stood in for by the shared fake, plus a record of every URL the
@@ -90,6 +91,33 @@ describe('FilePreviewPane', () => {
     render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
     expect(screen.getByText('plan.pdf')).toBeDefined()
     expect(screen.getByText(/1 MB/i)).toBeDefined()
+  })
+
+  it("names a closed project's file as such, under its name (ADR-0090)", () => {
+    const closed = { id: 'proj-1', name: 'Seestadt D12', status: 'closed' as const, closedAt: null, readsBecauseClosed: false }
+    const { unmount } = render(
+      <CurrentProjectProvider value={closed}>
+        <FilePreviewPane file={mockFile} projectId="proj-1" />
+      </CurrentProjectProvider>
+    )
+    expect(screen.getByText('Seestadt D12 · closed')).toBeDefined()
+    unmount()
+
+    render(
+      <CurrentProjectProvider value={{ ...closed, status: 'active' }}>
+        <FilePreviewPane file={mockFile} projectId="proj-1" />
+      </CurrentProjectProvider>
+    )
+    expect(screen.queryByText('Seestadt D12 · closed')).toBeNull()
+  })
+
+  it("does not mark an Archiv file previewed inside a closed project", () => {
+    render(
+      <CurrentProjectProvider value={{ id: 'proj-1', name: 'Seestadt D12', status: 'closed', closedAt: null, readsBecauseClosed: false }}>
+        <FilePreviewPane file={mockFile} scope="archiv" />
+      </CurrentProjectProvider>
+    )
+    expect(screen.queryByText('Seestadt D12 · closed')).toBeNull()
   })
 
   /**

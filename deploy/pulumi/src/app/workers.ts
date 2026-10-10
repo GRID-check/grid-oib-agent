@@ -9,6 +9,7 @@ import {
   recreateRollout,
   secretChecksumAnnotations,
 } from "../platform/rollout";
+import { withLangfuseKeysChecksum } from "../platform/langfuse";
 import { BOOTSTRAP_JOB_RESOURCES, JOB_DEFAULTS, LIGHT_WORKER_RESOURCES, PORT, UID } from "../constants";
 import { AppSecrets, AppWiring, BACKEND_URL, purgerEnv, schedulerEnv, sref } from "./config";
 
@@ -176,7 +177,7 @@ export function installWorkers(
         template: {
           metadata: {
             labels: commonLabels("purger"),
-            annotations: secretChecksumAnnotations(secrets.checksum),
+            annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
           },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
@@ -224,7 +225,7 @@ export function installWorkers(
             template: {
               metadata: {
                 labels: commonLabels("skill-scheduler"),
-                annotations: secretChecksumAnnotations(secrets.checksum),
+                annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
               },
               spec: {
                 enableServiceLinks: false, // see chroma.ts — legacy env collisions

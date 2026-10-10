@@ -31,7 +31,7 @@ NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma`,
 | `gotenberg` | Office → PDF converter (ADR-0070), called by the frontend BFF only — port 3000. Required: Word, presentation, `.xls` and `.ods` files are indexed from its PDF (ADR-0071) | No (internal) |
 | `purger` | Grace-period hard-delete worker | No |
 | `skill-scheduler` | Agent Skills cron scheduler (ADR-0046) | No |
-| `bff-jobs` | The BFF's background pool (ADR-0079): runs the jobs in `bff_job_queue`: project reindex, failed-ingestion rescan, IFC model extraction (`bim_extract`), Office-to-PDF rendition through `gotenberg` (`office_rendition`) and the filing of a finished research report (`file_research_report`). `extends` the `frontend` service, so it shares its environment (`GOTENBERG_URL` included); publishes nothing. Without it none of those run: an uploaded IFC model never gets its structure, a Word or Excel file is never indexed from its PDF, a finished report is never filed, and a reindex or rescan stays queued | No (internal) |
+| `bff-jobs` | The BFF's background pool (ADR-0079): runs the jobs in `bff_job_queue`: project reindex, failed-ingestion rescan, the re-read of documents a folder restriction moved (`placement_reingest`), IFC model extraction (`bim_extract`), Office-to-PDF rendition through `gotenberg` (`office_rendition`) and the filing of a finished research report (`file_research_report`). `extends` the `frontend` service, so it shares its environment (`GOTENBERG_URL` included); publishes nothing. Without it none of those run: an uploaded IFC model never gets its structure, a Word or Excel file is never indexed from its PDF, a finished report is never filed, and a reindex or rescan stays queued | No (internal) |
 | `seaweedfs-init` | One-shot: creates the `grid-documents` bucket | No |
 
 > **Deep-research runs on its own worker.**
@@ -143,7 +143,9 @@ own domains, DB password, and internal token with no manual input.
 5. **Deploy.** On first boot: Postgres runs `init-db.sql` (creates the 3 DBs),
    `grid-migrate` runs the Drizzle migrations for `grid_app`, `seaweedfs-init`
    creates the bucket, `grid-audit-schemas` reconciles the WorkOS Audit Log
-   schemas, and the backend starts. It ingests nothing at boot; the base-corpus
+   schemas, and the backend starts. Once the frontend is healthy,
+   `grid-workos-authz` creates the authorization catalog's permissions and
+   roles in WorkOS and carries folder grants over (ADR-0097). It ingests nothing at boot; the base-corpus
    housekeeping route does that, every ten minutes.
    The frontend waits for the first three; they are `depends_on:
    service_completed_successfully`, so a failure in any of them stops the

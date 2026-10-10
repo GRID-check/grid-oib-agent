@@ -38,6 +38,7 @@ import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { sanitizeFindings } from '@/lib/conversations/message-findings'
 import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { sanitizeQuoteStamps } from '@/lib/conversations/message-quote-stamps'
+import { isChatEffort } from '@/lib/reasoning-settings/catalog'
 import { sanitizeStages } from '@/lib/conversations/message-stages'
 import { sanitizePromptOptions } from '@/lib/conversations/message-prompt'
 import { sanitizeRunLedger, sanitizeRunTitle } from '@/lib/runs/run-ledger'
@@ -87,6 +88,13 @@ const asAddressees = (value: unknown): ChatMessage['addressees'] | undefined => 
   const { agent, users } = value as { agent?: unknown; users?: unknown }
   if (typeof agent !== 'boolean' || !Array.isArray(users)) return undefined
   return { agent, users: users.filter((user): user is string => typeof user === 'string') }
+}
+
+/** The `at` of a `{ folderId, at }` mark the purge writes, when it is a real date. */
+function markedAt(mark: unknown): string | undefined {
+  if (typeof mark !== 'object' || mark === null || Array.isArray(mark)) return undefined
+  const at = (mark as { at?: unknown }).at
+  return typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? at : undefined
 }
 
 /**
@@ -198,6 +206,17 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
       const stages = sanitizeStages(metadata.stages)
       return stages ? { stages } : {}
     })(),
+    // Content drawn from a deleted folder (ADR-0088): the purge's mark, and a
+    // removal of what was derived from it („Mit dem Ordner entfernen“).
+    // Dates only, read as such.
+    ...(() => {
+      const at = markedAt(metadata.sourceDeleted)
+      return at ? { sourceDeletedAt: at } : {}
+    })(),
+    ...(() => {
+      const at = markedAt(metadata.sourceRemoved)
+      return at ? { erasedAt: at } : {}
+    })(),
     // What the answer rested on. Spread last so a future metadata key cannot
     // silently shadow one of the fields above.
     ...restoreProvenance(metadata.provenance),
@@ -292,6 +311,7 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   ) {
     out.answerDurationMs = provenance.answerDurationMs
   }
+  if (isChatEffort(provenance.reasoningEffort)) out.reasoningEffort = provenance.reasoningEffort
   if (Array.isArray(provenance.skillsActivated) && provenance.skillsActivated.length > 0) {
     out.skillsActivated = provenance.skillsActivated.filter(
       (s): s is string => typeof s === 'string'

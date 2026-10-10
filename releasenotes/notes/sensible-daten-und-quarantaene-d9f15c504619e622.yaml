@@ -1,0 +1,5 @@
+---
+fixes:
+  - >
+    A CSV or text file exported from Excel on Windows previews with its €, „ “
+    and – again.

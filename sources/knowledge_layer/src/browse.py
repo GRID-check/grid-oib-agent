@@ -35,7 +35,7 @@ turn may read: the rows the turn's inventory resolved against the signed scope
 bound none — the same scope ``knowledge_search`` resolves. Both then subtract
 the shelves this turn did not ask for (``focus_file.get_turn_shelves``), the
 way ``register._restrict_scope_to_turn`` does for the ranked search, so a turn
-about one upload lists and greps that upload, not the Büroarchiv. The exact
+about one upload lists and greps that upload, not the Büroablage. The exact
 search reads the base corpus through the same store filter the ranked search
 uses (``register._base_collection_filters``): an excluded edition or a cover
 page is not evidence in either mode.
@@ -100,7 +100,7 @@ MAX_ALTERNATIVES = 6
 
 _SHELF_LABELS = {
     "project": "Projektwissen",
-    "archiv": "Büroarchiv",
+    "archiv": "Büroablage",
     "session": "Private Sitzung",
     "base": "Basiswissen",
 }
@@ -513,9 +513,22 @@ def _pages_label(pages: Sequence[int], limit: int = 12) -> str:
     return f", S. {shown}{more}"
 
 
+def _collection_names(collections: Sequence[str]) -> str:
+    """Collections as a message names them: a restricted folder's by what it is, never by its id.
+
+    Its id in a result would make the admission treat the whole result as that
+    folder's content (ADR-0088), and an outage is not content.
+    """
+    from aiq_agent.knowledge.restricted_collections import is_restricted_collection
+
+    return ", ".join(
+        "Ordner mit eingeschränktem Zugriff" if is_restricted_collection(name) else name for name in collections
+    )
+
+
 def _failed_note(failed: Sequence[str]) -> str:
     return (
-        f"UNVOLLSTÄNDIG: {len(failed)} Sammlung(en) konnten nicht durchsucht werden ({', '.join(failed)}). "
+        f"UNVOLLSTÄNDIG: {len(failed)} Sammlung(en) konnten nicht durchsucht werden ({_collection_names(failed)}). "
         "Was dort steht, fehlt in dieser Antwort — sag das dem Leser, statt daraus ein Nein zu machen."
     )
 
@@ -574,7 +587,7 @@ def search_failed_message(phrases: Sequence[str], failed: Sequence[str]) -> str:
     wanted = " | ".join(f"„{phrase}“" for phrase in phrases)
     return (
         f"Die Volltextsuche nach {wanted} konnte nicht laufen: keine der {len(failed)} Sammlung(en) hat "
-        f"geantwortet ({', '.join(failed)}). Das ist KEIN Ergebnis — weder ein Treffer noch ein Nein. Sag dem "
+        f"geantwortet ({_collection_names(failed)}). Das ist KEIN Ergebnis — weder ein Treffer noch ein Nein. Sag dem "
         "Leser, dass die Suche gerade nicht möglich war, oder versuche `knowledge_search` ohne `match`."
     )
 
@@ -607,15 +620,29 @@ def _entry_shelf(entry: Any) -> str | None:
 
 
 async def _turn_rows(search_config: Any) -> list[FileRow]:
-    """The turn's inventory rows, uncapped; loaded from the scope when this path bound none."""
+    """The turn's inventory rows, uncapped; loaded from the scope when this path bound none.
+
+    Never a row of a restricted folder's collection, whichever way the rows were
+    found (ADR-0088): listing is not use, so a name, a title or a summary of
+    such a file never reaches the model without an admission. The filter sits on
+    the rows themselves rather than on one of the two sources, because the
+    fallback below is the path a failed inventory load takes.
+    """
+    from aiq_agent.knowledge.restricted_collections import is_restricted_collection
+
+    return [row for row in await _readable_rows(search_config) if not is_restricted_collection(row.collection)]
+
+
+async def _readable_rows(search_config: Any) -> list[FileRow]:
     from aiq_agent.knowledge.inventory import get_turn_documents
+    from aiq_agent.knowledge.restricted_use import without_restricted
 
     bound = get_turn_documents()
     if bound:
         return file_rows(bound)
     from aiq_agent.knowledge import get_available_documents_async
 
-    entries = _scope_entries(search_config)
+    entries = without_restricted(_scope_entries(search_config))
     listings = await asyncio.gather(
         *(get_available_documents_async(entry.collection) for entry in entries), return_exceptions=True
     )
@@ -704,7 +731,7 @@ _LIST_FILES_DESCRIPTION = (
     "Protokoll zur Baubesprechung“, „wie heißt die Datei mit dem Schnitt genau“. Also first, when you "
     "need an exact file name for `read_passage`, `knowledge_search(file_name=…)` or a file operation "
     "and the inventory does not show it.\n"
-    "- no arguments: every file on Projektwissen, Büroarchiv and Private Sitzung, paged and ordered "
+    "- no arguments: every file on Projektwissen, Büroablage and Private Sitzung, paged and ordered "
     "by folder, after an overview of the top-level folders with their file counts. `folder=` narrows "
     "that to one folder and everything below it.\n"
     "- `name_contains=` words that must all appear in the file name or title („brandschutz eg“); "
@@ -992,6 +1019,13 @@ async def _search(
     groups = group_matches(chunks, pattern)
     if not groups:
         return no_match_message(phrases, answered, failed)
+    # The match table names every matching file and counts its matches, which
+    # is content of each file it names, passages shown or not: reported for the
+    # restricted-use admission (ADR-0088), beside the passages the grounding
+    # block reports itself.
+    from aiq_agent.knowledge.restricted_use import note_collections_read
+
+    note_collections_read(group.collection for group in groups)
     passages = pick_passages(groups)
     query = " | ".join(phrases)
     formatted = await asyncio.to_thread(

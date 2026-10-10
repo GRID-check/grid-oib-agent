@@ -59,6 +59,8 @@
 import type { FileItem, FolderItem } from '../components/project-file-workspace'
 import { folderMatchKey, pathSegments } from '@/lib/projects/folders'
 import { documentAliasKey, documentNameKey } from '@/lib/documents/name-match'
+import { screenUploadName, type NameMatch } from '@/lib/upload-screening/name-screen'
+import type { UploadScreeningPolicy } from '@/lib/upload-screening/policy'
 
 /** What will happen to one dropped file. */
 export type PlannedAction =
@@ -87,6 +89,13 @@ export type PlannedAction =
    * appears to be, for a person to settle.
    */
   | 'duplicate'
+  /**
+   * The organization's upload screening names it (ADR-0086): its file name or
+   * one of its folders contains a term the office does not want uploaded. Not
+   * sent — the bytes stay on this machine — unless the reader releases it in
+   * the dialog, which turns it back into whatever it would otherwise have been.
+   */
+  | 'excluded'
 
 export interface PlannedFile {
   file: File
@@ -127,6 +136,13 @@ export interface PlannedFile {
    * stays out of the listing with it, so the dialog has to say so.
    */
   existingArchived?: true
+  /**
+   * What the name screening matched: why an `excluded` file is held back, or —
+   * with {@link screeningReleased} — what the reader released it from.
+   */
+  screening?: NameMatch[]
+  /** The reader released this file from the name screening; its upload says so to the server. */
+  screeningReleased?: true
 }
 
 /** One document that is already correct but filed in the wrong place. */
@@ -188,6 +204,8 @@ export interface FolderUploadCounts {
   unchanged: number
   collision: number
   duplicate: number
+  /** Held back by the organization's upload screening (ADR-0086). */
+  excluded: number
   refiled: number
   foldersCreated: number
   foldersMatched: number
@@ -224,6 +242,24 @@ export interface FolderUploadPlanInput {
   currentFolderId: string | null
   /** Digests for {@link FolderUploadPlan.hashCandidates}, on the second pass. */
   digests?: ReadonlyMap<File, string>
+  /**
+   * The organization's upload screening, and the files the reader released
+   * from it (ADR-0086). Absent means nothing is screened here — the upload
+   * hook and the server still are.
+   */
+  screening?: PlanScreening
+}
+
+export interface PlanScreening {
+  policy: UploadScreeningPolicy
+  /**
+   * The path of the folder the reader is standing in, from the shelf root, or
+   * null at the root. A file is screened against the folder it LANDS in as
+   * well as the one it came from: dropped into „Honorare", a scan named
+   * `0042.pdf` is still a fee document.
+   */
+  basePath: string | null
+  released?: ReadonlySet<File>
 }
 
 /** The path a file had in the tree — a folder input reports it, a drop is stamped with it. */
@@ -292,6 +328,33 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
     return (mergedIntoCurrentFolder ? directories.slice(1) : directories).join('/')
   }
 
+  /*
+   * The name screening, before anything else is planned from the drop.
+   *
+   * An excluded file must not shape the plan at all: it creates no folder (a
+   * folder called „Personalakten" in Piloti is itself the disclosure), claims
+   * no filename against its siblings, and is matched against nothing.
+   */
+  const screened = new Map<File, NameMatch[]>()
+  if (input.screening) {
+    const { policy, basePath } = input.screening
+    for (const entry of entries) {
+      const relative = relativeDirectory(entry.path)
+      const folderPath = [basePath, relative].filter(Boolean).join('/') || null
+      // The folders on disk count as well as the one it lands in: a file that
+      // came out of „Rechnungen" is still an invoice wherever it is filed.
+      const verdict = screenUploadName(policy, {
+        filename: entry.file.name,
+        originPath: droppedPath(entry.file),
+        folderPath,
+      })
+      if (verdict.blocked) screened.set(entry.file, verdict.matches)
+    }
+  }
+  const released = input.screening?.released
+  const isExcluded = (file: File): boolean => screened.has(file) && !released?.has(file)
+  const admitted = entries.filter((entry) => !isExcluded(entry.file))
+
   // Existing folders by their path relative to where the reader stands. The
   // stored `path` is absolute from the project root, so the reader's own path
   // is the prefix to strip.
@@ -311,7 +374,7 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
   // `a/b` to exist before it can, and a tree can name a leaf whose parent holds
   // no files of its own.
   const neededPaths = new Set<string>()
-  for (const entry of entries) {
+  for (const entry of admitted) {
     const directory = relativeDirectory(entry.path)
     if (!directory) continue
     const segments = directory.split('/')
@@ -360,7 +423,7 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
   // Names claimed more than once inside this one drop — compared the way the
   // server compares them, so two spellings of one name are one claim.
   const dropNameCounts = new Map<string, number>()
-  for (const entry of entries) {
+  for (const entry of admitted) {
     const key = documentNameKey(entry.file.name)
     dropNameCounts.set(key, (dropNameCounts.get(key) ?? 0) + 1)
   }
@@ -374,6 +437,15 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
   const hashCandidates: File[] = []
   const moves: PlannedMove[] = []
   const plannedFiles: PlannedFile[] = entries.map(({ file, path }) => {
+    const matches = screened.get(file)
+    if (matches && isExcluded(file)) {
+      return { file, originPath: path, targetPath: relativeDirectory(path), action: 'excluded', screening: matches }
+    }
+    const planned = planAdmitted(file, path)
+    return matches ? { ...planned, screening: matches, screeningReleased: true } : planned
+  })
+
+  function planAdmitted(file: File, path: string): PlannedFile {
     const targetPath = relativeDirectory(path)
     /*
      * Where the tree puts this file, as a folder id — `null` when that folder
@@ -449,7 +521,7 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
       // is the part of an update that surprises.
       ...(refiled ? { refiledFromFolderId: existing.folderId ?? null } : {}),
     }
-  })
+  }
 
   return {
     rootName,
@@ -480,6 +552,7 @@ export function countPlan(
     unchanged: 0,
     collision: 0,
     duplicate: 0,
+    excluded: 0,
     refiled: 0,
     foldersCreated: 0,
     foldersMatched: 0,
@@ -530,5 +603,26 @@ export function filesToUpload(
 ): PlannedFile[] {
   return plan.files.filter(
     (file) => file.action === 'new' || (includeUpdates && file.action === 'update'),
+  )
+}
+
+/**
+ * Whether two plans of one drop do the same thing: every file the same action
+ * in the same place, the same folders made or matched, the same moves.
+ *
+ * The plan the reader confirmed is settled before it is applied (a release
+ * probe answered, the policy read afresh), and when that changes what would
+ * happen, the reader is shown the new plan instead of having it applied in
+ * their name.
+ */
+export function samePlanOutcome(a: FolderUploadPlan, b: FolderUploadPlan): boolean {
+  const fileKey = (planned: PlannedFile): string => `${planned.action}\u0000${planned.targetPath}`
+  return (
+    a.files.length === b.files.length &&
+    a.files.every((planned, index) => planned.file === b.files[index].file && fileKey(planned) === fileKey(b.files[index])) &&
+    a.folders.length === b.folders.length &&
+    a.folders.every((folder, index) => folder.path === b.folders[index].path && folder.existingId === b.folders[index].existingId) &&
+    a.moves.length === b.moves.length &&
+    a.moves.every((move, index) => move.documentId === b.moves[index].documentId && move.targetPath === b.moves[index].targetPath)
   )
 }

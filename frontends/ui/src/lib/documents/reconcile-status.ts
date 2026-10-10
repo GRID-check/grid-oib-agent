@@ -12,6 +12,9 @@
  * wiped the in-memory job registry) and terminal states are written back.
  */
 
+import { onDocumentsSettled } from '@/lib/upload-batches/settle'
+import { QUARANTINED_PREFIX } from '@/lib/upload-screening/quarantine'
+import type { DocumentScreeningOutcome } from '@/lib/db/schema/documents'
 import type { DocumentAuthor } from '@/lib/db/schema'
 import { collectionFileRef, type CollectionFileRef } from './collection-file-ref'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
@@ -39,8 +42,9 @@ const IN_FLIGHT_STATUSES = IN_FLIGHT_DOCUMENT_STATUSES
 
 /**
  * The one in-flight status the BACKEND cannot answer for. `processing` is
- * written only by `markDocumentProcessing`, for work running in the BFF itself
- * (IFC extraction, office rendition) before any ingest job exists. Whatever the
+ * written by `markDocumentProcessing`, for work running in the BFF itself
+ * (IFC extraction, office rendition) before any ingest job exists, and by a
+ * Papierkorb restore for the documents its job is about to read again. Whatever the
  * row's metadata still carries is from the PREVIOUS dispatch: `metadata` is not
  * cleared when the row goes back to `processing`, so a retried document asks
  * the batch endpoint about its old failed job and flips back to `failed` while
@@ -141,8 +145,14 @@ export interface DocumentMetadata {
 }
 
 interface TerminalResolution {
-  status: 'completed' | 'failed'
+  status: 'completed' | 'failed' | 'quarantined'
   errorMessage: string | null
+  /**
+   * What the job's content gate concluded (ADR-0086), when it ran. Absent
+   * leaves the column as it is: a job dispatched without screening (released,
+   * or screening off) has nothing to say, and must not erase a `released`.
+   */
+  screeningOutcome?: DocumentScreeningOutcome
 }
 
 /**
@@ -168,6 +178,15 @@ export const extractIngestJobId = (metadata: unknown): string | null => {
   return null
 }
 
+/** The digest a dispatch recorded beside its job id (`setDocumentIngestJob`), or null. */
+const recordedIngestHash = (metadata: unknown): string | null => {
+  if (metadata && typeof metadata === 'object' && 'ingestContentHash' in metadata) {
+    const hash = (metadata as Record<string, unknown>).ingestContentHash
+    if (typeof hash === 'string' && hash.length > 0) return hash
+  }
+  return null
+}
+
 const fetchJson = async (url: string, init?: RequestInit): Promise<{ status: number; body: unknown } | null> => {
   try {
     const response = await fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
@@ -184,7 +203,28 @@ interface BackendJobStatus {
   error_message?: string | null
   /** `queue_ahead`: the backend's count for a job still in the durable queue. */
   metadata?: { queue_ahead?: unknown } | null
-  file_details?: Array<{ status?: string; error_message?: string | null }>
+  /** `screening`: the content gate's per-file outcome (ADR-0086), null when the job carried no rules. */
+  file_details?: Array<{ status?: string; error_message?: string | null; screening?: string | null }>
+}
+
+/**
+ * A failure the content gate reported is not a failure: the job stopped on
+ * purpose, before any model call, and the row goes to quarantine (ADR-0086).
+ */
+const failedOrQuarantined = (errorMessage: string | null): TerminalResolution =>
+  errorMessage?.startsWith(QUARANTINED_PREFIX)
+    ? { status: 'quarantined', errorMessage, screeningOutcome: 'quarantined' }
+    : { status: 'failed', errorMessage }
+
+const SCREENING_OUTCOMES_FROM_JOB = new Set<DocumentScreeningOutcome>(['clean', 'partial', 'unchecked'])
+
+/** The outcome a successful single-file job reports, when it screened at all. */
+const completedOutcome = (job: BackendJobStatus): TerminalResolution => {
+  const reported = job.file_details?.length === 1 ? job.file_details[0]?.screening : null
+  const outcome = SCREENING_OUTCOMES_FROM_JOB.has(reported as DocumentScreeningOutcome)
+    ? (reported as DocumentScreeningOutcome)
+    : undefined
+  return { status: 'completed', errorMessage: null, ...(outcome ? { screeningOutcome: outcome } : {}) }
 }
 
 /**
@@ -214,16 +254,13 @@ const resolveFromJobStatus = (job: BackendJobStatus | null | undefined): JobReso
     // failed; surface that as a failure rather than a false 'completed'.
     const failedFile = job.file_details?.find((f) => f.status === 'failed')
     if (failedFile && job.file_details?.length === 1) {
-      return {
-        kind: 'terminal',
-        resolution: { status: 'failed', errorMessage: failedFile.error_message ?? null },
-      }
+      return { kind: 'terminal', resolution: failedOrQuarantined(failedFile.error_message ?? null) }
     }
-    return { kind: 'terminal', resolution: { status: 'completed', errorMessage: null } }
+    return { kind: 'terminal', resolution: completedOutcome(job) }
   }
   if (job.status === 'failed') {
     const errorMessage = job.error_message ?? job.file_details?.find((f) => f.error_message)?.error_message ?? null
-    return { kind: 'terminal', resolution: { status: 'failed', errorMessage } }
+    return { kind: 'terminal', resolution: failedOrQuarantined(errorMessage) }
   }
   const ahead = job.metadata?.queue_ahead
   return { kind: 'in_progress', queueAhead: typeof ahead === 'number' && ahead >= 0 ? ahead : null }
@@ -370,17 +407,35 @@ export const clearCollectionFilesCache = (): void => {
  * called for a row a machine wrote: such a row has no entry of its own here,
  * and on a filename collision it would adopt the human document's `success` —
  * turning a never-dispatched row into a green, „zitierbar" one.
+ *
+ * A `failed` entry speaks only for a row that carries no job ({@link
+ * attributableFailure}). `success` is the file's chunks under that name, and
+ * stays the fallback for a job the backend has since forgotten.
  */
 const resolveFromCollection = (
   files: CollectionFiles | null,
-  ref: CollectionFileRef
+  ref: CollectionFileRef,
+  jobId: string | null
 ): TerminalResolution | null => {
   const file = files?.byName.get(ref.filename)
   if (!file) return null
   if (file.status === 'success') return { status: 'completed', errorMessage: null }
-  if (file.status === 'failed') return { status: 'failed', errorMessage: file.error_message ?? null }
+  if (file.status === 'failed' && attributableFailure(jobId)) return failedOrQuarantined(file.error_message ?? null)
   return null
 }
+
+/**
+ * Whether a `failed` entry of the collection file list is evidence about a row
+ * with this job. Only when the row has none (a legacy row, or one dispatched
+ * without a job id). The backend's failed entries are its per-upload tracking
+ * records, joined here by NAME, and it lists the first of a name it still
+ * tracks (`list_files` in the knowledge layer's adapter), so for a row that
+ * carries a job the entry may be an EARLIER dispatch's: a released file's old
+ * quarantine, written back over the new dispatch and recorded as a decision
+ * that job never made (ADR-0086). The job is the only witness to its own
+ * failure; a row whose job the backend forgot stays as it is.
+ */
+const attributableFailure = (jobId: string | null): boolean => jobId === null
 
 /**
  * What the backend knows about one document's ingestion, asked live.
@@ -442,10 +497,12 @@ export async function describeBackendIngestState(row: {
   const files = await loadCollectionFilesFresh(row.collectionName)
   if (files === null) return { state: 'unreachable' }
   if (files.ambiguousNames.has(ref.filename)) return { state: 'in-progress' }
-  const resolution = resolveFromCollection(files, ref)
+  const resolution = resolveFromCollection(files, ref, jobId)
   if (resolution) return { state: 'terminal', resolution }
   const file = files.byName.get(ref.filename)
-  if (file) return { state: 'in-progress' }
+  // A failure that is not this row's (`attributableFailure`) is no work in
+  // progress either: nothing the backend knows of is this dispatch.
+  if (file && !(file.status === 'failed' && !attributableFailure(jobId))) return { state: 'in-progress' }
   return { state: 'absent' }
 }
 
@@ -553,6 +610,9 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
 
   // --- Status reconciliation (in-flight rows, and recent interrupted failures) ---
   const resolutions = new Map<string, RowResolution>()
+  // The rows THIS read moved. A row another read moved first still reports
+  // its new status, but settles once, in the read whose write landed.
+  const moved = new Set<string>()
   const queueAheadByRow = new Map<string, number>()
   const inFlight = rows.filter(
     (row) => IN_FLIGHT_STATUSES.has(row.status) && row.status !== LOCALLY_OWNED_STATUS
@@ -579,7 +639,9 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
         if (jobStatuses === null || !jobId) return
         const resolution = resolveInterruptedRow(jobStatuses.get(jobId))
         if (!resolution) return
-        await setDocumentReconciledStatus(row.id, organizationId, resolution)
+        if (await setDocumentReconciledStatus(row.id, organizationId, resolution, { status: row.status, jobId })) {
+          moved.add(row.id)
+        }
         resolutions.set(row.id, resolution)
       })
     )
@@ -609,13 +671,28 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
           // the honest outcome for it is "unchanged", not another document's.
           const ref = collectionFileRef(row)
           if (!ref) return
-          resolution = resolveFromCollection(await getFreshCollectionFiles(row.collectionName), ref)
+          resolution = resolveFromCollection(await getFreshCollectionFiles(row.collectionName), ref, jobId)
         }
         if (!resolution) return
 
-        await setDocumentReconciledStatus(row.id, organizationId, resolution)
+        if (await setDocumentReconciledStatus(row.id, organizationId, resolution, { status: row.status, jobId })) {
+          moved.add(row.id)
+        }
         resolutions.set(row.id, resolution)
       })
+    )
+  }
+
+  // Rows that came to rest settle their upload, audit a quarantine and tell
+  // its reviewers (ADR-0086). Only the rows this read moved: a concurrent read
+  // that lost the race settles nothing. Never throws. A quarantine whose audit
+  // event did not go out stays owed in `document_quarantine_decisions`, and the
+  // upload sweep sends it; a batch left open is the sweep's too.
+  const settled = [...resolutions].filter(([id, resolution]) => moved.has(id) && resolution.status !== 'pending')
+  if (settled.length > 0) {
+    await onDocumentsSettled(
+      organizationId,
+      settled.map(([id, resolution]) => ({ id, status: resolution.status }))
     )
   }
 
@@ -671,8 +748,21 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   return rows.map((row) => {
     const resolution = resolutions.get(row.id)
     const meta = metaByRow.get(row.id) ?? {}
+    // The verdict travels with the status, on a row that carries one, so a
+    // listing that narrows after this read (`keepReadable`) reads the new one.
+    const verdict =
+      resolution && 'screeningOutcome' in resolution && resolution.screeningOutcome && 'screeningOutcome' in row
+        ? { screeningOutcome: resolution.screeningOutcome }
+        : {}
+    // And the bytes it judged, as `setDocumentReconciledStatus` writes them
+    // (migration 0123): the digest the dispatch recorded.
+    const dispatchedHash = recordedIngestHash(row.metadata)
+    const judged =
+      resolution?.status === 'completed' && 'screenedHash' in row && dispatchedHash !== null
+        ? { screenedHash: dispatchedHash }
+        : {}
     const base = resolution
-      ? { ...row, status: resolution.status, errorMessage: resolution.errorMessage }
+      ? { ...row, status: resolution.status, errorMessage: resolution.errorMessage, ...verdict, ...judged }
       : row
     return { ...base, ...meta, queueAhead: queueAheadByRow.get(row.id) ?? null }
   })

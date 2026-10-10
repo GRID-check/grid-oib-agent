@@ -701,8 +701,72 @@ def current_langfuse_attributes() -> dict[str, Any]:
         return {}
 
 
+def current_contribution_attributes() -> dict[str, Any]:
+    """What tools recorded about this turn, with no identity: the half that is not personal data.
+
+    Tool facts (``feature:ifc``, ``ifc_op``), the usage rollup and the answer
+    dialect census are labels and counts. They used to ride the identity
+    processor and so vanished from every trace whenever
+    ``GRID_TRACE_IDENTITY_ATTRIBUTES`` was off, which made a privacy switch
+    silently turn off cost and quality reporting too (ADR-0089).
+    """
+    try:
+        return langfuse_attributes_for(
+            organization_id=None,
+            project_id=None,
+            conversation_id=None,
+            contributed=snapshot_contributions(),
+        )
+    except Exception:
+        logger.debug("Failed to derive Langfuse contribution attributes", exc_info=True)
+        return {}
+
+
+def merge_span_attributes(attributes: dict[str, Any], additions: dict[str, Any]) -> None:
+    """Apply ``additions`` to a span's attribute map, uniting tag lists rather than replacing them.
+
+    Several processors tag the same span (tenant, tool facts, turn outcome), in
+    an order the pipeline decides. Whichever runs second must not erase the
+    first one's tags.
+    """
+    for key, value in additions.items():
+        existing = attributes.get(key)
+        if key == TAGS_ATTRIBUTE and isinstance(existing, list | tuple) and isinstance(value, list | tuple):
+            attributes[key] = list(dict.fromkeys([*existing, *value]))
+        else:
+            attributes[key] = value
+
+
+def context_attributes_for(
+    *, name: str | None, attributes: dict[str, Any], is_root: bool, outcome: dict[str, Any] | None
+) -> dict[str, Any]:
+    """What :class:`TraceContextProcessor` adds to one span. Pure.
+
+    Every span: the process's environment and release, and its Langfuse
+    observation type. A root span also names its trace and carries the turn's
+    outcome when the turn recorded one.
+    """
+    from aiq_agent.observability.trace_context import OBSERVATION_TYPE_ATTRIBUTE
+    from aiq_agent.observability.trace_context import TRACE_NAME_ATTRIBUTE
+    from aiq_agent.observability.trace_context import observation_type
+    from aiq_agent.observability.trace_context import process_trace_attributes
+    from aiq_agent.observability.trace_context import span_kind
+    from aiq_agent.observability.trace_context import trace_name_for_root
+
+    additions = process_trace_attributes()
+    kind = observation_type(name=name, kind=span_kind(attributes))
+    if kind:
+        additions[OBSERVATION_TYPE_ATTRIBUTE] = kind
+    if is_root:
+        additions[TRACE_NAME_ATTRIBUTE] = trace_name_for_root(name)
+        additions.update(outcome or {})
+    return additions
+
+
 try:
     from nat.data_models.span import Span
+    from nat.data_models.span import SpanStatus
+    from nat.data_models.span import SpanStatusCode
     from nat.observability.processor.processor import Processor
 
     class LangfuseTraceAttributeProcessor(Processor[Span, Span]):
@@ -716,6 +780,11 @@ try:
         Running first means these attributes are subject to exactly the same
         redaction policy as ``input.value`` and ``output.value``.
         """
+
+        def __init__(self, *, identity: bool = True) -> None:
+            super().__init__()
+            #: False installs the contributions half only (no tenant, no session).
+            self._identity = identity
 
         async def process(self, item: Span) -> Span:
             """Stamp the current request's identity onto one span.
@@ -731,8 +800,39 @@ try:
             ``current_langfuse_attributes`` absorbs its own failures, because an
             exception escaping here would stop span export for the process.
             """
-            for key, value in current_langfuse_attributes().items():
-                item.set_attribute(key, value)
+            additions = current_langfuse_attributes() if self._identity else current_contribution_attributes()
+            try:
+                merge_span_attributes(item.attributes, additions)
+            except Exception:
+                logger.debug("Failed to stamp Langfuse trace attributes onto a span", exc_info=True)
+            return item
+
+    class TraceContextProcessor(Processor[Span, Span]):
+        """Environment, release and observation type on every span; trace name and outcome on the root.
+
+        Installed unconditionally: a deployment name, a commit and a span's
+        type are not personal data. A root span whose turn failed also gets
+        an OTel ERROR status, which NAT never sets itself.
+        """
+
+        async def process(self, item: Span) -> Span:
+            try:
+                from aiq_agent.observability.trace_context import OBSERVATION_LEVEL_ATTRIBUTE
+                from aiq_agent.observability.turn_outcome import current_turn_outcome
+
+                is_root = item.parent is None
+                additions = context_attributes_for(
+                    name=item.name,
+                    attributes=item.attributes or {},
+                    is_root=is_root,
+                    outcome=current_turn_outcome() if is_root else None,
+                )
+                merge_span_attributes(item.attributes, additions)
+                if additions.get(OBSERVATION_LEVEL_ATTRIBUTE) == "ERROR":
+                    message = additions.get("langfuse.observation.status_message")
+                    item.status = SpanStatus(code=SpanStatusCode.ERROR, message=message)
+            except Exception:
+                logger.debug("Failed to stamp the trace context onto a span", exc_info=True)
             return item
 
     class UserIdentityStripProcessor(Processor[Span, Span]):
@@ -776,6 +876,23 @@ try:
             """
             try:
                 attributes = item.attributes or {}
+                from aiq_agent.observability.decision_trace import decision_usage
+                from aiq_agent.observability.decision_trace import is_decision_span
+
+                if is_decision_span(item.name):
+                    # The decision model's calls bypass LangChain; their usage
+                    # rides the observation's own output (decision_trace).
+                    decided = decision_usage(attributes)
+                    if decided is not None:
+                        for key, value in usage_observation_attributes(
+                            prompt_tokens=decided["prompt_tokens"],
+                            completion_tokens=decided["completion_tokens"],
+                            total_tokens=decided["total_tokens"],
+                            cost_usd=decided["cost_usd"],
+                            model=decided["model"],
+                        ).items():
+                            item.set_attribute(key, value)
+                    return item
                 if not is_generation_span(attributes):
                     return item
                 counts: dict[str, Any] | None = None
@@ -836,6 +953,7 @@ except Exception:  # pragma: no cover - exercised only without the NAT extras
     # pure mapping above stays importable (and testable) even where the NAT
     # observability extras are not installed.
     LangfuseTraceAttributeProcessor = None  # type: ignore[assignment,misc]
+    TraceContextProcessor = None  # type: ignore[assignment,misc]
     UsageAttributeProcessor = None  # type: ignore[assignment,misc]
     PromptLinkProcessor = None  # type: ignore[assignment,misc]
     UserIdentityStripProcessor = None  # type: ignore[assignment,misc]

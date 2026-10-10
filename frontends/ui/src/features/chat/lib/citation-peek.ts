@@ -4,7 +4,7 @@
  * knowledge_search already retrieved the file. A second tool to "show it"
  * (`surface_documents`) is a chain the model will skip under loop limits, so
  * the citation itself is the signal: when a finished answer cites exactly one
- * project or Büroarchiv document, the chat opens that file beside the thread.
+ * project or Büroablage document, the chat opens that file beside the thread.
  *
  * Law / RIS / web citations never peek (they are not stored files). Zero or
  * two-or-more project/Büro files also stay closed — picking would be a guess.

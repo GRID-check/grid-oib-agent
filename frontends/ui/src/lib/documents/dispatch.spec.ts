@@ -52,6 +52,10 @@ vi.mock('./repository', () => ({
   deleteProjectDocument: vi.fn(),
 }))
 
+// The organization's upload-screening policy (ADR-0086) is read through its
+// settings row; each test states the row it means.
+vi.mock('@/lib/organizations/service', () => ({ getOrgSettings: vi.fn() }))
+
 // The converter is `rendition.spec.ts`'s subject; here it is a switch and an
 // outcome, so what is under test is what dispatch does with each.
 vi.mock('./rendition', async (importOriginal) => ({
@@ -61,6 +65,8 @@ vi.mock('./rendition', async (importOriginal) => ({
 }))
 
 import { runBimExtraction } from '@/lib/bim/service'
+import { invalidateCached } from '@/lib/cache'
+import { getOrgSettings } from '@/lib/organizations/service'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
 import { findOpenJobId } from '@/lib/jobs-queue/repository'
 import {
@@ -78,6 +84,7 @@ import {
   setDocumentIngestJob,
 } from './repository'
 import { makeDocument } from '@/test-utils/db-fixtures'
+import { internalRead } from '@/lib/documents/document-reader'
 import {
   INGEST_DISPATCH_FAILED_MESSAGE,
   RENDITION_REQUIRED_MESSAGE,
@@ -114,7 +121,7 @@ function queuedJob() {
  */
 async function runQueuedJob(attempt: JobAttempt = { last: false }): Promise<void> {
   const queued = queuedJob()
-  const current = await findDocumentInOrg('doc-1', 'org-1')
+  const current = await findDocumentInOrg('doc-1', 'org-1', internalRead('ingest'))
   vi.mocked(findDocumentInOrg).mockResolvedValue({
     ...(current as NonNullable<typeof current>),
     storageKey: String(queued.payload.storageKey),
@@ -134,6 +141,7 @@ beforeEach(() => {
   // still the row the next one reads — which is how a suite comes to depend on
   // the order its cases happen to run in.
   vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ authoredBy: 'user' }))
+  vi.mocked(getOrgSettings).mockResolvedValue({ displayName: null, defaultLocale: 'de', settings: {} })
 })
 
 afterEach(() => {
@@ -165,6 +173,24 @@ describe('dispatchDocument', () => {
     // Nothing left for a retry to pick up, and nothing reached the index.
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(runBimExtraction).not.toHaveBeenCalled()
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  /**
+   * A quarantined row (ADR-0086) is released by a reviewer, who moves it to
+   * `uploaded` first, and by nobody else. A restore from the Papierkorb, a
+   * placement move and a project re-index all re-dispatch whole folders; a
+   * dispatch used to set the row `pending`, which every reader may open, and
+   * screened it again under whatever the rules had become by then.
+   */
+  it.each(['report.pdf', 'haus.ifc'])('leaves a quarantined %s where it is, for a reviewer to decide', async (name) => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ authoredBy: 'user', status: 'quarantined' }))
+
+    await expect(dispatchDocument(input(name))).resolves.toEqual({ jobId: null, status: 'quarantined' })
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(runBimExtraction).not.toHaveBeenCalled()
+    expect(markDocumentProcessing).not.toHaveBeenCalled()
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
   })
 
@@ -527,7 +553,7 @@ describe('an office file is converted, by a job, before it is ingested', () => {
     // later case inherits the rendition-aware signer or a failing write.
     vi.mocked(getSignedUrl).mockResolvedValue(ORIGINAL_URL)
     vi.mocked(isRenditionEnabled).mockReturnValue(false)
-    vi.mocked(setDocumentIngestJob).mockResolvedValue(undefined)
+    vi.mocked(setDocumentIngestJob).mockResolvedValue(true)
   })
 
   it('answers `processing` at once, and the converter is the job’s to call', async () => {
@@ -798,6 +824,86 @@ describe('the ingest dispatch after a timeout', () => {
     })
 
     expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * ADR-0086: every path into the index carries the office's content rules, so
+ * the ingest job can quarantine a match before its first model call. Tested at
+ * the choke point, for the same reason as the authorship refusal above: a
+ * caller cannot forget what it never has to supply.
+ */
+describe('dispatchDocument — upload screening', () => {
+  const sentBody = (): Record<string, unknown> =>
+    JSON.parse(String((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.body)) as Record<string, unknown>
+
+  beforeEach(async () => {
+    await invalidateCached('upload-screening:org-1')
+  })
+
+  it("sends the suggested content rules for an office that never saved a policy", async () => {
+    await dispatchDocument(input('Baubeschreibung.pdf'))
+    const screening = sentBody().screening as { content_terms: string[]; detectors: string[] }
+    expect(screening.detectors).toEqual(['iban', 'at_svnr', 'credit_card'])
+    expect(screening.content_terms).toContain('Gehaltsabrechnung')
+  })
+
+  it("sends the office's own rules once it saved them", async () => {
+    vi.mocked(getOrgSettings).mockResolvedValue({
+      displayName: null,
+      defaultLocale: 'de',
+      settings: {
+        uploadScreening: {
+          enabled: true,
+          nameTerms: [],
+          nameExceptions: [],
+          contentTerms: ['Projektkalkulation'],
+          detectors: ['iban'],
+        },
+      },
+    })
+    await dispatchDocument(input('Baubeschreibung.pdf'))
+    expect(sentBody().screening).toEqual({ content_terms: ['Projektkalkulation'], detectors: ['iban'] })
+  })
+
+  it('sends no rules when the office switched screening off', async () => {
+    vi.mocked(getOrgSettings).mockResolvedValue({
+      displayName: null,
+      defaultLocale: 'de',
+      settings: {
+        uploadScreening: { enabled: false, nameTerms: [], nameExceptions: [], contentTerms: ['x y'], detectors: [] },
+      },
+    })
+    await dispatchDocument(input('Baubeschreibung.pdf'))
+    expect(sentBody().screening).toBeNull()
+  })
+
+  it('skips screening only for the exact bytes a reviewer released', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ authoredBy: 'user', contentHash: 'sha256:aaa', screeningReleasedHash: 'sha256:aaa' })
+    )
+    await dispatchDocument(input('Honorar.pdf'))
+    expect(sentBody().screening).toBeNull()
+  })
+
+  it('screens a re-upload under a released id, because its bytes are new', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ authoredBy: 'user', contentHash: 'sha256:bbb', screeningReleasedHash: 'sha256:aaa' })
+    )
+    await dispatchDocument(input('Honorar.pdf'))
+    expect(sentBody().screening).not.toBeNull()
+  })
+
+  // Piloti's suggestion in its place would let through a document that
+  // matches only a term the office added.
+  it('fails closed when the policy cannot be read: sends nothing, and the row offers a retry', async () => {
+    vi.mocked(getOrgSettings).mockRejectedValue(new Error('db down'))
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const result = await dispatchDocument(input('Baubeschreibung.pdf'))
+    expect(result).toEqual({ jobId: null, status: 'failed' })
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-1', 'org-1', INGEST_DISPATCH_FAILED_MESSAGE)
+    errorLog.mockRestore()
   })
 })
 

@@ -70,6 +70,9 @@ export const files: typeof en.files = {
     // Erfolg („Zitierbar“ wäre ein Versprechen, das die Suche nicht einlöst)
     // und kein Fehler. Dasselbe Wort wie im Toast nach dem Lauf.
     stored: 'Abgelegt',
+    // Die Inhaltsprüfung (ADR-0086) hat angeschlagen: Die Datei liegt im
+    // Projekt, kein Modell hat sie gesehen, und jemand muss entscheiden.
+    quarantined: 'In Quarantäne',
     unknown: 'Unbekannt',
     // Nur die eigenen Uploads des Büros: Innerhalb eines Büros wird der Reihe
     // nach gelesen, zwischen Büros fair abgewechselt (ADR-0076).
@@ -254,8 +257,23 @@ export const files: typeof en.files = {
     timeout: 'Das Lesen hat zu lange gedauert und wurde abgebrochen. Erneut lesen. Sehr große Dateien besser aufteilen.',
     empty: 'In dieser Datei war kein Text zu finden. Sie ist vielleicht passwortgeschützt, beschädigt oder leer.',
     deleted: 'Die Datei wurde gelöscht, während Piloti sie las.',
+    quarantined:
+      'Diese Datei enthält etwas, das Ihr Büro als sensibel eingestuft hat. Piloti hat sie keinem Modell gezeigt. Die Büro- oder Projektadministration gibt sie frei oder löscht sie.',
     unknown: 'Piloti konnte dieses Dokument nicht lesen, daher findet die Suche es nicht.',
     details: 'Details',
+  },
+  screening: {
+    // Warum eine Datei zurückgehalten wurde – vom Inhaltsfilter (im Text) oder
+    // vom Namensfilter (im Datei- oder Ordnernamen), ADR-0086.
+    reasonTerm: '„{term}“ im Text',
+    reasonIban: 'IBAN {sample}',
+    reasonSvnr: 'Sozialversicherungsnummer {sample}',
+    reasonCard: 'Kreditkartennummer {sample}',
+    reasonPages: '{count, plural, one {Seite {pages}} other {Seiten {pages}}}',
+    nameInFile: 'Dateiname enthält „{term}“',
+    nameInFolder: 'Ordner „{segment}“ enthält „{term}“',
+    partial: 'Einige Seiten hatten keine Textebene und wurden nicht geprüft.',
+    unchecked: 'Der Inhalt ließ sich ohne Modell nicht lesen und wurde nur am Namen geprüft.',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
@@ -313,6 +331,92 @@ export const files: typeof en.files = {
     breadcrumb: 'Ordnerpfad',
     movedFolder: '„{name}“ nach „{parent}“ verschoben.',
     moveFolderError: 'Der Ordner konnte nicht verschoben werden. Bitte erneut versuchen.',
+    /** Ordnerzugriff (ADR-0088, ADR-0097): einen Ordner auf Personen einschränken. */
+    access: {
+      menu: 'Zugriff …',
+      /** Das Schloss am Ordner: Wer auf der Liste steht, sagt erst der Dialog. */
+      ownList: 'Eigene Zugriffsrechte: nur die eingetragenen Personen',
+      ownListEveryoneReads: 'Eigene Zugriffsrechte: alle Projektmitglieder lesen, bearbeiten nur die eingetragenen Personen',
+      openRestricted: 'Ordner „{name}“ öffnen. {access}',
+      title: 'Zugriff auf „{name}“',
+      description: 'Wer in diesem Projekt den Ordner, seine Unterordner und deren Dokumente lesen und bearbeiten darf.',
+      inherit: 'Wie der übergeordnete Ordner',
+      inheritHint:
+        'Der Ordner übernimmt den Zugriff des Ordners darüber. Ganz oben gilt das Projekt: Wer lesen darf, liest; wer bearbeiten darf, bearbeitet.',
+      custom: 'Eigene Zugriffsrechte',
+      customHint:
+        'Nur die eingetragenen Personen kommen in den Ordner, jede mit „Lesen“ oder „Bearbeiten“. Wer nicht eingetragen ist, sieht ihn nicht, außer alle Projektmitglieder dürfen lesen. Organisations-Admins dürfen immer alles.',
+      everyoneReads: 'Alle Projektmitglieder dürfen lesen',
+      everyoneReadsHint: 'Die Liste bestimmt dann nur, wer bearbeiten darf.',
+      people: 'Personen',
+      unknownPerson: 'Person ohne Projektzugang',
+      levelRead: 'Lesen',
+      levelWrite: 'Bearbeiten',
+      levelFor: 'Zugriff für {name}',
+      remove: '{name} entfernen',
+      add: 'Person hinzufügen …',
+      pickOne: 'Fügen Sie mindestens eine Person hinzu oder lassen Sie alle Projektmitglieder lesen.',
+      nesting: 'Ein Unterordner kann nur enger sein als sein übergeordneter Ordner, nie weiter.',
+      ceiling: '„Bearbeiten“ gilt nur für Personen, die im Projekt bearbeiten dürfen; alle anderen lesen.',
+      lockout:
+        'Stehen Sie selbst nicht auf der Liste, verschwindet der Ordner nach dem Speichern auch für Sie, außer Sie sind Organisations-Admin.',
+      lockoutEveryoneReads:
+        'Stehen Sie selbst nicht mit „Bearbeiten“ auf der Liste, dürfen Sie den Ordner nach dem Speichern nur noch lesen, außer Sie sind Organisations-Admin.',
+      moveNotice:
+        'Ändert sich, wer lesen darf, verschiebt Piloti die Dokumente des Ordners und liest sie neu ein. Bei einem großen Ordner dauert das einige Minuten; so lange stehen die Dokumente auf „Wird gelesen“.',
+      ifcNotice:
+        'Ordner, die nicht alle Projektmitglieder lesen dürfen, können noch keine Gebäudemodelle (IFC) enthalten. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
+      /** Der 409 der IFC-Sperre (ADR-0087): einschränken, hochladen oder verschieben in einen eingeschränkten Ordner. */
+      ifcRefused:
+        'Gebäudemodelle (IFC) können noch nicht in einem Ordner liegen, den nicht alle lesen dürfen: Ihre Gebäudedaten schützt der Ordnerzugriff nicht. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
+      readOnlyBadge: 'Nur lesen',
+      readOnlyHint: 'Sie dürfen diesen Ordner lesen, aber nichts hochladen, umbenennen, verschieben oder löschen.',
+      readOnlyMenu: 'Nur lesen',
+      readOnlyRefused: 'In diesem Ordner dürfen Sie nur lesen.',
+      save: 'Zugriff speichern',
+      saving: 'Wird gespeichert…',
+      loadError: 'Die Zugriffsliste konnte nicht geladen werden.',
+      savedCustom: '„{name}“ hat jetzt eigene Zugriffsrechte.',
+      savedInherit: '„{name}“ übernimmt jetzt den Zugriff des übergeordneten Ordners.',
+      moving: '{count, plural, one {# Dokument wird} other {# Dokumente werden}} verschoben und neu eingelesen.',
+      failed:
+        '{count, plural, one {# Dokument konnte} other {# Dokumente konnten}} noch nicht verschoben werden. Speichern Sie erneut, um es noch einmal zu versuchen.',
+      saveError: 'Der Zugriff konnte nicht geändert werden. Bitte versuchen Sie es erneut.',
+      forbidden: 'Nur Projekt-Admins können ändern, wer einen Ordner lesen und bearbeiten darf.',
+    },
+  },
+  /** The Papierkorb of a project (ADR-0088). */
+  bin: {
+    title: 'Papierkorb',
+    subtitle:
+      'Gelöschte Ordner mit ihren Unterordnern und Dokumenten. Bis zur endgültigen Löschung lassen sie sich mit ihren Zugriffsrechten wiederherstellen.',
+    back: 'Zurück zu den Dateien',
+    empty: 'Der Papierkorb ist leer.',
+    emptyHint: 'Gelöschte Ordner erscheinen hier und lassen sich wiederherstellen.',
+    deletedBy: 'Gelöscht von {name} am {date}',
+    deletedOn: 'Gelöscht am {date}',
+    contents:
+      '{documents, plural, one {# Dokument} other {# Dokumente}} · {folders, plural, one {# Ordner} other {# Ordner}}',
+    purgeOn: 'Wird am {date} endgültig gelöscht',
+    purging: 'Wird gerade endgültig gelöscht',
+    failed: 'Die endgültige Löschung ist angehalten. Ein Admin kümmert sich darum.',
+    restore: 'Wiederherstellen',
+    restored: '„{name}“ ist wiederhergestellt. Die Dokumente werden neu eingelesen.',
+    restoredToRoot:
+      '„{name}“ ist wiederhergestellt, und zwar direkt im Projekt: Sein übergeordneter Ordner ist gelöscht.',
+    restoreNameTaken: 'Hier gibt es schon einen Ordner „{name}“. Benennen Sie ihn um und stellen Sie dann wieder her.',
+    restoreReadOnly: 'Wiederherstellen kann, wer den Ordner bearbeiten durfte.',
+    restoreError: 'Der Ordner konnte nicht wiederhergestellt werden. Bitte versuchen Sie es erneut.',
+    purge: 'Endgültig löschen',
+    purgeTitle: '„{name}“ endgültig löschen?',
+    purgeDescription:
+      'Der Ordner, seine Unterordner und {documents, plural, one {# Dokument} other {# Dokumente}} werden sofort gelöscht, mit allen Versionen und Vorschauen. Das lässt sich nicht rückgängig machen. Was Piloti daraus abgeleitet hat, folgt der Einstellung Ihrer Organisation.',
+    purged: '„{name}“ ist endgültig gelöscht.',
+    held: 'Für diesen Ordner gilt eine Aufbewahrungspflicht. Er kann gerade nicht gelöscht werden.',
+    purgeError: 'Der Ordner konnte nicht endgültig gelöscht werden. Bitte versuchen Sie es erneut.',
+    cancel: 'Abbrechen',
+    loadError: 'Der Papierkorb konnte nicht geladen werden.',
+    retry: 'Erneut versuchen',
   },
   workspace: {
     renameFolderError: 'Der Ordner konnte nicht umbenannt werden. Bitte versuchen Sie es erneut.',
@@ -322,6 +426,14 @@ export const files: typeof en.files = {
       'Ordner „{name}“ löschen?\n\nDie {documents} Dokument(e) und {folders} Unterordner werden nicht gelöscht — sie werden nach „{parent}“ verschoben.',
     deleteFolderDone: '„{name}“ gelöscht.',
     deleteFolderMoved: 'Ordner gelöscht. {count} Dokument(e) nach „{parent}“ verschoben.',
+    binFolderConfirm:
+      'Ordner „{name}“ in den Papierkorb verschieben?\n\nSeine Unterordner und Dokumente kommen mit. Im Papierkorb lässt er sich mit seinen Zugriffsrechten wiederherstellen, bis er endgültig gelöscht wird.',
+    binFolderDone: '„{name}“ ist im Papierkorb. Wiederherstellbar bis {date}.',
+    deleteFolderProtected:
+      'Dieser Ordner enthält Inhalte, die Sie nicht löschen dürfen. Löschen kann ihn, wer alle seine Unterordner bearbeiten darf.',
+    deleteFolderIndexDown:
+      'Der Ordner wurde nicht gelöscht, weil der Suchindex nicht geantwortet hat. Bitte versuchen Sie es erneut.',
+    openBin: 'Papierkorb',
     corpusSubtitle: 'Projektwissen – diese Dokumente untermauern Pilotis Antworten',
     uploadDocuments: 'Dokumente hochladen',
     uploadProblem: 'Upload-Problem',
@@ -433,6 +545,7 @@ export const files: typeof en.files = {
     destinationFiles: 'Die Dateien kommen nach „{folder}“.',
     close: 'Schließen',
     compareError: 'Der Bestand konnte nicht verglichen werden. Es wurde nichts hochgeladen.',
+    planChanged: 'Die Vorschau hat sich geändert. Es wurde nichts hochgeladen. Bitte prüfen Sie sie und bestätigen Sie erneut.',
     single: {
       updateTitle: 'Neue Fassung von „{name}“ hochladen?',
       updateExplain:
@@ -466,6 +579,12 @@ export const files: typeof en.files = {
     collisions: '{count} Dateien teilen sich einen Namen mit einer anderen Datei in diesem Upload',
     collisionsExplain:
       'Ein Projekt hält pro Dateiname ein Dokument, deshalb werden diese nicht hochgeladen. Benennen Sie sie um und legen Sie sie erneut ab.',
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0086): Die Dateien
+    // verlassen den Rechner nicht, außer jemand gibt eine einzeln frei.
+    excluded: '{count} Datei(en) bleiben auf Ihrem Rechner',
+    excludedExplain:
+      'Ihr Büro hat diese Begriffe als sensibel eingestuft, deshalb werden die Dateien nicht hochgeladen. Gehört eine davon doch nach Piloti, haken Sie sie an.',
+    releaseFile: 'Trotzdem hochladen',
     showAll: 'Alle {count} Dateien anzeigen',
     action: {
       new: 'Neu',
@@ -474,6 +593,7 @@ export const files: typeof en.files = {
       collision: 'Konflikt',
       duplicate: 'Schon vorhanden',
       skipped: 'Übersprungen',
+      excluded: 'Ausgeschlossen',
     },
     confirm: '{count} Datei(en) hochladen',
     confirmMoveOnly: '{count} Dokument(e) verschieben',
@@ -490,26 +610,26 @@ export const files: typeof en.files = {
     description:
       'Wählen Sie eine .pst- oder .ost-Datei. Jede E-Mail wird ein Ordner unter „E-Mail-Import“ mit ihren Anhängen und einer Notiz mit Text und Kopfzeilen.',
     privacy:
-      'Ein Archiv enthält die Korrespondenz aller, die diesem Postfach geschrieben haben. Importieren Sie, was das Projekt braucht, nicht ein ganzes Postfach.',
-    choose: 'Archiv auswählen…',
+      'Ein Outlook-Archiv enthält die Korrespondenz aller, die diesem Postfach geschrieben haben. Importieren Sie, was das Projekt braucht, nicht ein ganzes Postfach.',
+    choose: 'Outlook-Archiv auswählen…',
     maxSize: 'Bis {size}.',
     notAnArchive: '„{name}“ ist kein Outlook-Archiv (.pst oder .ost).',
     tooLarge: '„{name}“ ist größer als {size}.',
     sending: '{sent} von {total} gesendet…',
     sendingHint:
-      'Sie können in Piloti inzwischen weiterarbeiten; lassen Sie nur diesen Tab offen, bis das Archiv gesendet ist. Das Ablegen läuft danach im Hintergrund.',
+      'Sie können in Piloti inzwischen weiterarbeiten; lassen Sie nur diesen Tab offen, bis das Outlook-Archiv gesendet ist. Das Ablegen läuft danach im Hintergrund.',
     sendingLabel: '„{name}“ wird gesendet',
-    joining: 'Gesendet. Piloti setzt das Archiv zusammen…',
+    joining: 'Gesendet. Piloti setzt das Outlook-Archiv zusammen…',
     sendErrors: {
-      busy: 'Dieser Tab sendet noch ein anderes Archiv. Warten Sie, bis es gesendet ist, und wählen Sie dann dieses.',
+      busy: 'Dieser Tab sendet noch ein anderes Outlook-Archiv. Warten Sie, bis es gesendet ist, und wählen Sie dann dieses.',
       alreadyRunning: 'Ein Import von Ihnen läuft in diesem Projekt noch. Setzen Sie ihn zuerst fort oder brechen Sie ihn ab.',
       cancelled: 'Der Import wurde abgebrochen, während er gesendet wurde.',
-      quota: 'Der Speicher der Organisation ist voll, daher kann das Archiv nicht importiert werden.',
+      quota: 'Der Speicher der Organisation ist voll, daher kann das Outlook-Archiv nicht importiert werden.',
       forbidden: 'Sie dürfen diesem Projekt keine Dokumente hinzufügen.',
-      rejected: 'Piloti hat dieses Archiv nicht angenommen. Prüfen Sie, ob es eine Outlook-.pst- oder -.ost-Datei ist.',
+      rejected: 'Piloti hat dieses Outlook-Archiv nicht angenommen. Prüfen Sie, ob es eine Outlook-.pst- oder -.ost-Datei ist.',
       connection:
         'Die Verbindung ist abgebrochen. Wählen Sie die Datei mit „Weiter senden“ erneut, um dort fortzusetzen, wo es aufgehört hat.',
-      unknown: 'Das Archiv konnte nicht gesendet werden. Versuchen Sie es mit „Weiter senden“ erneut.',
+      unknown: 'Das Outlook-Archiv konnte nicht gesendet werden. Versuchen Sie es mit „Weiter senden“ erneut.',
     },
     resume: 'Weiter senden',
     resumeNamed: '„{name}“ weiter senden',
@@ -522,14 +642,14 @@ export const files: typeof en.files = {
     cancelConfirm: {
       title: 'Diesen Import abbrechen?',
       description:
-        'Was bisher abgelegt wurde, bleibt. Das Archiv wird aus Piloti gelöscht; für den Rest müsste „{name}“ erneut gesendet werden.',
+        'Was bisher abgelegt wurde, bleibt. Das Outlook-Archiv wird aus Piloti gelöscht; für den Rest müsste „{name}“ erneut gesendet werden.',
       confirm: 'Import abbrechen',
       keep: 'Weiter importieren',
     },
     cancelError: 'Der Import konnte nicht abgebrochen werden.',
     close: 'Schließen',
     history: 'Importe in diesem Projekt',
-    empty: 'In dieses Projekt wurde noch kein Archiv importiert.',
+    empty: 'In dieses Projekt wurde noch kein Outlook-Archiv importiert.',
     loadError: 'Die Importe konnten nicht geladen werden.',
     openFolder: 'Ordner öffnen',
     openFolderNamed: 'Ordner von „{name}“ öffnen',
@@ -551,17 +671,20 @@ export const files: typeof en.files = {
     errors: {
       unreadable: 'Die Datei konnte nicht als Outlook-Archiv gelesen werden. Exportieren Sie sie in Outlook erneut als .pst-Datei.',
       quota: 'Der Speicher der Organisation ist voll. Was bis dahin importiert war, bleibt.',
-      access: 'Wer den Import gestartet hat, darf in diesem Projekt keine Dokumente mehr ablegen.',
+      access: 'Wer den Import gestartet hat, darf in diesem Projekt oder im Ordner „E-Mail-Import“ keine Dokumente ablegen.',
       requester_left: 'Wer den Import gestartet hat, ist nicht mehr Mitglied der Organisation.',
       stopped: 'Der Import wurde nach wiederholten Fehlern abgebrochen.',
       stalled: 'Der Import ist stehen geblieben, ohne fertig zu werden.',
-      upload_expired: 'Das Archiv wurde nicht innerhalb von zwei Tagen vollständig gesendet.',
+      upload_expired: 'Das Outlook-Archiv wurde nicht innerhalb von zwei Tagen vollständig gesendet.',
     },
     reasons: {
       embedded_message: 'angehängte E-Mail',
       type: 'Dateityp nicht zugelassen',
       size: 'zu groß',
-      unreadable: 'im Archiv beschädigt',
+      unreadable: 'im Outlook-Archiv beschädigt',
+      screened: 'vom Namensfilter des Büros zurückgehalten',
+      access: 'Ordner nur lesbar',
+      name_taken: 'Name im Projekt schon vergeben',
     },
   },
   upload: {
@@ -571,6 +694,15 @@ export const files: typeof en.files = {
     uploadFiles: 'Dateien auswählen',
   },
   errors: {
+    projectClosed: 'Dieses Projekt ist abgeschlossen und schreibgeschützt. Wer es verwaltet, kann es in den Einstellungen wieder öffnen.',
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0086), auf einem Weg ohne
+    // Upload-Dialog, etwa im Chat.
+    screenedOut: '{count} Datei(en) nicht hochgeladen, weil Ihr Büro sie als sensibel einstuft: {files}',
+    screenedOutFile: '„{name}“ ({reason})',
+    // Die Liste des Büros ist nicht lesbar: ohne sie wird nichts gesendet,
+    // auch nicht mit Pilotis Vorschlag (ADR-0086).
+    screeningPolicyUnavailable:
+      'Die Liste sensibler Daten Ihres Büros konnte nicht geladen werden. Es wurde nichts hochgeladen. Versuchen Sie es erneut.',
     validation: {
       duplicateInBatch: '„{name}“ ist mehrfach in dieser Auswahl',
       duplicateExisting: '„{name}“ wurde bereits hinzugefügt',
@@ -673,8 +805,8 @@ export const files: typeof en.files = {
       published: 'Veröffentlicht',
       rejected: 'Abgelehnt',
       superseded: 'Ersetzt',
-      // NICHT „Archiviert“. Das Archiv dieses Produkts ist das Büroarchiv, in
-      // das man eine Datei legt, DAMIT sie projektübergreifendes Bürowissen
+      // NICHT „Archiviert“. Die Büroablage (früher „Archiv“) ist der Ort, an
+      // den man eine Datei legt, DAMIT sie projektübergreifendes Bürowissen
       // wird. Dieser Zustand ist das Gegenteil: Die Datei verlässt den
       // Arbeitsstand, und ihre Einträge in der Wissensbasis werden gelöscht.
       // Ein Wort für beides hieße, dasselbe Verb für eine Sache und ihr
@@ -810,6 +942,7 @@ export const files: typeof en.files = {
     },
     errors: {
       conflict: 'Der Stand hat sich geändert – die aktuelle Fassung wird geladen.',
+      held: 'Die Datei wird noch geprüft. Einreichen geht, sobald die Prüfung sie freigegeben hat.',
       actionFailed: 'Das hat nicht geklappt. Es hat sich nichts geändert.',
       loadFailed: 'Die Fassungen konnten nicht geladen werden.',
     },
@@ -852,7 +985,7 @@ export const files: typeof en.files = {
     welcomeAbout:
       'Dieser Chat dreht sich um {name}. Fragen Sie danach — die Antwort zitiert die Unterlage und das Recht.',
     subjectHint:
-      'Piloti sucht in dieser Unterlage. Andere Projektakten und das Büroarchiv bleiben außen vor.',
+      'Piloti sucht in dieser Unterlage. Andere Projektakten und die Büroablage bleiben außen vor.',
     subjectClear: 'Nicht mehr auf diese Datei beschränken',
     loadingPeople: 'Personen werden geladen…',
     noPeople: 'Noch niemand in diesem Projekt',

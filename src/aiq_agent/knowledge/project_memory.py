@@ -18,10 +18,27 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping
+from collections.abc import Sequence
 from contextvars import ContextVar
 from contextvars import Token
+from dataclasses import dataclass
+from dataclasses import field
+
+from aiq_agent.knowledge.restricted_use import current_restricted_use
 
 logger = logging.getLogger(__name__)
+
+
+class CrossProjectMemoryRefusedError(RuntimeError):
+    """The frontend refused a write from a conversation that drew on another project (ADR-0094).
+
+    Raised when ``POST /api/internal/memory`` answers 409 ``CROSS_PROJECT_MEMORY``.
+    Nothing is remembered from such a conversation, at any scope and by any
+    path: a caller must not offer the reader a way around it (a
+    ``memory_proposal`` card would write the same finding through the reader's
+    own session).
+    """
 
 
 class OrgMemoryDisabledError(RuntimeError):
@@ -67,34 +84,65 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 _opener = urllib.request.build_opener(_NoRedirectHandler)
 
 
+@dataclass
+class _TurnMemoryLog:
+    """The turn's memory ledger: the digest it was shown and what it wrote."""
+
+    #: The project-memory digest the agent was shown this turn (ADR-0087: its
+    #: ``restricted`` lines are restricted content in the prompt).
+    digest: str | None = None
+    writes: list[str] = field(default_factory=list)
+    #: The subset of ``writes`` stored as restricted memory.
+    restricted_writes: list[str] = field(default_factory=list)
+
+
 #: What the ``remember`` tool wrote during THIS turn, per turn. The
 #: post-answer reflection stage reflects against the digest the agent saw at
 #: the start of the turn, so without this a fact the tool recorded mid-turn
 #: is proposed again minutes later — and lands as a second row whenever the
 #: BFF's dedup gates disagree on kind or wording. Same shape as the card
 #: registry: bound per turn, never module-level state (AGENTS.md).
-_turn_memory_writes: ContextVar[list[str] | None] = ContextVar("turn_memory_writes", default=None)
+_turn_memory_log: ContextVar[_TurnMemoryLog | None] = ContextVar("turn_memory_log", default=None)
 
 
-def begin_turn_memory_log() -> Token:
-    """Start recording this turn's memory writes; reset with the token."""
-    return _turn_memory_writes.set([])
+def begin_turn_memory_log(digest: str | None = None) -> Token:
+    """Start recording this turn's memory writes; reset with the token.
+
+    ``digest`` is the memory digest the agent is shown this turn, kept so the
+    ``remember`` tool can tell which restricted notes were in its prompt.
+    """
+    return _turn_memory_log.set(_TurnMemoryLog(digest=digest))
 
 
 def end_turn_memory_log(token: Token) -> None:
-    _turn_memory_writes.reset(token)
+    _turn_memory_log.reset(token)
 
 
-def record_turn_memory_write(content: str) -> None:
+def record_turn_memory_write(content: str, *, restricted: bool = False) -> None:
     """Note a write that landed this turn. No-op outside a turn."""
-    writes = _turn_memory_writes.get()
-    if writes is not None and content:
-        writes.append(content)
+    log = _turn_memory_log.get()
+    if log is not None and content:
+        log.writes.append(content)
+        if restricted:
+            log.restricted_writes.append(content)
+
+
+def turn_memory_digest() -> str | None:
+    """The memory digest the agent was shown this turn; None outside a turn."""
+    log = _turn_memory_log.get()
+    return log.digest if log is not None else None
+
+
+def turn_restricted_memory_writes() -> tuple[str, ...]:
+    """The contents written this turn as restricted memory, in order."""
+    log = _turn_memory_log.get()
+    return tuple(log.restricted_writes) if log is not None else ()
 
 
 def turn_memory_writes() -> tuple[str, ...]:
     """The contents written this turn, in order; empty outside a turn."""
-    return tuple(_turn_memory_writes.get() or ())
+    log = _turn_memory_log.get()
+    return tuple(log.writes) if log is not None else ()
 
 
 def _internal_base_url() -> str:
@@ -134,6 +182,8 @@ def fetch_memory_digest(
     organization_id: str | None,
     query: str | None = None,
     conversation_id: str | None = None,
+    restricted_collections: Sequence[str] = (),
+    user_id: str | None = None,
 ) -> str | None:
     """Fetch the CURRENT core-memory digest via the internal BFF endpoint.
 
@@ -150,6 +200,17 @@ def fetch_memory_digest(
     need not thread it through: the digest fetch is per turn and the turn always
     knows which conversation it is. Pass it explicitly to override, or pass
     ``""`` to ask for no review block at all.
+
+    ``restricted_collections`` are the restricted-folder collections this
+    interactive chat turn may draw on (ADR-0087, ADR-0088), and ``user_id`` its
+    signed asker. Their presence makes the turn eligible for restricted memory:
+    a note whose source folders the asker may read now is served once the BFF
+    has admitted (and recorded) those folders for the conversation against
+    everyone who reads it. A caller passes exactly what its verified envelope
+    carries — never a scope it read from an unsigned header, and nothing at all
+    off the interactive chat path. When the BFF says it served restricted notes
+    (``restrictedFoldersServed``), the turn's bound
+    :class:`aiq_agent.knowledge.restricted_use.RestrictedUse` is confined.
 
     Returns the digest string, or ``None`` when there is no active memory (a valid
     empty result). Raises RuntimeError on configuration problems and urllib errors
@@ -188,6 +249,16 @@ def fetch_memory_digest(
         # so an id that names nothing yields an empty block, which is also what
         # a conversation that has filed nothing looks like.
         params["conversationId"] = conversation_id.strip()[:200]
+    restricted = [name.strip() for name in restricted_collections if isinstance(name, str) and name.strip()]
+    if restricted:
+        params["restrictedCollections"] = ",".join(dict.fromkeys(restricted))
+    if user_id and user_id.strip():
+        params["userId"] = user_id.strip()[:128]
+    use = current_restricted_use()
+    if restricted and use is not None and use.answer_message_id:
+        # The answer this turn writes: marked when a restricted note is
+        # admitted, in the same transaction (ADR-0093).
+        params["answerMessageId"] = use.answer_message_id
     query_string = urllib.parse.urlencode(params)
 
     request = urllib.request.Request(
@@ -198,6 +269,12 @@ def fetch_memory_digest(
 
     with _opener.open(request, timeout=_DIGEST_TIMEOUT_SECONDS) as response:
         body = json.loads(response.read().decode("utf-8"))
+    if body.get("restrictedFoldersServed"):
+        # Restricted notes entered the prompt: the BFF recorded their folders
+        # for the conversation.
+        use = current_restricted_use()
+        if use is not None:
+            use.note_recorded()
     digest = body.get("digest")
     return digest if isinstance(digest, str) and digest.strip() else None
 
@@ -250,6 +327,8 @@ def insert_memory_item(
     provenance_type: str = "agent",
     supersedes_content: str | None = None,
     salience: float | None = None,
+    restricted_collections: Sequence[str] | None = None,
+    restriction_judge: Mapping[str, object] | None = None,
 ) -> str | None:
     """Record one memory item via the internal BFF endpoint.
 
@@ -264,6 +343,16 @@ def insert_memory_item(
     ``superseded`` and links the new row via ``supersedes_id``. An unresolvable
     quote is ignored, and human-curated entries are never retired this way, so
     passing it is always safe — the write still happens either way.
+
+    ``restricted_collections`` makes the item restricted memory (ADR-0087): the
+    restricted-folder collections it depends on, as
+    :mod:`aiq_agent.memory.restriction` decided. Project scope only — the BFF
+    refuses a restricted organization write, and refuses (400) a collection that
+    is not a current restricted collection of the project.
+
+    ``restriction_judge`` is the memory judge's verdict on this item, when it
+    was asked (``JudgeVerdict.as_payload``): the BFF records it in the audit
+    trail with the item it was about. Collections only, never text.
 
     Returns the new item id, or None when the target (project/org) is unknown.
     Raises RuntimeError on configuration problems and urllib errors on
@@ -288,7 +377,7 @@ def insert_memory_item(
     if not token:
         raise RuntimeError("GRID_INTERNAL_API_TOKEN is not configured")
 
-    payload: dict[str, str] = {
+    payload: dict[str, object] = {
         "scope": scope,
         "kind": kind,
         "content": content.strip()[:2000],
@@ -308,6 +397,10 @@ def insert_memory_item(
         # only when the caller rated it — the column's 0.5 default is the
         # neutral midpoint and must stay the fallback, not an explicit write.
         payload["salience"] = max(0.0, min(1.0, float(salience)))
+    if restricted_collections:
+        payload["restrictedCollections"] = sorted(set(restricted_collections))
+    if restriction_judge:
+        payload["restrictionJudge"] = dict(restriction_judge)
 
     request = urllib.request.Request(
         f"{_internal_base_url()}/api/internal/memory",
@@ -324,7 +417,7 @@ def insert_memory_item(
             body = json.loads(response.read().decode("utf-8"))
             item_id = body.get("item", {}).get("id")
             if item_id:
-                record_turn_memory_write(content)
+                record_turn_memory_write(content, restricted=bool(restricted_collections))
             return item_id
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
@@ -355,6 +448,9 @@ def insert_memory_item(
                 "Internal memory endpoint rejected the service token (403) — GRID_INTERNAL_API_TOKEN "
                 "mismatch between the aiq-agent and frontend services (the same value must be set on both)."
             )
+        elif exc.code == 409 and _error_code(exc) == "CROSS_PROJECT_MEMORY":
+            logger.info("Internal memory endpoint declined a write from a conversation that drew on another project")
+            raise CrossProjectMemoryRefusedError("the conversation drew on another project") from exc
         elif exc.code == 503:
             logger.error(
                 "Internal memory endpoint disabled (503) — GRID_INTERNAL_API_TOKEN "

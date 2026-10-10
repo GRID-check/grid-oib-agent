@@ -135,7 +135,7 @@ KB_HITS = [
     ),
     # The other shelf's copy: a readable Punkt, and a non-text content type.
     _hit(
-        citation_key="einreichplan_og.pdf (Büroarchiv), p.9",
+        citation_key="einreichplan_og.pdf (Büroablage), p.9",
         file_name="einreichplan_og.pdf",
         page=9,
         shelf=Shelf.ARCHIV,

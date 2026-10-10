@@ -104,6 +104,7 @@ export function updateFolderHandler<P extends { folderId: string }>(
     params: P,
     session: AuthorizedSession,
     patch: { name?: string; parentId?: string | null },
+    request: Request,
   ) => Promise<Outcome<{ folder: FolderRow }>>,
   gate?: FolderRouteGate,
 ) {
@@ -113,7 +114,7 @@ export function updateFolderHandler<P extends { folderId: string }>(
       await update(params, session, {
         ...(body.name !== undefined ? { name: body.name } : {}),
         ...(body.parentId !== undefined ? { parentId: body.parentId } : {}),
-      }),
+      }, request),
     )
     return { folder }
   })
@@ -126,12 +127,15 @@ export function updateFolderHandler<P extends { folderId: string }>(
  * `ON DELETE CASCADE`, so the service re-files the folder's documents and its
  * child folders BEFORE removing the row. Deleting a label must not delete the
  * work that was filed under it.
+ *
+ * The Archiv's alone. A project folder's delete is the Papierkorb's
+ * (`@/lib/projects/folder-bin`, ADR-0088), with its own route body and answer.
  */
 export function deleteFolderHandler<P extends { folderId: string }>(
-  remove: (params: P, session: AuthorizedSession) => Promise<Outcome<{ result: DeleteFolderResult }>>,
+  remove: (params: P, session: AuthorizedSession, request: Request) => Promise<Outcome<{ result: DeleteFolderResult }>>,
   gate?: FolderRouteGate,
 ) {
-  return gated<P>(gate, async ({ session, params }) => unwrap(await remove(params, session)).result)
+  return gated<P>(gate, async ({ session, params, request }) => unwrap(await remove(params, session, request)).result)
 }
 
 /**

@@ -1,0 +1,88 @@
+/**
+ * The Project Memory panel marks a restricted note (ADR-0087) with the folder
+ * lock, naming the folders it came from. The API sends such a note only to a
+ * reader cleared for it, so the panel's job is the mark, not the filter. When a
+ * language model helped decide who reads the note, the mark says so (AI Act).
+ */
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { render, screen } from '@/test-utils'
+import { makeMemoryItem } from '@/test-utils/db-fixtures'
+import { ProjectMemoryPanel } from './project-memory-panel'
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn() } }))
+
+const wire = (overrides: Parameters<typeof makeMemoryItem>[0] & { restrictedFolderNames?: string[] }) => ({
+  ...makeMemoryItem(overrides),
+  createdAt: '2026-10-01T09:00:00Z',
+  updatedAt: '2026-10-02T09:00:00Z',
+  lastReferencedAt: null,
+  ...(overrides.restrictedFolderNames ? { restrictedFolderNames: overrides.restrictedFolderNames } : {}),
+})
+
+describe('ProjectMemoryPanel', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          items: [
+            wire({ id: 'open', content: 'Flachdach extensiv begrünt.' }),
+            wire({
+              id: 'restricted',
+              content: 'Honorar LP 5–8 pauschal 184.000 €.',
+              restrictedFolderIds: ['aaaaaaaa-0000-4000-8000-000000000001'],
+              restrictedFolderNames: ['Verträge'],
+            }),
+            wire({
+              id: 'judged',
+              content: 'Gehaltsrahmen Bauleitung abgestimmt.',
+              restrictedFolderIds: ['aaaaaaaa-0000-4000-8000-000000000002'],
+              restrictedFolderNames: ['Personal'],
+              restrictionJudge: 'drawn',
+            }),
+          ],
+        })
+      )
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  test('marks only the restricted note, naming its folder', async () => {
+    render(<ProjectMemoryPanel projectId="p1" />)
+
+    await screen.findByText('Honorar LP 5–8 pauschal 184.000 €.')
+    const marks = screen.getAllByTestId('memory-restricted')
+    expect(marks).toHaveLength(2)
+    expect(marks[0].querySelector('[data-names]')?.getAttribute('data-names')).toBe('Verträge')
+    expect(screen.getByText('Flachdach extensiv begrünt.')).toBeInTheDocument()
+  })
+
+  test('a closed project: the notes, and no control that would change them (ADR-0090)', async () => {
+    render(<ProjectMemoryPanel projectId="p1" readOnly />)
+
+    await screen.findByText('Flachdach extensiv begrünt.')
+    expect(screen.queryByRole('button', { name: /add/i })).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('button', { name: /edit|remove|pin/i })).toHaveLength(0)
+  })
+
+  test('an active project keeps them', async () => {
+    render(<ProjectMemoryPanel projectId="p1" />)
+
+    await screen.findByText('Flachdach extensiv begrünt.')
+    expect(screen.getAllByRole('button', { name: /edit/i }).length).toBeGreaterThan(0)
+  })
+
+  test('says on the lock when a language model helped decide who reads the note, and only there', async () => {
+    render(<ProjectMemoryPanel projectId="p1" />)
+
+    await screen.findByText('Gehaltsrahmen Bauleitung abgestimmt.')
+    const judged = screen.getAllByTestId('memory-restriction-judged')
+    expect(judged).toHaveLength(1)
+    const mark = judged[0].closest('[data-testid="memory-restricted"]')
+    expect(mark?.textContent).toContain('decided with AI')
+    expect(mark?.querySelector('[data-names]')?.getAttribute('data-names')).toBe('Personal')
+  })
+})

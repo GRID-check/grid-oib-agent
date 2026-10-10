@@ -27,7 +27,7 @@ Reach for the narrow task rather than the whole gate:
 |---|---|
 | UI types | `task fe:types` |
 | UI tests | `task fe:test` |
-| UI lint | `task fe:lint` |
+| UI lint (oxlint; why not ESLint or Biome: [lint-evaluation.md](lint-evaluation.md)) | `task fe:lint` |
 | Backend lint | `task be:lint` |
 | Backend tests | `task be:test`, or `task be:test:api` for the plugin suite |
 | Pulumi and the policy pack | `task infra:types` |
@@ -87,28 +87,20 @@ release rather than trusting a green suite.
 ## How CI distributes the same tasks
 
 CI calls the Taskfile, so there is no second copy of the commands. Only the
-scheduling differs: the frontend tier's lint, types and build run in one job
-while the suite is sharded six ways (`fe:test:shard`) and stitched back together
-by `fe:test:merge` for the coverage comment. Run in series on one runner, the
-tests were about 63% of the job's wall clock. Locally `task fe:verify` runs lint,
-types, tests and build in order instead.
+scheduling differs: the frontend tier's card check, lint, types and the
+tenant-isolation suite share one job, the suite is sharded four ways
+(`fe:test:shard`) and stitched back together by `fe:test:merge` for the coverage
+comment, and the production UI build runs inside the frontend image build
+rather than as `fe:build`. Locally `task fe:verify` runs lint, types, tests and
+build in order instead.
 
-A push to `develop` or `release/**` whose tree a green pull request run already
-tested does not run the jobs again. CI and Security still start and conclude
-`success` (the deploy gate reads exactly that), but `changes` finds the PR
-run's `ci-green-<tree>` / `security-green-<tree>` marker and every job skips. A
-squash merge onto a base that did not move lands that tree; a base that moved
-lands a different one and runs in full. The decision and every reason to refuse
-a marker (a cancelled, failed or still-running run, a fork, another workflow, a
-workflow file that differs from the pushed one, an expired marker, an API
-error) live in [`ci/reuse_green_run.py`](../../ci/reuse_green_run.py) and
-[`tests/test_reuse_green_run.py`](../../tests/test_reuse_green_run.py);
-[`tests/test_ci_change_detection.py`](../../tests/test_ci_change_detection.py)
-evaluates every job's condition to pin that a hit skips all of them and a miss
-skips none. What a reused push gives up: Semgrep's full-tree report (advisory
-on push anyway), and a trivy re-scan against an advisory database up to the
-marker's seven days newer, which on push only ever ran when the image pins
-changed. The weekly scan covers both.
+What decides which jobs run (a pull request against its base, a push against the
+last commit CI passed), when a push reuses its pull request's result, and how
+images are built and tagged: [ci.md](ci.md). The reuse decision and every reason
+to refuse a marker live in [`ci/reuse_green_run.py`](../../ci/reuse_green_run.py)
+and [`tests/test_reuse_green_run.py`](../../tests/test_reuse_green_run.py);
+[`tests/test_ci_workflows.py`](../../tests/test_ci_workflows.py) evaluates every
+job's condition to pin that a hit skips all the checks and a miss skips none.
 
 Three required checks are not in `task verify` at all: `db:test:rls` (it needs
 PostgreSQL server binaries), `pkg:test` (four minutes, on a directory most
@@ -219,20 +211,25 @@ so drift fails a test rather than splitting the contract in half.
 
 ## Security and static analysis
 
-[`security.yml`](../../.github/workflows/security.yml) runs on push, on pull
-request, and weekly. All of it is free and runs entirely in CI, with no GitHub
-Advanced Security licence and no SonarQube subscription.
+Two halves, by what can cause a finding. A change can introduce a secret, a new
+SAST finding or a vulnerable image pin, so those are checked in CI, behind
+`CI OK`. A CVE disclosed against code nobody touched cannot be the change's
+fault, so the full scans run weekly in
+[`security.yml`](../../.github/workflows/security.yml), where a red run is a
+finding to triage and nobody's merge waits on it. All of it is free and runs in
+CI, with no GitHub Advanced Security licence and no SonarQube subscription.
 
-| Tool | Covers | Blocking |
-|---|---|---|
-| Semgrep | SAST for Python, TS/JS and Actions. Replaces CodeQL and Sonar's security rules | **Yes on a PR.** `semgrep ci` is diff-aware, so it blocks a *new* finding without failing on the existing backlog. Push and schedule runs stay advisory |
-| OSV-Scanner | Dependency CVEs from **every** lockfile in the tree — the two npm ones, `bun.lock`, and both `uv.lock`s. Replaces Sonar SCA, and as of Sep 2026 the `pip-audit`/`bun audit`/`npm audit` job too | No, phase 1 |
-| gitleaks | Secret scan over full history | Yes |
-| trivy (`image-scan`) | The digest-pinned observability and Langfuse images from `deploy/pulumi/src/config.ts` | Yes, on **fixable** HIGH and CRITICAL findings (it runs `--ignore-unfixed`) |
+| Tool | Covers | In CI (blocking) | Weekly |
+|---|---|---|---|
+| gitleaks | Secret scan over full history | **Yes**, every run (Repo checks job) | Yes |
+| Semgrep | SAST for Python, TS/JS and Actions. Replaces Sonar's security rules | **Yes, on a PR**, diff-aware: blocks a *new* finding without failing on the backlog | Full tree, advisory |
+| trivy | The digest-pinned third-party images in `deploy/pulumi/src` | **Yes**, for the pins a change adds or moves, on fixable HIGH/CRITICAL (`--ignore-unfixed`) | Every pin, blocking |
+| OSV-Scanner | Dependency CVEs from **every** lockfile: both npm ones, `bun.lock`, both `uv.lock`s. Replaces Sonar SCA and the old `pip-audit`/`bun audit`/`npm audit` job | No | Advisory |
 
 OSV-Scanner being advisory is worth knowing before you rely on it: a vulnerable
-dependency passes CI today. Making it block means removing its
-`continue-on-error`.
+dependency passes CI today. Making it a gate means running it on pull requests
+in osv-scanner's diff mode, which reports only what a change introduces;
+blocking on the whole backlog would fail every unrelated PR.
 
 There is deliberately **no** second dependency scanner. A `Dependency audit` job
 ran `pip-audit`, `bun audit` and `npm audit` until it was measured: it was the
@@ -247,10 +244,13 @@ used to be, so it is read before anyone adds it back.
 
 Three things about the trivy job that are not obvious:
 
-- It asserts the exact image count (five as of ADR-0044), so a new pin fails CI
-  until it is added to the scan list rather than going unscanned forever.
-- The vulnerability database is downloaded once into a shared cache and the five
-  scans reuse it with `--skip-db-update`. Five fresh `docker run --rm` pulls of
+- It finds the pins by shape, every `<image>@sha256:<digest>` string under
+  `deploy/pulumi/src` ([`ci/pinned_images.py`](../../ci/pinned_images.py)),
+  so a new pin is scanned the day it lands. It used to match a list of names,
+  which a new image was not on.
+- The vulnerability database is downloaded once into a shared cache and every
+  scan reuses it with `--skip-db-update` ([`ci/trivy_scan.sh`](../../ci/trivy_scan.sh)).
+  Five fresh `docker run --rm` pulls of
   `trivy-db` from GCR return 429 and fail the job with `failed=0`.
 - What trivy learns by *walking* the images is cached across runs
   (`actions/cache`, keyed on the pin set and the trivy version). The
@@ -357,10 +357,105 @@ task be:eval:answer-suite -- --out /tmp/suite/before         # on the base branc
 task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before/results.json
 ```
 
+**The precedent set** (`-- --set precedent`) asks whether the agent uses the
+office's other projects well (docs/roadmap/office-experience.md, step A). Each
+turn is asked in the current project of a fixture office
+(`frontends/ui/tests/fixtures/precedent/office.json`: a timber GK 4 house in
+Niederösterreich, and 24 other projects (23 closed) across all nine Länder with 74 documents:
+Bescheide, Nachforderungen, details, and many passages that answer none of
+the questions, so a search that ranks badly is told apart from a good one). The suite mints a signed envelope per run, and `fixture_bff.py`
+serves the routes such a turn reads: the turn context, with the reference
+catalog, and the three cross-project lookups. It drops every other connection,
+as the norm set's runs see no BFF at all. The catalog, the project context
+and the briefs are written by the production renderers
+(`reference-brief.fixture.spec.ts`, regenerated with `UPDATE_FIXTURES=1`), so
+the eval cannot drift from what production sends. The questions are in
+`tests/fixtures/precedent/precedent_questions.yaml`, in five groups:
+
+- **explicit:** asked about past projects;
+- **implicit:** a decision a past project made, not asked as such;
+- **norm:** must not look;
+- **none:** must say so and invent nothing;
+- **drift:** must name the older edition.
+
+The checks are `looked_up`, `no_lookup`, `cites`, `not_cites`,
+`real_projects`, `says_none` and `caveat`. `cites` counts only a name the
+question does not already hold: before 8 Oct 2026, 10 of 23 cite groups were
+met by an answer that repeated the question. `real_projects` holds every
+project an answer's source lines name to the scenario's office, which is how
+an invented project is caught (one named only in prose is not). `looked_up` counts what the fixture BFF served to the run's
+conversation, so a lookup the turn decision prefetched as round 0 counts,
+although no model call shows it. The report adds each kind of check over every run. Run it before
+and after any change to the lookup, the catalog, the similarity or the prompt
+around them.
+
+**The decision model's part of it** (`task be:eval:decisions:office`) needs
+no corpus: `scripts/decision_eval_office.py` asks Jev the production
+questions over the same fixture office — whether a turn should look
+(`precedent`), which catalog projects fit a question (`fit`), whether another
+project's passage shows a solution or instructs an AI (`hits`), and whether a
+fingerprint quote states its value (`verify`) — and prints each sweep beside
+the threshold the code ships. Run it before and after changing a question's
+wording or a threshold; the last run is
+`tests/fixtures/decisions/office_eval_2026-10-10.json`.
+
+**Against overfitting.** A question may name a `scenario`: the office the run
+sits in (`office.json` → `scenarios`, each rendered by the production code
+like the default). `wien-bestand` puts the chat in a Vienna office building
+conversion, another Land, use and kind of work than the default house;
+`leeres-buero` is an office with no other project. A third of the questions
+are `holdout: true`: written before any of them ran, never used to tune a
+prompt, a check or the fixture. The report scores tuned, held-out and each
+scenario apart; a held-out score well below the tuned one is overfitting, and
+the fix is never to tune on the held-out questions.
+
+**Meanings are judged, not matched.** `says_none` and `caveat` go to a model
+judge (`scripts/turn_census/judge.py`, `SUITE_JUDGE_MODEL`) with one yes/no
+question about what the answer means; without a key, or when it cannot
+answer, the check FAILS and the report counts it under „judge could not
+answer". Leaving it out shrank the denominator without a word: a `says_none`
+9/9 once hid a tenth run. Phrase lists were tried first
+and read the eval's own answers wrong both ways: on 65 answers that cited a
+precedent they called 11 a „nothing found", because a precedent's own caveat
+(„keine Vorgabe für Ihr Projekt") reads like one, and every phrase added for a
+miss made the next false pass likelier. Validated on 77 captured answers (7
+Oct 2026): `says_none` recall 10/10, with two disagreements that were the
+label's error; `caveat` no false pass in 12 norm answers, recall 9/12, the
+misses borderline. Do not tune the rubric to answers; re-validate it on new
+captures instead.
+
+**The fixture's search ranks as production does.** `fixture_bff.py` embeds
+with the deployment's own model (`make_embed_model`, as the note-embeddings
+route) and fuses it by reciprocal rank with a token channel that weighs words by
+how rare they are in the office (as production's full-text channel does),
+then hands over
+each searched project's nearest passages and the most relevant decisions with
+no relevance floor, exactly as the BFF does. On a question nothing answers the
+agent gets the nearest irrelevant passages and must judge them, as it must in
+production. Without an embedding key it ranks by tokens alone, a kinder search
+than production's, and the report's header says `fixture search: tokens only`.
+An earlier word-overlap matcher with a cut-off made „nothing comparable"
+questions easy and missed German compounds; tuning it only moved the misses.
+Passages from all searched projects are merged by score, as the BFF merges
+them; the fused rank decides only which passages each project hands over, and
+no fixture project holds more passages than that cut, so for passages the
+fused order changes nothing (it does order decisions and permits). A
+question's `evidence` names the passages that answer it, and
+`tests/test_precedent_eval.py` holds the token channel's scores to them
+offline: the evidence ranks in the top ten for every such question, and
+inverted scores lose it, so a scoring regression fails there rather than as an
+agent miss. A regression in the fused order alone shows only in the decisions
+and permits tests.
+
 **From a down-vote to a case.** Every down-voted answer can become a case, so a
-failure users reported cannot return unnoticed. Export the feedback CSV and run
-`.venv/bin/python scripts/feedback_to_cases.py feedback.csv --out /tmp/draft.yaml`:
-it drafts a case for each down-vote that has a question and an `expected_answer`
+failure users reported cannot return unnoticed. In Plattform → Antwortqualität →
+Bewertungen, choose **Exportieren → Als CSV (für Skripte)** (or fetch
+`/api/platform/answer-feedback/export?days=90&format=csv`), then run
+`.venv/bin/python scripts/feedback_to_cases.py feedback.csv --out /tmp/draft.yaml`.
+The CSV holds every vote, and the script keeps the down-votes. The columns are
+listed in [`answer-feedback-export.md`](../technical-reference/answer-feedback-export.md).
+The script
+drafts a case for each down-vote that has a question and an `expected_answer`
 and writes no organisation, conversation or answer text. Nothing is appended to
 the golden set. What the user says the answer should be is a claim: check it
 against the corpus, fill `family`, `punkt` and `expect` from the PDF, and add
@@ -419,6 +514,12 @@ store and components.
   `shared/wire/v2/turn-answered.jsonl`), the recorded `oib2` answer mapped onto
   v2 events (masthead, deltas, snapshot, cards, `RUN_FINISHED`) at `speed`
   times its pace, a heartbeat every 20 s and a stage after the terminal.
+  `RUN_FINISHED` carries the settled snapshot's text and sources and the
+  cards that streamed (`asSettled`), as the product's terminal does since
+  ADR-0067. The recording's own terminal is the whole-answer repair that ADR
+  retired: replayed as recorded, it rewrote the 1724-character settled answer
+  to 541 at the end of every run (table gone, `lastLineMaxDelta` 227). That
+  ending is `--scenario rewrite`.
 - A Web Worker paces the frames, so a busy main thread makes them queue as a
   real socket's would instead of slowing the server down.
 
@@ -430,13 +531,83 @@ cd frontends/ui
 node scripts/measure-stream-socket.mjs --url http://localhost:3001 --runs 2
 ```
 
-It opens the page at 390x844 with the CPU throttled 4x and at 1280x800, and
-prints one JSON line per run from `window.__streamSocket`: `maxFrameKB` (the
-largest frame but the terminal; the design's bound is 4 KB) and `totalKB`,
-long-task total, max and count (`longTaskMs`, `maxLongTaskMs`,
-`longTasksOver50`), `rafBusyMs`, `backlogMs` (last frame sent → handled),
-`maxFrameLagMs` (the worst of any frame, the number that shows a queue),
-`firstCardMs` from the send, `settleMs` from the terminal frame, and `cls`.
+It opens the page at 390x844 with the CPU throttled 4x and at 1280x800, keeps
+observing for 2.5 s after the answer settles (the Herleitung collapses and the
+footer lands in that window; a probe that stopped at the settle missed a 0.4
+CLS jump), and prints one JSON line per run from `window.__streamSocket`:
+
+- Cost: `maxFrameKB` (the largest frame but the terminal; the design's bound is
+  4 KB) and `totalKB`, long-task total, max and count (`longTaskMs`,
+  `maxLongTaskMs`, `longTasksOver50`), `rafBusyMs`, `backlogMs` (last frame
+  sent → handled), `maxFrameLagMs` (the worst of any frame, the number that
+  shows a queue), and `loaf`: long animation frames over 50 ms, the longest,
+  and the scripts that held the most frame time.
+- Timing: `firstDeltaMs` and `firstCardMs` (null when the turn has no card)
+  from the send, `settleMs` from the terminal frame.
+- Movement: `cls`, split into `clsBeforeSettle` and `clsAfterSettle`;
+  `shiftsMoved`, the largest moves of elements on screen before and after;
+  `shiftsEdge`, sources that entered or left the viewport, whose dy/dh are
+  of the visible part only and say nothing about distance
+  ([gotchas](gotchas.md)).
+- The reader: `reading.firstProseMaxDelta` and `reading.lastLineMaxDelta`,
+  the largest frame-to-frame jump in px of the answer's first prose block and
+  of the last visible line while on screen, the reader's own scrolling
+  excluded; `reading.answerInViewAtFirstWord`, whether the answer card's top
+  was in the scroller when its first word showed; and `scrollCalls`, the
+  programmatic scrolls of the thread's scroller (`scrollTo`, `scrollBy`,
+  `scroll`, `scrollIntoView` inside it, the `scrollTop` setter). The budget is
+  one: the top-anchor on send.
+
+`--reader scroll` wheels the thread down to the answer 2.5 s after its first
+word, the reader who wants to read it; what the settle then does to that
+reader is invisible to a run whose answer streams below the fold.
+`--animations` records every animation Chromium starts (CDP Animation domain)
+and prints each distinct one with duration, easing and element, `!` when the
+timing is off the motion tokens (`src/styles/tokens.css`,
+`src/components/motion/index.tsx`). motion.dev's JS-driven height tweens do
+not reach the compositor and are not listed. The probe itself is
+`src/app/dev/stream-socket/layout-probe.ts`.
+
+### Every lifecycle of a turn
+
+The default run is the happy turn, whose terminal continues the settle. Every
+scenario but `rewrite` ends that way. The page plays the other lifecycles from
+query parameters, and the script passes its flags of the same name through
+unchanged. Times are milliseconds after the question reached the server.
+
+| Parameter | What the turn does |
+|---|---|
+| `--scenario cards-only` | two cards and no prose; the terminal's text is empty |
+| `--scenario masthead-first` | the masthead lands, then 1.5 s of nothing before the first word |
+| `--scenario shallow` | no steps at all, the answer from 600 ms |
+| `--scenario opens-table` / `opens-card` | the first block is a table streamed row by row / a card placed by `[[card:1]]`, its event first |
+| `--scenario one-line` / `long` | a single 60-character delta / the recorded prose six times over |
+| `--scenario two-turns` | the `varianten` question 600 ms after the first answer settled; the split at the settle and the reading line follow the second turn from then |
+| `--scenario retract-with-card` | a preamble and its card stream, are retracted, and the recorded answer follows |
+| `--scenario rewrite` | the retired whole-answer repair, the `oib2` recording's own terminal: `RUN_FINISHED` replaces the settled answer with a shorter one. Kept to exercise a terminal that does not continue what was shown; no current backend sends one |
+| `--error preack\|steps\|prose\|finish` | `RUN_ERROR` right after the ack, after the first round's sources, half way through the prose, or where `RUN_FINISHED` would be; works with any scenario |
+| `--drop <ms>` | the socket closes as a lost network does (1006); the client's ladder reconnects, and its `attach{after_seq}` gets the frames it missed |
+| `--reload <ms>` | the page reloads; the server keeps the turn on its clock, and the reloaded page's `attach{after_seq: 0}` replays it. The probe restarts at the reload |
+| `--switch <ms>` | the store opens another conversation, and this one again 1.5 s later; coming back attaches from the view's last seq |
+| `--toggle open@<ms>,close@<ms>` | clicks the Herleitung's header. A programmatic click is not input to the browser, so its shift counts |
+| `--stop <ms>` | presses the composer's Stop; the server ends the turn `cancelled` with the text it sent |
+
+The fake server (`fake-turn-server.ts`) keeps every frame of a turn and runs
+the turn whether or not a socket follows it, so `attach` answers as the real
+one does, and a turn it never held is `rejected{turn_not_found}`. The line
+then carries `actions`, what the harness did and when (each `attach` with how
+many frames it replayed). The scenarios are built in
+`src/app/dev/_fixtures/v2-scenarios.ts` and held to the wire contract by its
+spec. Outcomes that need the reader to answer something (prompts, proposals,
+hand-offs) and the question the server never acknowledges are on
+`/dev/turn-outcomes`, which is not measured.
+
+`--reduced-motion` and `--color-scheme dark` set the browser context's
+preferences; with `--animations`, any animation longer than 0 ms under
+reduced motion is one the reduced-motion path missed. `--browser webkit`
+runs WebKit, for Safari's layout without scroll anchoring, when a WebKit
+build is in the Playwright browsers directory (the cloud image has none; the
+script says so and exits). CPU throttling and `--animations` need Chromium.
 
 The page is development only, so these are `next dev` numbers: React's dev
 build, whose prop-diff logging alone was a tenth of the profile. Compare runs
@@ -453,8 +624,8 @@ and `light` modes that replayed it, are gone with the v2 cut.
 | What did one turn cost, call by call? | `task be:eval:turn-census -- "<question>"` | key and ingested corpus | one turn per run (`--runs`, default 1); writes to `/tmp/turn_census` unless `--out`; `--override KEY VALUE` per census |
 | What happens in the milliseconds before the first model call? | `scripts/turn_census/startup_probe.py` | key, corpus and document inventory | several questions in one process; the first turn is cold |
 | What shape did the turn take (rounds, locator, checkpoint)? | `task be:eval:loop` | a running backend at `GRID_LOOP_EVAL_URL` with the corpus | real model calls per question; `--compare` needs no backend |
-| Does the layout shift while an answer streams? | `/dev/stream-replay?fixture=varianten` (or `oib2`), `&speed=N` | the UI dev server | free: the fixtures are recorded frames in `frontends/ui/src/app/dev/_fixtures/stream-frames.ts`, replayed as v2 events through `foldTurnEvent`. `window.__replay` holds `shifts`, `anchorTops` and `done` for a headless capture |
-| What does a whole turn cost the page as it arrives over the socket (step frames included)? | `/dev/stream-socket`, `node scripts/measure-stream-socket.mjs` | the UI dev server with the WorkOS placeholders | free: a scripted v2 server behind a stubbed `WebSocket`. [The socket-level streaming harness](#the-socket-level-streaming-harness) |
+| Does the layout shift while an answer streams? | `/dev/stream-replay?fixture=varianten` (or `oib2`), `&speed=N`, `&ending=recorded` for the recording's own terminal (the retired whole-answer rewrite on `oib2`) | the UI dev server | free: the fixtures are recorded frames in `frontends/ui/src/app/dev/_fixtures/stream-frames.ts`, replayed as v2 events through `foldTurnEvent`. `window.__replay` holds `shifts` (each source flagged `edge` when it entered or left the viewport), `anchorTops` and `done` for a headless capture. The answer alone: no Herleitung, no thread scroller |
+| What does a whole turn cost the page as it arrives over the socket (step frames included), and what does the reader see move until 2.5 s after the settle? | `/dev/stream-socket`, `node scripts/measure-stream-socket.mjs` (`--reader scroll`, `--animations`, and `--scenario`, `--error`, `--drop`, `--reload`, `--switch`, `--toggle`, `--stop` for the [other lifecycles](#every-lifecycle-of-a-turn)) | the UI dev server with the WorkOS placeholders | free: a scripted v2 server behind a stubbed `WebSocket`. [The socket-level streaming harness](#the-socket-level-streaming-harness) |
 
 ## Before opening a PR
 

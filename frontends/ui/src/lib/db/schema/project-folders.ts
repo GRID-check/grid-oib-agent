@@ -1,4 +1,4 @@
-import { check, foreignKey, index, pgTable, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core'
+import { boolean, check, foreignKey, index, pgTable, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core'
 import { relations, sql } from 'drizzle-orm'
 import { projects } from './projects'
 import { documents } from './documents'
@@ -40,8 +40,9 @@ export const projectFolders = pgTable('project_folders', {
   /**
    * NOTE: the database also has `uniq_project_folders_parent_name`, UNIQUE on
    * `(organization_id, COALESCE(project_id, '000…0'::uuid),
-   * COALESCE(parent_id, '000…0'::uuid), name)` — one folder per name per
-   * parent on a shelf (migrations 0063, 0102). It is not declared here because
+   * COALESCE(parent_id, '000…0'::uuid), name) WHERE deleted_at IS NULL` — one
+   * living folder per name per parent on a shelf (migrations 0063, 0102; partial
+   * since 0110, so a tombstone does not hold its name). It is not declared here because
    * it is an EXPRESSION index and drizzle's index builder cannot express one,
    * the same arrangement `documents_conversation_idx` has for being partial.
    *
@@ -64,6 +65,47 @@ export const projectFolders = pgTable('project_folders', {
    */
   name: varchar('name', { length: 255 }).notNull(),
   path: varchar('path', { length: 1024 }).notNull(),
+  /**
+   * Whether the folder inherits its parent's access (`inherit`, the default; a
+   * root folder inherits the project) or has its own access list (`custom`),
+   * migration 0111, ADR-0088. Who is on a custom list is WorkOS's: the folder
+   * is a `folder` resource and the people hold a folder role on it (ADR-0097,
+   * migration 0128). `lib/authz/folder-access.ts` is the one place that
+   * decides what it means.
+   */
+  accessMode: text('access_mode', { enum: ['inherit', 'custom'] }).notNull().default('inherit'),
+  /**
+   * On a custom folder: every project member reads it, and the list decides
+   * only who may write (what the `*` entry was). Ignored while `inherit`.
+   * Migration 0128, ADR-0097.
+   */
+  everyoneReads: boolean('everyone_reads').notNull().default(false),
+  /** Who last set the folder's own access list, and when; required while it is `custom`. */
+  accessChangedBy: text('access_changed_by'),
+  accessChangedAt: timestamp('access_changed_at', { withTimezone: true }),
+  /**
+   * Set when the folder was deleted (migration 0111): the row stays so its
+   * access still decides who may read what was derived from it. Every listing,
+   * path lookup and placement skips it, and a document filed in it is hidden
+   * from everyone; only `effectiveFolderLevel` reads it. With `purgedAt` unset
+   * it is in the Papierkorb (migration 0115), restorable until its queue row is
+   * purged. A project folder only: an Archiv folder's delete removes the row,
+   * and `project_folders_bin_state_check` refuses a deleted Archiv folder.
+   */
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  deletedBy: text('deleted_by'),
+  /**
+   * The folder a person deleted, on every folder that went to the Papierkorb
+   * with it (itself included); what a restore puts back together. NULL for a
+   * living folder and for a tombstone older than 0114.
+   */
+  binRootId: uuid('bin_root_id'),
+  /**
+   * When the purge removed what the folder held: from then on a permanent
+   * tombstone, row and grants kept (ADR-0088). What was derived from it is then
+   * shown as the organization's „Inhalte aus gelöschten Ordnern" setting says.
+   */
+  purgedAt: timestamp('purged_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({

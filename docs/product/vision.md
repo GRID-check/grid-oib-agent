@@ -5,7 +5,7 @@
 Piloti is the workspace in which a planning office runs a building project.
 Piloti the agent is a member of that office. Chat is how you talk to it.
 Tasks are how you hand it work. Every normative claim is grounded in a
-passage retrieved this turn from the project, the office archive, or the
+passage retrieved this turn from the project, the Büroablage, or the
 Austrian building-regulation corpus. Piloti does not replace the
 Entwurfsverfasser or the Behörde.
 
@@ -22,10 +22,10 @@ check, a filing — is a task.
 
 ## Core value proposition
 
-- **A place to work.** Files, the model, the office archive, and chat live on
+- **A place to work.** Files, the model, the Büroablage, and chat live on
   the project — not in a sidebar Q&A.
 - **Grounded answers.** Claims resolve to a passage from this project's files,
-  the office archive, or the Austrian building‑regulation corpus — whichever
+  the Büroablage, or the Austrian building‑regulation corpus — whichever
   the question actually needs. Not every question is a legal question.
 - **Work as a team.** Projects group people, documents, and conversations so
   knowledge is shared, not trapped in individual browser sessions.

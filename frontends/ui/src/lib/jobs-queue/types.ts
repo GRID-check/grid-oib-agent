@@ -17,16 +17,25 @@ import { BFF_JOB_PRIORITY, type BffJobPriority } from '@/lib/db/schema'
  * The kinds a `bff-jobs` worker knows how to run. A new kind is added here, as a
  * payload schema below and in `./handlers.ts`.
  *
- * The first two walk a set of documents a page per slice and run AS the person
- * who asked (their payload carries a `requester`). The other three are one
- * bounded step each and run as the system, because the person's permission was
- * checked when the work was requested and what they do afterwards takes no
- * session: parsing a model, converting a file, rendering and filing a report as
- * the run's own pinned requester.
+ * `reindex_project`, `reingest_failed` and `restore_folder_bin` walk a set of
+ * documents a page per slice and run AS the person who asked (their payload
+ * carries a `requester`). `placement_reingest` walks too, as the system: what
+ * it re-reads was decided by a change of folder access the person was
+ * authorized for, and the rows it takes say so themselves.
+ * `purge_binned_chunks` walks as the system as well:
+ * it finishes a delete a person already committed, and whether a binned folder
+ * stays searchable must not depend on whether that person is still a member.
+ * The other three are one bounded step each and run as the system, because the
+ * person's permission was checked when the work was requested and what they do
+ * afterwards takes no session: parsing a model, converting a file, rendering
+ * and filing a report as the run's own pinned requester.
  */
 export const BFF_JOB_KINDS = [
   'reindex_project',
   'reingest_failed',
+  'placement_reingest',
+  'restore_folder_bin',
+  'purge_binned_chunks',
   'bim_extract',
   'office_rendition',
   'file_research_report',
@@ -45,10 +54,10 @@ export type { BffJobPriority }
  * The person a job runs on behalf of, as the permission checks need them.
  *
  * The job is authorized when it is enqueued, by the route that took the request.
- * What travels here says WHO asked; the two walks (`reindex_project`,
- * `reingest_failed`) do not trust the rest of it: `handlers.ts` resolves the
- * person's membership and role again before every slice, so a role revoked
- * while the job waited ends it. Only `file_research_report`, a one-step job a
+ * What travels here says WHO asked; the walks that run as a person
+ * (`reindex_project`, `reingest_failed`, `restore_folder_bin`) do not trust
+ * the rest of it: `handlers.ts` resolves the person's membership and role
+ * again before every slice, so a role revoked while the job waited ends it. Only `file_research_report`, a one-step job a
  * reader's request authorizes up front, files on the snapshot. It is NOT a
  * session token. The worker has no access token and nothing here can be
  * replayed against WorkOS; a project or resource check asks WorkOS live, by the
@@ -113,6 +122,12 @@ export type JobCounts = z.infer<typeof countsSchema>
 
 export const emptyCounts = (): JobCounts => ({ queued: 0, skipped: 0, failed: 0, failedNames: [] })
 
+/** Count one failure, keeping the first few names for the log; the count stays exact. */
+export function recordJobFailure(counts: JobCounts, name: string): void {
+  counts.failed += 1
+  if (counts.failedNames.length < FAILED_NAMES_KEPT) counts.failedNames.push(name)
+}
+
 /** `reindex_project`: rebuild every document's chunks in one project, a page of documents per slice. */
 export const reindexProjectPayloadSchema = z.object({
   projectId: z.string().min(1),
@@ -131,6 +146,64 @@ export const reingestFailedPayloadSchema = z.object({
   counts: countsSchema,
 })
 export type ReingestFailedPayload = z.infer<typeof reingestFailedPayloadSchema>
+
+/**
+ * `placement_reingest`: re-read the documents collection placement moved in one
+ * project (ADR-0087), a page per slice. Its whole state is the project: the
+ * rows it takes are marked on the row (`documents/placement-repository.ts`),
+ * so a job already queued serves rows marked after it.
+ */
+export const placementReingestPayloadSchema = z.object({
+  projectId: z.string().min(1),
+})
+export type PlacementReingestPayload = z.infer<typeof placementReingestPayloadSchema>
+
+/**
+ * `restore_folder_bin`: read the documents of a folder restored from the
+ * Papierkorb back into the index (ADR-0088), a page per slice.
+ *
+ * The restore stamps every document it brings back `processing` with this
+ * job's id (`metadata.bffJobId`) in the transaction that takes the folder out
+ * of the bin, so `jobId` is both the job and the mark: a slice reads only the
+ * rows still carrying it, and a row this job never reaches (the requester lost
+ * access, the job died) is one the stuck-processing sweep recovers.
+ */
+export const restoreFolderBinPayloadSchema = z.object({
+  projectId: z.string().min(1),
+  /** The restored folder (the bin entry's root). */
+  folderId: z.string().min(1),
+  /** This job's own id, stamped on the rows it owns. */
+  jobId: z.string().uuid(),
+  requester: requesterSchema,
+  /** The last document id handled; `null` is the first slice. */
+  cursor: z.string().nullable(),
+  counts: countsSchema,
+})
+export type RestoreFolderBinPayload = z.infer<typeof restoreFolderBinPayloadSchema>
+
+/**
+ * `purge_binned_chunks`: finish the chunk purge of a folder delete whose
+ * request did not (ADR-0088). Queued in the transaction that puts the folder in
+ * the bin, not before `BIN_PURGE_TAKEOVER_MS`; the request deletes it once its
+ * own purge is confirmed, so it runs only when the request died half way.
+ *
+ * `entryId` is the bin entry's `deletion_queue` row: the job acts only while
+ * that row is still pending and has no `chunksPurgedAt`, so a restore, a purge
+ * or a second delete of the same folder ends it. `requester` is who deleted,
+ * kept for the one case the job undoes the delete (the index refused on its
+ * last attempt) and the restore job it then queues runs as them.
+ */
+export const purgeBinnedChunksPayloadSchema = z.object({
+  projectId: z.string().min(1),
+  folderId: z.string().min(1),
+  entryId: z.string().min(1),
+  requester: requesterSchema,
+  /** The last document id purged; `null` is the first slice. */
+  cursor: z.string().nullable(),
+  /** Documents purged so far, recorded on the bin entry at the end. */
+  documents: z.number().int().nonnegative(),
+})
+export type PurgeBinnedChunksPayload = z.infer<typeof purgeBinnedChunksPayloadSchema>
 
 /**
  * A stored document to run background work for: what `dispatchDocument` was

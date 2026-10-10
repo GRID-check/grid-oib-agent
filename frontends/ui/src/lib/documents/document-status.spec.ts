@@ -143,6 +143,8 @@ const OPAQUE_STATUS_WRITES: Readonly<Record<string, string>> = {
   // Reads, not writes: a drizzle SELECT projection naming the column.
   'src/lib/documents/repository.ts: documents.status': 'a SELECT projection, not a write',
   'src/lib/session-documents/repository.ts: documents.status': 'a SELECT projection, not a write',
+  'src/lib/documents/placement-repository.ts: documents.status':
+    "a SELECT and RETURNING projection, not a write; its one write is the literal 'processing'",
   // The reconciler's own plumbing: an HTTP status, a backend file state, and
   // its resolution being handed on. None of them reaches the column except
   // through the repository entry above.
@@ -151,6 +153,8 @@ const OPAQUE_STATUS_WRITES: Readonly<Record<string, string>> = {
     "the BACKEND's file state, compared against, never stored",
   'src/lib/documents/reconcile-status.ts: resolution.status':
     'the value this module just decided, on its way to the repository',
+  'src/lib/documents/reconcile-status.ts: row.status':
+    'the status the read saw, the guard of the repository write (`ReconciledFrom`), never written',
   // Service return values: what the CALLER is told, not what the row holds.
   'src/lib/documents/service.ts: doc.status': 'the row being read back, returned to the caller',
   'src/lib/documents/service.ts: reconciled.status': 'a reconciled status, returned to the caller',
@@ -379,11 +383,13 @@ const TABLE_WRITE_RE = /\.(insert|update)\(\s*documents\s*\)|update\s+"?document
  */
 const PASS_THROUGH_TABLE_WRITERS = [
   'src/lib/storage/repository.ts',
-  // Re-parents documents when the folder holding them is deleted: it writes
-  // `folder_id` and `updated_at` and nothing else. It authors no status and no
-  // authorship, so the scan has nothing to find in it — and the day it writes
-  // either, this list is what has to be revisited rather than quietly widened.
-  'src/lib/projects/folder-service.ts',
+  // A restore from the Papierkorb re-points a document at the collection its
+  // folder puts it in now (ADR-0088): `collection_name` and `updated_at`, and
+  // nothing else; the status that follows is the re-ingest's.
+  'src/lib/projects/folder-bin-repository.ts',
+  // The purge marks a filed report drawn from a deleted folder: a merge of
+  // `metadata.sourceDeleted`, no status and no authorship.
+  'src/lib/projects/folder-derived-repository.ts',
 ]
 
 function everySourceFile(dir: string, found: string[] = []): string[] {

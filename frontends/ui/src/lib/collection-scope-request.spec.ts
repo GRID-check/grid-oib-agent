@@ -21,6 +21,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+// Which people may read what a conversation recorded is `restricted-use.spec.ts`'s
+// subject (ADR-0088); here nothing it recorded restricts anybody.
+vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/conversations/restricted-use')>()),
+  peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
+  lockedConversationIds: vi.fn(async () => new Set<string>()),
+}))
+
 vi.mock('@/lib/conversations/repository', () => ({ findConversationTenancy: vi.fn() }))
 vi.mock('@/lib/sharing/repository', () => ({ findGrantForSubject: vi.fn() }))
 
@@ -40,6 +48,9 @@ const session = {
   userId: 'user_me',
   organizationId: 'org_1',
   email: 'me@grid.test',
+  role: 'member',
+  roles: ['member'],
+  permissions: [],
 } as unknown as AuthorizedSession
 
 /** `resolveActiveProjectId` reads user preferences; no project is stored. */
@@ -54,7 +65,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   process.env.REQUIRE_AUTH = 'true'
   stubDb()
-  vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' } as never)
+  vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor', closed: false, readsBecauseClosed: false })
   vi.mocked(findGrantForSubject).mockResolvedValue(null)
 })
 
@@ -150,5 +161,28 @@ describe('a conversationId on the WS upgrade is authorized (F2)', () => {
     await buildCollectionScopeFromRequest(session, { projectId: PROJECT_ID })
 
     expect(findConversationTenancy).not.toHaveBeenCalled()
+  })
+})
+
+describe('a caller who reads a closed project only because it is closed (ADR-0090)', () => {
+  it('is reported as read-only, so the job envelope signs them no project', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({
+      role: 'project-viewer',
+      closed: true,
+      readsBecauseClosed: true,
+    })
+
+    const result = await buildCollectionScopeFromRequest(session, { projectId: PROJECT_ID })
+
+    expect(result.projectId).toBe(PROJECT_ID)
+    expect(result.projectReadOnly).toBe(true)
+  })
+
+  it('a member of the closed project is not', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor', closed: true, readsBecauseClosed: false })
+
+    const result = await buildCollectionScopeFromRequest(session, { projectId: PROJECT_ID })
+
+    expect(result.projectReadOnly).toBe(false)
   })
 })

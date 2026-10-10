@@ -148,6 +148,28 @@ function DropdownMenuShortcut({ className, ...props }: React.HTMLAttributes<HTML
   )
 }
 
+/**
+ * A row's two lines: what the item does, and a muted hint under it (which file,
+ * which format, what the selection holds). For a row whose label alone would
+ * leave the reader guessing between two similar actions.
+ */
+function DropdownMenuItemText({
+  title,
+  hint,
+  className,
+}: {
+  title: React.ReactNode
+  hint?: React.ReactNode
+  className?: string
+}) {
+  return (
+    <span data-slot="dropdown-menu-item-text" className={cn('flex min-w-0 flex-col', className)}>
+      <span className="text-sm">{title}</span>
+      {hint ? <span className="text-muted-foreground text-xs">{hint}</span> : null}
+    </span>
+  )
+}
+
 const DropdownMenuSubTrigger = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger> & {
@@ -200,6 +222,7 @@ export {
   DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuItem,
+  DropdownMenuItemText,
   DropdownMenuCheckboxItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,

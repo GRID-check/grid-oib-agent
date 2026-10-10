@@ -5,6 +5,8 @@ import {
   isDeepResearchEnabledForOrg,
   isTaskAutomationEnabledForOrg,
 } from '@/lib/workos/feature-flags'
+import { findProjectTenancy } from '@/lib/projects/repository'
+import { isProjectClosed } from '@/lib/projects/project-status'
 
 /**
  * INTERNAL service endpoint — the per-TURN read of what a tenant's turn may do:
@@ -30,8 +32,14 @@ import {
  * the Automation section can be hidden and `create_task` still hands work over
  * from a chat turn.
  *
- * Reads feature flags and environment only — no tenant data — so it opens no
- * database scope. Token-guarded like every other internal route.
+ * `?projectId` names the turn's project. A CLOSED project (ADR-0090) withdraws
+ * both capabilities: a research run and a task each file into the project,
+ * which is read-only, so the agent must not offer what the BFF would refuse
+ * after the reader approved it. The project is read by the same tenancy probe
+ * every authorization uses, and only counts when it belongs to
+ * `?organizationId`.
+ *
+ * Token-guarded like every other internal route.
  */
 
 const querySchema = z.object({
@@ -39,21 +47,25 @@ const querySchema = z.object({
     .string()
     .regex(/^org_[A-Za-z0-9]+$/, 'not a WorkOS organization id')
     .optional(),
+  projectId: z.string().uuid().optional(),
 })
 
 export const GET = internalApiRoute(
   'post-answer-stages',
   async ({ request }) => {
-    const { organizationId } = parseQuery(request, querySchema)
-    const [enabled, deepResearch, tasks] = await Promise.all([
+    const { organizationId, projectId } = parseQuery(request, querySchema)
+    const [enabled, deepResearch, tasks, project] = await Promise.all([
       enabledPostAnswerStages(organizationId),
       isDeepResearchEnabledForOrg(organizationId),
       isTaskAutomationEnabledForOrg(organizationId),
+      projectId ? findProjectTenancy(projectId) : Promise.resolve(null),
     ])
-    return { enabled, features: { deepResearch, tasks } }
+    const closed = project !== null && project.organizationId === organizationId && isProjectClosed(project)
+    return { enabled, features: { deepResearch: deepResearch && !closed, tasks: tasks && !closed } }
   },
-  // `?organizationId` names the tenant the flags are evaluated for. No query
-  // runs, so no scope is opened; a query added here later would throw rather
+  // `?organizationId` names the tenant the flags are evaluated for. The one
+  // query, the project's tenancy probe, states its own platform scope and is
+  // then held to that tenant; any other query added here would throw rather
   // than read across tenants.
   { tenancy: { fromPayload: '?organizationId' } }
 )

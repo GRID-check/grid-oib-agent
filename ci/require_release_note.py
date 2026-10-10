@@ -24,8 +24,9 @@ A note counts only when this PR adds it. Editing or deleting an old note does
 not satisfy the rule.
 
 Escape hatch: the `no-release-note` label on the PR, for a change a user cannot
-notice (a refactor, a comment, internal tooling). The workflow skips this script
-entirely when it is set.
+notice (a refactor, a comment, internal tooling). The workflow reads the PR's
+labels when the job runs and skips this script when it is set, so labelling a
+PR and re-running the job is enough.
 
 Usage: require_release_note.py <base-sha> <head-sha>
 """
@@ -131,7 +132,8 @@ def main(argv: list[str]) -> int:
         "kept and never published, and they satisfy this check too. The rules are in\n"
         "docs/contributing/release-notes.md.\n\n"
         "If this change genuinely cannot be noticed by a user (a refactor, a comment,\n"
-        "internal tooling, infrastructure), add the `no-release-note` label to the PR.",
+        "internal tooling, infrastructure), add the `no-release-note` label to the PR\n"
+        "and re-run this job. No new commit is needed: the job reads the label live.",
         file=sys.stderr,
     )
     return 1

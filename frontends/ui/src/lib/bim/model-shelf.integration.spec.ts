@@ -27,6 +27,7 @@
 
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { REVIEWER_READER } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 
@@ -175,7 +176,7 @@ describe.skipIf(!url)('listBimModels shelf scoping', () => {
   })
 
   it('gives a project its own models and the Archiv’s, and nobody else’s', async () => {
-    const listed = await listBimModels(ORG, { projectId: PROJECT, includeArchiv: true })
+    const listed = await listBimModels(ORG, { projectId: PROJECT, includeArchiv: true, reader: REVIEWER_READER })
     const ids = listed.map((model) => model.id).sort()
 
     expect(ids).toEqual([models.archiv, models.project].sort())
@@ -185,7 +186,7 @@ describe.skipIf(!url)('listBimModels shelf scoping', () => {
     // The regression this suite exists for. `privater-chat.ifc` is readable
     // only inside its conversation; before the predicate read the SHELF it
     // appeared here, in every project in the organization.
-    const listed = await listBimModels(ORG, { projectId: PROJECT, includeArchiv: true })
+    const listed = await listBimModels(ORG, { projectId: PROJECT, includeArchiv: true, reader: REVIEWER_READER })
 
     expect(listed.map((model) => model.filename)).not.toContain('privater-chat.ifc')
     expect(listed.map((model) => model.id)).not.toContain(models.session)
@@ -194,13 +195,13 @@ describe.skipIf(!url)('listBimModels shelf scoping', () => {
   it('never hands a private chat’s model to a project-less caller either', async () => {
     // What `/api/internal/bim/query` passes for a conversation with no project:
     // the org Archiv is what such a chat is entitled to, and nothing more.
-    const listed = await listBimModels(ORG, { projectId: null, includeArchiv: true })
+    const listed = await listBimModels(ORG, { projectId: null, includeArchiv: true, reader: REVIEWER_READER })
 
     expect(listed.map((model) => model.id)).toEqual([models.archiv])
   })
 
   it('keeps a project’s own scoping exact when the Archiv is not included', async () => {
-    const listed = await listBimModels(ORG, { projectId: OTHER_PROJECT })
+    const listed = await listBimModels(ORG, { projectId: OTHER_PROJECT, reader: REVIEWER_READER })
 
     expect(listed.map((model) => model.id)).toEqual([models.otherProject])
   })

@@ -28,9 +28,13 @@ vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
 
 import { getDb } from '@/lib/db'
 import { getProjectOverviewData } from './overview-query'
+import { memberReader, REVIEWER_READER } from '@/lib/documents/document-reader'
 
 const PROJECT_ID = '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
 const ORG_ID = 'org_1'
+/** A reader who may see every folder. */
+const OPEN = { hiddenFolderIds: [] as string[], reader: REVIEWER_READER }
+const HIDDEN_FOLDER = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d'
 
 const projectRow = {
   id: PROJECT_ID,
@@ -86,7 +90,7 @@ describe('getProjectOverviewData', () => {
   })
 
   it('counts only documents on the project shelf', async () => {
-    await getProjectOverviewData(PROJECT_ID, ORG_ID)
+    await getProjectOverviewData(PROJECT_ID, ORG_ID, OPEN)
 
     // [0] is the projects lookup; [1] is the document count.
     const stats = compile(predicates[1])
@@ -95,7 +99,7 @@ describe('getProjectOverviewData', () => {
   })
 
   it('lists only documents on the project shelf', async () => {
-    await getProjectOverviewData(PROJECT_ID, ORG_ID)
+    await getProjectOverviewData(PROJECT_ID, ORG_ID, OPEN)
 
     const recent = compile(predicates[2])
     expect(recent.sql).toContain('"scope"')
@@ -105,7 +109,7 @@ describe('getProjectOverviewData', () => {
   it('asks the count and the list the same question', async () => {
     // A page whose "3 documents" and whose list of documents could disagree is
     // worse than either being wrong on its own.
-    await getProjectOverviewData(PROJECT_ID, ORG_ID)
+    await getProjectOverviewData(PROJECT_ID, ORG_ID, OPEN)
 
     expect(compile(predicates[1])).toEqual(compile(predicates[2]))
   })
@@ -113,7 +117,7 @@ describe('getProjectOverviewData', () => {
   it('still scopes both queries to the project and the organization', async () => {
     // The shelf predicate is an ADDITION. A version of this that replaced the
     // tenant check with it would be a cross-tenant read.
-    await getProjectOverviewData(PROJECT_ID, ORG_ID)
+    await getProjectOverviewData(PROJECT_ID, ORG_ID, OPEN)
 
     for (const predicate of [predicates[1], predicates[2]]) {
       const { sql, params } = compile(predicate)
@@ -121,5 +125,37 @@ describe('getProjectOverviewData', () => {
       expect(sql).toContain('"organization_id"')
       expect(params).toContain(ORG_ID)
     }
+  })
+
+  it('leaves a hidden folder out of the count, the total size and the recent list', async () => {
+    // ADR-0087. The recent list carries filenames and the count moves when a
+    // fee note is filed: both are the restricted folder's content, read by
+    // anyone who can open the project, unless the same exclusion the document
+    // list applies is applied here.
+    await getProjectOverviewData(PROJECT_ID, ORG_ID, { hiddenFolderIds: [HIDDEN_FOLDER], reader: REVIEWER_READER })
+
+    for (const predicate of [predicates[1], predicates[2]]) {
+      const { sql, params } = compile(predicate)
+      expect(sql).toContain('"folder_id" is null')
+      expect(sql).toContain('"folder_id" not in')
+      expect(params).toContain(HIDDEN_FOLDER)
+    }
+    expect(compile(predicates[1])).toEqual(compile(predicates[2]))
+  })
+
+  it("leaves somebody else's held file out of the count, the total size and the recent list", async () => {
+    // ADR-0086. The recent list names the file; for a reader who neither
+    // uploaded it nor reviews the quarantine, a file the screening has not
+    // passed is not there: the one predicate, `documentVisibleTo`.
+    await getProjectOverviewData(PROJECT_ID, ORG_ID, { hiddenFolderIds: [], reader: memberReader('user-member') })
+
+    for (const predicate of [predicates[1], predicates[2]]) {
+      const { sql, params } = compile(predicate)
+      expect(sql).toContain('"status" <>')
+      expect(sql).toContain('"screening_outcome" in')
+      expect(sql).toContain('"created_by" =')
+      expect(params).toEqual(expect.arrayContaining(['quarantined', 'clean', 'released', 'completed', 'user-member']))
+    }
+    expect(compile(predicates[1])).toEqual(compile(predicates[2]))
   })
 })

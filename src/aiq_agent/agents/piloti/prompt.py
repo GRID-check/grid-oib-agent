@@ -285,6 +285,11 @@ def render_system_prompt(
         # BFF refuses the call and returns a sentence the tool relays, so a
         # model that asks anyway is answered rather than left guessing.
         tasks_enabled=state.tasks_allowed,
+        # The turn's signed scope holds a restricted folder's collection
+        # (ADR-0087): the block says which doors stay shut and why, in place of
+        # the two per-tenant blocks above, whose reason ("not in this
+        # workspace") would be the wrong one to give the reader.
+        confined=state.confined,
         user_info=state.user_info,
         current_datetime=datetime.now().strftime("%Y-%m-%d"),
         available_documents=documents,
@@ -303,6 +308,12 @@ def render_system_prompt(
         # to remember a cap; the template frames them as preferences that
         # neither supply a normative value nor outrank the static rules.
         org_instructions=state.org_instructions,
+        # The office's reference projects: only when the turn can look into
+        # them (`project_lookup` bound), else the catalog promises a door the
+        # model does not have.
+        reference_projects=(
+            state.reference_projects if any(tool.get("name") == "project_lookup" for tool in tools_info) else None
+        ),
         focus_file_name=state.focus_file_name,
         focus_shelf_label=shelf_label(state.focus_shelf),
         oib_applicability=oib_applicability(state.project_context),

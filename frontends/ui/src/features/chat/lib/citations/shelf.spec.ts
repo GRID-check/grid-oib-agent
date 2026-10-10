@@ -101,7 +101,7 @@ describe('an unknown shelf renders unattributed', () => {
     const doc = documentFor(wire({ collection: 'archiv_org1', kind: 'buero' }))
 
     expect(doc.kind).toBe('buero')
-    expect(documentTabLabel(doc, t)).toBe('Büroarchiv')
+    expect(documentTabLabel(doc, t)).toBe('Büroablage')
   })
 
   test('a stored message written before the field existed decodes to no shelf', () => {
@@ -149,7 +149,7 @@ describe('legacy citation keys still parse', () => {
   })
 
   test('a German qualifier in a persisted key names the shelf', () => {
-    const [buero] = buildCitationModel({ citations: [legacy('Plan.pdf (Büroarchiv), p.3')] })
+    const [buero] = buildCitationModel({ citations: [legacy('Plan.pdf (Büroablage), p.3')] })
     const [projekt] = buildCitationModel({ citations: [legacy('Plan.pdf (Projektwissen), p.3')] })
     const [basis] = buildCitationModel({ citations: [legacy('Plan.pdf (Basiswissen), p.3')] })
 
@@ -159,7 +159,7 @@ describe('legacy citation keys still parse', () => {
   })
 
   test('the qualifier is not part of the filename', () => {
-    const [doc] = buildCitationModel({ citations: [legacy('Plan.pdf (Büroarchiv), p.3')] })
+    const [doc] = buildCitationModel({ citations: [legacy('Plan.pdf (Büroablage), p.3')] })
 
     expect(doc?.fileName).toBe('Plan.pdf')
     expect(doc?.loci[0]?.page).toBe(3)
@@ -256,8 +256,8 @@ describe('legacy citation keys still parse', () => {
         citations: [
           {
             ...guessed,
-            content: '[KB] Plan.pdf (Büroarchiv), p.3',
-            citationKey: 'Plan.pdf (Büroarchiv), p.3',
+            content: '[KB] Plan.pdf (Büroablage), p.3',
+            citationKey: 'Plan.pdf (Büroablage), p.3',
           },
         ],
         entries: [{ number: 1, markdown: 'Plan.pdf (Projektwissen), p.4' }],
@@ -296,10 +296,13 @@ describe('legacy citation keys still parse', () => {
  */
 describe('citation-key qualifiers the backend can write', () => {
   const cases: ReadonlyArray<readonly [qualifier: string, shelf: string]> = [
-    ['Büroarchiv', 'archiv'],
+    ['Büroablage', 'archiv'],
     ['Projektwissen', 'project'],
     ['Basiswissen', 'base'],
     ['Private Sitzung', 'session'],
+    // The archiv shelf's name until 6 Oct 2026: no writer emits it any more,
+    // and keys persisted before the rename still carry it.
+    ['Büroarchiv', 'archiv'],
   ]
 
   test.each(cases)('strips %s and resolves it to the %s shelf', (qualifier, shelf) => {

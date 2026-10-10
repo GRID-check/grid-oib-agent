@@ -15,11 +15,37 @@
 import 'server-only'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { isFolderVisibleTo, requireFolderWrite } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import type { Document } from '@/lib/db/schema'
+import { mayReviewQuarantine } from '@/lib/upload-screening/quarantine-reviewers'
+import { internalRead, memberReader } from './document-reader'
 import { findDocumentInOrg } from './repository'
+
+/**
+ * The document as this session may see it by the hold (ADR-0086), or `null`:
+ * a screened row, a held row it uploaded, or a held row whose quarantine it
+ * reviews. The first read is the member's, through `documentVisibleTo`; only a
+ * row that read cannot see is loaded again, to ask the reviewer rule of its own
+ * shelf and folder. The shelf's access rule is the caller's
+ * ({@link getAccessibleDocument}).
+ *
+ * Every item path that loads a row for a session goes through here, the write
+ * paths included (delete, move, rename, a new version, a fork), so a member who
+ * may not see a held file is told it does not exist rather than allowed to act
+ * on it.
+ */
+export async function findDocumentForSession(
+  session: AuthorizedSession,
+  documentId: string,
+): Promise<Document | null> {
+  const visible = await findDocumentInOrg(documentId, session.organizationId, memberReader(session.userId))
+  if (visible) return visible
+  const held = await findDocumentInOrg(documentId, session.organizationId, internalRead('quarantine-review'))
+  return held && (await mayReviewQuarantine(session, held)) ? held : null
+}
 
 /** Whether the caller intends to read the row or to change it. */
 export type DocumentAccessIntent = 'read' | 'write'
@@ -32,18 +58,23 @@ export type DocumentAccessIntent = 'read' | 'write'
  * plain `text` column, so a row can hold a value no version of this code knows,
  * and defaulting to another shelf's rule is how a private document becomes an
  * org-wide one.
+ *
+ * A held document (ADR-0086) exists only for its uploader and for the people
+ * who may review the quarantine, on top of the shelf's own rule: its content
+ * has not passed the office's screening, and nobody has decided yet that the
+ * project, the Büroablage or the chat may read it ({@link findDocumentForSession}).
  */
 export async function getAccessibleDocument(
   session: AuthorizedSession,
   documentId: string,
   intent: DocumentAccessIntent = 'read',
 ): Promise<Document> {
-  const doc = await findDocumentInOrg(documentId, session.organizationId)
+  const doc = await findDocumentForSession(session, documentId)
   if (!doc) throw new NotFoundError()
 
   switch (doc.scope) {
     case 'archiv': {
-      // Org-scoped: findDocumentInOrg already confirmed the row belongs to the
+      // Org-scoped: findDocumentForSession already confirmed the row belongs to the
       // caller's org (so any member may read it). Only mutations need the
       // manage permission.
       if (intent === 'write' && !canManageArchiv(session)) throw new ForbiddenError()
@@ -70,6 +101,13 @@ export async function getAccessibleDocument(
         doc.projectId,
         intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
       )
+      // A document under a folder this session may not read does not exist
+      // for it (ADR-0087): not found, never forbidden.
+      if (!(await isFolderVisibleTo(session, doc.projectId, doc.folderId))) throw new NotFoundError()
+      // Changing it is a write in its folder (ADR-0088): every rename, retag,
+      // re-ingest, new version, publish and archive passes through here, and a
+      // folder the session may only read refuses them all (403).
+      if (intent === 'write') await requireFolderWrite(session, doc.projectId, [doc.folderId])
       return doc
     }
     default: {

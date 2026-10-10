@@ -4,7 +4,8 @@
  * Split from `prompt-section.ts` so the rendering stays pure and testable while
  * the I/O lives here. Fail-open throughout: project context is an enrichment,
  * and a failure to read role bindings must degrade the answer, never break the
- * WebSocket upgrade that carries it.
+ * WebSocket upgrade that carries it. The one thing that does not fail open is
+ * folder access: a failure to decide it drops the whole block.
  */
 
 import { findProjectProfile } from '@/lib/projects/repository'
@@ -12,9 +13,28 @@ import { projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definiti
 import { answersFromProfile } from '@/lib/project-profile/intake-definition'
 import { documentRoleDefinition, recommendedRoles } from '@/lib/project-profile/document-roles'
 import type { DocumentRole } from '@/lib/project-profile/document-roles'
+import { getRestrictedFolderIds } from '@/lib/authz/folder-access'
+import { SCREENED_ONLY } from '@/lib/documents/document-reader'
 import { listProjectDocumentRoles } from './repository'
+import type { DocumentRoleReader } from './repository'
 import { buildDocumentRolesSection } from './prompt-section'
 import type { RecommendedSlot } from './prompt-section'
+
+/**
+ * Which bindings the block may name (ADR-0087). A binding carries its
+ * document's filename into the agent's prompt, and listing is not use: a chat
+ * draws on a restricted folder only through content it retrieves and admits,
+ * never through a name in its prompt. So no document in a restricted folder is
+ * named here, whoever asks; the view is one per project and cached.
+ */
+async function readerFor(
+  projectId: string,
+  organizationId: string | null | undefined
+): Promise<DocumentRoleReader> {
+  // Nor a held file (ADR-0086): its name reaches no model until it is screened.
+  if (!organizationId) return { unfiledOnly: true, documents: SCREENED_ONLY }
+  return { hiddenFolderIds: await getRestrictedFolderIds(organizationId, projectId), documents: SCREENED_ONLY }
+}
 
 export async function loadDocumentRolesPromptSection(
   projectId: string,
@@ -22,7 +42,7 @@ export async function loadDocumentRolesPromptSection(
 ): Promise<string> {
   try {
     const [bindings, profile] = await Promise.all([
-      listProjectDocumentRoles(projectId),
+      readerFor(projectId, organizationId).then((reader) => listProjectDocumentRoles(projectId, reader)),
       findProjectProfile(projectId, organizationId),
     ])
 

@@ -158,7 +158,7 @@ services:
       # (aiq_api.plugin), because the WorkOS validator loads only when this is set.
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID:-}
       # The commit this deployment is running. Stamped into the image as a
-      # build arg by publish-images.yml, so it is normally already set inside
+      # build arg by CI's image build, so it is normally already set inside
       # the container and this line only matters for a locally built or
       # hand-tagged image. It appears in the `[boot]` log line and on the health
       # endpoints, and it is what makes a pilot report nameable.
@@ -608,6 +608,7 @@ services:
       - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDTENANT}
       - SEAWEED_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
+      - FOLDER_PURGE_GRACE_DAYS=${FOLDER_PURGE_GRACE_DAYS:-14}
       # OpenRouter model catalog for the org model-config picker/validation.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
       # Platform tier (ADR-0016): break-glass owner bootstrap, platform-org
@@ -619,7 +620,7 @@ services:
       - REDIS_URL=redis://dragonfly:6379/0
       - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
       # The commit this deployment is running. Stamped into the image as a
-      # build arg by publish-images.yml, so it is normally already set inside
+      # build arg by CI's image build, so it is normally already set inside
       # the container and this line only matters for a locally built or
       # hand-tagged image. It appears in the `[boot]` log line and on the health
       # endpoints, and it is what makes a pilot report nameable.
@@ -726,6 +727,38 @@ services:
       pgbouncer:
         condition: service_healthy
     restart: unless-stopped
+
+  # One-shot WorkOS authorization rollout, the compose half of the Kubernetes
+  # Jobs in deploy/pulumi/src/app/workos-authz-jobs.ts. First the catalog: every
+  # permission and role the code checks is created in WorkOS (`provision:authz
+  # --apply`, which only adds). Then the folder-grants carry-over (ADR-0097),
+  # which is a no-op once it has run. After the frontend is healthy, because
+  # the carry-over must not run while the old dialog can still narrow a list.
+  # No key, no WorkOS, exit 0, as for grid-audit-schemas. Bundled by the image
+  # build: the runtime keeps neither bun nor tsx.
+  grid-workos-authz:
+    build:
+      context: ./frontends/ui
+      dockerfile: deploy/Dockerfile
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - >
+        if [ -z "$${WORKOS_API_KEY}" ]; then
+        echo "WORKOS_API_KEY is unset - no WorkOS environment to reconcile, skipping.";
+        exit 0;
+        fi;
+        node dist-scripts/provision-workos-authz.mjs --apply &&
+        node dist-scripts/migrate-folder-grants-to-workos.mjs --apply
+    environment:
+      - WORKOS_API_KEY=${WORKOS_API_KEY:-}
+      - GRID_PLATFORM_ORG_EXTERNAL_ID=${GRID_PLATFORM_ORG_EXTERNAL_ID:-grid-platform}
+      # Schema owner: the carry-over reads every organization's folder grants.
+      - GRID_APP_MIGRATION_DATABASE_URL=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/grid_app
+    depends_on:
+      frontend:
+        condition: service_healthy
 
   purger:
     build:

@@ -24,6 +24,15 @@ vi.mock('@/lib/documents/repository', () => ({
   countDocumentsByProject: (...args: unknown[]) => countDocumentsByProject(...args),
 }))
 
+const getHiddenFolderIds = vi.fn()
+vi.mock('@/lib/authz/folder-access', async () => ({
+  ...(await vi.importActual<typeof import('@/lib/authz/folder-access-rule')>('@/lib/authz/folder-access-rule')),
+  getHiddenFolderIds: (...args: unknown[]) => getHiddenFolderIds(...args),
+  clearanceOf: vi.fn(),
+  customFolderNames: vi.fn(),
+  readableFolderIdsFor: vi.fn(),
+}))
+
 const lastProjectActivityByUser = vi.fn()
 vi.mock('@/lib/conversations/repository', () => ({
   lastProjectActivityByUser: (...args: unknown[]) => lastProjectActivityByUser(...args),
@@ -84,6 +93,17 @@ describe('listProjects', () => {
     expect(visible).toEqual([])
     // The tenant's project names must not survive anywhere in the response.
     expect(JSON.stringify(visible)).not.toContain('Alpha')
+  })
+
+  it('lists a closed project for every member, without asking for a grant (ADR-0090)', async () => {
+    const closed = makeProject({ id: 'proj_closed', name: 'Closed', status: 'closed', closedAt: new Date(), closedBy: 'u' })
+    listProjectsInOrg.mockResolvedValue([ALPHA, closed])
+    check.mockResolvedValue({ authorized: false })
+
+    const visible = await listProjects(session())
+
+    expect(visible.map((project) => project.id)).toEqual(['proj_closed'])
+    expect(check).toHaveBeenCalledTimes(1)
   })
 
   it('checks project:view against the caller membership, once per project', async () => {
@@ -162,6 +182,21 @@ describe('getProjectsGridData', () => {
     listProjectsInOrg.mockResolvedValue([ALPHA, BETA, GAMMA])
     countDocumentsByProject.mockResolvedValue({ proj_beta: 4 })
     lastProjectActivityByUser.mockResolvedValue({ proj_beta: '2026-08-05T09:00:00.000Z' })
+    getHiddenFolderIds.mockResolvedValue([])
+  })
+
+  it('counts only what the viewer may read: the folders hidden from them are passed to the count', async () => {
+    check.mockResolvedValue({ authorized: true })
+    getHiddenFolderIds.mockImplementation(async (_session: unknown, projectId: string) =>
+      projectId === 'proj_beta' ? ['folder_hr'] : projectId === 'proj_alpha' ? ['folder_fees', 'folder_pay'] : []
+    )
+
+    await getProjectsGridData(session())
+
+    const [, ids, hidden] = countDocumentsByProject.mock.calls[0]
+    expect(ids).toEqual(['proj_alpha', 'proj_beta', 'proj_gamma'])
+    expect([...hidden].sort()).toEqual(['folder_fees', 'folder_hr', 'folder_pay'])
+    expect(getHiddenFolderIds).toHaveBeenCalledWith(expect.anything(), 'proj_beta')
   })
 
   it('asks for activity for the caller, and only for the projects they can reach', async () => {
@@ -172,7 +207,11 @@ describe('getProjectsGridData', () => {
     const data = await getProjectsGridData(session())
 
     expect(lastProjectActivityByUser).toHaveBeenCalledWith('org_1', 'user_1', ['proj_beta'])
-    expect(countDocumentsByProject).toHaveBeenCalledWith('org_1', ['proj_beta'])
+    expect(countDocumentsByProject).toHaveBeenCalledWith('org_1', ['proj_beta'], [], {
+      kind: 'projects',
+      userId: 'user_1',
+      reviewedProjectIds: [],
+    })
     expect(data.projects.map((project) => project.id)).toEqual(['proj_beta'])
     expect(data.viewerActivity).toEqual({ proj_beta: '2026-08-05T09:00:00.000Z' })
     expect(data.documentCounts).toEqual({ proj_beta: 4 })

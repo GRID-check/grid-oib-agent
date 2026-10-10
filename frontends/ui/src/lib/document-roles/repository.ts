@@ -7,8 +7,10 @@
  * plan (ADR-0041).
  */
 
-import { and, eq, inArray, isNotNull, isNull, notInArray } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, notInArray, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { outsideHiddenFolders } from '@/lib/documents/repository'
+import { documentVisibleTo, internalRead, type DocumentReader } from '@/lib/documents/visibility'
 import { documentRoles, documents } from '@/lib/db/schema'
 import type { DbTransaction } from '@/lib/storage/repository'
 import type { DocumentRole, RoleConfidence, RoleSource } from '@/lib/project-profile/document-roles'
@@ -80,8 +82,37 @@ const SELECTION = {
   displayName: documents.displayName,
 } as const
 
-/** Every binding in a project, joined to the document it names. */
-export async function listProjectDocumentRoles(projectId: string): Promise<DocumentRoleBinding[]> {
+/**
+ * Who the list is for (ADR-0087). A binding names its document's filename, so a
+ * binding to a document in a folder the reader may not see is left out as if
+ * it did not exist. Required: there is no reader for whom "every folder" is the
+ * safe default.
+ *
+ * - `hiddenFolderIds`: the folders hidden from this reader, from
+ *   `getHiddenFolderIds` (a session) or `getRestrictedFolderIds` (nobody's
+ *   clearance: the prompt view every member and every scheduled run shares).
+ * - `unfiledOnly`: no tenant to read the folder tree in (an anonymous
+ *   deployment), so no folder can be decided and none is shown.
+ *
+ * And by the hold (ADR-0086), `documents`: a held file's binding is its
+ * uploader's and its reviewers' (`shelfReaderFor`), and the agent's prompt
+ * names none (`screened-only`).
+ */
+export type DocumentRoleReader = ({ hiddenFolderIds: readonly string[] } | { unfiledOnly: true }) & {
+  documents: DocumentReader
+}
+
+function visibleTo(reader: DocumentRoleReader): SQL[] {
+  const held = documentVisibleTo(reader.documents)
+  const folders = 'unfiledOnly' in reader ? [isNull(documents.folderId)] : outsideHiddenFolders(reader.hiddenFolderIds)
+  return held ? [...folders, held] : folders
+}
+
+/** Every binding in a project the reader may see, joined to the document it names. */
+export async function listProjectDocumentRoles(
+  projectId: string,
+  reader: DocumentRoleReader
+): Promise<DocumentRoleBinding[]> {
   const db = getDb()
   const rows = await db
     .select(SELECTION)
@@ -90,7 +121,7 @@ export async function listProjectDocumentRoles(projectId: string): Promise<Docum
     // FK cascade takes the binding with it, so a row here always names a file
     // that exists. (Documents have no soft delete — 0077.)
     .innerJoin(documents, eq(documents.id, documentRoles.documentId))
-    .where(eq(documentRoles.projectId, projectId))
+    .where(and(eq(documentRoles.projectId, projectId), ...visibleTo(reader)))
     .orderBy(documentRoles.role, documentRoles.createdAt)
   return rows.map(toBinding)
 }
@@ -116,7 +147,10 @@ export async function findBindingsForRole(
         // have it — the single-holder ones.
         scopeInstanceId === null
           ? isNull(documentRoles.scopeInstanceId)
-          : eq(documentRoles.scopeInstanceId, scopeInstanceId)
+          : eq(documentRoles.scopeInstanceId, scopeInstanceId),
+        // Every holder of the slot, held or not: cardinality counts them all,
+        // and the caller names only those its reader may see (`keepVisible`).
+        documentVisibleTo(internalRead('identity'))
       )
     )
     .orderBy(documentRoles.createdAt)
@@ -238,10 +272,15 @@ export async function deleteBindingsOutsideBauwerke(
   return removed.length
 }
 
-/** Does this document belong to this project? The FK enforces it; this reports it. */
+/**
+ * Does this document belong to this project, in a folder the reader may see?
+ * The FK enforces the first; the second is ADR-0087, so a document in a hidden
+ * folder answers like one that is not there.
+ */
 export async function documentBelongsToProject(
   documentId: string,
-  projectId: string
+  projectId: string,
+  reader: DocumentRoleReader
 ): Promise<boolean> {
   const db = getDb()
   const [row] = await db
@@ -250,7 +289,8 @@ export async function documentBelongsToProject(
     .where(
       and(
         eq(documents.id, documentId),
-        eq(documents.projectId, projectId)
+        eq(documents.projectId, projectId),
+        ...visibleTo(reader)
       )
     )
     .limit(1)

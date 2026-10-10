@@ -16,12 +16,30 @@ export const research = {
     ariaMessages: 'Chat messages',
     loading: 'Loading conversation',
     scrollToLatest: 'Scroll to latest',
+    // A quiet line above the composer instead of an error card in the thread:
+    // the page reconnects on its own, and the reader has nothing to do.
+    connection: {
+      lost: 'Connection lost · Piloti is reconnecting …',
+      restored: 'Reconnected',
+    },
     status: {
       thinking: 'Thinking …',
+      // Once, politely, when the answer is all on screen.
+      answerReady: 'Answer ready',
+      // With the answer's gist: its verdict, or its first sentence.
+      answerReadyWith: 'Answer ready: {gist}',
+      // The reader stopped the answer.
+      stopped: 'Stopped',
+      // The turn failed; the error card below says how.
+      failed: 'Failed',
+      // The turn commissioned a run: its work has only begun.
+      handedOff: 'Run commissioned',
+      // Piloti did not take the question on; the banner says why.
+      refused: 'Not handled',
     },
     loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
-      'Sign in to unlock the project workspace: your files, the office archive, and the building-regulation corpus.',
+      'Sign in to unlock the project workspace: your files, Office filing, and the building-regulation corpus.',
     signInSso: 'Sign in with SSO',
     welcomeTitle: 'How can Piloti help with your project?',
   },
@@ -82,7 +100,7 @@ export const research = {
     /** Stratum wordmarks — always shown together with their icon and colour. */
     strata: {
       law: 'Building law',
-      office: 'Office archive',
+      office: 'Office filing',
       project: 'Project knowledge',
       auto: 'Web',
     },
@@ -91,7 +109,7 @@ export const research = {
       all: 'All sources',
       law: 'Building law & guidelines',
       project: 'Project documents',
-      office: 'Office archive',
+      office: 'Office filing',
     },
     /**
      * The knowledge layer is not a toggleable source — it rides along on every
@@ -101,7 +119,7 @@ export const research = {
     knowledge: {
       projectName: 'Project knowledge',
       projectDescription: 'Your project documents in this project.',
-      officeName: 'Office archive',
+      officeName: 'Office filing',
       officeDescription: 'Shared documents from your office.',
     },
   },
@@ -193,6 +211,8 @@ export const research = {
     signInToStart: 'Sign in to start working',
     typeResponse: 'Type your response to Piloti...',
     pleaseWait: 'Please wait...',
+    typeAhead: 'Type your next question …',
+    typeAheadHint: 'You can send once the answer is finished.',
     messageNotSent: 'Message not sent',
     messageNotSentDesc: 'Something went wrong sending your message. Please try again.',
     unsupportedFileType: 'Unsupported file type',
@@ -210,6 +230,7 @@ export const research = {
     responseInput: 'Response input',
     chatMessageInput: 'Chat message input',
     stopStreaming: 'Stop response',
+    stopStreamingTitle: 'Stop response (Esc)',
     sendWhilePending: 'Not every file has been read yet. Send anyway?',
     heldForUpload: 'Sending as soon as the file has been read.',
     heldForUploadSendNow: 'Ask now without it',

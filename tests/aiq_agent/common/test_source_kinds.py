@@ -83,7 +83,7 @@ class TestAgentAuthoredLane:
 
 class TestSourceKindLookup:
     def test_known_kind(self):
-        assert source_kind("buero").label == "Büroarchiv"
+        assert source_kind("buero").label == "Büroablage"
 
     def test_unknown_kind_fails_open(self):
         assert source_kind("nope").key == DEFAULT_SOURCE_KIND
@@ -210,9 +210,23 @@ class TestShelf:
         # Those strings are persisted inside citation keys in existing messages;
         # a reader that stops understanding them silently unresolves them.
         assert scope_for_qualifier("Projektwissen") == "projekt"
-        assert scope_for_qualifier("Büroarchiv") == "buero"
+        assert scope_for_qualifier("Büroablage") == "buero"
         assert scope_for_qualifier("Basiswissen") == "baurecht"
         assert scope_for_qualifier("Internal") is None
+
+    def test_the_shelfs_retired_name_still_parses_and_is_never_written(self):
+        # The archiv shelf was „Büroarchiv" until 6 Oct 2026. Keys persisted
+        # before the rename carry that qualifier; the writer now says Büroablage.
+        assert shelf_qualifier(Shelf.ARCHIV) == "Büroablage"
+        assert shelf_for_qualifier("Büroarchiv") is Shelf.ARCHIV
+        assert scope_for_qualifier("Büroarchiv") == "buero"
+        assert "Büroarchiv" not in SHELF_QUALIFIERS.values()
+
+    @pytest.mark.parametrize("qualifier", ["Büroablage", "Büroarchiv"])
+    def test_a_key_under_either_name_strips_to_the_file(self, qualifier):
+        from aiq_agent.common.citation_verification import _parse_citation_ref
+
+        assert _parse_citation_ref(f"Plan.pdf ({qualifier}), p.3") == ("Plan.pdf", Shelf.ARCHIV, 3)
 
 
 class TestLegacyShelfFallback:

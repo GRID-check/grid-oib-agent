@@ -11,13 +11,24 @@
 import { z } from 'zod'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { withOptionalTenant } from '@/lib/db/tenant-context'
-import { NotFoundError, OrgMemoryDisabledError } from '@/lib/api/errors'
+import { BadRequestError, NotFoundError, OrgMemoryDisabledError } from '@/lib/api/errors'
+import { requireMayRememberFrom } from '@/lib/conversations/cross-project-use'
+import { findProjectTenancy } from '@/lib/projects/repository'
 import {
   createProjectMemoryItem,
   createProjectMemoryItemForProject,
   organizationExists,
 } from '@/lib/projects/memory-service'
-import { PROJECT_MEMORY_CONFIDENCES, PROJECT_MEMORY_KINDS } from '@/lib/db/schema'
+import {
+  memoryJudgeVerdictSchema,
+  recordMemoryJudgeVerdict,
+  recordRefusedMemoryJudgeVerdict,
+} from '@/lib/projects/memory-judge-audit'
+import {
+  PROJECT_MEMORY_CONFIDENCES,
+  PROJECT_MEMORY_KINDS,
+  PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS,
+} from '@/lib/db/schema'
 
 // Agent-authored org-wide memory is DENIED by default: an org item lands in
 // every project's digest across the tenant, and this service-token endpoint
@@ -55,6 +66,28 @@ const internalMemorySchema = z
      * rate. Read by the recall scorer (`lib/knowledge/recall-scoring.ts`).
      */
     salience: z.number().min(0).max(1).optional(),
+    /**
+     * The restricted-folder collections this finding depends on (ADR-0087):
+     * set by the agent when the turn's signed scope held restricted
+     * collections and the finding drew on them. Each must be a CURRENT
+     * restricted collection of the project — `createProjectMemoryItemForProject`
+     * refuses anything else with a 400 rather than storing an item nobody could
+     * be served — and is stored as its SOURCE FOLDER (ADR-0088), so who is
+     * shown the note follows that folder's access as it changes. Shaped like
+     * the names `restrictedCollectionName` mints.
+     */
+    restrictedCollections: z
+      .array(z.string().regex(/^[A-Za-z0-9_-]{1,200}_r[0-9a-f]{12}$/))
+      .min(1)
+      .max(PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS)
+      .optional(),
+    /**
+     * The restricted-memory judge's verdict on this finding, when it was asked
+     * (ADR-0087): recorded in the audit trail with the item (AI Act), and the
+     * verdict alone kept on a restricted item, so the panel can say a model
+     * helped decide who reads it. Collections only, never text.
+     */
+    restrictionJudge: memoryJudgeVerdictSchema.optional(),
   })
   .refine((v) => (v.scope === 'project' ? !!v.projectId : !!v.organizationId), {
     message: 'project scope requires projectId; organization scope requires organizationId',
@@ -74,7 +107,16 @@ export const POST = internalApiRoute(
       sourceConversationId,
       supersedesContent,
       salience,
+      restrictedCollections,
+      restrictionJudge,
     } = await parseJsonBody(request, internalMemorySchema)
+
+    // Organization memory reaches every project in the tenant, so it is never
+    // restricted: the agent files such a finding as restricted memory of its
+    // project instead. A caller that did not is refused, not widened.
+    if (restrictedCollections && scope !== 'project') {
+      throw new BadRequestError('Restricted memory is project memory')
+    }
 
     // An organization-scoped write always names its tenant. A project-scoped
     // one may not: the project row is what names it, and
@@ -89,6 +131,20 @@ export const POST = internalApiRoute(
             console.warn(
               '[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)'
             )
+            // The judge's "none" still decided something: it left the finding
+            // open, and the agent now offers it to the user as a card that
+            // writes it open, organization-wide at the widest. Audited against
+            // the organization, when that is a tenant this deployment knows.
+            if (restrictionJudge && (await organizationExists(organizationId as string).catch(() => false))) {
+              await recordRefusedMemoryJudgeVerdict(
+                {
+                  organizationId: organizationId as string,
+                  provenanceType,
+                  sourceConversationId: sourceConversationId ?? null,
+                },
+                restrictionJudge
+              )
+            }
             // Distinct ORG_MEMORY_DISABLED code (not a bare FORBIDDEN) so the backend
             // reports the accurate cause instead of mislabeling it a token mismatch.
             throw new OrgMemoryDisabledError('Agent organization-scoped memory is disabled')
@@ -102,6 +158,11 @@ export const POST = internalApiRoute(
             throw new NotFoundError('Unknown organization')
           }
         }
+
+        // Nothing found in another project may be remembered (ADR-0094): the
+        // conversation's cross-project record refuses before anything is written.
+        const tenant = organizationId ?? (projectId ? (await findProjectTenancy(projectId))?.organizationId : null)
+        await requireMayRememberFrom(sourceConversationId, tenant)
 
         // Reported by the service, never derived from the returned row: a duplicate
         // or paraphrase refresh returns an EXISTING item whose `supersedesId` may
@@ -125,6 +186,8 @@ export const POST = internalApiRoute(
                   sourceConversationId: sourceConversationId ?? null,
                   provenanceType,
                   ...(salience !== undefined ? { salience } : {}),
+                  ...(restrictedCollections ? { restrictedCollections } : {}),
+                  ...(restrictionJudge ? { restrictionJudge: restrictionJudge.verdict } : {}),
                 },
                 writeOptions
               )
@@ -146,6 +209,7 @@ export const POST = internalApiRoute(
         if (!item) {
           throw new NotFoundError('Unknown project')
         }
+        if (restrictionJudge) await recordMemoryJudgeVerdict(item, restrictionJudge)
 
         // `supersededId` is null when the quote resolved to nothing, or to an entry
         // the agent may not retire — the caller can then be honest about what it did.

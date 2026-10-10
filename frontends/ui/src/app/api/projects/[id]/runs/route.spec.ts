@@ -77,6 +77,8 @@ describe('POST /api/projects/[id]/runs', () => {
         question: 'Fluchtweg klären',
         context: 'Befund offen',
         documents: null,
+        // The refusal of a confined thread is read by whoever pressed the button.
+        locale: expect.stringMatching(/^(en|de)$/),
       }
     )
   })

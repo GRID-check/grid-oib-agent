@@ -1,10 +1,10 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
-import { APP_DEFAULTS, KEDA_SCALER_ROLE, PORT } from "../constants";
+import { APP_DEFAULTS, KEDA_SCALER_ROLE, LANGFUSE, PORT } from "../constants";
 import type { Postgres } from "../data/postgres";
 import { FRONTEND_DRAIN_SECONDS, secretChecksum } from "../platform/rollout";
-import { frontendLangfuseEnv } from "../platform/langfuse";
+import { frontendLangfuseEnv, LANGFUSE_SECRETS_NAME, LANGFUSE_SECRET_KEYS } from "../platform/langfuse";
 
 type EnvVar = k8s.types.input.core.v1.EnvVar;
 
@@ -319,6 +319,11 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     ...(cfg.langfuse.enabled
       ? [{ name: "GRID_TRACE_IDENTITY_ATTRIBUTES", value: "true" }]
       : []),
+    // The agent writes its answer checks as Langfuse scores (ADR-0089) through
+    // the public API, on the in-cluster Service: `allow-backend-to-langfuse`
+    // opens it to the chat, api and agent-worker pods. The keys are a
+    // capability only: the prompt store stays off until LANGFUSE_PROMPTS_ENABLED.
+    ...langfuseApiEnv(cfg),
     // Admission control (bounds concurrent heavy work — §4.2).
     { name: "GRID_MAX_ACTIVE_JOBS_PER_ORG", value: String(cfg.backend.maxActiveJobsPerOrg) },
     { name: "GRID_MAX_QUEUED_JOBS_PER_ORG", value: String(cfg.backend.maxQueuedJobsPerOrg) },
@@ -408,6 +413,14 @@ export function workerEnv(w: AppWiring): EnvVar[] {
 }
 
 /**
+ * What the ingest worker does not get of the backend env: the Langfuse API
+ * keys. Ingestion writes no scores and serves no prompt, and no NetworkPolicy
+ * lets it reach the Langfuse web tier, so the keys would be a credential with
+ * nothing to do but leak.
+ */
+const INGEST_WITHHELD_ENV = new Set(["LANGFUSE_HOST", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"]);
+
+/**
  * Ingest worker (ADR-0076) environment: the full backend env (it builds the same
  * ingestor: summary model, shared Chroma, object store, DSNs) plus the role, its
  * per-process concurrency.
@@ -415,7 +428,9 @@ export function workerEnv(w: AppWiring): EnvVar[] {
 export function ingestWorkerEnv(w: AppWiring, livenessFile: string): EnvVar[] {
   const overridden = new Set(["AIQ_INGEST_MAX_WORKERS"]);
   return [
-    ...backendEnv(w, "grid-ingest-worker").filter((e) => !(typeof e.name === "string" && overridden.has(e.name))),
+    ...backendEnv(w, "grid-ingest-worker").filter(
+      (e) => !(typeof e.name === "string" && (overridden.has(e.name) || INGEST_WITHHELD_ENV.has(e.name))),
+    ),
     { name: "GRID_ROLE", value: "ingest-worker" },
     { name: "AIQ_INGEST_MAX_WORKERS", value: String(w.cfg.ingestWorker.concurrency) },
     { name: "GRID_INGEST_WORKER_DRAIN_SECONDS", value: String(w.cfg.ingestWorker.drainSeconds) },
@@ -493,6 +508,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     sref("SEAWEED_TENANT_ADMIN_SECRET_KEY"),
     { name: "SEAWEED_PRESIGNED_URL_TTL_SECONDS", value: String(APP_DEFAULTS.presignedUrlTtlSeconds) },
     { name: "PROJECT_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.projectPurgeGraceDays) },
+    { name: "FOLDER_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.folderPurgeGraceDays) },
     // Model catalog. Pricing (margin, credit price) is a platform setting in
     // the database (ADR-0053), not an environment variable.
     sref("OPENROUTER_API_KEY"),
@@ -584,12 +600,57 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
 }
 
 /**
+ * How a worker reaches Langfuse's public API (`workers/langfuse-traces.js`):
+ * the in-cluster web Service and the project key pair that the Langfuse Secret
+ * already holds for the collector and for headless init. Present exactly when
+ * the Langfuse tier is deployed; without it the worker's step is a logged
+ * no-op, which is also what a deployment without Langfuse has to do.
+ *
+ * The Secret is Langfuse's own rather than a copy in `grid-secrets`, so a key
+ * rotation has one place to happen. A pod reads it at start, so every pod that
+ * carries this env folds the keys into its rollout checksum
+ * (`withLangfuseKeysChecksum`) and a rotation rolls it.
+ *
+ * Also on the backend tiers (`backendEnv`), which write the answer pipeline's
+ * checks as scores (ADR-0089, `aiq_agent/observability/langfuse_scores.py`)
+ * and, once `LANGFUSE_PROMPTS_ENABLED` is set, read the platform prompt.
+ */
+export function langfuseApiEnv(cfg: GridConfig): EnvVar[] {
+  if (!cfg.langfuse.enabled) return [];
+  const fromLangfuseSecret = (name: string, key: string): EnvVar => ({
+    name,
+    valueFrom: { secretKeyRef: { name: LANGFUSE_SECRETS_NAME, key } },
+  });
+  return [
+    { name: "LANGFUSE_HOST", value: `http://${LANGFUSE.web}:${PORT.langfuseWeb}` },
+    fromLangfuseSecret("LANGFUSE_PUBLIC_KEY", LANGFUSE_SECRET_KEYS.publicKey),
+    fromLangfuseSecret("LANGFUSE_SECRET_KEY", LANGFUSE_SECRET_KEYS.secretKey),
+  ];
+}
+
+/**
  * Names the bff-jobs pod sets differently from the frontend it is built from.
  * The BFF in that pod is not the gateway: it logs as its own service, and the
  * runner stops it only after the jobs in hand are given back, so it needs no
  * long WebSocket drain of its own.
  */
 const BFF_JOBS_OVERRIDES = new Set(["OTEL_SERVICE_NAME", "GRID_SHUTDOWN_DRAIN_MS"]);
+
+/**
+ * Names the bff-jobs pod does not inherit from the frontend: the Langfuse keys.
+ * Only the request path scores a vote, and `allow-frontend-to-langfuse` admits
+ * the frontend alone, so a job holding them could reach for an API it cannot
+ * open. Erasing traces is the purger's and the scheduler's (ADR-0044).
+ */
+const BFF_JOBS_WITHHELD = new Set([
+  "LANGFUSE_HOST",
+  "LANGFUSE_PUBLIC_URL",
+  "LANGFUSE_PROJECT_ID",
+  "LANGFUSE_PUBLIC_KEY",
+  "LANGFUSE_SECRET_KEY",
+]);
+const inheritedByBffJobs = (env: EnvVar) =>
+  typeof env.name !== "string" || !(BFF_JOBS_OVERRIDES.has(env.name) || BFF_JOBS_WITHHELD.has(env.name));
 
 /**
  * bff-jobs pool environment (ADR-0079): the whole frontend environment, because
@@ -601,7 +662,7 @@ const BFF_JOBS_OVERRIDES = new Set(["OTEL_SERVICE_NAME", "GRID_SHUTDOWN_DRAIN_MS
 export function bffJobsEnv(w: AppWiring): EnvVar[] {
   const { cfg } = w;
   return [
-    ...frontendEnv(w).filter((env) => typeof env.name !== "string" || !BFF_JOBS_OVERRIDES.has(env.name)),
+    ...frontendEnv(w).filter(inheritedByBffJobs),
     { name: "GRID_BFF_JOBS_CONCURRENCY", value: String(cfg.bffJobs.concurrency) },
     { name: "GRID_BFF_JOBS_DRAIN_SECONDS", value: String(cfg.bffJobs.drainSeconds) },
     { name: "GRID_BFF_JOBS_MAX_PER_ORG", value: String(cfg.bffJobs.maxPerOrg) },
@@ -638,6 +699,8 @@ export function purgerEnv(w: AppWiring): EnvVar[] {
     // feature flag, nor the bucket-admin credential — and an unattended queue
     // worker is the last process that should be able to drop a bucket.
     sref("WORKOS_API_KEY"),
+    // An erased chat's Langfuse traces are deleted by the purger (ADR-0044).
+    ...langfuseApiEnv(cfg),
     { name: "PURGER_POLL_INTERVAL_MS", value: String(APP_DEFAULTS.purgerPollMs) },
     // OTLP logs via the cluster collector (see frontendEnv for the gating
     // rationale). Base URL - the JS exporter derives /v1/logs.
@@ -669,6 +732,16 @@ export function schedulerEnv(w: AppWiring): EnvVar[] {
     { name: "GRID_SKILL_SCHEDULER_POLL_MS", value: String(APP_DEFAULTS.schedulerPollMs) },
     { name: "GRID_SKILL_SCHEDULER_BATCH", value: String(APP_DEFAULTS.schedulerBatch) },
     { name: "GRID_SKILL_RUNS_RETENTION_DAYS", value: String(APP_DEFAULTS.skillRunsRetentionDays) },
+    // The daily Langfuse trace retention sweep (ADR-0044); a no-op without the keys.
+    ...(cfg.langfuse.enabled
+      ? [
+          ...langfuseApiEnv(cfg),
+          {
+            name: "GRID_LANGFUSE_TRACE_RETENTION_DAYS",
+            value: String(APP_DEFAULTS.langfuseTraceRetentionDays),
+          },
+        ]
+      : []),
     // OTLP logs via the cluster collector (see frontendEnv for the gating
     // rationale). Base URL - the JS exporter derives /v1/logs.
     ...(cfg.observability.enabled
@@ -695,4 +768,25 @@ export function migrationEnv(): EnvVar[] {
  */
 export function auditSchemaEnv(): EnvVar[] {
   return [sref("WORKOS_API_KEY")];
+}
+
+/**
+ * Env for the WorkOS authorization-catalog Job: the API key, and the external
+ * id of the platform organization whose org-scoped roles the catalog also
+ * provisions (the frontend reads the same value).
+ */
+export function authzCatalogEnv(cfg: GridConfig): EnvVar[] {
+  return [
+    sref("WORKOS_API_KEY"),
+    { name: "GRID_PLATFORM_ORG_EXTERNAL_ID", value: cfg.auth.platformOrgExternalId },
+  ];
+}
+
+/**
+ * Env for the folder-grants carry-over Job (ADR-0097): the WorkOS key, and the
+ * schema owner's connection, because it reads `project_folder_grants` across
+ * every organization and the RLS-bound runtime role would see none of it.
+ */
+export function folderGrantsCarryOverEnv(): EnvVar[] {
+  return [sref("WORKOS_API_KEY"), sref("GRID_APP_MIGRATION_DATABASE_URL")];
 }

@@ -8,6 +8,12 @@ import type { en } from '../en'
  * meisten Nutzer sehen. Durchgängig Sie-Form, wie im übrigen Produkt.
  */
 export const collaboration: typeof en.collaboration = {
+  rightsLost: {
+    neutralTitle: 'Geteilter Chat',
+    title: 'Ihnen fehlen inzwischen die Rechte, um diesen Chat zu sehen',
+    description:
+      'Der Zugriff auf einen Ordner, aus dem dieser Chat stammt, hat sich seit dem Teilen geändert. Fragen Sie eine Person, die diese Ordner lesen darf, oder Ihre Administration.',
+  },
   sharing: {
     title: 'Teilen',
     action: 'Teilen',
@@ -57,7 +63,10 @@ export const collaboration: typeof en.collaboration = {
       needsProjectAccess: 'Noch nicht im Projekt',
       needsProjectAccessHint:
         'Fügen Sie die Person zuerst dem Projekt hinzu. Das Teilen eines Chats gewährt niemals Zugriff auf das Projekt selbst.',
+      lacksFolderAccess: 'Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat stammt',
+      lacksFolderAccessBadge: 'Kein Zugriff',
     },
+    lostAccess: 'Hat keinen Zugriff mehr',
     roleHeading: 'Zugriffsstufe',
     manageFor: 'Zugriff verwalten: {name}',
     remove: 'Zugriff entziehen',
@@ -81,6 +90,24 @@ export const collaboration: typeof en.collaboration = {
         'Zu viele Änderungen an der Freigabe. Bitte warten Sie einige Minuten und versuchen Sie es dann erneut.',
       rosterFull:
         'Dieser Chat hat bereits die maximale Anzahl an Personen. Entziehen Sie zuerst jemandem den Zugriff.',
+      restrictedContent:
+        '{name} darf nicht jeden Ordner mit eingeschränktem Zugriff lesen, auf den sich dieser Chat stützt. Deshalb kann er nicht mit dieser Person geteilt werden.',
+      restrictedContentFolders:
+        '{name} darf nicht jeden Ordner mit eingeschränktem Zugriff lesen, auf den sich dieser Chat stützt ({folders}). Deshalb kann er nicht mit dieser Person geteilt werden.',
+      restrictedContentSomeone:
+        'Diese Person darf nicht jeden Ordner mit eingeschränktem Zugriff lesen, auf den sich dieser Chat stützt. Deshalb kann er nicht mit ihr geteilt werden.',
+      restrictedContentSelf:
+        'Sie dürfen nicht jeden Ordner mit eingeschränktem Zugriff lesen, auf den sich dieser Chat stützt, und können ihn deshalb nicht übernehmen.',
+      restrictedContentProject:
+        'Dieser Chat stützt sich auf einen Ordner mit eingeschränktem Zugriff und kann deshalb nicht für das ganze Projekt sichtbar gemacht werden. Teilen Sie ihn mit einzelnen Personen, die den Ordner lesen dürfen.',
+      crossProjectContent:
+        '{name} darf nicht jedes andere Projekt öffnen, auf das sich dieser Chat stützt. Deshalb kann er nicht mit dieser Person geteilt werden.',
+      crossProjectContentSomeone:
+        'Diese Person darf nicht jedes andere Projekt öffnen, auf das sich dieser Chat stützt. Deshalb kann er nicht mit ihr geteilt werden.',
+      crossProjectContentSelf:
+        'Sie dürfen nicht jedes andere Projekt öffnen, auf das sich dieser Chat stützt, und können ihn deshalb nicht übernehmen.',
+      crossProjectContentProject:
+        'Dieser Chat stützt sich auf Inhalte aus anderen Projekten und kann deshalb nicht für das ganze Projekt sichtbar gemacht werden. Teilen Sie ihn mit einzelnen Personen, die diese Projekte öffnen dürfen.',
       loadFailed: 'Die Freigabe-Einstellungen konnten nicht geladen werden.',
       saveFailed: 'Die Änderung konnte nicht gespeichert werden.',
       tryAgain: 'Erneut versuchen',
@@ -250,6 +277,27 @@ export const collaboration: typeof en.collaboration = {
       },
       // Ein Hintergrundauftrag ist zu Ende. {subject} ist der Name des Auftrags.
       // Kein {actor}: die Arbeit hat Piloti getan, nicht eine Person.
+      // ADR-0086: alles, was ein Upload gebracht hat, ist gelesen. {subject}
+      // ist der Projektname; ein Upload in die Büroablage oder einen Chat hat
+      // keinen und liest bodyNoSubject.
+      uploadCompleted: {
+        title: 'Ihr Upload ist gelesen',
+        body: '{subject}: Öffnen Sie die Übersicht, um zu sehen, was angekommen ist.',
+        bodyNoSubject: 'Öffnen Sie die Übersicht, um zu sehen, was angekommen ist.',
+      },
+      // ADR-0086: die Inhaltsprüfung hat Dateien zurückgehalten.
+      documentQuarantined: {
+        titleOne: '1 Datei wartet in der Quarantäne',
+        titleMany: '{count} Dateien warten in der Quarantäne',
+        titleNone: 'Dateien in der Quarantäne',
+        body: 'Kein Modell hat sie gelesen. Geben Sie sie frei oder löschen Sie sie.',
+      },
+      // ADR-0086: wer eine Datei hochgeladen hat, die in der Quarantäne liegt,
+      // bittet um Freigabe. {subject} ist der Dateiname.
+      documentReleaseRequested: {
+        title: '{actor} bittet um Freigabe von „{subject}"',
+        body: 'Die Datei liegt in der Quarantäne. Sehen Sie sie an und geben Sie sie frei oder löschen Sie sie.',
+      },
       jobCompleted: {
         title: '„{subject}" ist fertig',
         body: 'Piloti hat den Auftrag ausgeführt. Das Ergebnis liegt im Projekt unter Automatisierung.',

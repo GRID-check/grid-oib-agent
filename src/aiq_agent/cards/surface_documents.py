@@ -1,4 +1,4 @@
-"""``surface_documents`` — put REAL project/Büroarchiv files in front of the user.
+"""``surface_documents`` — put REAL project/Büroablage files in front of the user.
 
 Discovery, not evidence. ``knowledge_search`` reads and cites passages; this
 tool opens a file in the UI. Citations already peek the cited file — the
@@ -10,7 +10,7 @@ agent must not call this after citing.
 - ``mode=many`` + ``query=``: they are browsing; a short choice, not a catalogue.
 
 The model cannot invent filenames. The tool looks up or searches the in-scope
-project + Büroarchiv corpora and emits a ``document_grid`` system card.
+project + Büroablage corpora and emits a ``document_grid`` system card.
 """
 
 from __future__ import annotations
@@ -113,17 +113,23 @@ def _target_collections(
     shelf: str | None = None,
     scoped: list | None = None,
 ) -> list[str]:
-    """Project + Büroarchiv only. Never the OIB corpus (that is citations).
+    """Project + Büroablage only. Never the OIB corpus (that is citations).
 
-    ``shelf`` narrows further: ``archiv`` keeps only the Büroarchiv,
+    ``shelf`` narrows further: ``archiv`` keeps only the Büroablage,
     ``project`` only this project's files. A listing question that names a
     shelf must not surface the other one.
 
     When ``scoped`` entries carry a stated shelf (ADR-0047), that shelf wins
     and the collection-id prefix is not inspected.
+
+    A restricted folder's collection is never a target (ADR-0087, ADR-0088):
+    a card listing its files would put their names in front of the model and
+    the conversation without an admission. Searching it is admitted per tool
+    round instead.
     """
     from aiq_agent.common.source_kinds import Shelf
     from aiq_agent.common.source_kinds import parse_shelf
+    from aiq_agent.knowledge.restricted_collections import is_restricted_collection
 
     wanted = parse_shelf(shelf)
     seen: set[str] = set()
@@ -132,7 +138,7 @@ def _target_collections(
         for entry in scoped:
             entry_shelf = getattr(entry, "shelf", None)
             collection = getattr(entry, "collection", None)
-            if not collection or collection in seen:
+            if not collection or collection in seen or is_restricted_collection(collection):
                 continue
             if entry_shelf is Shelf.BASE:
                 continue
@@ -145,7 +151,7 @@ def _target_collections(
         return targets
     for collection in scope or []:
         source = _source_for_collection(collection)
-        if source is None:
+        if source is None or is_restricted_collection(collection):
             continue
         if wanted is Shelf.ARCHIV and source != "buero":
             continue
@@ -285,7 +291,7 @@ class SurfaceDocumentsConfig(FunctionBaseConfig, name="surface_documents"):
 
 
 _TOOL_DESCRIPTION = (
-    "Show the user a REAL project or Büroarchiv FILE in the UI (preview card). "
+    "Show the user a REAL project or Büroablage FILE in the UI (preview card). "
     "This is not a citation tool — it does not return quotable passages.\n"
     "WHEN TO CALL — the user asked to SEE or BROWSE their own files, with no "
     "legal question to answer. Examples: 'zeig mir den Brandschutzplan', "
@@ -299,11 +305,11 @@ _TOOL_DESCRIPTION = (
     "NEARLY EQUALLY relevant files of the same kind. Never a catalogue, never "
     "the inventory.\n"
     "- `shelf=archiv` / `shelf=project` when they asked to see files on ONE "
-    "shelf (Büroarchiv vs this project). Do not mix the two.\n"
+    "shelf (Büroablage vs this project). Do not mix the two.\n"
     "Asking for files of a KIND ('hab ich sonst noch Grundrisse', 'welche Fotos "
     "vom Bestand') is a browse: `mode=many` on that shelf, so they can open them.\n"
     "WHEN NOT TO CALL — to say what is on a shelf ('welche Dateien hast du im "
-    "Büroarchiv'), answer from the knowledge-base inventory, or from `list_files` "
+    "Büroablage'), answer from the knowledge-base inventory, or from `list_files` "
     "where the inventory is incomplete or the question filters by folder, name or "
     "date; file names written in the answer already open on click. To read, "
     "quote, or cite a passage, use `knowledge_search`. "
@@ -323,14 +329,14 @@ async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builde
         mode: str | None = None,
         shelf: str | None = None,
     ) -> str:
-        """Show project or Büroarchiv files in the UI. Not a citation tool.
+        """Show project or Büroablage files in the UI. Not a citation tool.
 
         Args:
             query: Topic to search when the user did not name a file (e.g. "Fluchtwege EG").
             filename: Exact indexed file name to open (e.g. "Brandschutzplan_EG.pdf").
             title: Optional card heading. Leave empty to use the file name or query.
             mode: `one` (default) opens a single file; `many` offers a short browse choice.
-            shelf: `archiv` (Büroarchiv) or `project` (this project). Omit to search both.
+            shelf: `archiv` (Büroablage) or `project` (this project). Omit to search both.
         """
         query = (query or "").strip()
         filename = (filename or "").strip() or None
@@ -338,7 +344,7 @@ async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builde
         if mode is not None and mode not in ("one", "many"):
             return "Error: `mode` must be `one` (open the best file) or `many` (short browse choice)."
         if shelf is not None and shelf not in ("archiv", "project"):
-            return "Error: `shelf` must be `archiv` (Büroarchiv) or `project` (this project)."
+            return "Error: `shelf` must be `archiv` (Büroablage) or `project` (this project)."
         if not query and not filename:
             return "Provide `filename=` (open this named file) or `query=` (search). Use `mode=many` only to browse."
 
@@ -364,12 +370,12 @@ async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builde
         if not targets:
             if resolved_shelf == "archiv":
                 return (
-                    "No Büroarchiv documents are in scope to search. The OIB corpus is "
-                    "Basiswissen, not the Büroarchiv — answer from the inventory's "
-                    "Büroarchiv group (empty means empty)."
+                    "No Büroablage documents are in scope to search. The OIB corpus is "
+                    "Basiswissen, not the Büroablage — answer from the inventory's "
+                    "Büroablage group (empty means empty)."
                 )
             return (
-                "No project or Büroarchiv documents are in scope to search, so there is "
+                "No project or Büroablage documents are in scope to search, so there is "
                 "nothing to surface. Answer from the other available sources instead."
             )
 
@@ -404,7 +410,7 @@ async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builde
         if not documents:
             subject = filename or query
             return (
-                f"No project or Büroarchiv file matched {subject!r}. "
+                f"No project or Büroablage file matched {subject!r}. "
                 "Try a narrower `query` (a filename fragment, a plan type, a project name) "
                 "or check the knowledge-base inventory for the exact `filename` spelling."
             )
@@ -582,7 +588,7 @@ async def _fetch_document_metadata(collections: list[str]) -> dict[str, dict]:
     return out
 
 
-_SOURCE_LABEL = {"projekt": "Projekt", "buero": "Büroarchiv"}
+_SOURCE_LABEL = {"projekt": "Projekt", "buero": "Büroablage"}
 _BRIEF_SNIPPET_MAX = 120
 _BRIEF_SUMMARY_MAX = 160
 

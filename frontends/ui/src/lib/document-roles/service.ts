@@ -7,6 +7,8 @@
 
 import { BadRequestError, NotFoundError } from '@/lib/api/errors'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { getHiddenFolderIds } from '@/lib/authz/folder-access'
+import { shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import {
   documentRoleDefinition,
@@ -30,7 +32,7 @@ import {
   listProjectDocumentRoles,
   replaceSlotBinding,
 } from './repository'
-import type { DocumentRoleBinding } from './repository'
+import type { DocumentRoleBinding, DocumentRoleReader } from './repository'
 import type { ProjectProfile } from '@/lib/project-profile/types'
 
 export type { DocumentRoleBinding } from './repository'
@@ -76,12 +78,25 @@ function requireBauwerk(projectId: string, bauwerkId: string) {
 }
 
 
+/** The reader a session reads a project's bindings as: its folders (ADR-0087) and the hold (ADR-0086). */
+async function sessionRoleReader(session: AuthorizedSession, projectId: string): Promise<DocumentRoleReader> {
+  const [hiddenFolderIds, documents] = await Promise.all([
+    getHiddenFolderIds(session, projectId),
+    shelfReaderFor(session, { scope: 'project', projectId }),
+  ])
+  return { hiddenFolderIds, documents }
+}
+
+/**
+ * A binding to a document in a folder this session may not see is not listed
+ * (ADR-0087), nor one to a held file it neither uploaded nor reviews (ADR-0086).
+ */
 export async function listDocumentRoles(
   projectId: string,
   session: AuthorizedSession
 ): Promise<DocumentRoleBinding[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  return listProjectDocumentRoles(projectId)
+  return listProjectDocumentRoles(projectId, await sessionRoleReader(session, projectId))
 }
 
 export interface DeclareDocumentRoleInput {
@@ -137,7 +152,12 @@ export async function declareDocumentRole(
   // constraint violation rather than an answer. Checking first turns "500" into
   // "that file is not in this project", and covers the soft-deleted case the FK
   // cannot see.
-  if (!(await documentBelongsToProject(input.documentId, input.projectId))) {
+  //
+  // A document in a folder this session may not see is answered the same way
+  // (ADR-0087), and so is a held file it may not see (ADR-0086): binding it
+  // would put its filename back in front of them.
+  const reader = await sessionRoleReader(session, input.projectId)
+  if (!(await documentBelongsToProject(input.documentId, input.projectId, reader))) {
     throw new NotFoundError('Document not found in this project.')
   }
 
@@ -164,6 +184,8 @@ export async function declareDocumentRole(
   }
 
   const replaced = definition.cardinality === 'one' ? existing : []
+  // Asked before the replacement, which deletes the rows it would read.
+  const reported = await keepVisible(input.projectId, replaced, reader)
 
   // One statement, not two. Separately, a failing insert left the slot EMPTY —
   // the user's existing Bebauungsplan deleted and nothing put back.
@@ -201,7 +223,23 @@ export async function declareDocumentRole(
     // tenant scope changed underneath us. Fail loudly rather than return a lie.
     throw new Error('Document role was written but could not be read back.')
   }
-  return { binding, replaced }
+  return { binding, replaced: reported }
+}
+
+/**
+ * The displaced bindings this session may be told about. Cardinality counts
+ * every holder of the slot, hidden or not, so a hidden holder is displaced like
+ * any other; naming it in the answer would hand its filename to someone not
+ * cleared for its folder (ADR-0087), so it is displaced without a word.
+ */
+async function keepVisible(
+  projectId: string,
+  replaced: DocumentRoleBinding[],
+  reader: DocumentRoleReader
+): Promise<DocumentRoleBinding[]> {
+  if (replaced.length === 0) return replaced
+  const visible = new Set((await listProjectDocumentRoles(projectId, reader)).map((row) => row.documentId))
+  return replaced.filter((row) => visible.has(row.documentId))
 }
 
 export async function revokeDocumentRole(
@@ -210,7 +248,12 @@ export async function revokeDocumentRole(
   session: AuthorizedSession
 ): Promise<void> {
   await requireProjectAccess(session, projectId, [...WRITE_PERMISSIONS])
-  const removed = await deleteBindings(projectId, [bindingId])
+  // A binding is answered the way its document is: one to a file in a folder
+  // this session may not see (ADR-0087), or to a held file it neither uploaded
+  // nor reviews (ADR-0086), is not there to remove, exactly as it is not there
+  // to list. Its id is the only thing that names it.
+  const visible = await listProjectDocumentRoles(projectId, await sessionRoleReader(session, projectId))
+  const removed = visible.some((row) => row.id === bindingId) ? await deleteBindings(projectId, [bindingId]) : 0
   // Invalidate BEFORE reporting the miss. Throwing first meant a retry after a
   // failed invalidation deleted nothing, took this branch, and returned without
   // touching the cache again — so the removed binding stayed in the agent's

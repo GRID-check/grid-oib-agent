@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 const PROJECT_SECTION_KEYS = [
   'files',
   'automation',
+  'referenzen',
   'settings',
   'knowledge',
   'intake',
@@ -62,9 +63,16 @@ function isProjectChatPath(pathname: string, projectId: string): boolean {
   return parts[0] === 'app' && parts[1] === 'projects' && parts[2] === projectId && parts[3] === 'chat'
 }
 
-function lastPathSegment(pathname: string): string {
+/**
+ * The project section a path is in: the segment right after the project id.
+ *
+ * Not the LAST segment. Settings has sub-routes (`/settings/members`), and
+ * reading the tail titled that page as the legacy Members return target instead
+ * of as Settings.
+ */
+function projectSectionSegment(pathname: string): string {
   const parts = pathname.split('/').filter(Boolean)
-  return parts[parts.length - 1] ?? ''
+  return parts[3] ?? ''
 }
 
 /**
@@ -97,7 +105,7 @@ export function ProjectSectionFrame({
     return <>{children}</>
   }
 
-  const segment = lastPathSegment(pathname)
+  const segment = projectSectionSegment(pathname)
   const known = isProjectChromeSection(segment)
   const sectionLabel = !known
     ? projectName

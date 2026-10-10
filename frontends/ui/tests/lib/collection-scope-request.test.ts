@@ -107,7 +107,7 @@ describe('buildCollectionScopeFromRequest', () => {
 
   it('authorizes project and includes proj_ corpus', async () => {
     process.env.REQUIRE_AUTH = 'true'
-    mockRequireProjectAccess.mockResolvedValue({ role: 'project-viewer' })
+    mockRequireProjectAccess.mockResolvedValue({ role: 'project-viewer', closed: false, readsBecauseClosed: false })
     const { scope } = await buildCollectionScopeFromRequest(baseSession, {
       projectId: 'proj_1',
       conversationId: 'conv_1',
@@ -126,7 +126,7 @@ describe('buildCollectionScopeFromRequest', () => {
   it('reads active project from preferences when no explicit id', async () => {
     process.env.REQUIRE_AUTH = 'true'
     mockGetDb.mockReturnValue(mockDbSelect([{ prefs: { active_project_id: 'pref_1' } }]) as never)
-    mockRequireProjectAccess.mockResolvedValue({ role: 'project-viewer' })
+    mockRequireProjectAccess.mockResolvedValue({ role: 'project-viewer', closed: false, readsBecauseClosed: false })
     const { scope } = await buildCollectionScopeFromRequest(baseSession, {})
     expect(scope).toEqual(['oib_knowledge', 'proj_pref_1'])
     delete process.env.REQUIRE_AUTH

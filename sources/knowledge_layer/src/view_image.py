@@ -29,6 +29,13 @@ builds the derived key from the document's own row, so this tool never names
 an object key itself. Fail-open: every failure returns a text-only block
 explaining what went wrong — the tool never raises.
 
+The collection is the model's argument, so it is checked before anything is
+looked up (ADR-0088): it must be in the turn's scope, and a restricted folder's
+collection must also be one the turn may draw on. The lookup echoes the turn's
+signed envelope, and the BFF answers only inside the scope it signs. An image
+returned from a collection is reported (``note_collections_read``), so the tools
+node admits a restricted folder's image before the model sees it.
+
 Bounded per turn: :mod:`aiq_agent.common.image_view_budget` caps how many
 times one turn may call this tool; past the cap the tool answers with a short
 text block instead of an image.
@@ -234,7 +241,7 @@ async def _resolve_storage_location(
             response = await client.get(
                 f"{base_url.rstrip('/')}/api/internal/document-file",
                 params=params,
-                headers={"x-grid-internal-token": token},
+                headers={"x-grid-internal-token": token, **_envelope_headers()},
             )
         if response.status_code != 200:
             return None
@@ -251,6 +258,60 @@ async def _resolve_storage_location(
             "view_knowledge_image: storage-key lookup failed for %s/%s", collection, file_name, exc_info=True
         )
         return None
+
+
+def _envelope_headers() -> dict[str, str]:
+    """The turn's signed request-context envelope, ECHOED to the lookup; empty off a chat turn.
+
+    The BFF answers for a collection only inside the scope this envelope signs,
+    and for a restricted folder's collection only with one (ADR-0088). Echo,
+    never sign (ADR-0054 §4): the two strings go out exactly as they arrived.
+    """
+    try:
+        from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_HEADER
+        from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_SIG_HEADER
+        from aiq_agent.project_context import get_request_envelope_from_context
+
+        header, signature = get_request_envelope_from_context()
+    except Exception:  # noqa: BLE001 - no envelope is a legitimate state off a chat turn
+        logger.debug("view_knowledge_image: no request envelope to echo", exc_info=True)
+        return {}
+    if not header or not signature:
+        return {}
+    return {REQUEST_CONTEXT_ENVELOPE_HEADER: header, REQUEST_CONTEXT_ENVELOPE_SIG_HEADER: signature}
+
+
+def _may_read(collection: str) -> bool:
+    """Whether this turn may read ``collection``: the turn's scope, as every read path takes it.
+
+    The scope is the signed one, narrowed to the restricted collections the
+    turn may draw on (:func:`aiq_agent.knowledge.scoping.get_collection_scope_from_context`).
+    A restricted folder's collection needs more than its name in a scope: a
+    restricted use bound for the turn that lets it be drawn on, which only a
+    verified envelope gets (ADR-0088). A run with no scope at all (a CLI run, an
+    eval) reads no restricted collection and keeps reaching the others by name.
+    """
+    from aiq_agent.knowledge.restricted_collections import is_restricted_collection
+    from aiq_agent.knowledge.restricted_use import current_restricted_use
+    from aiq_agent.knowledge.scoping import get_collection_scope_from_context
+
+    try:
+        scope = get_collection_scope_from_context()
+    except Exception:  # noqa: BLE001 - an unreadable scope reads nothing
+        logger.warning("view_knowledge_image: the turn's scope could not be read", exc_info=True)
+        return False
+    if is_restricted_collection(collection):
+        use = current_restricted_use()
+        return use is not None and use.allows(collection) and scope is not None and collection in scope
+    return scope is None or collection in scope
+
+
+def _out_of_scope(file_name: str) -> str:
+    """The refusal for a collection this turn may not read. Names neither the collection nor whether the file exists."""
+    return (
+        f"[view_knowledge_image] Cannot show '{file_name}': that collection is not one this turn may read. "
+        "Pass the `Collection:` exactly as a hit of this turn printed it."
+    )
 
 
 def _fetch_seaweed_bytes(storage_key: str, storage_bucket: str | None = None) -> bytes | None:
@@ -307,8 +368,15 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
         collection: str = "",
         image_index: int | None = None,
     ) -> list[dict] | str:
+        from aiq_agent.knowledge.restricted_use import note_collections_read
+
         if not _is_enabled():
             return f"[view_knowledge_image] Image viewing is disabled ({_VIEW_IMAGES_ENABLED_ENV} is off)."
+        collection = (collection or "").strip()
+        # Before the budget and before any lookup: the model chose this name,
+        # and nothing outside the turn's scope is fetched, rendered or counted.
+        if collection and not _may_read(collection):
+            return _out_of_scope(file_name)
         # The per-turn ceiling comes before any work: a spent budget costs no
         # lookup, no fetch and no render. Outside a turn nothing is bound and
         # the call proceeds.
@@ -338,15 +406,15 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
                 return f"[view_knowledge_image] Invalid image_index {image_index}: indices are 0-based."
             if not collection:
                 return (
-                    "[view_knowledge_image] image_index addresses a raster stored beside a project/Archiv "
+                    "[view_knowledge_image] image_index addresses a raster stored beside a project or Büroablage "
                     "document; pass the hit's collection so it can be located."
                 )
             location = await _resolve_storage_location(collection, file_name, image_index=image_index)
             if location is None:
                 return (
-                    f"[view_knowledge_image] No stored image {image_index} for '{file_name}' in collection "
-                    f"'{collection}' (the hit carries no such Image line, or the document service is "
-                    f"unreachable). Call again without image_index to render page {page_number} instead."
+                    f"[view_knowledge_image] No stored image {image_index} for '{file_name}' (the hit "
+                    "carries no such Image line, or the document service is unreachable). Call again "
+                    f"without image_index to render page {page_number} instead."
                 )
             try:
                 image_bytes = await asyncio.wait_for(
@@ -368,6 +436,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
             except Exception as e:  # noqa: BLE001 - fail-open contract
                 logger.warning("view_knowledge_image: image decode failed for %s: %s", file_name, e)
                 return f"[view_knowledge_image] Could not decode stored image {image_index} of '{file_name}': {e}"
+            note_collections_read([collection])
             image_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
             return [
                 {
@@ -394,8 +463,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
             if location is None:
                 return (
                     f"[view_knowledge_image] Could not locate the stored file for '{file_name}' "
-                    f"in collection '{collection}' (not in the document index, or the document "
-                    "service is unreachable)."
+                    "(not in the document index, or the document service is unreachable)."
                 )
             try:
                 image_bytes = await asyncio.wait_for(
@@ -416,6 +484,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
             except Exception as e:  # noqa: BLE001 - fail-open contract
                 logger.warning("view_knowledge_image: image decode failed for %s: %s", file_name, e)
                 return f"[view_knowledge_image] Could not decode the image '{file_name}': {e}"
+            note_collections_read([collection])
             image_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
             return [
                 {
@@ -460,14 +529,13 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
             return (
                 f"[view_knowledge_image] Could not find the source PDF for '{file_name}'. "
                 "Rendering is possible for base-corpus documents without a collection; "
-                "pass the collection for a project/Archiv document."
+                "pass the collection for a project or Büroablage document."
             )
         location = await _resolve_storage_location(collection, file_name)
         if location is None:
             return (
                 f"[view_knowledge_image] Could not locate the stored file for '{file_name}' "
-                f"in collection '{collection}' (not in the document index, or the document "
-                "service is unreachable)."
+                "(not in the document index, or the document service is unreachable)."
             )
         try:
             pdf_bytes = await asyncio.wait_for(
@@ -489,6 +557,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
         except Exception as e:  # noqa: BLE001 - fail-open contract
             logger.warning("view_knowledge_image: render failed for %s page %d: %s", file_name, page_number, e)
             return f"[view_knowledge_image] Could not render page {page_number} of '{file_name}': {e}"
+        note_collections_read([collection])
         image_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
         return [
             {
@@ -510,7 +579,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
             "chunk has Content Type image, drawing or chart, or the question is about what a plan, "
             "section, photo or diagram shows. file_name is the name in the hit's `Citation:` line "
             "(not the display title); page_number is its `Page:`. For a base-corpus document pass "
-            "just those two; for a project/Archiv document (an uploaded PDF or image) also pass the "
+            "just those two; for a project or Büroablage document (an uploaded PDF or image) also pass the "
             "hit's `Collection:` so the stored bytes can be fetched. A PDF page is rendered whole, "
             "so a figure arrives with the text around it. When the hit carries an `Image:` line, "
             "pass its image_index (with file_name, page_number and collection) to get that embedded "

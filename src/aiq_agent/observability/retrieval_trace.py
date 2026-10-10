@@ -128,15 +128,25 @@ def emit_retrieval_span(*, tool_name: str, search_input: dict[str, Any], picks: 
     Input carries the query/budget side, output the picks, mirroring how every
     other span renders input/output in Langfuse. Never raises.
     """
+    emit_step_span(f"retrieve.{tool_name}", search_input, picks)
+
+
+def emit_step_span(step_name: str, body_in: dict[str, Any], body_out: dict[str, Any]) -> None:
+    """Push ONE balanced FUNCTION step pair named ``step_name``, with these as its input and output.
+
+    The mechanics every Grid-named observation shares (``retrieve.*``, and the
+    decision model's ``decide.*``): a START and an END with one UUID, so NAT's
+    span stack stays balanced and the observation nests under whatever step is
+    open. Never raises: telemetry must never take a turn down.
+    """
     try:
         from nat.data_models.intermediate_step import IntermediateStepPayload
         from nat.data_models.intermediate_step import IntermediateStepType
         from nat.data_models.intermediate_step import StreamEventData
         from nat.plugin_api import Context
 
-        body_input = json.dumps(search_input, ensure_ascii=False, separators=(",", ":"))
-        body_output = json.dumps(picks, ensure_ascii=False, separators=(",", ":"))
-        step_name = f"retrieve.{tool_name}"
+        body_input = json.dumps(body_in, ensure_ascii=False, separators=(",", ":"))
+        body_output = json.dumps(body_out, ensure_ascii=False, separators=(",", ":"))
         step_id = str(uuid.uuid4())
         manager = Context.get().intermediate_step_manager
         started = False
@@ -151,7 +161,7 @@ def emit_retrieval_span(*, tool_name: str, search_input: dict[str, Any], picks: 
             )
             started = True
         except Exception:  # noqa: BLE001
-            logger.debug("Retrieval pick START not emitted", exc_info=True)
+            logger.debug("%s START not emitted", step_name, exc_info=True)
         finally:
             if started:
                 try:
@@ -166,6 +176,6 @@ def emit_retrieval_span(*, tool_name: str, search_input: dict[str, Any], picks: 
                         )
                     )
                 except Exception:  # noqa: BLE001
-                    logger.debug("Retrieval pick END not emitted", exc_info=True)
+                    logger.debug("%s END not emitted", step_name, exc_info=True)
     except Exception:  # noqa: BLE001 - telemetry must never take a turn down
-        logger.debug("Retrieval pick span not emitted", exc_info=True)
+        logger.debug("%s span not emitted", step_name, exc_info=True)

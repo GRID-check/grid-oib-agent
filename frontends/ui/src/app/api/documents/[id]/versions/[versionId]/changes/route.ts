@@ -13,12 +13,15 @@
  * inbox resolved — so a second op would have been a row of the transition table
  * identical to this one in every column that decides anything. What the flag
  * changes is one effect's condition, and the effect explains it
- * (`openRevisionTask`).
+ * (`openRevisionTask`). On a document in a folder some project member may not
+ * read, `delegateRevision` is refused with a typed 403 (`CONVERSATION_CONFINED`,
+ * `details.action: revision`) in the reader's language, before anything changes.
  */
 
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { toDocumentVersionView, transitionDocumentVersion } from '@/lib/documents/lifecycle'
 import { refuseRequestSchema } from '@/lib/documents/lifecycle-types'
+import { getLocale } from '@/i18n/server'
 
 type Params = { id: string; versionId: string }
 
@@ -30,7 +33,7 @@ export const POST = apiRoute<Params>(
       params.id,
       params.versionId,
       'request_changes',
-      { comment, delegateRevision, ifMatch, request }
+      { comment, delegateRevision, ifMatch, request, locale: await getLocale() }
     )
     return { version: toDocumentVersionView(version) }
   },

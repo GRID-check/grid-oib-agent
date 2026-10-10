@@ -26,6 +26,12 @@
  * - GET /api/jobs/async/job/{job_id}/stream - SSE stream (primary use case)
  * - GET /api/jobs/async/job/{job_id}/stream/{last_event_id} - SSE reconnection
  * - POST /api/jobs/async/job/{job_id}/cancel - Cancel job
+ * - POST /api/jobs/async/job/{job_id}/write-now - „Jetzt schreiben"
+ *
+ * Not served: POST job/{job_id}/documents answers 404 without reaching the
+ * backend. A document reaches a running run only through the run primitive,
+ * `POST /api/projects/{id}/runs/{runId}/documents` (`addRunDocument`,
+ * ADR-0055), which refuses a document from a restricted folder (ADR-0087).
  * - DELETE /api/jobs/async/job/{job_id}/cancel - Cancel job
  * - GET /api/jobs/async/job/{job_id}/state - Get job artifacts
  * - GET /api/jobs/async/job/{job_id}/report - Get final report
@@ -55,6 +61,7 @@ import {
 import {
   buildAuthHeaders,
   backendErrorEnvelope,
+  errorEnvelope,
   noResponseBodyEnvelope,
   handleAuthzError,
   proxyErrorEnvelope,
@@ -69,7 +76,8 @@ import {
   queueResearchReportFiling,
 } from '@/lib/documents/research-report'
 import { requesterOf } from '@/lib/jobs-queue/types'
-import { findProjectIdByCollectionName } from '@/lib/projects/repository'
+import { findProjectIdByCollectionName, findProjectTenancy } from '@/lib/projects/repository'
+import { isProjectClosed, projectClosedError } from '@/lib/projects/project-status'
 
 /**
  * The signed context envelope (backlog T3-9 follow-up, 2026-07-16,
@@ -557,7 +565,19 @@ export const GET = tenantSlotRoute(async function GET(
 })
 
 /**
- * Handle POST requests (submit, cancel)
+ * The backend's `job/{id}/documents` control, however the browser spelled the
+ * path: matched on the upstream URL after it is normalized, so an encoded
+ * slash or a dot segment cannot reach it under another name. A trailing slash
+ * too, which the backend would redirect onto the control.
+ */
+const RUN_DOCUMENTS_CONTROL = /\/job\/[^/]+\/documents\/?$/
+
+function isRunDocumentsControl(backendUrl: string): boolean {
+  return RUN_DOCUMENTS_CONTROL.test(new URL(backendUrl).pathname)
+}
+
+/**
+ * Handle POST requests (submit, cancel, write-now)
  */
 export const POST = tenantSlotRoute(async function POST(
   req: Request,
@@ -568,6 +588,19 @@ export const POST = tenantSlotRoute(async function POST(
     const backendUrl = buildProxyUrl(JOBS_BASE_PATH, path)
 
     traceRequest('POST:', backendUrl)
+
+    // Handing a run a document has one door, the run primitive (ADR-0055):
+    // there the document is checked against the project's restricted folders,
+    // because its name and title reach everyone who reads the run (ADR-0084).
+    // Forwarded from here it would reach the backend with a signed project and
+    // no such check. No client calls it here.
+    if (isRunDocumentsControl(backendUrl)) {
+      return errorEnvelope(
+        404,
+        'NOT_FOUND',
+        'Documents are handed to a run through POST /api/projects/{projectId}/runs/{runId}/documents'
+      )
+    }
 
     // Get the request body (may be empty for cancel)
     let parsedBody: Record<string, unknown> | undefined
@@ -604,6 +637,17 @@ export const POST = tenantSlotRoute(async function POST(
     const gridContextHeaders = await resolveGridContextHeaders(session, scope, {
       submit: path[0] === 'submit',
     })
+
+    // A closed project files nothing (ADR-0090): a research run's report would
+    // land in it. The agent no longer offers research there; this is the door a
+    // direct call comes through.
+    if (path[0] === 'submit' && scope.projectId && isProjectClosed(await findProjectTenancy(scope.projectId))) {
+      const closed = projectClosedError()
+      return NextResponse.json(
+        { error: { code: closed.code, message: closed.message, details: closed.details } },
+        { status: closed.status }
+      )
+    }
 
     // Forward the request to the backend.
     //

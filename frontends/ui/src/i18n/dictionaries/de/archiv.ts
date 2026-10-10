@@ -1,11 +1,11 @@
-/** Organisationsweites Archiv: der projektübergreifende Dokumentenspeicher (ADR-0024). */
+/** Büroablage: der organisationsweite, projektübergreifende Dokumentenspeicher (ADR-0024). */
 export const archiv = {
-  title: 'Archiv',
+  title: 'Büroablage',
   subtitle: 'Gemeinsame Dokumente, die jedem Projekt Ihrer Organisation zur Verfügung stehen',
   backToApp: 'Zurück zu den Projekten',
   backToProject: 'Zurück zum Projekt',
   backToNamedProject: 'Zurück zu {name}',
-  // What only the Büroarchiv card says: the gold kind chip and where it came from.
+  // What only the Büroablage card says: the gold kind chip and where it came from.
   library: {
     provenance: 'Aus „{source}“',
     kind: {
@@ -26,10 +26,10 @@ export const archiv = {
   toast: {
     // Sobald die asynchrone Verarbeitung abgeschlossen ist und das Dokument
     // organisationsweit zitierbar wird.
-    ingestionComplete: '„{name}“ ist jetzt im Büroarchiv – zitierbar',
+    ingestionComplete: '„{name}“ ist jetzt in der Büroablage – zitierbar',
   },
   workspace: {
-    dropToUpload: 'Dateien hier ablegen, um sie ins Archiv aufzunehmen',
+    dropToUpload: 'Dateien hier ablegen, um sie in die Büroablage aufzunehmen',
   },
   actions: {
     label: 'Dateiaktionen für „{name}“',
@@ -73,14 +73,14 @@ export const archiv = {
     },
   },
   delete: {
-    action: 'Aus Archiv löschen',
+    action: 'Aus der Büroablage löschen',
     title: '„{name}“ löschen?',
     confirm:
       'Dadurch wird das Dokument für die gesamte Organisation entfernt. Dies kann nicht rückgängig gemacht werden.',
     confirmAction: 'Löschen',
     cancel: 'Abbrechen',
     deleting: 'Wird gelöscht…',
-    success: '„{name}“ wurde aus dem Archiv entfernt',
+    success: '„{name}“ wurde aus der Büroablage entfernt',
     error: 'Das Dokument konnte nicht gelöscht werden',
     legalHold: 'Das Dokument unterliegt einer rechtlichen Sperre und kann nicht gelöscht werden',
   },

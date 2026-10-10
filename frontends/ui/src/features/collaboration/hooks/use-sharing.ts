@@ -28,17 +28,32 @@ export interface SharingFailure {
   reason: string | null
   /** Server-supplied message, as a fallback when the reason is unrecognised. */
   message: string | null
+  /** `details.person`: who a `restricted-content` refusal is about, when the server named them. */
+  person?: string | null
+  /** `details.folders`: the restricted folders, named only to a sharer cleared for them. */
+  folders?: readonly string[]
 }
+
+const NO_FAILURE_DETAIL: SharingFailure = { reason: null, message: null }
 
 async function readFailure(response: Response): Promise<SharingFailure> {
   try {
     const body = (await response.json()) as {
       error?: string
-      details?: { reason?: string } | null
+      details?: { reason?: unknown; person?: unknown; folders?: unknown } | null
     }
-    return { reason: body.details?.reason ?? null, message: body.error ?? null }
+    const details = body.details ?? {}
+    const folders = Array.isArray(details.folders)
+      ? details.folders.filter((folder): folder is string => typeof folder === 'string')
+      : []
+    return {
+      reason: typeof details.reason === 'string' ? details.reason : null,
+      message: body.error ?? null,
+      person: typeof details.person === 'string' ? details.person : null,
+      folders,
+    }
   } catch {
-    return { reason: null, message: null }
+    return NO_FAILURE_DETAIL
   }
 }
 
@@ -228,7 +243,7 @@ export function useSharing(
         setLoading(false)
         return true
       } catch {
-        setFailure({ reason: null, message: null })
+        setFailure(NO_FAILURE_DETAIL)
         return false
       } finally {
         setSaving(false)

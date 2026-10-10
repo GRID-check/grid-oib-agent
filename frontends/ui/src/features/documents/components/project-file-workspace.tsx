@@ -62,6 +62,18 @@ interface ProjectFileWorkspaceProps {
   initialFolders?: readonly FolderItem[]
   initialFiles?: readonly DocumentWireRow[]
   initialFilesComplete?: boolean
+  /**
+   * Whether this reader may change who may read and write a folder
+   * (`project:manage`, resolved on the server, ADR-0088). Shows „Zugriff…" in the
+   * folder menu; the route checks again.
+   */
+  canManageFolderAccess?: boolean
+  /**
+   * What the reader may do at the project root, as the server read it for the
+   * first paint (ADR-0088). Absent means `write`; the folder listing refreshes it.
+   * The mail import files its folder at the root, so only `write` offers it.
+   */
+  initialRootAccess?: 'read' | 'write'
   /** Whether the Outlook archive import is offered (`isMailImportEnabled`, ADR-0085). Off by default. */
   mailImportEnabled?: boolean
 }
@@ -70,8 +82,9 @@ interface ProjectFileWorkspaceProps {
  * A project's Dateien: {@link FileWorkspace} over the project's shelf.
  *
  * Everything this adds is a fact about a PROJECT: the shelf's endpoints, the
- * project's chat (so a file can be asked about), collaboration, the preview the
- * project shell hosts, and the section header the controls portal into.
+ * project's chat (so a file can be asked about), collaboration, per-role folder
+ * access (ADR-0088), the preview the project shell hosts, and the section header
+ * the controls portal into.
  */
 export function ProjectFileWorkspace({
   projectId,
@@ -86,6 +99,8 @@ export function ProjectFileWorkspace({
   initialFolders,
   initialFiles,
   initialFilesComplete = true,
+  canManageFolderAccess = false,
+  initialRootAccess = 'write',
   mailImportEnabled = false,
 }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
@@ -99,6 +114,8 @@ export function ProjectFileWorkspace({
     projectId,
     collectionName,
     canManage: true,
+    folderAccess: { projectId, canManage: canManageFolderAccess, initialRootAccess },
+    bin: { href: `/app/projects/${projectId}/files/bin` },
     canCollaborate,
     currentUserId,
     askAbout: (file) => askAboutFile({ projectId, file, navigate: (href) => router.push(href) }),
@@ -123,7 +140,7 @@ export function ProjectFileWorkspace({
       renderHeader={(controls) => (
         <ProjectSectionActions>
           {controls}
-          {mailImportEnabled && <MailImportAction projectId={projectId} />}
+          {mailImportEnabled && initialRootAccess === 'write' && <MailImportAction projectId={projectId} />}
         </ProjectSectionActions>
       )}
       initialFolders={initialFolders}

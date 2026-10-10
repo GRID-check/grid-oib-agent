@@ -32,6 +32,14 @@ vi.mock('./version-repository', () => ({
 }))
 vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
 vi.mock('@/lib/conversations/repository', () => ({ findConversationInOrg: vi.fn() }))
+// A subject in a folder every member may read admits nothing (ADR-0088); the
+// restricted case overrides `placementCollectionFor` and the admission.
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
+vi.mock('@/lib/conversations/restricted-use', () => ({ admitRestrictedUse: vi.fn() }))
+vi.mock('@/lib/projects/repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/projects/repository')>()),
+  findProjectCollectionName: vi.fn(async () => 'proj_abc'),
+}))
 vi.mock('@/lib/organizations/service', () => ({
   getOrganizationDisplayName: vi.fn().mockResolvedValue('Büro Nord ZT GmbH'),
 }))
@@ -45,6 +53,7 @@ vi.mock('@/lib/storage/bucket', () => ({
   resolveDocumentBucket: () => 'grid-org-1',
 }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
+vi.mock('@/lib/download-log/service', () => ({ recordDocumentAccess: vi.fn(async () => undefined) }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:8000' }))
 vi.mock('./collection-file-ref', async (importOriginal) => ({
@@ -61,10 +70,14 @@ import { s3Client } from '@/lib/s3'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { findConversationInOrg } from '@/lib/conversations/repository'
+import { placementCollectionFor } from '@/lib/authz/folder-access'
+import { admitRestrictedUse } from '@/lib/conversations/restricted-use'
 import { getAccessibleDocument } from './access'
 import { purgeIngestedChunks } from './collection-file-ref'
 import { findDocumentInOrg } from './repository'
+import { mayReadDocument } from './document-reader'
 import {
+  findDocumentVersion,
   findDocumentVersionInOrg,
   setDocumentLifecycle,
   swapVersionContent,
@@ -74,13 +87,16 @@ import {
   admitVersionBytes,
   archiveDocument,
   newVersionWriteId,
+  readVersionContent,
   readVersionForService,
+  readVersionTextForTask,
   renderVersionBytes,
   versionMirrorsItem,
   versionWriteKey,
   writeVersionContent,
 } from './version-content'
 import { AI_PROVENANCE_PROPERTIES } from '@/lib/ai-provenance'
+import { recordDocumentAccess } from '@/lib/download-log/service'
 
 const session: AuthorizedSession = {
   userId: 'user_reviewer',
@@ -498,6 +514,82 @@ describe('readVersionForService — the conversation is part of the predicate', 
     })
   })
 
+  it('answers 404 for a quarantined subject, so its bytes never reach a model (ADR-0086)', async () => {
+    vi.mocked(findConversationInOrg).mockResolvedValue({
+      subjectResourceType: 'document',
+      subjectResourceId: 'doc_1',
+    } as never)
+    // The repository answers by the reader it is asked for (`documentVisibleTo`).
+    const held = { ...agentDocument, status: 'quarantined' }
+    vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) =>
+      mayReadDocument(held, reader) ? held : null
+    )
+
+    await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({ status: 404 })
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  // Held from upload until the screen passes, not from the verdict: a person's
+  // upload still on its way through the gate is no model's subject either.
+  it('answers 404 for an upload whose screening has not passed yet (ADR-0086)', async () => {
+    vi.mocked(findConversationInOrg).mockResolvedValue({
+      subjectResourceType: 'document',
+      subjectResourceId: 'doc_1',
+    } as never)
+    const pending = { ...agentDocument, authoredBy: 'user' as const, status: 'pending', screeningOutcome: null }
+    vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) =>
+      mayReadDocument(pending, reader) ? pending : null
+    )
+
+    await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({ status: 404 })
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The verdict is about the item's bytes; the subject read returns a VERSION's
+   * (ADR-0086). A superseded version a person uploaded holds bytes no verdict
+   * on record judged: replaced while it was still being read, or after its
+   * reading failed. It reaches no model, however the item stands now.
+   */
+  describe('the bytes the screen judged, not the item', () => {
+    const screened = makeDocument({
+      id: 'doc_1',
+      projectId: 'proj_1',
+      contentHash: 'sha256:now',
+      screenedHash: 'sha256:now',
+      screeningOutcome: 'clean',
+    })
+
+    beforeEach(() => {
+      vi.mocked(findConversationInOrg).mockResolvedValue({
+        subjectResourceType: 'document',
+        subjectResourceId: 'doc_1',
+      } as never)
+      vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) =>
+        mayReadDocument(screened, reader) ? screened : null
+      )
+    })
+
+    it('answers 404 for an earlier upload of a screened document whose bytes no verdict judged', async () => {
+      vi.mocked(findDocumentVersionInOrg).mockResolvedValue(version({ state: 'superseded', contentHash: 'sha256:before' }))
+
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({ status: 404 })
+      expect(s3Client.send).not.toHaveBeenCalled()
+    })
+
+    it('serves the version that holds the bytes the verdict judged', async () => {
+      vi.mocked(findDocumentVersionInOrg).mockResolvedValue(version({ state: 'published', contentHash: 'sha256:now' }))
+
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).resolves.toMatchObject({ content: '# Aktenvermerk' })
+    })
+
+    it('serves a draft, whose text was written in the workflow rather than uploaded', async () => {
+      vi.mocked(findDocumentVersionInOrg).mockResolvedValue(version({ state: 'draft', contentHash: 'sha256:edited' }))
+
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).resolves.toMatchObject({ content: '# Aktenvermerk' })
+    })
+  })
+
   it('answers 404 for an ordinary chat, which is about nothing', async () => {
     vi.mocked(findConversationInOrg).mockResolvedValue({
       subjectResourceType: null,
@@ -506,6 +598,48 @@ describe('readVersionForService — the conversation is part of the predicate', 
 
     await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({
       status: 404,
+    })
+  })
+
+  describe('a subject in a folder not every member may read (ADR-0087, ADR-0088)', () => {
+    const RESTRICTED = 'proj_abc_r0123456789ab'
+    const ANSWER_ID = '0b7c6d2e-5f1a-5c3b-9d4e-8f7a6b5c4d3e'
+    beforeEach(() => {
+      vi.mocked(findConversationInOrg).mockResolvedValue({
+        subjectResourceType: 'document',
+        subjectResourceId: 'doc_1',
+      } as never)
+      vi.mocked(findDocumentInOrg).mockResolvedValue({ ...agentDocument, folderId: 'folder_vertraege' })
+      vi.mocked(placementCollectionFor).mockResolvedValue(RESTRICTED)
+    })
+
+    it('admits the folder for the conversation before the bytes leave, and says so', async () => {
+      vi.mocked(admitRestrictedUse).mockResolvedValue({ admitted: [RESTRICTED], refused: [], recorded: ['folder_vertraege'] })
+
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1', { askerUserId: 'user_asker', answerMessageId: ANSWER_ID })).resolves.toMatchObject({
+        content: '# Aktenvermerk',
+        drewOnRestrictedFolder: true,
+      })
+      expect(admitRestrictedUse).toHaveBeenCalledWith(
+        {
+          organizationId: 'org_1',
+          conversationId: 'conv_1',
+          userId: 'user_asker',
+          projectId: 'proj_1',
+          // Marked in the admission's transaction, before the bytes leave (ADR-0093).
+          answerMessageId: ANSWER_ID,
+        },
+        [RESTRICTED],
+      )
+    })
+
+    it('reads as no subject when the admission is refused, or there is no asker to check', async () => {
+      vi.mocked(admitRestrictedUse).mockResolvedValue({ admitted: [], refused: [RESTRICTED], recorded: [] })
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1', { askerUserId: 'user_asker', answerMessageId: ANSWER_ID })).rejects.toMatchObject({
+        status: 404,
+      })
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({ status: 404 })
+      expect(s3Client.send).not.toHaveBeenCalled()
     })
   })
 
@@ -565,5 +699,63 @@ describe('archiveDocument', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ metadata: expect.objectContaining({ chunksPurged: false }) }),
     )
+  })
+})
+
+describe('reading a version’s text, and the download log', () => {
+  beforeEach(() => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version())
+    vi.mocked(s3Client.send).mockResolvedValue({ Body: { transformToString: async () => '# Aktenvermerk' } } as never)
+  })
+
+  it('records the hand-over to the person, naming the version they opened', async () => {
+    await expect(readVersionContent(session, 'doc_1', 'ver_1')).resolves.toBe('# Aktenvermerk')
+
+    expect(recordDocumentAccess).toHaveBeenCalledWith(session, document, 'version', { versionId: 'ver_1' })
+  })
+
+  it('records nothing for a version that does not exist', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(null)
+
+    await expect(readVersionContent(session, 'doc_1', 'ver_9')).rejects.toMatchObject({ status: 404 })
+
+    expect(recordDocumentAccess).not.toHaveBeenCalled()
+  })
+
+  it('does not hand the text over when the log refuses (a folder with its own list)', async () => {
+    vi.mocked(recordDocumentAccess).mockRejectedValueOnce(Object.assign(new Error('not recorded'), { status: 503 }))
+
+    await expect(readVersionContent(session, 'doc_1', 'ver_1')).rejects.toMatchObject({ status: 503 })
+  })
+
+  // A model reads this text, so a document whose screening has not passed
+  // answers 404 to its reviewer too (ADR-0086): no held text in a task.
+  it.each([
+    ['quarantined', { status: 'quarantined', screeningOutcome: 'quarantined' as const }],
+    ['still being screened', { status: 'processing', screeningOutcome: null }],
+  ])('refuses the agent task a document that is %s, before reading a byte', async (_label, held) => {
+    vi.mocked(getAccessibleDocument).mockResolvedValueOnce({ ...document, ...held })
+
+    await expect(readVersionTextForTask(session, 'doc_1', 'ver_1')).rejects.toMatchObject({ status: 404 })
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('refuses the agent task an earlier upload whose bytes no verdict judged, before reading a byte', async () => {
+    vi.mocked(getAccessibleDocument).mockResolvedValueOnce({
+      ...document,
+      contentHash: 'sha256:now',
+      screenedHash: 'sha256:now',
+      screeningOutcome: 'clean',
+    })
+    vi.mocked(findDocumentVersion).mockResolvedValueOnce(version({ state: 'superseded', contentHash: 'sha256:before' }))
+
+    await expect(readVersionTextForTask(session, 'doc_1', 'ver_1')).rejects.toMatchObject({ status: 404 })
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('does not record the read that feeds an agent task: the reviewer never receives those bytes', async () => {
+    await expect(readVersionTextForTask(session, 'doc_1', 'ver_1')).resolves.toBe('# Aktenvermerk')
+
+    expect(recordDocumentAccess).not.toHaveBeenCalled()
   })
 })

@@ -62,6 +62,10 @@ from aiq_agent.common.quote_stamps import stamp_quote_lines
 from aiq_agent.common.tool_validation import validate_tool_availability
 from aiq_agent.common.turn_status import emit_answer_repair
 from aiq_agent.common.turn_status import emit_citation_check
+from aiq_agent.observability.langfuse_scores import card_validity_score
+from aiq_agent.observability.langfuse_scores import dialect_scores
+from aiq_agent.observability.langfuse_scores import emit_scores
+from aiq_agent.observability.langfuse_scores import quote_patch_scores
 from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
 
 from .answer_shape import drop_restated_mindmaps
@@ -457,8 +461,10 @@ async def _checked_envelope_card(
             validated, _ = validate_model_card(repaired)
         if validated is not None:
             emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_REPAIRED)
+            emit_scores([card_validity_score(outcome="repaired", card_type=card_type, index=index)], writer="piloti")
     if validated is None:
         emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_DROPPED)
+        emit_scores([card_validity_score(outcome="dropped", card_type=card_type, index=index)], writer="piloti")
     return validated
 
 
@@ -483,6 +489,27 @@ def _source_lookup_attempted(messages: Sequence[Any]) -> bool:
     """Whether any data-source tool ran this turn (pass this turn's messages)."""
     return any(
         isinstance(msg, ToolMessage) and get_source_id_for_tool(getattr(msg, "name", "") or "") is not None
+        for msg in messages
+    )
+
+
+#: Data-source tools whose result is a record the BFF holds, not a passage
+#: search. `project_lookup` lists the office's projects, reads one project's
+#: brief, and reports a search over N projects that matched nothing: each is an
+#: answer in its own right („Eine Tiefgarage mit über 100 Stellplätzen hatten
+#: wir noch nicht"), and none registers a passage. Counting them as a failed
+#: retrieval replaced exactly the honest „nichts Vergleichbares" the feature
+#: promises with „versuchen Sie es noch einmal" (precedent eval, Oct 2026).
+#: Its passages, when it finds some, are cited like any other.
+RECORD_TOOLS = frozenset({"project_lookup"})
+
+
+def _passage_lookup_attempted(messages: Sequence[Any]) -> bool:
+    """Whether a data-source tool that answers in passages ran (pass this turn's messages)."""
+    return any(
+        isinstance(msg, ToolMessage)
+        and (name := getattr(msg, "name", "") or "") not in RECORD_TOOLS
+        and get_source_id_for_tool(name) is not None
         for msg in messages
     )
 
@@ -546,6 +573,7 @@ async def _verify_with_quote_patch(content: str, registry: SourceRegistry, patch
     # marker and is not "being corrected".
     emit_answer_repair(quotes=len(candidates))
     patched, count = await patch_quotes(verified.content, candidates, patch)
+    emit_scores(quote_patch_scores(count), writer="piloti")
     if not count:
         return verified
     # The second pass verifies text the first already stripped, so it sees none
@@ -637,7 +665,9 @@ def _require_retrieval(lookup_attempted: bool, tools: Sequence[BaseTool]) -> Non
     without ever querying a data source". Only the former is an error: a
     greeting, a shelf listing from the inventory or a reply from project
     context has nothing to cite, and discarding it would replace a
-    substantive answer with a misleading "search tools failed" message.
+    substantive answer with a misleading "search tools failed" message. So
+    does a record lookup (`RECORD_TOOLS`): the caller passes whether a
+    passage search ran.
     """
     if not lookup_attempted:
         logger.debug("Piloti: answered without querying any data-source tool; no verification")
@@ -1055,6 +1085,7 @@ def _held_to_dialect(content: str, meta: AnswerMeta | None) -> DialectResult:
     dialect = validate_dialect(content, meta.kind if meta is not None else None)
     if dialect.census or dialect.repairs:
         record_trace_metadata(answer_dialect=dialect.as_trace())
+    emit_scores(dialect_scores(dialect.repairs), writer="piloti")
     return dialect
 
 
@@ -1107,7 +1138,7 @@ async def finalize_answer(
         verified = await _verify_with_quote_patch(extracted.content, registry, repair)
         grounding = _ground(verified, registry, lookup_attempted=lookup_attempted)
     else:
-        _require_retrieval(lookup_attempted, tools)
+        _require_retrieval(_passage_lookup_attempted(turn), tools)
         grounding = _Grounding(extracted.content)
 
     dialect = _held_to_dialect(grounding.content, extracted.meta)

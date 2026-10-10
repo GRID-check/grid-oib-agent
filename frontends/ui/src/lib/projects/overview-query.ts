@@ -3,6 +3,25 @@ import { getDb } from '@/lib/db'
 import { projects, documents } from '@/lib/db/schema'
 import type { ProjectOverviewData } from '@/features/projects/types'
 import { getApplicableStandards } from '@/lib/oib/applicable-standards'
+import { outsideHiddenFolders } from '@/lib/documents/repository'
+import { documentVisibleTo, type ShelfReader } from '@/lib/documents/visibility'
+
+export interface ProjectOverviewReader {
+  /**
+   * Folders whose documents this reader may not see (ADR-0087), from
+   * `getHiddenFolderIds`. Required, not optional: the overview shows filenames
+   * and counts, and a caller that forgot to ask would show every restricted
+   * folder's documents to everyone who can open the project.
+   */
+  hiddenFolderIds: readonly string[]
+  /**
+   * How this person reads the project (ADR-0086), from `shelfReaderFor`: a
+   * member or a reviewer of its quarantine. Required for the same reason as
+   * the key above: a held file is not there for anyone else, by name or in a
+   * number.
+   */
+  reader: ShelfReader
+}
 
 /**
  * Load the project overview data (project metadata, document stats, and the
@@ -11,10 +30,16 @@ import { getApplicableStandards } from '@/lib/oib/applicable-standards'
  * Returns null when the project does not exist or does not belong to the
  * organization, so callers can decide how to surface that (404 page vs.
  * JSON error envelope).
+ *
+ * The count, the total size and the recent list leave out the documents of
+ * every folder hidden from the reader, as the document list does: a fee note
+ * a member may not open must not appear here by name, nor move a number. The
+ * same holds for a held file the reader neither uploaded nor reviews.
  */
 export async function getProjectOverviewData(
   projectId: string,
-  organizationId: string
+  organizationId: string,
+  { hiddenFolderIds, reader }: ProjectOverviewReader
 ): Promise<ProjectOverviewData | null> {
   const db = getDb()
 
@@ -23,6 +48,8 @@ export async function getProjectOverviewData(
       id: projects.id,
       name: projects.name,
       collectionName: projects.collectionName,
+      status: projects.status,
+      closedAt: projects.closedAt,
       createdAt: projects.createdAt,
       profile: projects.profile,
       profileDisplay: projects.profileDisplay,
@@ -60,7 +87,9 @@ export async function getProjectOverviewData(
         // row can hold both a project and a non-project scope. The partition
         // must be an invariant, not a coincidence — which is why migration 0049
         // also writes it into the table.
-        eq(documents.scope, 'project')
+        eq(documents.scope, 'project'),
+        ...outsideHiddenFolders(hiddenFolderIds),
+        documentVisibleTo(reader)
       )
     )
 
@@ -82,7 +111,9 @@ export async function getProjectOverviewData(
         // two must agree by asking the same question: a "recent documents" list
         // that could show a row the count above excluded (or the reverse) is a
         // page that contradicts itself.
-        eq(documents.scope, 'project')
+        eq(documents.scope, 'project'),
+        ...outsideHiddenFolders(hiddenFolderIds),
+        documentVisibleTo(reader)
       )
     )
     .orderBy(desc(documents.createdAt))
@@ -97,6 +128,8 @@ export async function getProjectOverviewData(
     id: project.id,
     name: project.name,
     collectionName: project.collectionName,
+    status: project.status,
+    closedAt: project.closedAt ? new Date(project.closedAt).toISOString() : null,
     createdAt: project.createdAt.toISOString(),
     profileDisplay: project.profileDisplay
       ? {

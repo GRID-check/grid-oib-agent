@@ -30,14 +30,18 @@ from langgraph.checkpoint.memory import InMemorySaver
 from starlette.datastructures import QueryParams
 from starlette.websockets import WebSocketDisconnect
 
+from aiq_agent.common.content_screen import ScreeningRules
 from aiq_agent.common.fenced_checkpointer import FencedCheckpointer
 from aiq_agent.common.human_prompt import build_human_prompt
 from aiq_agent.common.human_prompt import extract_user_response
+from aiq_agent.common.wire_v2 import ACCEPTED_CLIENT_FIELDS
 from aiq_agent.common.wire_v2 import HELLO
 from aiq_agent.common.wire_v2 import WIRE_EVENT
 from aiq_agent.common.wire_v2 import AnswerSnapshot
+from aiq_agent.common.wire_v2 import CancelTurn
 from aiq_agent.common.wire_v2 import KeyedCard
 from aiq_agent.common.wire_v2 import RunFinishedBody
+from aiq_agent.common.wire_v2 import ShownAnswer
 from aiq_agent.common.wire_v2 import StageValue
 from aiq_agent.common.wire_v2 import StateSnapshotBody
 from aiq_agent.common.wire_v2 import StatusStep
@@ -50,6 +54,7 @@ from aiq_agent.common.write_fence import TurnFenced
 from aiq_agent.common.write_fence import current_write_fence
 from aiq_agent.turn.response import answer_message_id
 from aiq_api import chat_socket
+from aiq_api import internal_api as chat_socket_internal
 from aiq_api.auth.errors import AuthError
 from aiq_api.chat_socket import ChatRegistry
 from aiq_api.chat_socket import ChatSocket
@@ -61,6 +66,7 @@ from aiq_api.chat_socket import turn_row_metadata
 from aiq_api.conversation_bus import ConversationBus
 from aiq_api.conversation_bus import force_multi_replica_for_tests
 from aiq_api.conversation_bus import reset_bus_for_tests
+from aiq_api.internal_api import ChatScreening
 from nat.plugin_api import InteractionPrompt
 
 CONV = "conv-1"
@@ -337,6 +343,7 @@ async def test_any_other_wire_version_is_closed_4426(harness, query):
 
 async def test_the_first_frame_is_hello_before_any_client_message(harness, monkeypatch):
     monkeypatch.setenv("GRID_GIT_SHA", "abc1234")
+    monkeypatch.setenv("GRID_WIRE_V2_ADDITIVE_FIELDS", "on")
     sock = harness().connect()
     await until(lambda: sock.frames)
 
@@ -344,7 +351,7 @@ async def test_the_first_frame_is_hello_before_any_client_message(harness, monke
     assert hello["v"] == 2
     assert hello["type"] == "CUSTOM"
     assert hello["name"] == "hello"
-    assert hello["value"] == {"build": "abc1234"}
+    assert hello["value"] == {"build": "abc1234", "accepts": ["cancel_turn.shown"]}
     # A connection frame, not a turn's: nothing a fold or a cursor could key on.
     assert not {"conversation_id", "turn_id", "seq"} & hello.keys()
     assert sock.sent == []
@@ -359,7 +366,7 @@ async def test_a_build_without_a_sha_says_unknown_like_health(harness, monkeypat
     sock = harness().connect()
     await until(lambda: sock.frames)
 
-    assert sock.frames[0]["value"] == {"build": "unknown"}
+    assert sock.frames[0]["value"]["build"] == "unknown"
 
 
 async def test_an_unauthenticated_socket_gets_no_hello(harness):
@@ -649,6 +656,103 @@ async def test_the_asker_s_stop_cancels_the_run_and_keeps_what_was_read(harness,
     assert terminal["result"]["text"] == "Nach § 87"  # the pending [2] has no source
     assert persisted[0]["metadata"] == {"stopped": True, "trace_id": uuid.UUID(answer_message_id(CONV, "t1")).hex}
     assert persisted[0]["text"] == "Nach § 87"
+
+
+class Reading:
+    """A turn that streams two sentences and then thinks: the asker has read only the first."""
+
+    SEEN, UNSEEN = "Gesehen [2] bis hier.", " Was der Leser nie sah."
+
+    def __init__(self) -> None:
+        self.streamed = asyncio.Event()
+
+    async def turn(self, request, ask):
+        yield TextMessageStartBody(message_id="m")
+        yield TextMessageContentBody(message_id="m", delta=self.SEEN)
+        yield TextMessageContentBody(message_id="m", delta=self.UNSEEN)
+        self.streamed.set()
+        await asyncio.sleep(3600)
+
+    @classmethod
+    def shown(cls, sock: FakeSocket) -> dict:
+        """Where the asker was: through the first sentence's frame, all of it on screen."""
+        first = next(e for e in sock.events() if e.get("delta") == cls.SEEN)
+        return {"seq": first["seq"], "chars": len(cls.SEEN)}
+
+
+async def test_the_asker_s_stop_keeps_exactly_what_was_on_their_screen(harness, persisted):
+    """The cancel says how much was shown; the terminal and the stored row are cut to it, not to what streamed."""
+    reading = Reading()
+    sock = harness(reading.turn).connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(reading.streamed.is_set)
+    await until(lambda: any(e.get("delta") == Reading.UNSEEN for e in sock.events()))
+
+    sock.client(type="cancel_turn", turn_id="t1", shown=Reading.shown(sock))
+    await until(lambda: persisted)
+
+    terminal = sock.events()[-1]
+    assert (terminal["outcome"], terminal["result"]["text"]) == ("cancelled", "Gesehen bis hier.")
+    assert persisted[0]["text"] == "Gesehen bis hier."
+    assert persisted[0]["metadata"]["stopped"] is True
+
+
+async def test_a_stop_that_says_nothing_shown_keeps_everything_streamed(harness, persisted):
+    """An older page sends no ``shown``: the server keeps the prose so far, as it always did."""
+    reading = Reading()
+    sock = harness(reading.turn).connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(reading.streamed.is_set)
+
+    sock.client(type="cancel_turn", turn_id="t1")
+    await until(lambda: persisted)
+
+    assert persisted[0]["text"] == "Gesehen bis hier. Was der Leser nie sah."
+
+
+async def test_a_stop_relayed_to_the_owner_keeps_what_the_asker_saw(harness, persisted):
+    owner, relay, _ = _replicas()
+    reading = Reading()
+    asker = harness(reading.turn, owner).connect()
+    asker_elsewhere = harness(reading.turn, relay).connect()
+    asker.client(type="user_message", message_id="t1", text="?")
+    await until(reading.streamed.is_set)
+    await asyncio.sleep(0.02)  # the owner's input subscription lands
+
+    asker_elsewhere.client(type="cancel_turn", turn_id="t1", shown=Reading.shown(asker))
+    await until(lambda: persisted)
+
+    assert persisted[0]["text"] == "Gesehen bis hier."
+
+
+def test_a_relayed_stop_carries_shown_beside_the_message_so_an_older_owner_still_parses_it():
+    """An owner one release older reads ``CancelTurn`` strictly: the field inside the message would drop the Stop."""
+    message = CancelTurn(conversation_id=CONV, turn_id="t1", shown=ShownAnswer(seq=3, chars=10))
+
+    relayed = chat_socket._relayable(message)
+
+    assert "shown" not in relayed
+    assert relayed == {"v": 2, "type": "cancel_turn", "conversation_id": CONV, "turn_id": "t1"}
+
+
+@pytest.mark.parametrize(
+    ("payload", "shown"),
+    [
+        ({"shown": {"seq": 3, "chars": 10}}, ShownAnswer(seq=3, chars=10)),
+        ({}, None),  # an older relay
+        ({"shown": {"seq": -1}}, None),  # malformed: the Stop still counts, the cut does not
+    ],
+)
+def test_the_owner_reads_the_relayed_shown_position_leniently(payload, shown):
+    assert chat_socket._relayed_shown(payload) == shown
+
+
+def test_the_hello_names_the_shown_position_among_what_this_server_accepts():
+    """The page sends ``cancel_turn.shown`` only to a server whose hello names it: never to an older pod."""
+    assert "cancel_turn.shown" in ACCEPTED_CLIENT_FIELDS
+    assert CancelTurn.model_validate(
+        {"v": 2, "type": "cancel_turn", "conversation_id": CONV, "turn_id": "t1", "shown": {"seq": 1, "chars": 0}}
+    ).shown == ShownAnswer(seq=1, chars=0)
 
 
 async def test_a_colleague_s_stop_is_refused_and_the_turn_runs_on(harness):
@@ -1495,6 +1599,56 @@ def test_the_row_is_the_typed_result_in_wire_spelling():
     }
 
 
+async def test_the_hello_names_nothing_it_accepts_while_the_additive_fields_are_off(harness, monkeypatch):
+    """An open tab of the previous release parses the hello strictly: ``accepts`` would mark it outdated."""
+    monkeypatch.setenv("GRID_GIT_SHA", "abc1234")
+    monkeypatch.delenv("GRID_WIRE_V2_ADDITIVE_FIELDS", raising=False)
+    sock = harness().connect()
+    await until(lambda: sock.frames)
+
+    assert sock.frames[0]["value"] == {"build": "abc1234"}
+
+
+@pytest.mark.parametrize(("flag", "sent"), [(None, False), ("off", False), ("on", True), ("1", True)])
+async def test_the_level_reaches_the_frame_only_with_the_additive_fields_on(persisted, monkeypatch, flag, sent):
+    if flag is None:
+        monkeypatch.delenv("GRID_WIRE_V2_ADDITIVE_FIELDS", raising=False)
+    else:
+        monkeypatch.setenv("GRID_WIRE_V2_ADDITIVE_FIELDS", flag)
+    published: list[dict] = []
+
+    async def publish(_conversation_id: str, frame: dict) -> bool:
+        published.append(frame)
+        return True
+
+    wire = chat_socket.TurnWire(CONV, "t1", publish)
+    await wire.send(RunFinishedBody(outcome="answered", result=_result(text="Fertig.", reasoning_effort="low")))
+
+    [frame] = published
+    assert ("reasoning_effort" in frame["result"]) is sent
+    assert wire.replay() == published
+
+
+def test_the_level_the_turn_ran_at_is_kept_on_the_row():
+    # ``agent-answer-metadata.ts`` reads it back as ``reasoning_effort``, so a
+    # turn the asking tab never saw finish still offers the right thorough retry.
+    finished = RunFinishedBody(outcome="answered", result=_result(reasoning_effort="low"))
+
+    assert turn_row_metadata(finished) == {"reasoning_effort": "low"}
+
+
+async def test_a_stopped_turn_keeps_the_level_the_asker_stated(persisted):
+    registry = ChatRegistry()
+    wire = chat_socket.TurnWire(CONV, "t1", registry.publish)
+    turn = chat_socket.RunningTurn(wire=wire, asker_subject=None, reasoning_effort="xhigh")
+    await turn.publish(TextMessageContentBody(message_id="m", delta="Teil"))
+
+    await turn.finish_cancelled()
+    await asyncio.gather(*chat_socket._PERSIST_TASKS)
+
+    assert persisted[0]["metadata"]["reasoning_effort"] == "xhigh"
+
+
 def test_the_quote_stamps_are_kept_on_the_row_in_wire_spelling():
     # ``agent-answer-metadata.ts`` reads them back as ``quote_stamps``; an
     # unchecked stamp carries its status and wording alone.
@@ -1572,6 +1726,210 @@ async def test_a_stopped_turn_keeps_the_settled_text_with_its_sources(
 def test_the_answer_id_is_stable_per_turn():
     assert answer_message_id(CONV, "t1") == answer_message_id(CONV, "t1")
     assert answer_message_id(CONV, "t1") != answer_message_id(CONV, "t2")
+
+
+# ---------------------------------------------------------------------------
+# A restricted scope does not hold the socket hostage (ADR-0087, ADR-0088)
+# ---------------------------------------------------------------------------
+
+_RESTRICTED = "proj_8f2c3b1e_r22222222aaaa"
+
+
+def _restricted_envelope(*collections: str) -> list[tuple[bytes, bytes]]:
+    scope = [{"collection": name, "shelf": "project"} for name in ("oib_knowledge", *collections)]
+    return _envelope(
+        {"organizationId": "org_1", "userId": "user_asker", "collectionScope": scope, "conversationId": CONV}
+    )
+
+
+async def test_a_restricted_scope_runs_the_turn_on_the_same_socket(harness):
+    """Which restricted folders a turn may draw on is the agent's question, per turn, not the socket's.
+
+    The socket used to close when the thread had been shared since the upgrade
+    signed its scope. A restricted collection is now narrowed away per turn
+    (``aiq_agent.knowledge.restricted_use``), so the socket stays and the turn runs.
+    """
+    h = harness()
+    sock = h.connect(headers=_restricted_envelope(_RESTRICTED))
+
+    sock.client(type="user_message", message_id="t1", text="Was kostet der Zimmerer?")
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert sock.closed_with is None
+    assert not hasattr(chat_socket, "conversation_confined_to")
+
+
+# ---------------------------------------------------------------------------
+# What may reach the model: the office's chat screening (ADR-0086)
+# ---------------------------------------------------------------------------
+
+_IBAN = "AT61 1904 3002 3457 3201"
+
+
+def _office_envelope() -> list[tuple[bytes, bytes]]:
+    return _envelope({"organizationId": "org_1", "userId": "user_asker", "conversationId": CONV})
+
+
+class OfficeScreening:
+    """The BFF's answer for the office's chat screening, and every organization it was asked for."""
+
+    def __init__(self, screening: ChatScreening) -> None:
+        self.screening = screening
+        self.asked: list[str | None] = []
+
+    async def __call__(self, organization_id: str | None) -> ChatScreening:
+        self.asked.append(organization_id)
+        return self.screening
+
+
+@pytest.fixture
+def office(monkeypatch) -> OfficeScreening:
+    rules = ScreeningRules.build(["Gehaltsabrechnung"], ["iban", "at_svnr", "credit_card"])
+    screening = OfficeScreening(ChatScreening(rules=rules, from_office=True))
+    monkeypatch.setattr(chat_socket, "chat_screening_for", screening)
+    return screening
+
+
+def _recording(seen: list[str]):
+    async def turn(request, ask):
+        seen.append(request.text)
+        yield _finished(request, text="ok")
+
+    return turn
+
+
+async def test_a_question_reaches_the_agent_masked(harness, office):
+    seen: list[str] = []
+    h = harness(_recording(seen))
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text=f"Gehaltsabrechnung für Anna, IBAN {_IBAN}")
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    # What the workflow ran on is the turn's input, and so what its checkpoint keeps.
+    assert seen == ["[Begriff entfernt] für Anna, IBAN [IBAN entfernt]"]
+    assert office.asked == ["org_1"]  # the SIGNED organization's policy
+
+
+async def test_a_colleague_s_line_is_masked_before_the_agent_s_history_keeps_it(harness, office, monkeypatch):
+    stored: list[tuple[str, str]] = []
+
+    async def append(thread_id, text):
+        stored.append((thread_id, text))
+        return True
+
+    monkeypatch.setattr(chat_socket, "append_conversation_context", append)
+    sock = harness().connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text=f"Konto {_IBAN}", context_only=True, author_name="X")
+    await until(lambda: stored)
+
+    assert stored == [(CONV, "Anna Asker: Konto [IBAN entfernt]")]
+
+
+async def test_a_typed_answer_reaches_the_turn_masked_and_a_chosen_option_untouched(harness, office):
+    answers: list[str] = []
+
+    async def asking_free_text(request, ask):
+        prompt = InteractionPrompt(id="ask_01", timestamp="2026-10-02T10:00:00Z", content=build_human_prompt("Konto?"))
+        answers.append(extract_user_response(SimpleNamespace(content=await ask(prompt))))
+        yield _finished(request, text="ok")
+
+    h = harness(asking_free_text)
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: "interaction_request" in _types(sock.events()))
+    sock.client(type="interaction_response", turn_id="t1", interaction_id="ask_01", answer={"text": f"Es ist {_IBAN}"})
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert answers == ["Es ist [IBAN entfernt]"]
+
+
+async def test_a_masked_question_is_masked_once(harness, office):
+    seen: list[str] = []
+    h = harness(_recording(seen))
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text="Bitte überweise an [IBAN entfernt]")
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert seen == ["Bitte überweise an [IBAN entfernt]"]
+
+
+async def test_the_focus_file_name_reaches_the_agent_masked(harness, office):
+    """The composer's "Asking about <file>" name is client-supplied and the system prompt quotes it."""
+    names: list[str | None] = []
+
+    async def turn(request, ask):
+        names.append(request.focus_file_name)
+        yield _finished(request, text="ok")
+
+    h = harness(turn)
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(
+        type="user_message",
+        message_id="t1",
+        text="Was steht drin?",
+        focus_file_name=f"Gehaltsabrechnung {_IBAN}.pdf",
+        focus_shelf="project",
+    )
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert names == ["[Begriff entfernt] [IBAN entfernt].pdf"]
+
+
+async def test_without_the_office_s_policy_every_detector_applies_and_no_term(harness, monkeypatch):
+    """Fail closed: no organization to ask (off the BFF), or a BFF that cannot answer."""
+    monkeypatch.delenv("FRONTEND_INTERNAL_URL", raising=False)
+    monkeypatch.delenv("FRONTEND_URL", raising=False)
+    seen: list[str] = []
+    h = harness(_recording(seen))
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text=f"Gehaltsabrechnung, {_IBAN}, 1237 010180")
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert seen == ["Gehaltsabrechnung, [IBAN entfernt], [SV-Nummer entfernt]"]
+
+
+async def test_the_fallback_is_asked_again_and_the_office_s_answer_is_kept(harness, monkeypatch):
+    rules = ScreeningRules.build(["Gehaltsabrechnung"], [])
+    answers = [chat_socket_internal.CHAT_SCREENING_FALLBACK, ChatScreening(rules=rules, from_office=True)]
+    asked: list[str | None] = []
+
+    async def screening_for(organization_id):
+        asked.append(organization_id)
+        return answers[min(len(asked), len(answers)) - 1]
+
+    monkeypatch.setattr(chat_socket, "chat_screening_for", screening_for)
+    seen: list[str] = []
+    h = harness(_recording(seen))
+    sock = h.connect(headers=_office_envelope())
+
+    for turn_id in ("t1", "t2", "t3"):
+        sock.client(type="user_message", message_id=turn_id, text=f"Gehaltsabrechnung {_IBAN}")
+        await until(lambda turn_id=turn_id: _last(sock, turn_id) == "RUN_FINISHED")
+
+    assert seen == [
+        "Gehaltsabrechnung [IBAN entfernt]",  # every detector, no term
+        "[Begriff entfernt] AT61 1904 3002 3457 3201",  # the office's own list: a term, no detector
+        "[Begriff entfernt] AT61 1904 3002 3457 3201",
+    ]
+    assert asked == ["org_1", "org_1"]  # the office's answer is kept for the socket's life
+
+
+async def test_an_office_that_switched_screening_off_is_not_masked(harness, monkeypatch):
+    monkeypatch.setattr(chat_socket, "chat_screening_for", OfficeScreening(ChatScreening(rules=None, from_office=True)))
+    seen: list[str] = []
+    h = harness(_recording(seen))
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text=f"IBAN {_IBAN}")
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert seen == [f"IBAN {_IBAN}"]
 
 
 # ---------------------------------------------------------------------------

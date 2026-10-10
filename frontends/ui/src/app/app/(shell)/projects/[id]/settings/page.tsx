@@ -1,14 +1,26 @@
 import type { JSX } from 'react'
+import { Suspense } from 'react'
 import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
+import type { AuthorizedSession } from '@/lib/auth/types'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
+import { getProjectUsage } from '@/lib/budgets/service'
+import { getProjectActivity } from '@/lib/projects/activity'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
-import { ProjectSettings } from '@/features/projects/components/project-settings'
+import { projectOverviewReader } from '@/lib/projects/service'
+import { resolveProjectSettingsAccess } from '@/lib/projects/settings-access'
+import { getSteckbrief } from '@/lib/projects/steckbrief-service'
+import { getSimilarProjects } from '@/lib/references/service'
+import { loadOrganizationDirectory } from '@/lib/sharing/directory'
+import { BentoCell } from '@/components/ui/bento'
+import { Skeleton } from '@/components/ui/skeleton'
+import { ProjectOverview } from '@/features/projects/components/overview/project-overview'
+import { SimilarProjectsTile } from '@/features/projects/components/overview/similar-projects-tile'
+import { settingsSectionHref } from '@/features/projects/lib/settings-sections'
 import { getTranslations } from '@/i18n/server'
 
-interface ProjectSettingsPageProps {
+interface PageProps {
   params: Promise<{ id: string }>
 }
 
@@ -18,38 +30,83 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * Project Settings (spec §5, FB-9) — consolidates what used to live on the
- * Overview and Members pages: project parameters (intake brief + applicable
- * standards), the member roster, project memory, an insights placeholder, and
- * the danger zone.
+ * The project Overview: the bento dashboard the hub opens on.
  *
- * View access gates the page (same guard the layout applies); manager-only
- * affordances (member management, rename, danger zone) are gated by the
- * derived role, matching the old pages exactly.
+ * Activity (how many questions, by how many people) and the Steckbrief are for
+ * everyone; spend is loaded only for a reader who may see it, the same set the
+ * Usage section is open to. Document counts use the overview reader, so they
+ * leave out folders this reader may not open and quarantined uploads
+ * (ADR-0087, ADR-0086). Similar projects stream in after the rest.
  */
-export default async function ProjectSettingsPage({ params }: ProjectSettingsPageProps): Promise<JSX.Element> {
+export default async function ProjectOverviewPage({ params }: PageProps): Promise<JSX.Element> {
   return withPageSession(async (session) => {
     const { id } = await params
+    await requireProjectAccess(session, id, 'project:view')
 
-    const { role } = await requireProjectAccess(session, id, 'project:view')
+    const [data, access, activity, steckbrief] = await Promise.all([
+      projectOverviewReader(session, id).then((reader) =>
+        getProjectOverviewData(id, session.organizationId, reader)
+      ),
+      resolveProjectSettingsAccess(session, id),
+      getProjectActivity(session, id),
+      getSteckbrief(session, id),
+    ])
+    if (!data) notFound()
 
-    const data = await getProjectOverviewData(id, session.organizationId)
-    if (!data) {
-      notFound()
-    }
+    const [usage, accounts] = await Promise.all([
+      access.manageBudget ? getProjectUsage(session, id) : null,
+      // The organization's people, to link a Steckbrief person to their
+      // account; asked only of someone who may edit it. Names only, never e-mail.
+      steckbrief.canEdit
+        ? loadOrganizationDirectory(session.organizationId).then((directory) =>
+            [...directory.values()].map((person) => ({ userId: person.userId, name: person.name }))
+          )
+        : [],
+    ])
 
     return (
-      <ProjectSettings
+      <ProjectOverview
         data={data}
-        canManageProject={role === 'project-admin'}
-        // Knowledge left the top-level nav (spec §5) but stays reachable from
-        // Settings while its feature flag is on.
-        showKnowledgeLink={isProjectKnowledgePageEnabled(session)}
-        // Same id space as the roster's `organizationMembershipId` (see
-        // GridSession/AuthorizedSession) — lets the members form recognize the
-        // signed-in user's own row and guard against self-lockout.
-        currentMembershipId={session.organizationMembershipId}
+        activity={activity}
+        usage={usage}
+        steckbrief={steckbrief}
+        steckbriefAccounts={accounts}
+        similar={
+          <Suspense
+            fallback={
+              <BentoCell span="wide">
+                <Skeleton className="h-40 rounded-lg" />
+              </BentoCell>
+            }
+          >
+            <SimilarProjectsSlot session={session} projectId={id} />
+          </Suspense>
+        }
+        access={{
+          manage: access.manage,
+          changeStatus: access.changeStatus,
+          writeMemory: access.writeMemory,
+          editProfile: access.editProfile,
+          manageMembers: access.manageMembers,
+        }}
       />
     )
   })
+}
+
+/** The similar-projects tile, read on its own so the dashboard does not wait for it. */
+async function SimilarProjectsSlot({
+  session,
+  projectId,
+}: {
+  session: AuthorizedSession
+  projectId: string
+}): Promise<JSX.Element> {
+  const page = await getSimilarProjects(session, projectId)
+  return (
+    <SimilarProjectsTile
+      page={page}
+      href={settingsSectionHref(projectId, 'references')}
+    />
+  )
 }

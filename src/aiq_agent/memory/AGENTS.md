@@ -2,7 +2,8 @@
 
 The two agent-side writers of a project's durable findings: the in-turn
 `remember` tool (`register.py`) and the body of the post-answer reflection pass
-(`reflection.py`). Not an agent — one NAT tool and one stage handler.
+(`reflection.py`), plus the one decision both make about restricted folders
+(`restriction.py`). Not an agent — one NAT tool and one stage handler.
 
 Do not confuse it with `aiq_agent/knowledge/project_memory.py`, which is the
 HTTP client both use, or with `aiq_agent/stages/memory_reflection.py`, which
@@ -18,6 +19,19 @@ connection.
 **Reflection writes project scope only.** The tool may escalate a scopeless
 project write to the organization; reflection never does. A wrong firm-wide
 finding poisons every project in the org, and no human saw this one.
+
+**A memory from a turn with restricted folders in scope is decided in
+`restriction.py`, and nowhere else.** Both writers call
+`restriction_decisions` (the restriction `decide_restrictions` returns, plus the
+judge's verdict, sent with the write so the BFF audits it); every failure
+restricts to all of the scope's restricted collections. A
+restricted finding is project memory (never organization) and never a
+`memory_proposal` card, because accepting a card writes open memory
+(ADR-0087, `docs/architecture/project-memory-design.md` §3.6). Its evidence
+includes the restricted digest lines EARLIER turns were shown
+(`shown_notes.py`, recorded per conversation by `turn/registries.py`): a new
+reader of restricted evidence reads that record too, or a note that left the
+re-ranked digest is filed open.
 
 **A supersede must quote one COMPLETE entry of the digest the model was
 shown.** The frontend resolves supersedes fuzzily (≥0.7 Jaccard), so a

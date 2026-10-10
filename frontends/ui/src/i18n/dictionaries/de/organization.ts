@@ -14,6 +14,9 @@ export const organization: typeof en.organization = {
     models: 'Modelle',
     budgets: 'Nutzung & Budgets',
     storage: 'Speicher',
+    screening: 'Sensible Daten',
+    quarantine: 'Quarantäne',
+    downloads: 'Download-Protokoll',
     compliance: 'Compliance',
     enterprise: 'Enterprise',
   },
@@ -44,6 +47,20 @@ export const organization: typeof en.organization = {
       subtitle:
         'Wie viel Dokumentenspeicher diese Organisation belegt und welches Kontingent ihn begrenzt.',
     },
+    screening: {
+      title: 'Sensible Daten',
+      subtitle: 'Was Ihr Büro keinem Sprachmodell zeigen will, und woran Piloti es erkennt.',
+    },
+    quarantine: {
+      title: 'Quarantäne',
+      subtitle:
+        'Dateien, die die Inhaltsprüfung zurückgehalten hat. Kein Modell hat sie gelesen. Wer sie prüfen darf, gibt sie hier frei oder löscht sie.',
+    },
+    downloads: {
+      title: 'Download-Protokoll',
+      subtitle:
+        'Wer welches Dokument heruntergeladen hat und wer eines in einem Ordner mit eigener Zugriffsliste geöffnet hat. Befristet aufbewahrt, nur für Sicherheit und Nachvollziehbarkeit.',
+    },
     compliance: {
       title: 'Compliance',
       subtitle:
@@ -53,6 +70,73 @@ export const organization: typeof en.organization = {
       title: 'Enterprise',
       subtitle:
         'SSO, Directory Sync, Domain-Verifizierung und Audit-Log-Streaming — die WorkOS-Steuerung, die nur Administratoren berühren dürfen.',
+    },
+  },
+  /**
+   * Organisation -> Download-Protokoll (ADR-0088): wer welches Dokument
+   * heruntergeladen hat, und wer eines in einem Ordner mit eigener
+   * Zugriffsliste geöffnet hat. Personenbezogene Daten über Mitarbeitende:
+   * Die Seite sagt, wozu sie dient, wie lange sie aufbewahrt wird und dass
+   * ihr Lesen selbst protokolliert wird.
+   */
+  downloadLog: {
+    purpose:
+      'Dieses Protokoll dient der Sicherheit und der Nachvollziehbarkeit: Es zeigt, wer ein Dokument heruntergeladen oder in einem Ordner mit eigener Zugriffsliste geöffnet hat. Es ist keine Auswertung der Tätigkeit und wird nicht zur Beurteilung von Personen verwendet.',
+    retention: 'Einträge werden {days} Tage aufbewahrt und danach automatisch gelöscht.',
+    readRecorded: 'Jedes Lesen dieser Seite wird im Audit-Log festgehalten: wer nachgesehen hat und mit welchen Filtern.',
+    filters: {
+      label: 'Download-Protokoll filtern',
+      person: 'Person',
+      allPeople: 'Alle',
+      document: 'Dokument',
+      documentPlaceholder: 'Name oder Dokument-ID',
+      from: 'Von',
+      to: 'Bis',
+      kind: 'Was geschah',
+      allKinds: 'Alles',
+      apply: 'Anzeigen',
+      reset: 'Zurücksetzen',
+    },
+    kinds: {
+      download: 'Download',
+      preview: 'Vorschau',
+      pdf: 'Im Viewer geöffnet',
+      text: 'Textvorschau',
+      version: 'Version geöffnet',
+      model: '3D-Modell geöffnet',
+    },
+    access: { download: 'Download', open: 'Geöffnet' },
+    columns: { when: 'Wann', person: 'Person', action: 'Was', document: 'Dokument', place: 'Wo' },
+    place: {
+      archiv: 'Büroablage',
+      session: 'Chat-Anhang',
+      project: 'Projekt',
+      root: 'Projektebene',
+      ownList: 'Eigene Zugriffsliste',
+      projectGone: 'Projekt existiert nicht mehr',
+      folderGone: 'Ordner existiert nicht mehr',
+      folderWithheld: 'ein Ordner, den Sie nicht lesen dürfen',
+    },
+    unknownPerson: 'Nicht mehr in der Organisation',
+    nameWithheld: 'Name ausgeblendet: Sie dürfen diesen Ordner nicht lesen',
+    version: 'Version {id}',
+    empty: 'Für diese Filter ist nichts protokolliert.',
+    emptyHint: 'Downloads werden überall protokolliert, das Öffnen eines Dokuments nur in Ordnern mit eigener Zugriffsliste.',
+    loadError: 'Das Download-Protokoll konnte nicht geladen werden. Es wurde nichts angezeigt und nichts als gelesen vermerkt.',
+    loadMore: 'Ältere Einträge anzeigen',
+    loading: 'Wird geladen…',
+    retry: 'Erneut versuchen',
+    retentionCard: {
+      title: 'Aufbewahrung des Download-Protokolls',
+      description:
+        'Wie lange das Download-Protokoll seine Einträge behält. Standard und Höchstwert sind 365 Tage; eine Organisation kann die Dauer auf bis zu 30 Tage verkürzen.',
+      label: 'Tage',
+      hint: 'Zwischen 30 und 365. Eine kürzere Dauer gilt ab der nächsten täglichen Bereinigung.',
+      save: 'Aufbewahrung speichern',
+      saving: 'Wird gespeichert…',
+      saved: 'Aufbewahrung gespeichert',
+      invalid: 'Geben Sie eine ganze Zahl von 30 bis 365 Tagen ein.',
+      error: 'Die Aufbewahrung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
     },
   },
   /** Personen & Zugriff: Mitgliederverzeichnis, Rollenkatalog, Berechtigungsübersicht. */
@@ -92,12 +176,110 @@ export const organization: typeof en.organization = {
       org: 'Organisation',
       project: 'Projekt',
       skill: 'Skill-Zeitplan',
+      folder: 'Ordner',
       platform: 'Plattform',
     },
     notAllowed: {
       title: 'Sie können hier keine Personen verwalten',
       description:
         'Für die Verwaltung von Personen und Rollen wird die Berechtigung „Personen und Rollen verwalten“ benötigt. Ein Organisations-Admin kann sie vergeben.',
+    },
+  },
+  /**
+   * Personen & Zugriff → Eigene Rollen (ADR-0087): Rollen, die ein Büro in
+   * WorkOS anlegt und im Reiter „Personen“ zuweist.
+   */
+  customRoles: {
+    title: 'Eigene Rollen',
+    description:
+      'Rollen, die Ihr Büro selbst anlegt, neben denen von Piloti. Eine Rolle fasst Berechtigungen unter einem Namen wie „Geschäftsführung“ zusammen.',
+    howTo:
+      'Rollen weisen Sie Personen im Reiter „Personen“ zu, und sie gelten in der ganzen Organisation. Wer einen einzelnen Projektordner sehen darf, legen Sie am Ordner unter „Zugriff …“ Person für Person fest.',
+    oneRoleTitle: 'Eine Rolle pro Person',
+    oneRoleBody:
+      'Solange in Ihrer Organisation nicht mehrere Rollen pro Person eingeschaltet sind, hat jede Person genau eine Rolle. Eine eigene Rolle muss dann alle Berechtigungen tragen, mit denen ihre Inhaber arbeiten.',
+    create: 'Neue Rolle',
+    customGroup: 'Rollen Ihres Büros',
+    environmentGroup: 'Rollen von Piloti',
+    environmentHint: 'Stellt Piloti jeder Organisation bereit. Sie lassen sich hier nicht ändern.',
+    emptyTitle: 'Noch keine eigenen Rollen',
+    emptyDescription:
+      'Legen Sie eine Rolle wie „Geschäftsführung“ an, um Berechtigungen unter einem Namen zusammenzufassen.',
+    permissionCount: '{count, plural, one {# Berechtigung} other {# Berechtigungen}}',
+    editRole: 'Rolle „{name}“ bearbeiten',
+    deleteRole: 'Rolle „{name}“ löschen',
+    loadError: 'Die Rollen konnten gerade nicht geladen werden.',
+    readOnly: 'Eigene Rollen ändern können nur Personen mit der Berechtigung „Personen und Rollen verwalten“.',
+    editor: {
+      createTitle: 'Neue Rolle',
+      editTitle: 'Rolle „{name}“ bearbeiten',
+      createDescription:
+        'Benennen Sie die Rolle und wählen Sie, was sie darf. Zuweisen können Sie sie danach im Reiter „Personen“.',
+      editDescription: 'Die Kennung bleibt gleich, und wer die Rolle hat, behält sie.',
+      name: 'Name',
+      namePlaceholder: 'z. B. Geschäftsführung',
+      nameHint:
+        'Aus dem Namen bildet Piloti beim Anlegen die Kennung der Rolle. Die Kennung bleibt danach gleich, auch wenn Sie die Rolle umbenennen.',
+      nameRequired: 'Geben Sie der Rolle einen Namen.',
+      description: 'Beschreibung (optional)',
+      descriptionPlaceholder: 'Wer diese Rolle hat und wozu',
+      permissions: 'Berechtigungen',
+      permissionsHint:
+        'Diese Berechtigungen gelten in der ganzen Organisation. Zugriff auf einzelne Projekte wird pro Projekt vergeben.',
+      notGrantable: 'Diese Berechtigung haben Sie selbst nicht, daher können Sie sie nicht vergeben.',
+      create: 'Rolle anlegen',
+      save: 'Speichern',
+      saving: 'Wird gespeichert…',
+      created: 'Rolle „{name}“ angelegt. Zuweisen können Sie sie im Reiter „Personen“.',
+      saved: 'Rolle „{name}“ gespeichert.',
+      saveError: 'Die Rolle konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+      nameTaken: 'Eine Rolle mit diesem Namen gibt es schon.',
+      forbidden: 'In eine Rolle können Sie nur Berechtigungen legen, die Sie selbst haben.',
+      discardTitle: 'Änderungen verwerfen?',
+      discardDescription: 'Was Sie für diese Rolle eingegeben haben, ist nicht gespeichert.',
+      discardConfirm: 'Verwerfen',
+      keepEditing: 'Weiter bearbeiten',
+    },
+    deleteDialog: {
+      title: 'Rolle „{name}“ löschen?',
+      description: 'Löschen geht erst, wenn niemand die Rolle mehr hat.',
+      confirm: 'Rolle löschen',
+      deleted: 'Rolle „{name}“ gelöscht.',
+      stillAssigned:
+        'Diese Rolle hat noch jemand. Geben Sie diesen Personen zuerst im Reiter „Personen“ eine andere Rolle.',
+      error: 'Die Rolle konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.',
+    },
+    /** Eine Bezeichnung und eine Zeile je Organisationsberechtigung, Schlüssel = Slug nach `org:`, `:` als `_`. */
+    permission: {
+      settings_manage: {
+        name: 'Organisationseinstellungen verwalten',
+        hint: 'Name, Sprache und Voreinstellungen der Organisation.',
+      },
+      models_manage: { name: 'KI-Modelle verwalten', hint: 'Mit welchem Modell jeder Teil von Piloti arbeitet.' },
+      budgets_manage: { name: 'Budgets verwalten', hint: 'Ausgabenlimits und Verbrauch der ganzen Organisation.' },
+      compliance_manage: { name: 'Compliance verwalten', hint: 'Legal Holds und Löschungen.' },
+      audit_view: { name: 'Audit-Log ansehen', hint: 'Das Protokoll jeder privilegierten Änderung.' },
+      downloads_view: {
+        name: 'Download-Protokoll ansehen',
+        hint: 'Wer welches Dokument heruntergeladen hat. Das Lesen wird selbst protokolliert.',
+      },
+      archiv_manage: {
+        name: 'Büroablage verwalten',
+        hint: 'Dokumente in der Büroablage hochladen, löschen und neu einlesen. Lesen dürfen alle.',
+      },
+      skills_manage: {
+        name: 'Skills verwalten',
+        hint: 'Skills des Büros schreiben, ändern und löschen. Verwenden dürfen sie alle.',
+      },
+      projects_create: { name: 'Projekte anlegen', hint: 'Neue Projekte beginnen.' },
+      projects_administer: {
+        name: 'Alle Projekte verwalten',
+        hint: 'Jedes Projekt erreichen, ohne hinzugefügt zu sein, und jeden eingeschränkten Ordner sehen.',
+      },
+      members_manage: {
+        name: 'Personen und Rollen verwalten',
+        hint: 'Personen einladen, ihre Rollen ändern und hier Rollen anlegen.',
+      },
     },
   },
   overview: {
@@ -350,7 +532,7 @@ export const organization: typeof en.organization = {
     overQuota: 'Kontingent erreicht — neue Uploads werden abgelehnt, bis Platz frei wird',
     nearQuota: 'Fast voll — neue Uploads werden bald abgelehnt',
     projectDocuments: 'Projektdokumente',
-    archivDocuments: 'Organisations-Archiv',
+    archivDocuments: 'Büroablage',
     /** Count-neutral: wird auch bei genau einem Dokument gerendert. */
     documentCount: 'Dokumente: {count}',
     /** Die Obergrenze je Datei, nur lesend; `size` kommt mit Einheit. */
@@ -430,5 +612,103 @@ export const organization: typeof en.organization = {
       'Jede privilegierte Änderung — Budgets, Modellkonfiguration, Einstellungen, Legal Holds — wird im WorkOS-Audit-Trail Ihrer Organisation erfasst. Der Viewer öffnet sich in einem neuen Tab und kann Ereignisse exportieren.',
     open: 'Audit-Logs ansehen',
     error: 'Der Audit-Log-Viewer konnte nicht geöffnet werden.',
+  },
+  /** Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0088). */
+  deletedFolderContent: {
+    title: 'Inhalte aus gelöschten Ordnern',
+    description:
+      'Wer Chats, Antworten und Notizen sieht, die aus einem Ordner stammen, nachdem er endgültig gelöscht ist. Gilt sofort, auch für schon gelöschte Ordner.',
+    options: {
+      unchanged: 'Unverändert sichtbar',
+      project: 'Für alle im Projekt sichtbar',
+      admins: 'Nur für Admins',
+      remove: 'Mit dem Ordner entfernen',
+    },
+    hints: {
+      unchanged: 'Wer den Ordner lesen durfte, sieht sie weiter, mit dem Hinweis „Quelle gelöscht am …“.',
+      project: 'Alle Projektmitglieder sehen sie, mit demselben Hinweis.',
+      admins: 'Nur Organisations-Admins sehen sie.',
+      remove: 'Die endgültige Löschung entfernt sie mit: Notizen gelöscht, Antworten ersetzt durch „Inhalt entfernt“.',
+    },
+    retentionNote:
+      'Wie lange abgeleitete Inhalte bleiben, nachdem ihre Quelle gelöscht ist, entscheidet Ihre Organisation hier.',
+    saved: 'Gespeichert.',
+    saveError: 'Die Einstellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+    loadError: 'Die Einstellung konnte nicht geladen werden.',
+    readOnly: 'Nur Organisations-Admins können das ändern.',
+  },
+  /** Sensible Daten: die Liste, gegen die Piloti jeden Upload prüft (ADR-0086). */
+  screening: {
+    title: 'Prüfliste',
+    description:
+      'Piloti prüft jeden Upload gegen diese Listen, Chat-Nachrichten gegen die Inhaltsbegriffe und Nummern. Was anschlägt, liest kein Modell.',
+    enabled: 'Uploads und Chat prüfen',
+    enabledHint: 'Ausgeschaltet prüft Piloti nichts. Ihre Listen bleiben gespeichert.',
+    suggestedTitle: 'Es gilt der Vorschlag von Piloti',
+    suggestedBody:
+      'Ihr Büro hat noch keine eigene Liste gespeichert. Bis dahin prüft Piloti mit dieser. Sobald Sie speichern, gilt Ihre.',
+    namesTitle: 'Vor dem Hochladen: Datei- und Ordnernamen',
+    namesHint:
+      'Der Browser prüft die Namen, bevor er etwas sendet. Eine passende Datei wird nicht gesendet, außer die Person, die hochlädt, gibt sie einzeln frei.',
+    nameTerms: 'Namensbegriffe',
+    nameTermsHint: 'Trifft auch Wortteile: „Rechnung“ findet „Schlussrechnung“.',
+    nameExceptions: 'Ausnahmen',
+    nameExceptionsHint: 'Wörter, die einen Begriff enthalten, aber etwas anderes meinen: „Berechnung“ enthält „Rechnung“.',
+    contentTitle: 'Nach dem Hochladen: Inhalt',
+    contentHint:
+      'Piloti liest den Text auf dem eigenen Server und prüft ihn, bevor ein Modell ihn sieht. Treffer warten in der Quarantäne, bis jemand sie freigibt oder löscht. Dieselben Begriffe und Nummern gelten für Chat-Nachrichten: Piloti zeigt vor dem Senden, was es gefunden hat, und schickt die Nachricht nur maskiert an das Antwortmodell. Eine diktierte Nachricht hört vorher ein externes Sprachmodell, um sie zu transkribieren.',
+    contentTerms: 'Inhaltsbegriffe',
+    contentTermsHint: 'Trifft Wörter, die so beginnen: „Honorar“ findet „Honorarnote“.',
+    detectors: 'Nummern erkennen',
+    detectorsHint: 'Piloti rechnet die Prüfziffer nach. Eine Zahl, die nur so aussieht, schlägt nicht an.',
+    detector: {
+      iban: 'IBAN',
+      at_svnr: 'Sozialversicherungsnummer (AT)',
+      credit_card: 'Kreditkartennummer',
+    },
+    limits:
+      'Die Prüfung sieht Wörter und Nummern, keine Bedeutung. Eine Honorarvereinbarung, die keinen Ihrer Begriffe enthält, kommt durch. Gescannte Seiten und Bilder ohne Textebene prüft Piloti nur am Namen.',
+    termPlaceholder: 'Begriff eingeben, Enter drücken',
+    removeTerm: '„{term}“ entfernen',
+    emptyList: 'Keine Begriffe',
+    useSuggestion: 'Vorschlag übernehmen',
+    saved: 'Liste gespeichert. Sie gilt ab dem nächsten Upload, im Chat spätestens nach dem Neuladen der Seite.',
+    saveError: 'Die Liste konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+    saveForbidden:
+      'Sie können diese Liste nicht ändern. Dafür brauchen Sie die Berechtigung „Organisationseinstellungen verwalten“.',
+    invalid: 'Ein Begriff ist zu lang. Ein Begriff hat höchstens 80 Zeichen.',
+    readOnly: 'Ändern können diese Listen nur Personen mit der Berechtigung „Organisationseinstellungen verwalten“.',
+    loadError: 'Die Listen konnten gerade nicht geladen werden.',
+  },
+  /** Quarantäne: Dateien, die die Inhaltsprüfung zurückgehalten hat (ADR-0086). */
+  quarantine: {
+    listLabel: 'Zurückgehaltene Dateien',
+    empty: 'Nichts wartet auf Prüfung',
+    emptyHint:
+      'Hält die Inhaltsprüfung eine Datei zurück, erscheint sie hier. Sie sehen die Dateien, die Sie freigeben dürfen.',
+    whereProject: 'Projekt {name}',
+    whereProjectUnknown: 'Ein Projekt',
+    whereArchiv: 'Büroablage',
+    whereSession: 'Chat-Anhang',
+    reasonsLabel: 'Gründe',
+    noReason: 'Grund nicht lesbar',
+    unscreened:
+      'Nicht geprüft: Die Datei ließ sich nicht zu Ende lesen. Sie bleibt zurückgehalten, bis jemand sie freigibt.',
+    open: 'Ansehen',
+    openTitle: '„{name}“ dort öffnen, wo sie abgelegt ist',
+    release: 'Freigeben',
+    releaseTitle: '„{name}“ freigeben?',
+    releaseDescription:
+      'Piloti liest die Datei dann wie jeden anderen Upload: Sprachmodelle sehen ihren Inhalt, und die Suche findet sie. Die Freigabe wird mit Ihrem Namen protokolliert.',
+    released: '„{name}“ ist freigegeben und wird gelesen.',
+    releaseError: 'Die Datei konnte nicht freigegeben werden. Bitte versuchen Sie es erneut.',
+    changed: 'Jemand hat diese Datei schon bearbeitet. Die Liste ist jetzt aktuell.',
+    delete: 'Löschen',
+    deleteTitle: '„{name}“ löschen?',
+    deleteDescription: 'Die Datei wird aus Piloti entfernt. Das lässt sich nicht rückgängig machen.',
+    deleted: '„{name}“ ist gelöscht.',
+    deleteError: 'Die Datei konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.',
+    deleteErrorSession: 'Einen Chat-Anhang können nur Personen löschen, die an diesem Chat beteiligt sind.',
+    loadError: 'Die Quarantäne konnte gerade nicht geladen werden.',
   },
 }
