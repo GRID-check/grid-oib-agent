@@ -24,8 +24,11 @@ from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.schema import Chunk
 from aiq_agent.knowledge.schema import ContentType
 from aiq_agent.knowledge.scoping import ScopedCollection
+from sources.knowledge_layer.src.browse import _LIST_FILES_DESCRIPTION
+from sources.knowledge_layer.src.browse import MAX_TOPIC_COUNTS
 from sources.knowledge_layer.src.browse import MAX_TYPE_COUNTS
 from sources.knowledge_layer.src.browse import ListFilesConfig
+from sources.knowledge_layer.src.browse import file_row
 from sources.knowledge_layer.src.browse import file_rows
 from sources.knowledge_layer.src.browse import group_matches
 from sources.knowledge_layer.src.browse import list_files
@@ -746,3 +749,177 @@ class TestTheDokumentartProfile:
     def test_the_closing_note_says_unreadable_files_are_not_listed_and_names_their_key(self):
         closing = render_listing(select_files(_rows())).rsplit("Das ist ein Verzeichnis", 1)[1]
         assert "documents_unreadable:" in closing
+
+
+# ---------------------------------------------------------------------------
+# Themen, the photo's date and camera, and the topic filter.
+# ---------------------------------------------------------------------------
+
+LATITUDE = 47.812345
+LONGITUDE = 13.045678
+
+
+def _topical(*topic_sets: tuple[str, ...], folder: str = "Fotos"):
+    return file_rows(
+        _doc(f"Datei_{index:02}.jpg", folder, topics=list(topics)) for index, topics in enumerate(topic_sets)
+    )
+
+
+def _profile(text: str, label: str) -> str:
+    return next(line for line in text.splitlines() if line.startswith(label))
+
+
+class TestTopicsAndCaptureInTheListing:
+    def test_a_row_shows_themen_then_the_photo_date_and_camera_before_the_upload_date(self):
+        rows = file_rows(
+            [
+                _doc(
+                    "Foto.jpg",
+                    "Fotos",
+                    tags=["Foto"],
+                    topics=["Attika", "Fluchtweg"],
+                    capture={"captured_at": "2026-10-09T14:30:00+02:00", "camera": "Canon EOS R5"},
+                    added_at="2026-10-10",
+                )
+            ]
+        )
+        line = next(line for line in render_listing(select_files(rows)).splitlines() if line.startswith("- Foto.jpg"))
+        assert (
+            "Tags: Foto · Themen: Attika, Fluchtweg · aufgenommen 2026-10-09 (Kamera: Canon EOS R5) "
+            "· hochgeladen 2026-10-10" in line
+        )
+
+    def test_a_camera_without_a_date_is_still_named(self):
+        rows = file_rows([_doc("Foto.jpg", "Fotos", capture={"camera": "DJI Mavic 3"})])
+        assert "Kamera: DJI Mavic 3" in render_listing(select_files(rows))
+        assert "aufgenommen" not in render_listing(select_files(rows))
+
+    def test_coordinates_never_appear_in_the_listing_for_a_model_object(self):
+        rows = file_rows(
+            [
+                _doc(
+                    "Foto.jpg",
+                    "Fotos",
+                    capture={
+                        "captured_at": "2026-10-09T14:30:00",
+                        "latitude": LATITUDE,
+                        "longitude": LONGITUDE,
+                        "camera": "Canon EOS R5",
+                    },
+                )
+            ]
+        )
+        text = render_listing(select_files(rows))
+        assert "aufgenommen 2026-10-09" in text
+        assert str(LATITUDE) not in text
+        assert str(LONGITUDE) not in text
+
+    def test_coordinates_are_never_read_from_a_dict_row_either(self):
+        row = {
+            "file_name": "Foto.jpg",
+            "collection": "proj_1",
+            "shelf": "project",
+            "capture": {"captured_at": "2026-10-09T14:30:00", "latitude": LATITUDE, "longitude": LONGITUDE},
+        }
+        text = render_listing(select_files(file_rows([row])))
+        assert "aufgenommen 2026-10-09" in text
+        assert str(LATITUDE) not in text and str(LONGITUDE) not in text
+        assert not hasattr(file_row(row), "latitude")
+
+    def test_a_topic_filter_matches_part_of_a_topic_whatever_the_umlaut_spelling(self):
+        rows = _topical(("Holzrahmenbau",), ("Fensteröffnung",), ("Attika",))
+        assert [row.file_name for row in select_files(rows, topic="holz").rows] == ["Datei_00.jpg"]
+        assert [row.file_name for row in select_files(rows, topic="fensteroeffnung").rows] == ["Datei_01.jpg"]
+        assert select_files(rows, topic="Stiege").rows == []
+
+    def test_a_topic_filter_is_a_filter_so_the_folder_overview_is_left_out(self):
+        rows = _topical(("Attika",), ("Holz",))
+        assert select_files(rows).subfolders == [("Fotos", 2)]
+        assert select_files(rows, topic="attika").subfolders == []
+
+    def test_the_topic_profile_counts_each_file_once_and_names_the_most_frequent_first(self):
+        rows = _topical(("Attika", "Fluchtweg"), ("attika",), ("Holz",))
+        listing = select_files(rows)
+        assert listing.topics == [("Attika", 2), ("Fluchtweg", 1), ("Holz", 1)]
+        assert "Themen (von Piloti erkannt): Attika 2 · Fluchtweg 1 · Holz 1." in render_listing(listing).splitlines()
+
+    def test_the_profile_names_at_most_eight_topics_and_counts_the_whole_selection(self):
+        rows = _topical(*[(f"Thema{index:02}",) for index in range(10)])
+        listing = select_files(rows, limit=1)
+        line = _profile(render_listing(listing), "Themen (von Piloti erkannt)")
+        assert len(listing.topics) == 10
+        assert line.count(" · ") == MAX_TOPIC_COUNTS - 1
+        assert "Thema08" not in line
+
+    def test_no_profile_line_without_topics(self):
+        assert "Themen (von Piloti erkannt)" not in render_listing(select_files(_rows()))
+
+    def test_the_profile_sits_directly_under_the_dokumentarten_line(self):
+        rows = file_rows([_doc("Plan.pdf", "Plaene", tags=["Grundriss"], topics=["Attika"])])
+        lines = render_listing(select_files(rows)).splitlines()
+        dokumentarten = next(index for index, line in enumerate(lines) if line.startswith("Dokumentarten"))
+        assert lines[dokumentarten + 1] == "Themen (von Piloti erkannt): Attika 1."
+
+
+class TestTopicsThroughTheTool:
+    async def _call(self, **kwargs) -> str:
+        async with list_files(ListFilesConfig(), _builder()) as info:
+            return await info.single_fn(info.input_schema(**kwargs))
+
+    async def test_the_topic_argument_narrows_the_listing_and_is_described(self, scope):
+        set_turn_documents(
+            [
+                _doc("Attika_Detail.jpg", "Fotos", topics=["Attika"]),
+                _doc("Holzbau.jpg", "Fotos", topics=["Holzrahmenbau"]),
+            ]
+        )
+        text = await self._call(topic="attika")
+        assert "Attika_Detail.jpg" in text
+        assert "Holzbau.jpg" not in text
+        assert "`topic=`" in _LIST_FILES_DESCRIPTION
+
+
+# ---------------------------------------------------------------------------
+# Fassungen read from the names (the folder brief's revision series)
+# ---------------------------------------------------------------------------
+
+
+def _revisions():
+    return file_rows(
+        [
+            _doc("EG_Grundriss_Index_A_2026-06-01.pdf", "alt", added_at="2026-06-01"),
+            _doc("EG_Grundriss_Index_B_2026-07-02.pdf", "Zeichnungen", added_at="2026-07-02"),
+            _doc("Baubeschreibung.pdf", "Zeichnungen", added_at="2026-07-03"),
+            # The same name on another shelf is another document, never a Fassung of this one.
+            _doc("EG_Grundriss_Index_C_2026-08-14.pdf", shelf="archiv", added_at="2026-08-14"),
+        ]
+    )
+
+
+def test_an_older_fassung_is_marked_and_names_the_current_one():
+    text = render_listing(select_files(_revisions(), shelf="project"))
+    older = next(line for line in text.splitlines() if line.startswith("- EG_Grundriss_Index_A"))
+    current = next(line for line in text.splitlines() if line.startswith("- EG_Grundriss_Index_B"))
+    assert "ältere Fassung (Index A · 01.06.2026)" in older
+    assert "aktuell dem Namen nach: EG_Grundriss_Index_B_2026-07-02.pdf" in older
+    assert "aktuelle Fassung (Index B · 02.07.2026; 1 ältere" in current
+    assert "Fassung" not in next(line for line in text.splitlines() if line.startswith("- Baubeschreibung"))
+    assert "Fassungen: 1 Dokument(e)" in text
+
+
+def test_a_folder_filter_keeps_the_mark_of_a_current_fassung_kept_elsewhere():
+    """The older Fassung sits in ``alt/``; listing only it still names the current one."""
+    text = render_listing(select_files(_revisions(), shelf="project", folder="alt"))
+    assert "aktuell dem Namen nach: EG_Grundriss_Index_B_2026-07-02.pdf" in text
+    assert "Fassungen: 1 Dokument(e)" in text
+
+
+def test_fassungen_never_span_two_shelves():
+    text = render_listing(select_files(_revisions(), shelf="archiv"))
+    assert "Fassung" not in text
+
+
+def test_no_file_is_called_a_plan_in_the_fassung_marks():
+    """CONTEXT.md, „Fassung“: a name with an index says a file has Fassungen, not what it is."""
+    text = render_listing(select_files(_revisions(), shelf="project"))
+    assert not any(word in text for word in ("Plan ", "Planstand", "Pläne"))

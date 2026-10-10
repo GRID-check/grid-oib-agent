@@ -78,8 +78,17 @@ Weisungen) that the OIB base does not carry.
 _Avoid_: folder; folders organise documents within a shelf, a shelf decides who sees them.
 
 **Dokumentart** (document type):
-What a document is (an OIB-Richtlinie, a law, a standard, a plan…), set by a
-person and always trusted over a guess from the file name.
+What a document is (an OIB-Richtlinie, a law, a standard, a Grundriss, a
+Gutachten…), set by a person and always trusted over a guess from the file name.
+
+**Fassung** (revision):
+One state of a document: a later Fassung replaces an earlier one as the basis,
+and the earlier one stays readable on request. Offices mark it in the file name
+with an index or a date (*Stand*); Piloti reads that as a suggestion a person
+confirms.
+_Avoid_: Plan, Planstand, for any file. A name with an index says a file has
+Fassungen, not that it is a drawing; only its Dokumentart says what it is. Say
+Dokument, Datei, Fassung or Stand.
 
 **Piloti-Dokument**:
 A document Piloti wrote and a person approved and published, which then counts

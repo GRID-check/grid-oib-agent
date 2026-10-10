@@ -62,6 +62,9 @@ from nat.plugin_api import FunctionInfo
 from nat.plugin_api import FunctionRef
 from nat.plugin_api import register_function
 
+from .revision_series import find_revision_series
+from .revision_series import revision_label
+
 logger = logging.getLogger(__name__)
 
 #: Rows one ``list_files`` page returns by default, and the most it may ask for.
@@ -74,6 +77,8 @@ MAX_PAGE_SIZE = 100
 MAX_FOLDER_LINES = 30
 #: Document types named in the listing's profile line before it stops (the vocabulary has 12).
 MAX_TYPE_COUNTS = 8
+#: Topics (Themen) named in the listing's profile line before it stops.
+MAX_TOPIC_COUNTS = 8
 
 #: The summary is a hint for choosing what to open, not something to answer from.
 MAX_SUMMARY_CHARS = 160
@@ -137,6 +142,11 @@ class FileRow:
     tags: tuple[str, ...] = ()
     summary: str = ""
     added_at: str | None = None
+    #: Open topics (Themen) Piloti recognised, or a person set.
+    topics: tuple[str, ...] = ()
+    #: What the camera wrote: the ISO time it was taken, and make and model. Never a position.
+    captured_at: str | None = None
+    camera: str | None = None
 
     @property
     def searchable(self) -> str:
@@ -154,6 +164,9 @@ def file_row(row: Any) -> FileRow | None:
         return None
     shelf = _attr(row, "shelf")
     shelf = getattr(shelf, "value", shelf)
+    # Only the two facts a listing may show are read from the capture; the position stays unread.
+    capture = _attr(row, "capture")
+    capture = capture if isinstance(capture, dict) else {}
     return FileRow(
         file_name=file_name,
         shelf=str(shelf) if shelf else None,
@@ -164,6 +177,9 @@ def file_row(row: Any) -> FileRow | None:
         tags=tuple(str(tag) for tag in (_attr(row, "tags") or ()) if tag),
         summary=" ".join(str(_attr(row, "summary") or "").split()),
         added_at=(str(_attr(row, "added_at") or "").strip()[:10] or None),
+        topics=tuple(str(topic) for topic in (_attr(row, "topics") or ()) if topic),
+        captured_at=(str(capture.get("captured_at") or "").strip() or None),
+        camera=(str(capture.get("camera") or "").strip() or None),
     )
 
 
@@ -218,6 +234,12 @@ class Listing:
     #: page), most frequent first, and how many files carry none.
     types: list[tuple[str, int]] = field(default_factory=list)
     untyped: int = 0
+    #: Topics (Themen) across the whole selection, most frequent first.
+    topics: list[tuple[str, int]] = field(default_factory=list)
+    #: What the file names say about Fassungen, keyed by ``(collection, file_name)``:
+    #: the mark a row carries, and how many documents in the selection have several.
+    revision_marks: dict[tuple[str, str], str] = field(default_factory=dict)
+    revision_series: int = 0
 
 
 def _type_profile(rows: Sequence[FileRow]) -> tuple[list[tuple[str, int]], int]:
@@ -244,6 +266,27 @@ def _type_profile(rows: Sequence[FileRow]) -> tuple[list[tuple[str, int]], int]:
     return ranked, untyped
 
 
+def _topic_profile(rows: Sequence[FileRow]) -> list[tuple[str, int]]:
+    """The topics the selected files carry, counted per file, most frequent first.
+
+    A topic counts once per file whatever its case, and the spelling shown is the
+    first one seen. Ties sort alphabetically, so the line is the same on every page.
+    """
+    counts: dict[str, int] = {}
+    spelling: dict[str, str] = {}
+    for row in rows:
+        seen: set[str] = set()
+        for topic in row.topics:
+            key = fold(topic)
+            if key in seen:
+                continue
+            seen.add(key)
+            spelling.setdefault(key, topic)
+            counts[key] = counts.get(key, 0) + 1
+    ranked = sorted(counts, key=lambda key: (-counts[key], key))
+    return [(spelling[key], counts[key]) for key in ranked]
+
+
 def _subfolders(rows: Sequence[FileRow], folder: str | None) -> tuple[list[tuple[str, int]], int]:
     """The folders one level below ``folder`` with their file counts (whole subtree), and the files AT it."""
     counts: dict[str, int] = {}
@@ -260,6 +303,43 @@ def _subfolders(rows: Sequence[FileRow], folder: str | None) -> tuple[list[tuple
     return sorted(counts.items(), key=lambda item: fold(item[0])), here
 
 
+_RowKey = tuple[str, str]
+
+
+def revision_marks(rows: Sequence[FileRow]) -> tuple[dict[_RowKey, str], dict[_RowKey, _RowKey]]:
+    """Which rows the names say are the current or an older Fassung of one document.
+
+    The same grammar the folder brief reads (``revision_series.py``, its TS twin
+    held to one fixture), grouped per collection: a Fassung lives on one shelf.
+    Grouped over every row handed in, because an older Fassung is often moved
+    into an ``alt/`` folder that the listing's folder filter would cut away.
+    Returns the marks, and for each marked row the key of its series' current row.
+    """
+    by_collection: dict[str, list[FileRow]] = {}
+    for row in rows:
+        by_collection.setdefault(row.collection, []).append(row)
+    marks: dict[tuple[str, str], str] = {}
+    series_of: dict[_RowKey, _RowKey] = {}
+    for members in by_collection.values():
+        for series in find_revision_series(
+            members, filename=lambda row: row.file_name, created_at=lambda row: row.added_at
+        ):
+            head = series.current.item
+            label = revision_label(series.current.revision)
+            head_key = (head.collection, head.file_name)
+            series_of[head_key] = head_key
+            marks[(head.collection, head.file_name)] = (
+                f"aktuelle Fassung ({label}; {len(series.older)} ältere, dem Namen nach)"
+            )
+            for member in series.older:
+                older = member.item
+                series_of[(older.collection, older.file_name)] = head_key
+                marks[(older.collection, older.file_name)] = (
+                    f"ältere Fassung ({revision_label(member.revision)}) — aktuell dem Namen nach: {head.file_name}"
+                )
+    return marks, series_of
+
+
 def select_files(
     rows: Sequence[FileRow],
     *,
@@ -268,6 +348,7 @@ def select_files(
     name_contains: str | None = None,
     doc_class: str | None = None,
     added_since: str | None = None,
+    topic: str | None = None,
     sort: str = "folder",
     offset: int = 0,
     limit: int = DEFAULT_PAGE_SIZE,
@@ -281,6 +362,7 @@ def select_files(
     notes: list[str] = []
     shelves = (shelf,) if shelf else tuple(default_shelves)
     selected = [row for row in rows if row.shelf in shelves or (not shelf and row.shelf is None)]
+    marks, series_of = revision_marks(selected)
 
     resolved_folder: str | None = None
     if folder:
@@ -297,8 +379,11 @@ def select_files(
     if name_contains:
         words = _words(name_contains)
         selected = [row for row in selected if all(word in row.searchable for word in words)]
+    if topic:
+        needle = fold(topic)
+        selected = [row for row in selected if any(needle in fold(name) for name in row.topics)]
 
-    filtered = bool(doc_class or added_since or name_contains)
+    filtered = bool(doc_class or added_since or name_contains or topic)
     subfolders, here = ([], 0) if filtered else _subfolders(selected, resolved_folder)
 
     if sort == "newest":
@@ -313,10 +398,26 @@ def select_files(
     total = len(selected)
     page = selected[offset : offset + limit]
     types, untyped = _type_profile(selected)
-    return Listing(page, total, offset, limit, resolved_folder, subfolders, here, shelves, notes, types, untyped)
+    keys = {(row.collection, row.file_name) for row in selected}
+    return Listing(
+        page,
+        total,
+        offset,
+        limit,
+        resolved_folder,
+        subfolders,
+        here,
+        shelves,
+        notes,
+        types,
+        untyped,
+        topics=_topic_profile(selected),
+        revision_marks={key: mark for key, mark in marks.items() if key in keys},
+        revision_series=len({series_of[key] for key in keys if key in series_of}),
+    )
 
 
-def _row_line(row: FileRow, *, show_shelf: bool) -> str:
+def _row_line(row: FileRow, *, show_shelf: bool, mark: str | None = None) -> str:
     bits: list[str] = []
     if row.display_title and fold(row.display_title) != fold(row.file_name):
         bits.append(f"„{row.display_title}“")
@@ -325,6 +426,15 @@ def _row_line(row: FileRow, *, show_shelf: bool) -> str:
         bits.append(f"Dokumentart: {row.doc_class}")
     if row.tags:
         bits.append(f"Tags: {', '.join(row.tags)}")
+    if row.topics:
+        bits.append(f"Themen: {', '.join(row.topics)}")
+    if row.captured_at:
+        camera = f" (Kamera: {row.camera})" if row.camera else ""
+        bits.append(f"aufgenommen {row.captured_at[:10]}{camera}")
+    elif row.camera:
+        bits.append(f"Kamera: {row.camera}")
+    if mark:
+        bits.append(mark)
     if row.added_at:
         bits.append(f"hochgeladen {row.added_at}")
     if show_shelf and row.shelf:
@@ -357,6 +467,16 @@ def render_listing(listing: Listing, *, in_flight: Sequence[str] = ()) -> str:
         elif listing.untyped:
             # Said rather than left out: no line would read the same as "no profile".
             lines.append("Dokumentarten: keiner dieser Dateien hat Piloti eine Dokumentart zugeordnet.")
+        if listing.topics:
+            profile = " · ".join(f"{topic} {count}" for topic, count in listing.topics[:MAX_TOPIC_COUNTS])
+            lines.append(f"Themen (von Piloti erkannt): {profile}.")
+        if listing.revision_series:
+            lines.append(
+                f"Fassungen: {listing.revision_series} Dokument(e) liegen dem Dateinamen nach (Index, Datum) in "
+                "mehreren Fassungen vor; die Zeilen sind markiert. Stütze dich auf die aktuelle Fassung und "
+                "nenne eine ältere nur, wenn danach gefragt ist oder du vergleichst. Es ist eine Lesart der "
+                "Namen, keine Bestätigung: sage „dem Namen nach“."
+            )
 
     if listing.subfolders:
         lines.append("")
@@ -373,7 +493,10 @@ def render_listing(listing: Listing, *, in_flight: Sequence[str] = ()) -> str:
         lines.append("")
         lines.append("Dateien:")
         show_shelf = len(listing.shelves) > 1
-        lines.extend(_row_line(row, show_shelf=show_shelf) for row in listing.rows)
+        lines.extend(
+            _row_line(row, show_shelf=show_shelf, mark=listing.revision_marks.get((row.collection, row.file_name)))
+            for row in listing.rows
+        )
         remaining = listing.total - (listing.offset + len(listing.rows))
         if remaining > 0:
             lines.append(
@@ -777,12 +900,14 @@ _LIST_FILES_DESCRIPTION = (
     "- `name_contains=` words that must all appear in the file name or title („brandschutz eg“); "
     "case and umlaut spelling do not matter.\n"
     "- `doc_class=` one Dokumentart key; `added_since=` YYYY-MM-DD; `sort=newest` for recent uploads.\n"
+    "- `topic=` a Thema Piloti recognised (Attika, Holzrahmenbau); matches part of a topic.\n"
     "- `shelf=` project | archiv | session | base (base = the platform OIB corpus, listed only when asked).\n"
     "- `offset=` the next page, as the result says.\n"
     "WHEN NOT TO CALL — to learn what a file SAYS: that is `read_passage` / `knowledge_search`. To "
     'find which files MENTION a term: `knowledge_search(match="exact")`.\n'
     "RETURNS — a count, the subfolders, then one line per file: exact file name, title, folder, "
-    "Dokumentart, upload date, a one-line summary. An index, not a source: never cite it and never "
+    "Dokumentart, Themen, the date a photo was taken, upload date, a one-line summary. "
+    "An index, not a source: never cite it and never "
     "answer what a file contains from its summary. Write file names exactly as returned — each "
     "becomes a link the reader can open."
 )
@@ -830,6 +955,7 @@ async def list_files(config: ListFilesConfig, _builder: Builder):
         sort: str | None = None,
         offset: int | str | None = None,
         limit: int | str | None = None,
+        topic: str | None = None,
     ) -> str:
         """List the reader's files, like opening a folder in the Files pane.
 
@@ -843,6 +969,7 @@ async def list_files(config: ListFilesConfig, _builder: Builder):
             sort (str | None): folder (default) | name | newest.
             offset (int | None): Start of the page; the result names the next one.
             limit (int | None): Page size, default 40, at most 100.
+            topic (str | None): A Thema Piloti recognised (e.g. "Attika", "Holzrahmenbau"); matches part of a topic.
 
         Returns:
             str: A count, the subfolders with counts, and one line per file with its exact name.
@@ -876,6 +1003,7 @@ async def list_files(config: ListFilesConfig, _builder: Builder):
             name_contains=(name_contains or "").strip() or None,
             doc_class=doc_class,
             added_since=added_since,
+            topic=(topic or "").strip() or None,
             sort=sort,
             offset=_coerce_int(offset, 0, low=0, high=100_000),
             limit=_coerce_int(limit, DEFAULT_PAGE_SIZE, low=1, high=MAX_PAGE_SIZE),

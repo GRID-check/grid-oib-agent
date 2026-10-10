@@ -1,5 +1,5 @@
 {
-  "_comment": "Plan names and what the Planstand parser must read from them. Shared by frontends/ui/src/features/documents/lib/plan-series.spec.ts and tests/knowledge_layer_tests/test_plan_series.py, so the UI and the agent cannot read the same name differently. index = [kind, value]; key is the series key both sides group by.",
+  "_comment": "File names and what the revision parser must read from them. Shared by frontends/ui/src/features/documents/lib/revision-series.spec.ts and tests/knowledge_layer_tests/test_revision_series.py, so the UI and the agent cannot read the same name differently. index = [kind, value]; key is the series key both sides group by.",
   "parse": [
     {
       "name": "EG_Grundriss_Index_C_2026-08-14.pdf",
@@ -195,7 +195,7 @@
       ]
     },
     {
-      "_comment": "A single version is not a series, and two different plans are two series.",
+      "_comment": "A single version is not a series, and two different documents are two series.",
       "files": [
         {
           "id": "s1",
@@ -224,7 +224,7 @@
       ]
     },
     {
-      "_comment": "Different formats of the same Planstand are not versions of each other.",
+      "_comment": "Different formats of the same Fassung are not versions of each other.",
       "files": [
         {
           "id": "p",
