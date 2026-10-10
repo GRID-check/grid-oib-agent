@@ -82,7 +82,7 @@ describe("requireProjectAccess", () => {
       PROJECT_ID,
     );
 
-    expect(result).toEqual({ role: "project-admin" });
+    expect(result).toEqual({ role: "project-admin", closed: false, readsBecauseClosed: false });
     expect(mockGetDb).toHaveBeenCalled();
     expect(mockGetWorkOS).not.toHaveBeenCalled();
   });
@@ -112,7 +112,7 @@ describe("requireProjectAccess", () => {
 
     const result = await requireProjectAccess(baseSession, PROJECT_ID);
 
-    expect(result).toEqual({ role: "project-viewer" });
+    expect(result).toEqual({ role: "project-viewer", closed: false, readsBecauseClosed: false });
     expect(check).toHaveBeenCalledWith({
       organizationMembershipId: "om_1",
       permissionSlug: "project:view",
@@ -133,7 +133,7 @@ describe("requireProjectAccess", () => {
 
     const result = await requireProjectAccess(baseSession, PROJECT_ID);
 
-    expect(result).toEqual({ role: "project-editor" });
+    expect(result).toEqual({ role: "project-editor", closed: false, readsBecauseClosed: false });
   });
 
   test("returns project-admin for a project manager", async () => {
@@ -148,7 +148,7 @@ describe("requireProjectAccess", () => {
 
     const result = await requireProjectAccess(baseSession, PROJECT_ID);
 
-    expect(result).toEqual({ role: "project-admin" });
+    expect(result).toEqual({ role: "project-admin", closed: false, readsBecauseClosed: false });
   });
 
   test("throws 'Not found' when the user lacks the requested permission", async () => {

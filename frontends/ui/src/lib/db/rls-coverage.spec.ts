@@ -110,6 +110,10 @@ const BOUNDARY_MIGRATIONS = [
   // and who opened one under a folder with its own list. Keyed directly by its
   // organization; no foreign keys, so the row outlives what it names.
   '0114_document_access_log.sql',
+  // Adds project_people — the Steckbrief's people, with or without a Piloti
+  // account (ADR-0091). Keyed directly by its organization, tied to its project
+  // by a composite foreign key.
+  '0117_project_steckbrief.sql',
   // Adds mail_imports (ADR-0085), an Outlook archive a member is filing into a
   // project. Keyed by the organization, secured like product_feedback; the
   // stale-upload sweep reads across tenants under the platform role.

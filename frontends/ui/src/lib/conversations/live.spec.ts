@@ -58,7 +58,7 @@ beforeEach(() => {
     createdBy: 'user_creator',
     deletedAt: null,
   })
-  vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
+  vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor', closed: false, readsBecauseClosed: false })
   vi.mocked(findGrantForSubject).mockResolvedValue({ role: 'viewer' } as never)
   readers(session.userId)
 })

@@ -14,14 +14,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
-vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+vi.mock('@/lib/authz/projects', () => ({
+  requireProjectAccess: vi.fn(async () => ({ role: 'project-editor', closed: false, readsBecauseClosed: false })),
+}))
 vi.mock('@/lib/conversations/repository', () => ({ findConversationTenancy: vi.fn() }))
-vi.mock('@/lib/projects/repository', () => ({ findProjectCollectionName: vi.fn() }))
+vi.mock('@/lib/projects/repository', () => ({
+  findProjectCollectionName: vi.fn(),
+  findProjectTenancy: vi.fn(async () => ({ organizationId: 'org-1', deletedAt: null, status: 'active' })),
+}))
 vi.mock('@/lib/user-preferences/repository', () => ({ findUserPreferencesForSession: vi.fn() }))
 vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
 vi.mock('@/lib/sharing/repository', () => ({ countGrantsForResource: vi.fn() }))
 vi.mock('@/lib/authz/folder-access-repository', () => ({
-  projectHasCustomFolders: vi.fn(),
+  projectHasCustomOrBinnedFolders: vi.fn(),
   listProjectFolderTree: vi.fn(),
 }))
 vi.mock('@/lib/conversations/restricted-use-repository', () => ({ readConversationAudience: vi.fn() }))
@@ -30,7 +35,7 @@ vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn() 
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { restrictedCollectionName, type AccessFolder } from '@/lib/authz/folder-access'
 import { resolveMembershipRoles } from '@/lib/auth/membership-roles'
-import { listProjectFolderTree, projectHasCustomFolders } from '@/lib/authz/folder-access-repository'
+import { listProjectFolderTree, projectHasCustomOrBinnedFolders } from '@/lib/authz/folder-access-repository'
 import { readConversationAudience } from '@/lib/conversations/restricted-use-repository'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import { findProjectCollectionName } from '@/lib/projects/repository'
@@ -91,7 +96,7 @@ beforeEach(() => {
   // A conversation that does not exist yet: the first message creates it private.
   vi.mocked(findConversationTenancy).mockResolvedValue(null)
   vi.mocked(countGrantsForResource).mockResolvedValue(0)
-  vi.mocked(projectHasCustomFolders).mockResolvedValue(true)
+  vi.mocked(projectHasCustomOrBinnedFolders).mockResolvedValue(true)
   vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
   vi.mocked(readConversationAudience).mockResolvedValue({
     exists: false,
@@ -133,7 +138,7 @@ describe('interactive chat scope (ADR-0087)', () => {
   })
 
   it('carries none, and asks nothing more, in a project that restricts nothing', async () => {
-    vi.mocked(projectHasCustomFolders).mockResolvedValue(false)
+    vi.mocked(projectHasCustomOrBinnedFolders).mockResolvedValue(false)
 
     const { scope } = await buildCollectionScopeFromRequest(director, chatTurn)
 
@@ -224,7 +229,7 @@ describe('every other scope carries no restricted collection, whoever asks (ADR-
   it('never reads the folder tree for a scope that is not an interactive chat turn', async () => {
     await buildCollectionScopeFromRequest(director, { projectId: PROJECT_ID, conversationId: CONVERSATION_ID })
 
-    expect(projectHasCustomFolders).not.toHaveBeenCalled()
+    expect(projectHasCustomOrBinnedFolders).not.toHaveBeenCalled()
   })
 
   it('an anonymous deployment: no session, no clearance', async () => {

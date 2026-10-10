@@ -4,6 +4,7 @@ import { getDb } from '@/lib/db'
 import { executeRows } from '@/lib/db/execute-rows'
 import { BadRequestError } from '@/lib/api/errors'
 import { sourceFoldersOfCollections } from '@/lib/authz/folder-access'
+import { isProjectClosed, projectClosedError } from './project-status'
 import { PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS, projectMemory, projects } from '@/lib/db/schema'
 import type {
   NewProjectMemoryItem,
@@ -699,11 +700,14 @@ export async function createProjectMemoryItemForProject(
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
   const [project] = await db
-    .select({ organizationId: projects.organizationId, collectionName: projects.collectionName })
+    .select({ organizationId: projects.organizationId, collectionName: projects.collectionName, status: projects.status })
     .from(projects)
     .where(eq(projects.id, projectId))
     .limit(1)
   if (!project) return null
+  // The agent's door has no session, so the seam in `requireProjectAccess`
+  // never sees it: a closed project's memory is read-only here too (ADR-0090).
+  if (isProjectClosed(project)) throw projectClosedError()
 
   const { restrictedCollections, ...rest } = values
   const restrictedFolderIds = await restrictionFromCollections(

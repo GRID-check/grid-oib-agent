@@ -108,6 +108,11 @@ export interface FileItem {
    * the reader asked for archived documents and is looking at a mixed list.
    */
   lifecycle?: DocumentLifecycle | null
+  /**
+   * A filed report drawn from a folder that was purged since (ADR-0088): when
+   * the purge ran, for „Quelle gelöscht am …". Null for every other document.
+   */
+  sourceDeletedAt?: string | null
 }
 
 export interface FileAssignee {

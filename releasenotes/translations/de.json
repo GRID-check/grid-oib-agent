@@ -252,8 +252,16 @@
     "de": "Eine fertige Aufgabe, die kein Dokument abgelegt und keinen Chat eröffnet hat, öffnet jetzt den Bericht ihres Laufs, eine fehlgeschlagene ihren Gedankengang."
   },
   {
+    "en": "A folder deleted before this release stays deleted for good. A project folder can no longer be deleted while it holds a subfolder you may not edit; folders in the Archiv delete as before.",
+    "de": "Ein vor diesem Release gelöschter Ordner bleibt endgültig gelöscht. Ein Projektordner lässt sich nicht mehr löschen, solange er einen Unterordner enthält, den Sie nicht bearbeiten dürfen; Ordner im Archiv werden wie bisher gelöscht."
+  },
+  {
     "en": "A folder holding subfolders you cannot read can only be moved by an organization admin, and a demoted admin stops reaching every folder within a minute. Review requests go only to people who may read the folder, and the projects overview counts only the documents you may read.",
     "de": "Einen Ordner mit Unterordnern, die Sie nicht lesen dürfen, kann nur ein Organisations-Admin verschieben, und wer kein Admin mehr ist, erreicht binnen einer Minute nicht mehr jeden Ordner. Prüfanfragen gehen nur an Personen, die den Ordner lesen dürfen, und die Projektübersicht zählt nur die Dokumente, die Sie lesen dürfen."
+  },
+  {
+    "en": "A folder upload into a project with a restricted folder no longer refuses the subfolders of a folder it has just created.",
+    "de": "Ein Ordner-Upload in ein Projekt mit einem eingeschränkten Ordner lehnt die Unterordner eines gerade erst angelegten Ordners nicht mehr ab."
   },
   {
     "en": "A follow-up like \"kürze Punkt 3\" changes that document in place instead of producing a second version of it, so the conversation keeps working on one draft rather than on a growing pile of near-copies.",
@@ -936,6 +944,10 @@
     "de": "Beim Löschen eines Dokuments mit mehr als 500 Versionen werden jetzt die Dateien aller Versionen entfernt, nicht nur die der ersten 500."
   },
   {
+    "en": "Deleting a folder in a project now moves it to the project's Papierkorb with its subfolders and documents. It disappears from lists, search and answers at once and can be restored with its access for 14 days.",
+    "de": "Wer einen Ordner in einem Projekt löscht, verschiebt ihn jetzt samt Unterordnern und Dokumenten in den Papierkorb des Projekts. Er verschwindet sofort aus Listen, Suche und Antworten und lässt sich 14 Tage lang mit seinen Zugriffsrechten wiederherstellen."
+  },
+  {
     "en": "Deleting a folder never deletes what was filed in it. The confirmation names where things go — \"Its 4 documents and 1 subfolder are not deleted — they move to Brandschutz\" — and the documents and any subfolders are re-filed into the folder above before the folder itself is removed, with a toast afterwards repeating the count.",
     "de": "Das Löschen eines Ordners löscht niemals, was darin abgelegt ist. In der Bestätigung steht, wohin die Inhalte verschoben werden: „Die 4 Dokumente und der 1 Unterordner werden nicht gelöscht – sie werden in den Ordner Brandschutz verschoben.“ Bevor der Ordner selbst entfernt wird, werden die Dokumente und etwaige Unterordner in den übergeordneten Ordner verschoben. Eine anschließende Toast-Meldung wiederholt die Anzahl."
   },
@@ -1014,6 +1026,10 @@
   {
     "en": "Each line of Das Wichtigste now carries what you would write down, the number, the class or the deadline. Expanded, it shows the reference, the derivation or the case in which it does not apply.",
     "de": "Jede Zeile von „Das Wichtigste“ trägt jetzt das, was man mitschreibt: die Zahl, die Klasse, die Frist. Aufgeklappt zeigt sie die Fundstelle, die Herleitung oder den Fall, in dem die Aussage nicht gilt."
+  },
+  {
+    "en": "Each project now has a Steckbrief in its settings: the address, the period from start to completion, and everyone who worked on it, including former staff and external planners without a Piloti account.",
+    "de": "Jedes Projekt hat jetzt in seinen Einstellungen einen Steckbrief: die Adresse, den Zeitraum vom Beginn bis zur Fertigstellung und alle, die daran mitgearbeitet haben, auch ehemalige Mitarbeitende und externe Planerinnen und Planer ohne Piloti-Konto."
   },
   {
     "en": "Each search step of the Herleitung can now be folded. With three or more steps it arrives folded with only the latest open, so the conclusion stays in view.",
@@ -1106,6 +1122,10 @@
   {
     "en": "Files now open the way a folder does anywhere else: click a folder to step into it, and a path at the top (\"All Files › Brandschutz\") shows exactly where you are and lets you click back out to any level above. Folders show up as cards right beside your files, at every level, not just at the top.",
     "de": "Dateien lassen sich jetzt wie überall sonst in Ordnern öffnen: Klicken Sie auf einen Ordner, um ihn zu öffnen. Der Pfad oben („Alle Dateien › Brandschutz“) zeigt genau, wo Sie sich befinden, und ermöglicht Ihnen, zu jeder übergeordneten Ebene zurückzukehren. Ordner werden auf jeder Ebene direkt neben Ihren Dateien als Karten angezeigt, nicht nur ganz oben."
+  },
+  {
+    "en": "Files of a closed project say so wherever they appear, and the projects list can show active, closed or all projects.",
+    "de": "Dateien eines abgeschlossenen Projekts sind überall, wo sie erscheinen, als solche gekennzeichnet, und die Projektliste kann aktive, abgeschlossene oder alle Projekte zeigen."
   },
   {
     "en": "Files you upload start being read right away, even while another office is importing a large folder, and a busy day brings more reading capacity instead of a longer wait.",
@@ -1432,6 +1452,10 @@
     "de": "Ein Chat, der die Einstellungen seiner Organisation nachlädt, hält die Gespräche aller anderen nicht mehr kurz an."
   },
   {
+    "en": "Only name, function, company and period are kept for each person, and any person can be removed for good. Piloti does not use them in its answers.",
+    "de": "Für jede Person werden nur Name, Funktion, Firma und Zeitraum gespeichert, und jede Person lässt sich endgültig entfernen. Piloti verwendet diese Angaben nicht in seinen Antworten."
+  },
+  {
     "en": "Only runs you start yourself file a report at the moment. Scheduled runs still deliver into their conversation and will follow later.",
     "de": "Nur von Ihnen selbst gestartete Läufe erstellen derzeit einen Bericht. Geplante Läufe werden weiterhin in der jeweiligen Unterhaltung zugestellt; Berichte folgen später."
   },
@@ -1466,6 +1490,10 @@
   {
     "en": "Organization admins can now rescan all failed ingestions at once from Organization, Enterprise: every file that could not be read is sent back through reading under its own name.",
     "de": "Organisationsadmins können unter Organisation, Enterprise jetzt alle fehlgeschlagenen Einlesevorgänge auf einmal erneut scannen: Jede Datei, die nicht gelesen werden konnte, wird unter ihrem eigenen Namen erneut eingelesen."
+  },
+  {
+    "en": "Organization admins choose who still sees chats, answers and notes drawn from a deleted folder, under Sensible Daten. Such content shows „Quelle gelöscht am …“, or is removed with the folder if they choose so.",
+    "de": "Organisations-Admins legen unter Sensible Daten fest, wer Chats, Antworten und Notizen aus einem gelöschten Ordner noch sieht. Solche Inhalte zeigen „Quelle gelöscht am …“ oder werden, wenn sie es so wählen, mit dem Ordner entfernt."
   },
   {
     "en": "Organizations that use Piloti with their own provider key see tokens instead of points, and can set their limits in tokens.",
@@ -1634,6 +1662,10 @@
   {
     "en": "Project admins can create and run scheduled skills again. Only organization admins could do so after a permission was renamed.",
     "de": "Projekt-Admins können geplante Skills wieder anlegen und ausführen. Nach der Umbenennung einer Berechtigung ging das nur noch für Organisations-Admins."
+  },
+  {
+    "en": "Project admins can delete a folder in the Papierkorb for good at once. A legal hold on the folder, its project or a document in it prevents that.",
+    "de": "Projekt-Admins können einen Ordner im Papierkorb sofort endgültig löschen. Eine rechtliche Sperre auf dem Ordner, seinem Projekt oder einem Dokument darin verhindert das."
   },
   {
     "en": "Project and archive uploads are no longer capped at 100 MB per upload, so a full Einreichung goes through; only your organization's storage quota applies.",
@@ -2590,6 +2622,10 @@
   {
     "en": "You can import an Outlook archive (.pst or .ost, up to 25 GB) into a project's files, and every email becomes a folder with its attachments and a note holding its sender, recipients, date and text. Piloti can then find and cite your correspondence; your administrator switches the import on.",
     "de": "Sie können ein Outlook-Archiv (.pst oder .ost, bis zu 25 GB) in die Dateien eines Projekts importieren. Dabei wird jede E-Mail zu einem Ordner mit ihren Anhängen und einer Notiz mit Absender, Empfängern, Datum und Text. Piloti kann Ihre Korrespondenz anschließend finden und zitieren; Ihre Administratorin oder Ihr Administrator schaltet den Import ein."
+  },
+  {
+    "en": "You can now close a finished project in its settings. It stays complete and searchable, becomes read-only, and everyone in your office can read it, while folders with their own access list stay restricted.",
+    "de": "Ein fertiges Projekt lässt sich jetzt in seinen Einstellungen abschließen. Es bleibt vollständig und durchsuchbar, wird schreibgeschützt und ist für alle in Ihrem Büro lesbar, während Ordner mit eigener Zugriffsliste eingeschränkt bleiben."
   },
   {
     "en": "You can now dictate a question: press the microphone in the message field and speak, and the text appears where your cursor was, with German and English kept as you said them and hesitations such as „äh“ left out. Dictation is free and never counts against your organization's budget.",

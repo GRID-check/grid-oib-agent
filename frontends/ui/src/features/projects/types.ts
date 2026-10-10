@@ -1,3 +1,4 @@
+import type { ProjectStatus } from '@/lib/projects/project-status'
 import type { ApplicableStandard } from '@/lib/oib/applicable-standards'
 import type { ProjectProfile } from '@/lib/project-profile/types'
 
@@ -14,6 +15,10 @@ export interface ProjectOverviewData {
   id: string
   name: string
   collectionName: string
+  /** `active` or `closed` (ADR-0090). */
+  status: ProjectStatus
+  /** ISO timestamp; set when closed. */
+  closedAt: string | null
   createdAt: string
   profileDisplay: {
     title?: string

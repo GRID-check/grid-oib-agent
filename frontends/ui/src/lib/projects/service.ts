@@ -29,10 +29,12 @@ import type {
   ProjectMemoryKind,
 } from '@/lib/db/schema'
 import { getProjectOverviewData } from './overview-query'
+import { isProjectClosed, type ProjectStatus } from './project-status'
 import {
   clearanceOf,
   customFolderNames,
   getHiddenFolderIds,
+  purgedFolderDates,
   readableFolderIdsFor,
 } from '@/lib/authz/folder-access'
 import {
@@ -49,6 +51,7 @@ import {
   listProjectsInOrg,
   renameProjectInOrg,
   restoreProjectIfPending,
+  setProjectStatusInOrg,
   setProjectWorkosResourceId,
   softDeleteProjectAndEnqueue,
 } from './repository'
@@ -79,6 +82,8 @@ export async function listProjects(
 
   const visible = await Promise.all(
     projects.map(async (project) => {
+      // Every member reads a closed project (ADR-0090), and so finds it here.
+      if (isProjectClosed(project)) return project
       const allowed = await checkResourcePermission({
         organizationMembershipId: session.organizationMembershipId,
         organizationId: session.organizationId,
@@ -236,7 +241,9 @@ export async function deleteProject(
   confirmName: string,
   request: Request
 ): Promise<{ purgeAfter: Date }> {
-  await requireProjectAccess(session, projectId, 'project:manage')
+  // A closed project can still be deleted (ADR-0090): deletion is the GDPR
+  // path, and it is soft, with its grace period, exactly as for an active one.
+  await requireProjectAccess(session, projectId, 'project:manage', { evenWhenClosed: true })
 
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError()
@@ -277,13 +284,55 @@ export async function deleteProject(
   return { purgeAfter }
 }
 
+/**
+ * Close a project, or reopen it (ADR-0090). `project:manage`, asked as if the
+ * project were active: it is the one write a closed project allows. Closing
+ * deletes and purges nothing; it makes the project read-only and opens it to
+ * every member of the organization for reading, with every folder that has its
+ * own role list as restricted as before. Both directions are audited. A
+ * project already in the requested state is a conflict, so a double click
+ * writes one event.
+ */
+export async function setProjectStatus(
+  session: AuthorizedSession,
+  projectId: string,
+  status: ProjectStatus,
+  request?: Request
+): Promise<Project> {
+  await requireProjectAccess(session, projectId, 'project:manage', { evenWhenClosed: true })
+  const project =
+    status === 'closed'
+      ? await setProjectStatusInOrg(projectId, session.organizationId, {
+          status: 'closed',
+          closedBy: session.userId,
+          at: new Date(),
+        })
+      : await setProjectStatusInOrg(projectId, session.organizationId, { status: 'active' })
+  if (!project) {
+    throw new ConflictError(status === 'closed' ? 'The project is already closed.' : 'The project is not closed.', {
+      reason: status === 'closed' ? 'already-closed' : 'not-closed',
+    })
+  }
+
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: status === 'closed' ? 'project.closed' : 'project.reopened',
+    targetType: 'project',
+    targetId: projectId,
+    metadata: { name: project.name },
+    request,
+  })
+  return project
+}
+
 /** Restore a soft-deleted project during its grace period. */
 export async function restoreProject(
   session: AuthorizedSession,
   projectId: string,
   request: Request
 ): Promise<void> {
-  await requireProjectAccess(session, projectId, 'project:manage', { includeDeleted: true })
+  await requireProjectAccess(session, projectId, 'project:manage', { includeDeleted: true, evenWhenClosed: true })
 
   const restored = await restoreProjectIfPending(projectId, session.organizationId)
   if (!restored) {
@@ -321,7 +370,14 @@ export type ProjectMemoryItemPatch = Partial<
  * names the folders it is restricted to, for the lock; it only reaches a reader
  * already cleared for all of them.
  */
-export type ProjectMemoryListItem = ProjectMemoryItem & { restrictedFolderNames?: string[] }
+export type ProjectMemoryListItem = ProjectMemoryItem & {
+  restrictedFolderNames?: string[]
+  /**
+   * When a folder the note came from was purged (ADR-0088): the panel's
+   * „Quelle gelöscht am …". The earliest, when several were.
+   */
+  sourceDeletedAt?: string
+}
 
 /**
  * Every folder of the project (tombstones included) this session may read now
@@ -334,7 +390,7 @@ export async function memoryClearance(
 ): Promise<{ cleared: readonly string[] }> {
   const projectCollection = await findProjectCollectionName(projectId, session.organizationId)
   if (!projectCollection) return { cleared: [] }
-  return { cleared: await readableFolderIdsFor(session.organizationId, projectId, await clearanceOf(session)) }
+  return { cleared: await readableFolderIdsFor(session.organizationId, projectId, await clearanceOf(session, projectId)) }
 }
 
 /** Name the folders behind each restricted item; open items pass through untouched. */
@@ -344,17 +400,26 @@ async function labelRestrictions(
   items: ProjectMemoryItem[]
 ): Promise<ProjectMemoryListItem[]> {
   if (!items.some((item) => (item.restrictedFolderIds?.length ?? 0) > 0)) return items
-  const names = await customFolderNames(session.organizationId, projectId)
-  return items.map((item) =>
-    item.restrictedFolderIds && item.restrictedFolderIds.length > 0
-      ? {
-          ...item,
-          restrictedFolderNames: item.restrictedFolderIds
-            .map((folderId) => names.get(folderId))
-            .filter((name): name is string => name !== undefined),
-        }
-      : item
-  )
+  const [names, purgedAt] = await Promise.all([
+    customFolderNames(session.organizationId, projectId),
+    purgedFolderDates(session.organizationId, projectId),
+  ])
+  return items.map((item) => {
+    if (!item.restrictedFolderIds || item.restrictedFolderIds.length === 0) return item
+    const deleted = item.restrictedFolderIds
+      .flatMap((folderId) => {
+        const at = purgedAt.get(folderId)
+        return at ? [at.toISOString()] : []
+      })
+      .sort()
+    return {
+      ...item,
+      restrictedFolderNames: item.restrictedFolderIds
+        .map((folderId) => names.get(folderId))
+        .filter((name): name is string => name !== undefined),
+      ...(deleted.length > 0 ? { sourceDeletedAt: deleted[0] } : {}),
+    }
+  })
 }
 
 /**

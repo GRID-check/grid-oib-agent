@@ -26,7 +26,23 @@ import type { DocumentListPage, DocumentListRow } from './repository'
  * renders.
  */
 export type ListedDocument = Omit<DocumentListRow, 'metadata'> &
-  DocumentMetadata & { assignees: AssignedPerson[] }
+  DocumentMetadata & {
+    assignees: AssignedPerson[]
+    /**
+     * When a folder this report was drawn from was purged (ADR-0088): the
+     * purge marks a filed report it finds (`metadata.sourceDeleted`), and the
+     * listing shows „Quelle gelöscht am …". Null for every other document.
+     */
+    sourceDeletedAt?: string | null
+  }
+
+/** The purge's mark on a filed report, when it carries a real date. */
+function sourceDeletedAtOf(metadata: unknown): string | null {
+  if (typeof metadata !== 'object' || metadata === null) return null
+  const mark = (metadata as { sourceDeleted?: { at?: unknown } }).sourceDeleted
+  const at = mark && typeof mark === 'object' ? mark.at : undefined
+  return typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? at : null
+}
 
 /**
  * What a row needs before it leaves the BFF, whichever query found it: the
@@ -41,7 +57,7 @@ export async function toListedDocuments(
   // without this they would stay 'pending' forever (no completion callback).
   const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
 
-  const listed = reconciled.map(({ metadata: _metadata, ...row }) => row)
+  const listed = reconciled.map(({ metadata, ...row }) => ({ ...row, sourceDeletedAt: sourceDeletedAtOf(metadata) }))
 
   if (!isCollaborationEnabled(session) || listed.length === 0) {
     return listed.map((row) => ({ ...row, assignees: [] }))

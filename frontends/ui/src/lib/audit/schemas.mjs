@@ -146,15 +146,37 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   },
   // A project folder restricted to roles, or opened again (ADR-0087). The
   // roles after the change, comma-separated; empty means open. Also emitted
-  // when a folder move or delete changes the restrictions over a subtree
+  // when a folder move changes the restrictions over a subtree
   // (`folder-service.ts`): then `grants` is every folder with its own list now
-  // over the moved folder (or over a deleted one's contents), outermost first,
-  // each folder's `role:level` entries comma-separated and the folders
-  // `;`-separated, and `roles` the same lists' roles alone (the field the
-  // first, role-only design wrote, so a reader of the trail finds it).
+  // over the moved folder, outermost first, each folder's `role:level` entries
+  // comma-separated and the folders `;`-separated, and `roles` the same lists'
+  // roles alone (the field the first, role-only design wrote, so a reader of the
+  // trail finds it).
   'project.folder.access_changed': {
     targets: [{ type: 'project' }],
     metadata: { folderId: 'string', grants: 'string', roles: 'string', documentsMoved: 'number' },
+  },
+  // A folder moved to the Papierkorb with its subfolders and documents
+  // (`lib/projects/folder-bin.ts`). Counts and the purge date; names stay out.
+  'project.folder.binned': {
+    targets: [{ type: 'project' }],
+    metadata: { folderId: 'string', documents: 'number', folders: 'number', purgeAfter: 'string' },
+  },
+  // A folder put back from the Papierkorb. `restoredTo` is `original` or
+  // `root` (its parent was gone).
+  'project.folder.restored': {
+    targets: [{ type: 'project' }],
+    metadata: { folderId: 'string', documents: 'number', folders: 'number', restoredTo: 'string' },
+  },
+  // „Endgültig löschen" from the Papierkorb: the purge run at once.
+  'project.folder.purged': {
+    targets: [{ type: 'project' }],
+    metadata: { folderId: 'string', documents: 'number', folders: 'number' },
+  },
+  // Organisation → Sensible Daten → „Inhalte aus gelöschten Ordnern".
+  'org.deleted_folder_content.updated': {
+    targets: [{ type: 'organization' }],
+    metadata: { policy: 'string' },
   },
   // Upload screening (ADR-0086). Its own action rather than
   // `org.settings.updated`, because "who widened what may be uploaded" has to
@@ -302,6 +324,33 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   // Deliberately metadata-free: the target id says which project came back.
   'project.restored': {
     targets: [{ type: 'project' }],
+  },
+  // A project closed (read-only, open to every member) or reopened (ADR-0090).
+  'project.closed': {
+    targets: [{ type: 'project' }],
+    metadata: { name: 'string' },
+  },
+  'project.reopened': {
+    targets: [{ type: 'project' }],
+    metadata: { name: 'string' },
+  },
+  // The Steckbrief (ADR-0091). A person is named by id only: the audit log
+  // outlives an erasure, and a name in it would not.
+  'project.period.changed': {
+    targets: [{ type: 'project' }],
+    metadata: { startedOn: 'string', endedOn: 'string' },
+  },
+  'project.person.added': {
+    targets: [{ type: 'project' }],
+    metadata: { personId: 'string' },
+  },
+  'project.person.updated': {
+    targets: [{ type: 'project' }],
+    metadata: { personId: 'string' },
+  },
+  'project.person.deleted': {
+    targets: [{ type: 'project' }],
+    metadata: { personId: 'string' },
   },
   'project.role.assigned': {
     targets: [{ type: 'project' }],

@@ -121,11 +121,24 @@ dropped folder gets.
 | Ending | When | What the person sees |
 |---|---|---|
 | `completed` | The cursor passed the last item | Inbox: imported, linking to the folder; later, the upload summary |
-| `failed` | Not an archive; quota full; the person lost write access (to the project, or to the `E-Mail-Import` or archive folder) or left; passing failures through every backoff with no mail filed; a job that kept vanishing | Inbox: stopped (emailed if unread after 30 min); the dialog words the reason (`error_code`) |
+| `failed` | Not an archive; quota full; the person lost write access (to the project, or to the `E-Mail-Import` or archive folder) or left; the import's folder went to the Papierkorb; passing failures through every backoff with no mail filed; a job that kept vanishing | Inbox: stopped (emailed if unread after 30 min); the dialog words the reason (`error_code`) |
 | `cancelled` | The person (or an org project administrator) cancelled; a send unfinished after 48 h | The dialog |
 
 Each ending seals the upload batch and deletes the staged archive. What was
 filed before a failure or a cancel stays, and gets its upload summary.
+
+**A folder of the import deleted mid-import.** Nothing is filed into a folder in
+the Papierkorb: the database refuses it (`GFD01`, migration 0115). When the
+folder deleted is the archive's own (`E-Mail-Import/<archive>`, remembered as
+`root_folder_id`) or one above it, the import ends `failed` at once (`stopped`,
+the detail naming the Papierkorb), checked when a slice starts and when one
+fails. It is not made again: the mails before the cursor are in the bin, so a
+new folder would hold only the rest, and deleting the import's folder is a
+person's word on it. Restoring the folder brings back what was filed; starting
+the import again files the archive whole (` (2)`). A folder deleted *inside*
+the archive's (an Outlook folder, one mail's) is a passing failure: the next
+slice makes the folder again and files the mail into it.
+
 The archive is staged under the project's prefix, so deleting the project
 mid-import erases it with the project, and the purge aborts an upload still open
 there (`purger/storage.js`, `abortMultipartUploads`).

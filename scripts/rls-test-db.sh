@@ -110,7 +110,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, answer-feedback, restricted memory and download-log suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, answer-feedback, restricted memory, download-log, Papierkorb, closed-project and Steckbrief suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -125,6 +125,7 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/projects/collection-placement.integration.spec.ts \
     src/lib/projects/folder-visibility.integration.spec.ts \
     src/lib/documents/shelf-folders.integration.spec.ts \
+    src/lib/projects/folder-bin.integration.spec.ts \
     src/lib/documents/stuck-processing.integration.spec.ts \
     src/lib/project-profile/profile-bindings.integration.spec.ts \
     src/lib/compliance/legal-hold.integration.spec.ts \
@@ -135,7 +136,9 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/budgets/service.integration.spec.ts \
     src/lib/feedback/repository.integration.spec.ts \
     src/lib/citations/repository.integration.spec.ts \
-    src/lib/profiler/repository.integration.spec.ts
+    src/lib/profiler/repository.integration.spec.ts \
+    src/lib/projects/project-status.integration.spec.ts \
+    src/lib/projects/steckbrief.integration.spec.ts
 
 # The job-queue suites claim from ONE table, whichever lane a job is in, so run
 # in parallel they claim each other's seeded jobs. One file at a time.
@@ -383,7 +386,7 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migrations 0111 to 0114: each on a database of its own.
+# Migrations 0111 to 0115: each on a database of its own.
 #
 # `migrate_until <db> <tag>` creates <db> and applies the journal up to and
 # including <tag>, so every section below starts from exactly the chain it
@@ -590,6 +593,63 @@ check_in grid_download_log "SELECT count(*) FROM document_access_log" "0" "0113 
 echo "==> 0114 download log and down migration verified"
 
 # ---------------------------------------------------------------------------
+# Migration 0115: the Papierkorb, and its DOWN.
+#
+# Seeded before 0114 runs: a tombstone the old delete left behind is
+# backfilled as PURGED (its contents had been moved out), a living folder is
+# not; the trigger refuses a document filed into a deleted folder and a folder
+# created under one, and lets an Archiv folder (no project, no bin lock) take a
+# document; an Archiv folder cannot be deleted in place, since the Archiv has no
+# Papierkorb; the hold predicate covers a folder through a document in it. The
+# down refuses while a folder is in the bin, runs once the bin is empty
+# (columns, triggers and functions gone, the 0093 predicate back, which does not
+# know folders), and 0114 re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0115 Papierkorb backfill, triggers and down migration on grid_bin"
+migrate_until grid_bin 0114_document_access_log
+sql_in grid_bin <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000110', 'org_0110', 'Papierkorb 0114', 'user_1', 'proj_0110');
+INSERT INTO project_folders (id, organization_id, project_id, name, path, deleted_at, deleted_by) VALUES
+  ('e1e1e1e1-e1e1-4000-8000-000000000110', 'org_0110', 'aaaaaaaa-0000-4000-8000-000000000110', 'Ablage 0114', 'Ablage 0114', '2026-10-01T08:00:00Z', 'user_1');
+INSERT INTO project_folders (id, organization_id, project_id, name, path) VALUES
+  ('e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110', 'aaaaaaaa-0000-4000-8000-000000000110', 'Plaene 0114', 'Plaene 0114');
+INSERT INTO project_folders (id, organization_id, scope, name, path) VALUES
+  ('e3e3e3e3-e3e3-4000-8000-000000000110', 'org_0110', 'archiv', 'Normen 0114', 'Normen 0114');
+SQL
+apply_in grid_bin 0115_folder_bin.sql
+check_in grid_bin "SELECT (purged_at = deleted_at)::text || ',' || coalesce(bin_root_id::text, 'none') FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000110'" "true,none" "an older tombstone is backfilled as purged, with no bin entry"
+check_in grid_bin "SELECT count(*) FROM project_folders WHERE id IN ('e2e2e2e2-e2e2-4000-8000-000000000110', 'e3e3e3e3-e3e3-4000-8000-000000000110') AND purged_at IS NULL AND deleted_at IS NULL" "2" "a living project folder and an Archiv folder are untouched"
+refused_in grid_bin "INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id) VALUES ('org_0110', 'user_1', 'spaet.pdf', 'k/spaet', 'proj_0110', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000110', 'e1e1e1e1-e1e1-4000-8000-000000000110');" "is deleted; nothing may be filed into it" "a document cannot be filed into a deleted folder"
+refused_in grid_bin "INSERT INTO project_folders (organization_id, project_id, parent_id, name, path) VALUES ('org_0110', 'aaaaaaaa-0000-4000-8000-000000000110', 'e1e1e1e1-e1e1-4000-8000-000000000110', 'Neu', 'Ablage 0114/Neu');" "is deleted; nothing may be filed into it" "a folder cannot be created under a deleted folder"
+refused_in grid_bin "UPDATE project_folders SET purged_at = now() WHERE id = 'e2e2e2e2-e2e2-4000-8000-000000000110';" "project_folders_bin_state_check" "a living folder cannot be purged"
+refused_in grid_bin "UPDATE project_folders SET deleted_at = now(), deleted_by = 'user_1' WHERE id = 'e3e3e3e3-e3e3-4000-8000-000000000110';" "project_folders_bin_state_check" "an Archiv folder has no Papierkorb and no tombstone"
+sql_in grid_bin <<<"INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, folder_id) VALUES ('org_0110', 'user_1', 'norm.pdf', 'k/norm', 'archiv_org_0110', 'completed', 'archiv', 'e3e3e3e3-e3e3-4000-8000-000000000110');"
+check_in grid_bin "SELECT count(*) FROM documents WHERE folder_id = 'e3e3e3e3-e3e3-4000-8000-000000000110'" "1" "an Archiv folder takes a document: the trigger takes no bin lock for it"
+sql_in grid_bin <<'SQL'
+INSERT INTO documents (id, organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id) VALUES
+  ('d1d1d1d1-d1d1-4000-8000-000000000110', 'org_0110', 'user_1', 'Plan.pdf', 'k/plan', 'proj_0110', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000110', 'e2e2e2e2-e2e2-4000-8000-000000000110');
+INSERT INTO legal_holds (entity_type, entity_id, organization_id, reason, created_by) VALUES
+  ('document', 'd1d1d1d1-d1d1-4000-8000-000000000110', 'org_0110', 'rls test', 'user_1');
+SQL
+check_in grid_bin "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110')::text" "true" "a hold on a document in a folder covers the folder"
+sql_in grid_bin <<<"UPDATE legal_holds SET released_at = now() WHERE organization_id = 'org_0110';"
+sql_in grid_bin <<<"UPDATE project_folders SET deleted_at = now(), deleted_by = 'user_1', bin_root_id = id WHERE id = 'e2e2e2e2-e2e2-4000-8000-000000000110';"
+refused_in grid_bin "$(cat drizzle/0115_folder_bin.down.sql)" "the Papierkorb is not empty" "the down refuses while a folder is in the bin"
+check_in grid_bin "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('bin_root_id', 'purged_at')" "2" "the refused down changed nothing"
+sql_in grid_bin <<<"UPDATE project_folders SET deleted_at = NULL, deleted_by = NULL, bin_root_id = NULL WHERE id = 'e2e2e2e2-e2e2-4000-8000-000000000110';"
+apply_in grid_bin 0115_folder_bin.down.sql
+check_in grid_bin "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('bin_root_id', 'purged_at')" "0" "down dropped the bin columns"
+check_in grid_bin "SELECT count(*) FROM pg_trigger WHERE tgname IN ('documents_deleted_folder_guard', 'project_folders_deleted_parent_guard')" "0" "down dropped the triggers"
+check_in grid_bin "SELECT count(*) FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000110' AND deleted_at IS NOT NULL" "1" "the tombstone stays a tombstone"
+sql_in grid_bin <<<"INSERT INTO legal_holds (entity_type, entity_id, organization_id, reason, created_by) VALUES ('document', 'd1d1d1d1-d1d1-4000-8000-000000000110', 'org_0110', 'rls test 2', 'user_1');"
+check_in grid_bin "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110')::text" "false" "the 0093 predicate is back: it does not know folders"
+apply_in grid_bin 0115_folder_bin.sql
+check_in grid_bin "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110')::text || ',' || (SELECT (purged_at IS NOT NULL)::text FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000110')" "true,true" "0114 re-applies"
+
+echo "==> 0115 backfill, triggers and down migration verified"
+
+# ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),
 # and its DOWN migration.
 #
@@ -710,3 +770,78 @@ $MIGRATE_F -v ON_ERROR_STOP=1 -q -f "drizzle/0102_archiv_folders.sql" >/dev/null
 }
 
 echo "==> 0102 backfill, constraints and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0116: project status, its CHECKs, the closed-project insert guard,
+# and its DOWN migration, on the fully migrated database as the owner. The down
+# refuses while a project is closed (an older build would let every write in);
+# once every project is active it goes, and 0115 applies again.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0116 project status and its down migration on grid_app"
+# Down migrations run newest first: 0117's trigger uses 0116's function.
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0117_project_steckbrief.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0117 FAILED before the 0116 check — re-run without -q to see the error" >&2
+  exit 1
+}
+check14() {
+  local got
+  got=$($MIGRATE -tAc "$1")
+  if [ "$got" != "$2" ]; then
+    echo "0115 ASSERTION FAILED: $3" >&2
+    echo "  query: $1" >&2
+    echo "  got:   $got" >&2
+    echo "  want:  $2" >&2
+    exit 1
+  fi
+}
+$MIGRATE -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000114', 'org_0114', 'Status 0115', 'user_1', 'proj_0114');
+SQL
+check14 "SELECT status FROM projects WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'" "active" "a new project is active"
+$MIGRATE -v ON_ERROR_STOP=1 -q -c "UPDATE projects SET status = 'closed', closed_at = now(), closed_by = 'user_1' WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
+if $MIGRATE -q -c "INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id) VALUES ('org_0114', 'user_1', 'x.pdf', 'k/0114/x', 'proj_0114', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000114')" >/dev/null 2>&1; then
+  echo "0115 ASSERTION FAILED: a document was inserted into a closed project" >&2
+  exit 1
+fi
+if $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0116_project_status.down.sql" >/dev/null 2>&1; then
+  echo "0116 ASSERTION FAILED: the down migration ran with a closed project standing" >&2
+  exit 1
+fi
+check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "4" "the refused down migration changed nothing"
+$MIGRATE -v ON_ERROR_STOP=1 -q -c "UPDATE projects SET status = 'active', closed_at = NULL, closed_by = NULL WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0116_project_status.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0116 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+check14 "SELECT count(*) FROM information_schema.columns WHERE table_name = 'projects' AND column_name IN ('status','closed_at','closed_by')" "0" "down dropped the three columns"
+check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "0" "down dropped the four triggers"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0116_project_status.sql" >/dev/null || {
+  echo "MIGRATION 0116 FAILED when re-applied after its down migration" >&2
+  exit 1
+}
+check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "4" "0115 applies again"
+$MIGRATE -v ON_ERROR_STOP=1 -q -c "DELETE FROM projects WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0117_project_steckbrief.sql" >/dev/null || {
+  echo "MIGRATION 0117 FAILED when re-applied after the 0116 check" >&2
+  exit 1
+}
+echo "==> 0116 project status and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0117: the Steckbrief's period and people, and its DOWN migration
+# (lossy on purpose: the people go with the table), then 0116 again.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0117 Steckbrief down migration on grid_app"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0117_project_steckbrief.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0116 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+check14 "SELECT to_regclass('public.project_people') IS NULL" "t" "down dropped project_people"
+check14 "SELECT count(*) FROM information_schema.columns WHERE table_name = 'projects' AND column_name IN ('started_on','ended_on')" "0" "down dropped the period"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0117_project_steckbrief.sql" >/dev/null || {
+  echo "MIGRATION 0116 FAILED when re-applied after its down migration" >&2
+  exit 1
+}
+check14 "SELECT relrowsecurity FROM pg_class WHERE relname = 'project_people'" "t" "0116 applies again, with row-level security"
+echo "==> 0117 Steckbrief and down migration verified"

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
-import { AlertCircle, Archive, Boxes, FileText, LayoutGrid, List, RotateCcw, X } from 'lucide-react'
+import { AlertCircle, Archive, Boxes, FileText, LayoutGrid, List, RotateCcw, Trash2, X } from 'lucide-react'
+import Link from 'next/link'
 import { sourceBase } from '@/lib/ui/source-tint'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -150,6 +151,7 @@ export function FileWorkspace({
     selectedFolderId,
     onSelectFolder: selectFolder,
     reloadFiles: listing.load,
+    binHref: shelf.bin?.href,
   })
   const { folders } = tree
   const moves = useDocumentMoves(files, setFiles, folders)
@@ -314,6 +316,14 @@ export function FileWorkspace({
           <List />
         </ToggleGroupItem>
       </ToggleGroup>
+      {/* The Papierkorb: deleted folders, restorable until their purge (ADR-0088). */}
+      {shelf.bin && (
+        <Button asChild variant="ghost" size="icon" aria-label={t('workspace.openBin')} title={t('workspace.openBin')}>
+          <Link href={shelf.bin.href} data-testid="files-open-bin">
+            <Trash2 />
+          </Link>
+        </Button>
+      )}
       <FileFilterMenu
         canCollaborate={canCollaborate}
         filters={filters}

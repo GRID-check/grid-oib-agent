@@ -6,7 +6,8 @@
  *
  *   - which documents at `processing` the sweep is handed: those with no job,
  *     and those whose job is dead, and NOT those whose job is still waiting or
- *     running, however many there are;
+ *     running, however many there are, nor those in a folder in the
+ *     Papierkorb (ADR-0088);
  *   - that the job id a row remembers leaves with the status;
  *   - which report filings are still `queued` after the window (migration 0105,
  *     its CHECK and its partial index).
@@ -61,7 +62,14 @@ describe.skipIf(!url)('background-work sweeps against live Postgres', () => {
 
   async function seedDocument(
     name: string,
-    fields: { organizationId?: string; projectId?: string; status?: string; ageMinutes: number; jobId?: string },
+    fields: {
+      organizationId?: string
+      projectId?: string
+      status?: string
+      ageMinutes: number
+      jobId?: string
+      folderId?: string
+    },
   ) {
     const organizationId = fields.organizationId ?? ORG
     const projectId = fields.projectId ?? PROJECT
@@ -69,10 +77,11 @@ describe.skipIf(!url)('background-work sweeps against live Postgres', () => {
     const rows = await context.withTenant({ organizationId }, () =>
       db.execute<{ id: string }>(sql`
         INSERT INTO documents
-          (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, metadata, updated_at)
+          (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id, metadata, updated_at)
         VALUES
           (${organizationId}, ${USER}, ${name + '.ifc'}, ${'k/' + name}, 'coll_stuck', ${fields.status ?? 'processing'},
-           'project', ${projectId}::uuid, ${metadata}::jsonb, ${minutesAgo(fields.ageMinutes).toISOString()}::timestamptz)
+           'project', ${projectId}::uuid, ${fields.folderId ?? null}::uuid, ${metadata}::jsonb,
+           ${minutesAgo(fields.ageMinutes).toISOString()}::timestamptz)
         RETURNING id
       `),
     )
@@ -115,6 +124,24 @@ describe.skipIf(!url)('background-work sweeps against live Postgres', () => {
     await seedDocument('running-job', { ageMinutes: 90, jobId: running })
     await seedDocument('fresh', { ageMinutes: 2 })
     await seedDocument('finished', { ageMinutes: 60, status: 'completed' })
+    // Filed while the folder lived (nothing is filed into a deleted one), then
+    // the folder went to the Papierkorb.
+    const [binned] = Array.from(
+      await context.withTenant({ organizationId: ORG }, () =>
+        db.execute<{ id: string }>(sql`
+          INSERT INTO project_folders (organization_id, project_id, name, path)
+          VALUES (${ORG}, ${PROJECT}::uuid, 'Papierkorb', '/Papierkorb')
+          RETURNING id
+        `),
+      ),
+    )
+    await seedDocument('in-the-bin', { ageMinutes: 50, folderId: String(binned.id) })
+    await context.withTenant({ organizationId: ORG }, () =>
+      db.execute(sql`
+        UPDATE project_folders SET deleted_at = now(), deleted_by = ${USER}, bin_root_id = id
+        WHERE id = ${String(binned.id)}::uuid
+      `),
+    )
     await seedDocument('elsewhere', {
       organizationId: OTHER_ORG,
       projectId: OTHER_PROJECT,
@@ -128,6 +155,7 @@ describe.skipIf(!url)('background-work sweeps against live Postgres', () => {
       await db.execute(sql`DELETE FROM task_runs WHERE organization_id IN (${ORG}, ${OTHER_ORG})`)
       await db.execute(sql`DELETE FROM documents WHERE organization_id IN (${ORG}, ${OTHER_ORG})`)
       await db.execute(sql`DELETE FROM bff_job_queue WHERE lane IN (${ORG}, ${OTHER_ORG})`)
+      await db.execute(sql`DELETE FROM project_folders WHERE organization_id IN (${ORG}, ${OTHER_ORG})`)
       await db.execute(sql`DELETE FROM projects WHERE organization_id IN (${ORG}, ${OTHER_ORG})`)
     })
     const { closeDb } = await import('@/lib/db')
@@ -157,6 +185,12 @@ describe.skipIf(!url)('background-work sweeps against live Postgres', () => {
     expect(names).not.toContain('running-job')
     expect(names).not.toContain('fresh')
     expect(names).not.toContain('finished')
+  })
+
+  it('leaves out a row in a folder in the Papierkorb: restoring the folder dispatches it again', async () => {
+    const stuck = await documents.listStuckProcessingDocuments(minutesAgo(15), 100)
+
+    expect(stuck.map((row) => nameOf(row.id))).not.toContain('in-the-bin')
   })
 
   it('bounds the batch', async () => {

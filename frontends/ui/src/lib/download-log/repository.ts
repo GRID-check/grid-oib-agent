@@ -7,6 +7,7 @@
  */
 
 import 'server-only'
+import type { ProjectStatus } from '@/lib/projects/project-status'
 import { and, desc, eq, gte, ilike, lt, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
@@ -65,6 +66,8 @@ export interface AccessLogRow {
   scope: DownloadLogScope
   projectId: string | null
   projectName: string | null
+  /** The project's status now (ADR-0090); null outside a project or once it is gone. */
+  projectStatus: ProjectStatus | null
   documentId: string
   documentName: string
   versionId: string | null
@@ -116,6 +119,7 @@ export async function listAccessLog(
         scope: documentAccessLog.scope,
         projectId: documentAccessLog.projectId,
         projectName: projects.name,
+        projectStatus: projects.status,
         documentId: documentAccessLog.documentId,
         documentName: documentAccessLog.documentName,
         versionId: documentAccessLog.versionId,
@@ -147,6 +151,7 @@ export async function listAccessLog(
     scope: row.scope,
     projectId: row.projectId,
     projectName: row.projectName,
+    projectStatus: row.projectStatus ?? null,
     documentId: row.documentId,
     documentName: row.documentName,
     versionId: row.versionId,

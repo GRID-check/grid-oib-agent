@@ -201,6 +201,13 @@ export async function buildCollectionScopeFromRequest(
    * sign as reachable (ADR-0084).
    */
   verifiedConversationId: string | undefined
+  /**
+   * The caller reaches the project only because it is closed (ADR-0090): they
+   * may read it and chat about it, and steer no run but their own. The job
+   * envelope signs no project for them (`signJobRequestContext`). Always set
+   * here; optional so a stand-in that predates it reads as a member.
+   */
+  projectReadOnly?: boolean
 }> {
   const anonymous = !isAuthRequired()
 
@@ -221,13 +228,19 @@ export async function buildCollectionScopeFromRequest(
       ? await authorizeConversationScope(session as AuthorizedSession, conversationId)
       : false
 
+  let projectReadOnly = false
   if (projectId && session && !anonymous) {
     if (explicitProject) {
       // The collection scope is what a chat request retrieves against, so
       // reaching it is chatting in the project — `project:chat`, not
       // `project:view`. A reader gets the project's documents through the
       // documents API; they do not get the agent pointed at them.
-      await requireProjectAccess(session as AuthorizedSession, projectId, CHAT_PERMISSIONS)
+      const access = await requireProjectAccess(
+        session as AuthorizedSession,
+        projectId,
+        CHAT_PERMISSIONS
+      )
+      projectReadOnly = access.readsBecauseClosed
     } else {
       // Implicit fallback from the stored active_project_id preference, which
       // can go stale (project soft-deleted, membership revoked) and is never
@@ -235,7 +248,12 @@ export async function buildCollectionScopeFromRequest(
       // projectId — global listings 404, general chat WS upgrades 403 — so
       // degrade to an unscoped request instead of failing.
       try {
-        await requireProjectAccess(session as AuthorizedSession, projectId, CHAT_PERMISSIONS)
+        const access = await requireProjectAccess(
+          session as AuthorizedSession,
+          projectId,
+          CHAT_PERMISSIONS
+        )
+        projectReadOnly = access.readsBecauseClosed
       } catch {
         projectId = undefined
       }
@@ -315,5 +333,6 @@ export async function buildCollectionScopeFromRequest(
     projectCollectionName,
     conversationId,
     verifiedConversationId: conversationVerified ? conversationId : undefined,
+    projectReadOnly: Boolean(projectId) && projectReadOnly,
   }
 }

@@ -42,7 +42,7 @@ import {
   widenConversationAudience,
   type AudienceWidening,
 } from '@/lib/conversations/restricted-use'
-import { clearanceOf, requireFolderWrite } from '@/lib/authz/folder-access'
+import { requireFolderWrite } from '@/lib/authz/folder-access'
 import {
   documentIdsExisting,
   findDocumentTenancy,
@@ -237,12 +237,7 @@ const conversationDescriptor: ShareableDescriptor = {
     widenConversationAudience(session, resourceId, widening, write),
   // The same record, asked per person at read time: who may still read it.
   readersAmong: async (organizationId, resourceId, userIds, asker) =>
-    peopleWhoMayRead(
-      organizationId,
-      resourceId,
-      userIds,
-      asker ? new Map([[asker.userId, await clearanceOf(asker)]]) : undefined,
-    ),
+    peopleWhoMayRead(organizationId, resourceId, userIds, undefined, asker),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
     // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).

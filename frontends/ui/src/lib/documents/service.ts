@@ -105,7 +105,7 @@ import { findOpenJobId } from '@/lib/jobs-queue/repository'
 import {
   BFF_JOB_PRIORITY,
   emptyCounts,
-  FAILED_NAMES_KEPT,
+  recordJobFailure,
   requesterOf,
   type BffJobPriority,
   type BimExtractPayload,
@@ -1631,12 +1631,6 @@ async function forEachBounded<T>(
   await Promise.all(workers)
 }
 
-/** Keep the names of the first few failures for the log; the count stays exact. */
-function recordFailure(counts: JobCounts, name: string): void {
-  counts.failed += 1
-  if (counts.failedNames.length < FAILED_NAMES_KEPT) counts.failedNames.push(name)
-}
-
 /**
  * Rebuild every document's chunks in one project: authorize, then hand the walk
  * to a job.
@@ -1798,7 +1792,7 @@ export async function runReindexSlice(
         return
       }
       // One document's failure must not abandon the rest of the project.
-      recordFailure(counts, documentDisplayName(row))
+      recordJobFailure(counts, documentDisplayName(row))
     }
   })
 
@@ -1924,7 +1918,7 @@ export async function runReingestFailedSlice(
   const counts: JobCounts = { ...payload.counts, failedNames: [...payload.counts.failedNames] }
   await forEachBounded(ids, REINDEX_CONCURRENCY, async (id) => {
     const outcome = await retryFailedDocument(session, id)
-    if (outcome === 'failed') recordFailure(counts, id)
+    if (outcome === 'failed') recordJobFailure(counts, id)
     else counts[outcome] += 1
   })
 
@@ -2148,6 +2142,63 @@ export async function renameDocument(
 }
 
 /**
+ * The erasure steps of one project document, after its access check and its
+ * legal-hold check: chunks, objects (every version, rendition, thumbnail and
+ * extracted image), grants and assignments, the row, then the chunks once
+ * more. Shared by {@link deleteDocument} and the purge of a folder from the
+ * Papierkorb (`lib/projects/folder-bin.ts`), so a document leaves by one path
+ * whichever way it goes. Idempotent: a document whose row is already gone is a
+ * no-op for every step. Answers whether the backend confirmed the first chunk
+ * purge (`null`: the row owns no chunks).
+ */
+export async function eraseProjectDocument(doc: Document, organizationId: string): Promise<boolean | null> {
+  const projectId = doc.projectId
+  if (projectId === null) throw new NotFoundError()
+  // Best-effort: remove the ingested chunks so a deleted document stops showing
+  // up in retrieval. A backend hiccup must not block the object and row
+  // cleanup below, so it is recorded on the audit event rather than thrown.
+  //
+  // No ref → no chunks to purge, and this is where that mattered most. A
+  // machine-authored row was never dispatched to `/v1/ingest`, so `file_ids:
+  // [doc.filename]` names nothing of its own — and on the filename collision
+  // `generatedFilename` makes reachable, it names a HUMAN document's chunks and
+  // deletes them. That document keeps `status: 'completed'`, keeps its green
+  // „zitierbar“ badge and its Ask affordance, and answers nothing from then on:
+  // a silent, unlogged, unrecoverable content loss triggered by deleting an
+  // unrelated file. The purge is skipped rather than made conditional on the
+  // collision, because for an agent row it is ALWAYS wrong, collision or not.
+  const purgeRef = collectionFileRef(doc)
+  // `null`: nothing of its own to purge. `false`: the backend did not confirm,
+  // and the audit row says so — the platform vector reconcile is the sweep.
+  const chunksPurged = purgeRef
+    ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
+    : null
+
+  await eraseDocumentObjectsOrKeepRow(doc, organizationId)
+
+  // Only once the bytes are gone. Grants and assignments are cheap to keep and
+  // expensive to lose: a delete that stops at the object store above leaves a
+  // document people can still open, and it should still be shared with them.
+  await Promise.all([
+    purgeResourceCollaboration('document', doc.id).catch(() => undefined),
+    deleteAssignmentsForResource(organizationId, 'document', doc.id).catch(
+      () => undefined
+    ),
+  ])
+
+  await deleteProjectDocument(doc.id, organizationId, projectId)
+
+  // Once more, now that the row is gone: an ingest of this document that
+  // asked `GET /api/internal/document-exists` before the row went saw it,
+  // and kept chunks it inserted after the first purge (ADR-0054, correction
+  // 18). Any check from here on reads „gone“ and discards its own. Logged
+  // inside, never thrown: the row is gone, and the orphan sweep is the net.
+  if (purgeRef) await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
+
+  return chunksPurged
+}
+
+/**
  * Delete a project document: purge its RAG chunks (best-effort), remove the
  * SeaweedFS object, delete the row, and audit. Requires `project:edit` on the
  * owning project — the same permission the upload path checks. A legal hold on
@@ -2179,46 +2230,7 @@ export async function deleteDocument(
   // that a hold exists) and before the first destructive step below.
   await assertNoActiveHold(session.organizationId, 'document', documentId)
 
-  // Best-effort: remove the ingested chunks so a deleted document stops showing
-  // up in retrieval. A backend hiccup must not block the object and row
-  // cleanup below, so it is recorded on the audit event rather than thrown.
-  //
-  // No ref → no chunks to purge, and this is where that mattered most. A
-  // machine-authored row was never dispatched to `/v1/ingest`, so `file_ids:
-  // [doc.filename]` names nothing of its own — and on the filename collision
-  // `generatedFilename` makes reachable, it names a HUMAN document's chunks and
-  // deletes them. That document keeps `status: 'completed'`, keeps its green
-  // „zitierbar“ badge and its Ask affordance, and answers nothing from then on:
-  // a silent, unlogged, unrecoverable content loss triggered by deleting an
-  // unrelated file. The purge is skipped rather than made conditional on the
-  // collision, because for an agent row it is ALWAYS wrong, collision or not.
-  const purgeRef = collectionFileRef(doc)
-  // `null`: nothing of its own to purge. `false`: the backend did not confirm,
-  // and the audit row says so — the platform vector reconcile is the sweep.
-  const chunksPurged = purgeRef
-    ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
-    : null
-
-  await eraseDocumentObjectsOrKeepRow(doc, session.organizationId)
-
-  // Only once the bytes are gone. Grants and assignments are cheap to keep and
-  // expensive to lose: a delete that stops at the object store above leaves a
-  // document people can still open, and it should still be shared with them.
-  await Promise.all([
-    purgeResourceCollaboration('document', documentId).catch(() => undefined),
-    deleteAssignmentsForResource(session.organizationId, 'document', documentId).catch(
-      () => undefined
-    ),
-  ])
-
-  await deleteProjectDocument(documentId, session.organizationId, doc.projectId)
-
-  // Once more, now that the row is gone: an ingest of this document that
-  // asked `GET /api/internal/document-exists` before the row went saw it,
-  // and kept chunks it inserted after the first purge (ADR-0054, correction
-  // 18). Any check from here on reads „gone“ and discards its own. Logged
-  // inside, never thrown: the row is gone, and the orphan sweep is the net.
-  if (purgeRef) await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
+  const chunksPurged = await eraseProjectDocument(doc, session.organizationId)
 
   // Data-provenance event: who removed which file from which project.
   await recordAuditEvent({
