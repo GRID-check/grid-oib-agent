@@ -518,7 +518,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     results = asyncio.run(_run(list(args.parts or PARTS)))
     if args.out:
-        args.out.write_text(json.dumps(results, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+        args.out.write_text(json.dumps(results, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
         print(f"\nwrote {args.out}")
     return 0
 
