@@ -64,8 +64,8 @@ resampled by an odd factor (that is what makes moiré):
 - On a phone narrower than the print, `max-width: 100%`, and nothing else.
 
 An unknown id fails `astro check` (`ArtId` is the manifest's keys) and
-`npm run check`. How to make, export and place a new print: the
-`aiq-piloti-riso` skill and `art/riso/README.md`.
+`npm run check`. How to make, export and place a new print:
+[`art/riso/README.md`](../../../art/riso/README.md#making-a-print).
 
 Photos are not screened, so a photo goes into the slot as an `astro:assets`
 `<Image>`; resizing it is fine.
@@ -74,7 +74,9 @@ Photos are not screened, so a photo goes into the slot as an `astro:assets`
 
 The rule, from the person who asked for all this: playful, never overdone.
 
-- One tactile object per section at most, and that is its plate.
+- One tactile object per section at most, and that is its plate. Before adding
+  one, name what the page loses without it; if the answer is nothing, leave it
+  out.
 - Nothing that carries text people must read is rotated more than 2°.
 - Motion is short (the `quick` and `base` tokens of
   [the motion system](../../../../../docs/ux/motion.md)), happens once, and not at all under

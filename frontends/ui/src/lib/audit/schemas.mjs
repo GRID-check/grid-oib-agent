@@ -329,7 +329,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   'project.restored': {
     targets: [{ type: 'project' }],
   },
-  // A project closed (read-only, open to every member) or reopened (ADR-0089).
+  // A project closed (read-only, open to every member) or reopened (ADR-0090).
   'project.closed': {
     targets: [{ type: 'project' }],
     metadata: { name: 'string' },
@@ -338,7 +338,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'project' }],
     metadata: { name: 'string' },
   },
-  // The Steckbrief (ADR-0090). A person is named by id only: the audit log
+  // The Steckbrief (ADR-0091). A person is named by id only: the audit log
   // outlives an erasure, and a name in it would not.
   'project.period.changed': {
     targets: [{ type: 'project' }],
@@ -356,7 +356,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'project' }],
     metadata: { personId: 'string' },
   },
-  // „Ausmisten" at a close (ADR-0091): what the person confirmed into the
+  // „Ausmisten" at a close (ADR-0092): what the person confirmed into the
   // Papierkorb, and how far they went against Piloti's proposal.
   'project.cleanup.confirmed': {
     targets: [{ type: 'project' }],
