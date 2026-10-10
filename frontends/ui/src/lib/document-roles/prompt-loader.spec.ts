@@ -13,13 +13,15 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentRoleBinding } from './repository'
+import type { ProjectProfile } from '@/lib/project-profile/types'
 
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/projects/repository', () => ({ findProjectProfile: vi.fn(async () => null) }))
 vi.mock('./repository', () => ({ listProjectDocumentRoles: vi.fn(async () => []) }))
 
-const { loadDocumentRolesPromptSection } = await import('./prompt-loader')
+const { loadDocumentRolesPromptSection, loadMissingDocuments, recommendedSlotsFor } = await import('./prompt-loader')
 const { getHiddenFolderIds, getRestrictedFolderIds } = await import('@/lib/authz/folder-access')
+const { findProjectProfile } = await import('@/lib/projects/repository')
 const { listProjectDocumentRoles } = await import('./repository')
 
 const RESTRICTED = 'folder-honorare'
@@ -71,5 +73,87 @@ describe('loadDocumentRolesPromptSection', () => {
 
     expect(await loadDocumentRolesPromptSection('proj-1', 'org-1')).toBe('')
     expect(listProjectDocumentRoles).not.toHaveBeenCalled()
+  })
+})
+
+/** A stored profile with the given facts, each confirmed. */
+function profileWith(facts: Record<string, string | number | boolean>): ProjectProfile {
+  const meta = { confidence: 'confirmed' as const, source: 'onboarding' as const, updatedAt: '2026-01-01T00:00:00.000Z' }
+  return {
+    facts: Object.fromEntries(Object.entries(facts).map(([key, value]) => [key, { value, ...meta }])),
+    goals: {},
+    unknowns: [],
+    assumptions: {},
+  }
+}
+
+/**
+ * `bebauungsplan` is recommended for the project (B2 = ja); `bestandsplan` and
+ * `foto_bestand` are recommended for building bw1 (C2 = bestand), named Hoftrakt.
+ */
+const RECOMMENDING_PROFILE = profileWith({
+  bebauungsplan: true,
+  'errichtungsstatus@bw1': 'bestand',
+  'bauwerk_name@bw1': 'Hoftrakt',
+})
+
+describe('recommendedSlotsFor', () => {
+  it('recommends nothing and names no building for a project with no profile', () => {
+    expect(recommendedSlotsFor(null)).toEqual({ recommended: [], bauwerkNames: {} })
+  })
+
+  it('keeps a per-building recommendation at its building and names that building', () => {
+    const { recommended, bauwerkNames } = recommendedSlotsFor(RECOMMENDING_PROFILE)
+
+    expect(recommended).toContainEqual({ role: 'bebauungsplan', scopeInstanceId: null })
+    expect(recommended).toContainEqual({ role: 'bestandsplan', scopeInstanceId: 'bw1' })
+    expect(bauwerkNames).toEqual({ bw1: 'Hoftrakt' })
+  })
+})
+
+describe('loadMissingDocuments', () => {
+  beforeEach(() => {
+    vi.mocked(findProjectProfile).mockResolvedValue(null)
+    vi.mocked(listProjectDocumentRoles).mockResolvedValue([])
+  })
+
+  it('lists every recommended slot that no document fills, with the building it is missing for', async () => {
+    vi.mocked(findProjectProfile).mockResolvedValue(RECOMMENDING_PROFILE)
+
+    const missing = await loadMissingDocuments('proj-1', 'org-1')
+
+    expect(missing).toEqual(
+      expect.arrayContaining([
+        { role: 'bebauungsplan', label: 'Bebauungsplan', bauwerkName: null },
+        { role: 'bestandsplan', label: 'Bestandspläne', bauwerkName: 'Hoftrakt' },
+      ])
+    )
+  })
+
+  it('drops a slot once a document fills it, and keeps the other building-scoped slots', async () => {
+    vi.mocked(findProjectProfile).mockResolvedValue(RECOMMENDING_PROFILE)
+    vi.mocked(listProjectDocumentRoles).mockResolvedValue([
+      binding({ role: 'bebauungsplan', scopeInstanceId: null, filename: 'bplan.pdf' }),
+    ])
+
+    const missing = await loadMissingDocuments('proj-1', 'org-1')
+
+    expect(missing?.map((entry) => entry.role)).not.toContain('bebauungsplan')
+    expect(missing).toEqual(
+      expect.arrayContaining([{ role: 'bestandsplan', label: 'Bestandspläne', bauwerkName: 'Hoftrakt' }])
+    )
+  })
+
+  it('returns null, not an empty list, when reading the profile fails', async () => {
+    vi.mocked(findProjectProfile).mockRejectedValue(new Error('db down'))
+
+    expect(await loadMissingDocuments('proj-1', 'org-1')).toBeNull()
+  })
+
+  it('returns null, not an empty list, when reading the bindings fails', async () => {
+    vi.mocked(findProjectProfile).mockResolvedValue(RECOMMENDING_PROFILE)
+    vi.mocked(listProjectDocumentRoles).mockRejectedValue(new Error('db down'))
+
+    expect(await loadMissingDocuments('proj-1', 'org-1')).toBeNull()
   })
 })

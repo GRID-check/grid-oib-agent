@@ -54,6 +54,24 @@ vi.mock('@/lib/document-roles/prompt-loader', () => ({
   },
 }))
 
+/**
+ * The `documents_unreadable:` block is read from the document tables, which
+ * this spec's schema mock does not carry. Mocked for the same reason as the
+ * roles block above: it is appended at read time, outside the cache, and what
+ * it CONTAINS is covered by `unreadable-section.spec.ts`.
+ */
+let unreadableSection = ''
+const unreadableCalls: { projectId: string; organizationId: string | null | undefined }[] = []
+vi.mock('./unreadable-section', () => ({
+  loadUnreadableDocumentsSection: async (
+    projectId: string,
+    organizationId: string | null | undefined
+  ) => {
+    unreadableCalls.push({ projectId, organizationId })
+    return unreadableSection
+  },
+}))
+
 vi.mock('@/lib/projects/repository', () => ({
   findProjectPromptView: async (_projectId: string, organizationId: string | null | undefined) =>
     rowsByOrg.get(organizationId ?? 'anon')?.profilePromptView ??
@@ -315,5 +333,76 @@ describe('restricted folders and the shared prompt view (ADR-0087)', () => {
     expect(await loadProjectPromptView('proj-1', 'org-1')).not.toContain('Honorarnote.pdf')
     // One build, cached, for nobody's clearance.
     expect(rolesReaders).toEqual([null])
+  })
+})
+
+describe('unreadable documents ride beside the cached view', () => {
+  let store: TestStore
+
+  beforeEach(() => {
+    store = new TestStore()
+    setCacheStore(store)
+    rolesReaders.length = 0
+    rolesSection = ''
+    unreadableCalls.length = 0
+    unreadableSection = ''
+    dbRows = rowFor('wien', 'PROJECT_CONTEXT v1')
+  })
+
+  afterEach(() => {
+    unreadableSection = ''
+  })
+
+  it('appends the unreadable block after the cached view, separated by a blank line', async () => {
+    rolesSection = 'documents:\n- Bebauungsplan: bplan.pdf'
+    unreadableSection = 'documents_unreadable:\n- Honorarnote.pdf'
+
+    const view = await loadProjectPromptView('proj-1', 'org-1')
+
+    expect(view).toBe(
+      'PROJECT_CONTEXT v1\n\ndocuments:\n- Bebauungsplan: bplan.pdf\n\ndocuments_unreadable:\n- Honorarnote.pdf'
+    )
+  })
+
+  it('returns only the unreadable block when the stored view is empty', async () => {
+    dbRows = rowFor('wien', '')
+    unreadableSection = 'documents_unreadable:\n- Honorarnote.pdf'
+
+    expect(await loadProjectPromptView('proj-1', 'org-1')).toBe(
+      'documents_unreadable:\n- Honorarnote.pdf'
+    )
+  })
+
+  it('is not cached: a second call re-reads the unreadable block while the view loads once', async () => {
+    unreadableSection = 'documents_unreadable:\n- Honorarnote.pdf'
+
+    await loadProjectPromptView('proj-1', 'org-1')
+    // A re-read fixed the failure: the next turn must no longer be told about it.
+    unreadableSection = ''
+    const second = await loadProjectPromptView('proj-1', 'org-1')
+
+    expect(unreadableCalls).toEqual([
+      { projectId: 'proj-1', organizationId: 'org-1' },
+      { projectId: 'proj-1', organizationId: 'org-1' },
+    ])
+    // The view builder ran once; the second call was served from the cache.
+    expect(rolesReaders).toHaveLength(1)
+    expect(second).toBe('PROJECT_CONTEXT v1')
+  })
+
+  it('leaves the view unchanged when the unreadable block is empty', async () => {
+    unreadableSection = ''
+
+    const view = await loadProjectPromptView('proj-1', 'org-1')
+
+    expect(view).toBe('PROJECT_CONTEXT v1')
+    expect(unreadableCalls).toHaveLength(1)
+  })
+
+  it('returns null without reading unreadable documents when there is no project id', async () => {
+    unreadableSection = 'documents_unreadable:\n- Honorarnote.pdf'
+
+    expect(await loadProjectPromptView(undefined, 'org-1')).toBeNull()
+    expect(unreadableCalls).toHaveLength(0)
   })
 })
