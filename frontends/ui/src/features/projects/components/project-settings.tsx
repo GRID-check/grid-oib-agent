@@ -32,6 +32,7 @@ import { ApplicableStandards } from './applicable-standards'
 import { FoldersWithoutRole } from './folders-without-role'
 import { ProjectBrief } from './project-brief'
 import { ProjectDangerZone } from './project-danger-zone'
+import { ProjectLifecycleCard } from './project-lifecycle-card'
 import { ProjectMemoryPanel } from './project-memory-panel'
 import { ProjectReindexCard } from './project-reindex-card'
 import { ProjectRenameButton } from './project-rename-button'
@@ -58,6 +59,14 @@ interface ProjectSettingsProps {
    * control the API rejects.
    */
   canManageProject?: boolean
+  /**
+   * Whether the user manages who is a member. Like {@link canManageProject},
+   * except that it stays true in a closed project (ADR-0090), which is
+   * read-only for everything but its members and its status.
+   */
+  canManageMembers?: boolean
+  /** Whether the user may close or reopen the project (project:manage). */
+  canChangeStatus?: boolean
   /** Whether the flagged project knowledge page is linked from here (spec §5). */
   showKnowledgeLink?: boolean
   /**
@@ -77,6 +86,8 @@ export function ProjectSettings({
   data,
   foldersWithoutRole = [],
   canManageProject = false,
+  canManageMembers = canManageProject,
+  canChangeStatus = canManageProject,
   showKnowledgeLink = false,
   currentMembershipId = null,
   currentUserId = null,
@@ -193,14 +204,14 @@ export function ProjectSettings({
               {t('project.sections.members')}
             </h2>
             <p className="text-muted-foreground max-w-2xl text-sm leading-relaxed">
-              {canManageProject
+              {canManageMembers
                 ? t('project.membersDescriptionManage')
                 : t('project.membersDescriptionReadOnly')}
             </p>
           </div>
           <ProjectMembersForm
             projectId={data.id}
-            canManage={canManageProject}
+            canManage={canManageMembers}
             currentMembershipId={currentMembershipId}
           />
         </section>
@@ -223,7 +234,7 @@ export function ProjectSettings({
 
       {/* Project memory — what Piloti has learned about this project, user-curated. */}
       <StaggerItem>
-        <ProjectMemoryPanel projectId={data.id} />
+        <ProjectMemoryPanel projectId={data.id} readOnly={data.status === 'closed'} />
       </StaggerItem>
 
       {/* Knowledge index — rebuild every document's chunks. Destroys nothing a
@@ -235,9 +246,17 @@ export function ProjectSettings({
         </StaggerItem>
       )}
 
+      {/* Close or reopen (ADR-0090): the one change a closed project allows. */}
+      {canChangeStatus && (
+        <StaggerItem>
+          <ProjectLifecycleCard projectId={data.id} status={data.status} closedAt={data.closedAt} />
+        </StaggerItem>
+      )}
+
       {/* Danger zone — soft delete with grace-period restore. Only shown to
-          users who can actually delete (project:manage). */}
-      {canManageProject && (
+          users who can actually delete (project:manage), a closed project
+          included: deleting it is still the way to remove it. */}
+      {canChangeStatus && (
         <StaggerItem>
           <ProjectDangerZone projectId={data.id} projectName={data.name} />
         </StaggerItem>

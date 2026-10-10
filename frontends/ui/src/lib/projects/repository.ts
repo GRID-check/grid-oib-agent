@@ -100,17 +100,51 @@ export async function findProjectInOrg(
  */
 export async function findProjectTenancy(
   projectId: string
-): Promise<Pick<Project, 'organizationId' | 'deletedAt'> | null> {
+): Promise<Pick<Project, 'organizationId' | 'deletedAt' | 'status'> | null> {
   if (!isUuid(projectId)) return null
   const db = getDb()
   const [row] = await withPlatformAccess(
     'project tenancy probe: resolve the owning org before authorizing',
     () =>
       db
-        .select({ organizationId: projects.organizationId, deletedAt: projects.deletedAt })
+        .select({ organizationId: projects.organizationId, deletedAt: projects.deletedAt, status: projects.status })
         .from(projects)
         .where(eq(projects.id, projectId))
         .limit(1)
+  )
+  return row ?? null
+}
+
+/**
+ * Close or reopen a project: the status, and when and by whom it was closed
+ * (cleared on reopen). Only a row in the other state changes, so two people
+ * closing at once write once; null when nothing changed (already in that
+ * state, deleted, or not in the organization).
+ */
+export async function setProjectStatusInOrg(
+  projectId: string,
+  organizationId: string,
+  change: { status: 'closed'; closedBy: string; at: Date } | { status: 'active' }
+): Promise<Project | null> {
+  const db = getDb()
+  const closing = change.status === 'closed'
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .update(projects)
+      .set(
+        closing
+          ? { status: 'closed', closedAt: change.at, closedBy: change.closedBy }
+          : { status: 'active', closedAt: null, closedBy: null }
+      )
+      .where(
+        and(
+          eq(projects.id, projectId),
+          eq(projects.organizationId, organizationId),
+          isNull(projects.deletedAt),
+          eq(projects.status, closing ? 'active' : 'closed')
+        )
+      )
+      .returning()
   )
   return row ?? null
 }

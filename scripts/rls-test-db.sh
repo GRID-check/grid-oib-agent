@@ -110,7 +110,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, answer-feedback, restricted memory, download-log and Papierkorb suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, answer-feedback, restricted memory, download-log, Papierkorb and closed-project suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -136,7 +136,8 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/budgets/service.integration.spec.ts \
     src/lib/feedback/repository.integration.spec.ts \
     src/lib/citations/repository.integration.spec.ts \
-    src/lib/profiler/repository.integration.spec.ts
+    src/lib/profiler/repository.integration.spec.ts \
+    src/lib/projects/project-status.integration.spec.ts
 
 # The job-queue suites claim from ONE table, whichever lane a job is in, so run
 # in parallel they claim each other's seeded jobs. One file at a time.
@@ -768,3 +769,51 @@ $MIGRATE_F -v ON_ERROR_STOP=1 -q -f "drizzle/0102_archiv_folders.sql" >/dev/null
 }
 
 echo "==> 0102 backfill, constraints and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0116: project status, its CHECKs, the closed-project insert guard,
+# and its DOWN migration, on the fully migrated database as the owner. The down
+# refuses while a project is closed (an older build would let every write in);
+# once every project is active it goes, and 0115 applies again.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0116 project status and its down migration on grid_app"
+check14() {
+  local got
+  got=$($MIGRATE -tAc "$1")
+  if [ "$got" != "$2" ]; then
+    echo "0115 ASSERTION FAILED: $3" >&2
+    echo "  query: $1" >&2
+    echo "  got:   $got" >&2
+    echo "  want:  $2" >&2
+    exit 1
+  fi
+}
+$MIGRATE -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000114', 'org_0114', 'Status 0115', 'user_1', 'proj_0114');
+SQL
+check14 "SELECT status FROM projects WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'" "active" "a new project is active"
+$MIGRATE -v ON_ERROR_STOP=1 -q -c "UPDATE projects SET status = 'closed', closed_at = now(), closed_by = 'user_1' WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
+if $MIGRATE -q -c "INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id) VALUES ('org_0114', 'user_1', 'x.pdf', 'k/0114/x', 'proj_0114', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000114')" >/dev/null 2>&1; then
+  echo "0115 ASSERTION FAILED: a document was inserted into a closed project" >&2
+  exit 1
+fi
+if $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0116_project_status.down.sql" >/dev/null 2>&1; then
+  echo "0116 ASSERTION FAILED: the down migration ran with a closed project standing" >&2
+  exit 1
+fi
+check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "4" "the refused down migration changed nothing"
+$MIGRATE -v ON_ERROR_STOP=1 -q -c "UPDATE projects SET status = 'active', closed_at = NULL, closed_by = NULL WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0116_project_status.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0116 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+check14 "SELECT count(*) FROM information_schema.columns WHERE table_name = 'projects' AND column_name IN ('status','closed_at','closed_by')" "0" "down dropped the three columns"
+check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "0" "down dropped the four triggers"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0116_project_status.sql" >/dev/null || {
+  echo "MIGRATION 0116 FAILED when re-applied after its down migration" >&2
+  exit 1
+}
+check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "4" "0115 applies again"
+$MIGRATE -v ON_ERROR_STOP=1 -q -c "DELETE FROM projects WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
+echo "==> 0116 project status and down migration verified"

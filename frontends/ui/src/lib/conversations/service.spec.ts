@@ -1608,14 +1608,14 @@ describe('project:chat gates the AGENT, not the conversation (the message-write 
   const asViewer = (): void => {
     vi.mocked(requireProjectAccess).mockImplementation(async (_s, _id, permission) => {
       const accepted = Array.isArray(permission) ? permission : [permission]
-      if (accepted.includes('project:view')) return { role: 'project-viewer' as ProjectRole }
+      if (accepted.includes('project:view')) return { role: 'project-viewer' as ProjectRole, closed: false, readsBecauseClosed: false }
       throw new NotFoundError()
     })
   }
 
   beforeEach(() => {
     stubConversation({ createdBy: 'user_me', visibility: 'project' })
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-viewer' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-viewer', closed: false, readsBecauseClosed: false })
   })
 
   it('refuses a message addressed to the agent when the project denies project:chat', async () => {
@@ -1705,7 +1705,7 @@ describe('project:chat gates the AGENT, not the conversation (the message-write 
 
   it('still applies mentions when the caller MAY chat', async () => {
     // The gate must not cost the mention path its behaviour for everyone else.
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor', closed: false, readsBecauseClosed: false })
 
     await createConversationMessages(session, CONVERSATION_ID, [
       {

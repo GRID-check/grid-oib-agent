@@ -219,7 +219,7 @@ async function assertMayBinSubtree(
 ): Promise<void> {
   const folders = await loadCustomFolderTree(session.organizationId, projectId)
   if (!folders) return
-  const access = computeFolderAccess(folders, await clearanceOf(session), '')
+  const access = computeFolderAccess(folders, await clearanceOf(session, projectId), '')
   if (!access.isVisible(rootId)) throw new NotFoundError('Folder not found')
   if (access.levelOf(rootId) !== 'write') throw folderReadOnlyError()
   for (const folderId of subtree) {
@@ -435,7 +435,7 @@ export async function returnFromBin(
 /** The session's level on a folder of the tree, tombstones included, before the project ceiling. */
 async function levelOnFolder(session: AuthorizedSession, projectId: string, folderId: string): Promise<FolderLevel> {
   const tree = folderTree(await listProjectFolderTree(session.organizationId, projectId))
-  return effectiveFolderLevel(tree, await clearanceOf(session), folderId)
+  return effectiveFolderLevel(tree, await clearanceOf(session, projectId), folderId)
 }
 
 /** A bin entry's root folder that the session may at least read; 404 otherwise. */
@@ -469,9 +469,9 @@ export async function restoreFolderFromBin(
   input: { projectId: string; folderId: string },
   request?: Request
 ): Promise<RestoreFolderResult> {
-  await requireProjectAccess(session, input.projectId, 'project:view')
+  const { closed } = await requireProjectAccess(session, input.projectId, 'project:view')
   const { project, root, level } = await binEntryFor(session, input.projectId, input.folderId)
-  const projectWrite = await projectMayWriteDocuments(session, project.id)
+  const projectWrite = await mayRestoreInProject(session, project.id, closed)
   if (level !== 'write' || !projectWrite) throw folderReadOnlyError()
 
   const { restoredTo, folders, documents } = await unbinEntry(session.organizationId, project, root, requesterOf(session))
@@ -486,6 +486,24 @@ export async function restoreFolderFromBin(
     request,
   })
   return { restoredTo, folders, documents }
+}
+
+/**
+ * The project half of who may restore: document write, as for deleting. In a
+ * closed project (ADR-0090) nobody writes, but a restore undoes a deletion
+ * rather than adding content, and the 14-day purge keeps running: whoever
+ * manages the project may restore there, so an „Ausgemistet" file is not lost
+ * for want of a reopen.
+ */
+async function mayRestoreInProject(session: AuthorizedSession, projectId: string, closed: boolean): Promise<boolean> {
+  if (!closed) return projectMayWriteDocuments(session, projectId)
+  try {
+    await requireProjectAccess(session, projectId, 'project:manage', { evenWhenClosed: true })
+    return true
+  } catch (error) {
+    if (error instanceof NotFoundError || error instanceof ForbiddenError) return false
+    throw error
+  }
 }
 
 /** One entry of the Papierkorb view. */
@@ -521,17 +539,17 @@ async function mayManageProject(session: AuthorizedSession, projectId: string): 
 
 /** The project's Papierkorb as the session may see it: the entries whose folder it may read. */
 export async function listFolderBin(session: AuthorizedSession, projectId: string): Promise<FolderBinListing> {
-  await requireProjectAccess(session, projectId, 'project:view')
+  const { closed } = await requireProjectAccess(session, projectId, 'project:view')
   const project = await projectFor(session.organizationId, projectId)
   const [rows, folders, projectWrite, canPurge, directory] = await Promise.all([
     listBinEntries(session.organizationId, project.id),
     listProjectFolderTree(session.organizationId, project.id),
-    projectMayWriteDocuments(session, project.id),
+    mayRestoreInProject(session, project.id, closed),
     mayManageProject(session, project.id),
     loadOrganizationDirectory(session.organizationId),
   ])
   const tree = folderTree(folders)
-  const clearance = await clearanceOf(session)
+  const clearance = await clearanceOf(session, project.id)
   const entries = rows.flatMap((row): FolderBinEntry[] => {
     const level = effectiveFolderLevel(tree, clearance, row.folderId)
     if (!atLeast(level, 'read')) return []

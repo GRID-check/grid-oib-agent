@@ -13,7 +13,12 @@ vi.mock('./applicable-standards', () => ({
   ApplicableStandards: () => <div data-testid="applicable-standards" />,
 }))
 vi.mock('./project-memory-panel', () => ({
-  ProjectMemoryPanel: () => <div data-testid="project-memory-panel" />,
+  ProjectMemoryPanel: (props: { readOnly?: boolean }) => (
+    <div data-testid="project-memory-panel" data-read-only={String(Boolean(props.readOnly))} />
+  ),
+}))
+vi.mock('./project-lifecycle-card', () => ({
+  ProjectLifecycleCard: (props: { status: string }) => <div data-testid="project-lifecycle-card" data-status={props.status} />,
 }))
 vi.mock('./project-danger-zone', () => ({
   ProjectDangerZone: () => <div data-testid="project-danger-zone" />,
@@ -44,6 +49,8 @@ const data: ProjectOverviewData = {
   id: 'p1',
   name: 'Alpine Tower',
   collectionName: 'proj_1',
+  status: 'active',
+  closedAt: null,
   createdAt: '2026-07-01T10:00:00Z',
   profileDisplay: null,
   profile: null,
@@ -85,6 +92,29 @@ describe('ProjectSettings', () => {
     expect(screen.getByTestId('project-rename-button')).toBeInTheDocument()
     expect(screen.getByTestId('project-danger-zone')).toBeInTheDocument()
     expect(screen.getByTestId('project-members-form')).toHaveAttribute('data-can-manage', 'true')
+  })
+
+  test('a closed project (ADR-0090): no rename, read-only memory, but members, status and deletion stay with the manager', () => {
+    render(
+      <ProjectSettings
+        data={{ ...data, status: 'closed', closedAt: '2026-10-06T10:00:00Z' }}
+        canManageProject={false}
+        canManageMembers
+        canChangeStatus
+      />
+    )
+
+    expect(screen.queryByTestId('project-rename-button')).not.toBeInTheDocument()
+    expect(screen.getByTestId('project-memory-panel')).toHaveAttribute('data-read-only', 'true')
+    expect(screen.getByTestId('project-members-form')).toHaveAttribute('data-can-manage', 'true')
+    expect(screen.getByTestId('project-lifecycle-card')).toHaveAttribute('data-status', 'closed')
+    expect(screen.getByTestId('project-danger-zone')).toBeInTheDocument()
+  })
+
+  test('viewers see no status control', () => {
+    render(<ProjectSettings data={data} canManageProject={false} />)
+    expect(screen.queryByTestId('project-lifecycle-card')).not.toBeInTheDocument()
+    expect(screen.getByTestId('project-memory-panel')).toHaveAttribute('data-read-only', 'false')
   })
 
   test('flags folders whose roles were deleted, with a link to each, only when there are any (ADR-0088)', () => {

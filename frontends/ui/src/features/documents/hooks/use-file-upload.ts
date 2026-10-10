@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useLocale, useTranslations } from '@/i18n'
+import { isProjectClosedBody } from '@/lib/projects/project-status'
 import { createDocumentsClient } from '@/adapters/api'
 import { deleteSessionDocument } from '@/adapters/api/session-documents-client'
 import { xhrUpload, XhrUploadError } from '@/lib/http/xhr-upload'
@@ -66,10 +67,13 @@ async function deleteShelfDocument(shelf: 'project' | 'archiv' | 'session', docu
 const isAbort = (error: unknown): boolean => error instanceof Error && error.name === 'AbortError'
 
 /** The clearest sentence available about why an upload did not happen. */
-const failureMessage = (error: unknown, fallback: string): string => {
+const failureMessage = (error: unknown, fallback: string, projectClosed?: string): string => {
   if (error instanceof XhrUploadError) {
     try {
       const body: unknown = JSON.parse(error.responseText)
+      // A closed project (ADR-0090) is named in the reader's language: the
+      // project closed while this tab was open.
+      if (projectClosed && isProjectClosedBody(body)) return projectClosed
       const message = (body as { error?: unknown })?.error
       if (typeof message === 'string' && message) return message
     } catch {
@@ -512,7 +516,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             // The failure belongs to THIS file. The other eleven documents in
             // an Einreichung are still wanted, and the row that refused is the
             // one that has to say so.
-            const message = failureMessage(err, 'Upload failed')
+            const message = failureMessage(err, 'Upload failed', t('errors.projectClosed'))
             updateTrackedFile(tracked.id, { status: 'failed', errorMessage: message })
             throw err instanceof Error ? err : new Error(message)
           } finally {
@@ -542,7 +546,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         const firstFailure = results.find((result) => result.status === 'rejected')
         if (firstFailure && firstFailure.status === 'rejected') {
           const failedCount = results.filter((result) => result.status === 'rejected').length
-          const message = failureMessage(firstFailure.reason, 'Upload failed')
+          const message = failureMessage(firstFailure.reason, 'Upload failed', t('errors.projectClosed'))
           setError(
             failedCount > 1
               ? t('errors.someUploadsFailed', { failed: failedCount, total: entries.length, reason: message })

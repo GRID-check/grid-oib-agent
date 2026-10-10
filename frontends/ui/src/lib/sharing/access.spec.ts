@@ -88,7 +88,7 @@ function stubContainer(role: ProjectRole | 'denied'): void {
     vi.mocked(requireProjectAccess).mockRejectedValue(new NotFoundError())
     return
   }
-  vi.mocked(requireProjectAccess).mockResolvedValue({ role })
+  vi.mocked(requireProjectAccess).mockResolvedValue({ role, closed: false, readsBecauseClosed: false })
 }
 
 function stubGrant(role: ResourceRole | null): void {
@@ -349,7 +349,7 @@ describe('the read gate: a role is not the right to read what the conversation d
 
     await requireResourceAccess(session, 'conversation', 'conv_1', 'viewer')
 
-    expect(peopleWhoMayRead).toHaveBeenCalledWith('org_1', 'conv_1', [session.userId], expect.anything())
+    expect(peopleWhoMayRead).toHaveBeenCalledWith('org_1', 'conv_1', [session.userId], undefined, expect.anything())
   })
 
   it('lets a caller who only manages their own place through: the roster, leaving, deleting their own', async () => {

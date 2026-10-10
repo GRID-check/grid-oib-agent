@@ -49,15 +49,30 @@ vi.mock('@/lib/documents/service', () => ({
 }))
 // Project permissions are WorkOS's; each session here states which it holds,
 // and a denial is the real one's: not found.
+// A closed project (ADR-0090) is stubbed the way `requireProjectAccess` decides
+// it: writes refused before anything else unless the caller asks as if active.
+const projectState = vi.hoisted(() => ({ closed: false }))
 vi.mock('@/lib/authz/projects', async () => {
   const { NotFoundError } = await import('@/lib/api/errors')
+  const { keptWhenClosed, projectClosedError } = await import('@/lib/projects/project-status')
   return {
-    requireProjectAccess: vi.fn(async (session: { permissions: string[] }, _projectId: string, needed: string | readonly string[]) => {
-      const wanted = Array.isArray(needed) ? needed : [needed]
-      if (session.permissions.includes('org:projects:administer')) return { role: 'project-admin' }
-      if (!wanted.some((permission) => session.permissions.includes(permission))) throw new NotFoundError()
-      return { role: session.permissions.includes('project:manage') ? 'project-admin' : 'project-editor' }
-    }),
+    requireProjectAccess: vi.fn(
+      async (
+        session: { permissions: string[] },
+        _projectId: string,
+        needed: string | readonly string[],
+        options: { evenWhenClosed?: boolean } = {}
+      ) => {
+        const asked = (Array.isArray(needed) ? needed : [needed]) as Parameters<typeof keptWhenClosed>[0]
+        const readOnly = projectState.closed && !options.evenWhenClosed
+        const wanted = readOnly ? keptWhenClosed(asked) : asked
+        if (wanted.length === 0) throw projectClosedError()
+        const closed = projectState.closed
+        if (session.permissions.includes('org:projects:administer')) return { role: 'project-admin', closed, readsBecauseClosed: false }
+        if (!wanted.some((permission) => session.permissions.includes(permission))) throw new NotFoundError()
+        return { role: session.permissions.includes('project:manage') ? 'project-admin' : 'project-editor', closed, readsBecauseClosed: false }
+      }
+    ),
   }
 })
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn(async () => null) }))
@@ -709,6 +724,21 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
       // Someone who could not read it does not see it in the bin at all.
       expect((await bin.listFolderBin(pl, projectId)).entries).toEqual([])
       await expect(bin.restoreFolderFromBin(pl, { projectId, folderId: folder.vertraege })).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('in a closed project the manager restores, and nobody else does (ADR-0090)', async () => {
+      await bin.moveFolderToBin(gf, { projectId, folderId: folder.vertraege })
+      projectState.closed = true
+      try {
+        expect((await bin.listFolderBin(gf, projectId)).entries.map((entry) => entry.canRestore)).toEqual([false])
+        await expect(bin.restoreFolderFromBin(gf, { projectId, folderId: folder.vertraege })).rejects.toMatchObject({ status: 403 })
+        expect((await bin.listFolderBin(manager, projectId)).entries.map((entry) => entry.canRestore)).toEqual([true])
+        const restored = await bin.restoreFolderFromBin(manager, { projectId, folderId: folder.vertraege })
+        expect(restored.restoredTo).toBe('original')
+        expect((await folderState(folder.vertraege))?.deleted_at).toBeNull()
+      } finally {
+        projectState.closed = false
+      }
     })
 
     it('restores to the project root, and says so, when the parent is gone', async () => {

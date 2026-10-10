@@ -39,6 +39,10 @@ import { hasPermission, ORG_PERMISSIONS } from './permissions'
 import { orgRoleHoldsPermission } from './org-role-permissions'
 import { resolveMembershipRoles } from '@/lib/auth/membership-roles'
 import { requireProjectAccess } from './projects'
+import { checkResourcePermission } from './resource-check'
+import { resolveSubjectMembership } from './project-membership'
+import { findProjectTenancy } from '@/lib/projects/repository'
+import { isProjectClosed } from '@/lib/projects/project-status'
 import { listCustomFolderNames, listProjectFolderTree, projectHasCustomOrBinnedFolders } from './folder-access-repository'
 import {
   ANY_MEMBER,
@@ -69,7 +73,8 @@ async function anyRoleAdministers(organizationId: string, roles: readonly string
 }
 
 /**
- * What clears folders for this session: its roles and the admin bypass.
+ * What clears folders for this session in one project: its roles and the admin
+ * bypass.
  *
  * The bypass comes from the same membership the roles do, at most a minute old
  * (`resolveMembershipRoles`, then what those roles hold), not from the token's
@@ -77,12 +82,48 @@ async function anyRoleAdministers(organizationId: string, roles: readonly string
  * demoted in the People tab kept reading and writing every folder for that
  * long. Only when WorkOS cannot be asked is the token's claim the answer, as it
  * is for the roles.
+ *
+ * Someone who reads a CLOSED project only because it is closed (ADR-0090: every
+ * organization member may) clears what a member holding no role clears: the
+ * folders open to everyone, and no folder with its own role list. Their roles
+ * were never matched against this project's grants before it closed, and
+ * closing must not start doing so. Hence the project in the signature: a
+ * clearance is always a clearance in some project.
  */
-export async function clearanceOf(session: AuthorizedSession): Promise<FolderClearance> {
+export async function clearanceOf(session: AuthorizedSession, projectId: string): Promise<FolderClearance> {
   const roles = rolesOf(session)
   const current = await resolveMembershipRoles(session.organizationId, session.userId)
-  if (current === null) return { roles, seesEverything: hasPermission(session, ORG_PERMISSIONS.projectsAdminister) }
-  return { roles, seesEverything: await anyRoleAdministers(session.organizationId, current) }
+  const clearance =
+    current === null
+      ? { roles, seesEverything: hasPermission(session, ORG_PERMISSIONS.projectsAdminister) }
+      : { roles, seesEverything: await anyRoleAdministers(session.organizationId, current) }
+  if (clearance.seesEverything) return clearance
+  const outsider = await readsOnlyBecauseClosed(session.organizationId, projectId, session.organizationMembershipId)
+  return outsider ? ANY_MEMBER : clearance
+}
+
+/**
+ * Whether the membership reads `projectId` only because it is closed: the
+ * project is closed and the membership holds no FGA grant on it. A failed
+ * check answers yes, the narrower clearance (`checkResourcePermission` fails
+ * closed). False for an active project, at the cost of the tenancy probe.
+ */
+async function readsOnlyBecauseClosed(
+  organizationId: string,
+  projectId: string,
+  organizationMembershipId: string | null
+): Promise<boolean> {
+  const project = await findProjectTenancy(projectId)
+  if (!isProjectClosed(project)) return false
+  if (!organizationMembershipId) return true
+  const member = await checkResourcePermission({
+    organizationMembershipId,
+    organizationId,
+    permissionSlug: 'project:view',
+    resourceExternalId: projectId,
+    resourceTypeSlug: 'project',
+  })
+  return !member
 }
 
 /**
@@ -107,7 +148,7 @@ export async function getProjectFolderAccess(
 ): Promise<ProjectFolderAccess> {
   const folders = await loadCustomFolderTree(session.organizationId, projectId)
   if (!folders) return OPEN_ACCESS(projectCollection)
-  return computeFolderAccess(folders, await clearanceOf(session), projectCollection)
+  return computeFolderAccess(folders, await clearanceOf(session, projectId), projectCollection)
 }
 
 /**
@@ -117,7 +158,7 @@ export async function getProjectFolderAccess(
 export async function getHiddenFolderIds(session: AuthorizedSession, projectId: string): Promise<string[]> {
   const folders = await loadCustomFolderTree(session.organizationId, projectId)
   if (!folders) return []
-  return [...computeFolderAccess(folders, await clearanceOf(session), '').hiddenFolderIds]
+  return [...computeFolderAccess(folders, await clearanceOf(session, projectId), '').hiddenFolderIds]
 }
 
 /**
@@ -141,7 +182,7 @@ export async function isFolderVisibleTo(
   // Nothing about the session is read until a restriction is in play: an
   // unfiled document, or a project with no custom folder, is the common case.
   if (folderId === null) return true
-  return isFolderVisibleToClearance(session.organizationId, projectId, folderId, await clearanceOf(session))
+  return isFolderVisibleToClearance(session.organizationId, projectId, folderId, await clearanceOf(session, projectId))
 }
 
 /**
@@ -178,7 +219,7 @@ export async function filterUsersWhoMayReadFolder(
   if (folderId === null || userIds.length === 0) return new Set(userIds)
   const folders = await loadCustomFolderTree(organizationId, projectId)
   if (!folders) return new Set(userIds)
-  const clearances = await Promise.all(userIds.map((userId) => clearanceOfMember(organizationId, userId)))
+  const clearances = await Promise.all(userIds.map((userId) => clearanceOfMember(organizationId, userId, projectId)))
   return new Set(
     userIds.filter((_userId, index) => computeFolderAccess(folders, clearances[index], '').isVisible(folderId))
   )
@@ -213,7 +254,7 @@ export async function requireFolderWrite(
   const touched = [...new Set(folderIds)].filter((folderId): folderId is string => folderId !== null)
   if (touched.length === 0) return
   const folders = await loadCustomFolderTree(session.organizationId, projectId)
-  const access = folders ? computeFolderAccess(folders, await clearanceOf(session), '') : OPEN_ACCESS('')
+  const access = folders ? computeFolderAccess(folders, await clearanceOf(session, projectId), '') : OPEN_ACCESS('')
   for (const folderId of touched) {
     if (!access.isVisible(folderId)) throw new NotFoundError('Folder not found')
   }
@@ -281,15 +322,27 @@ export async function customFolderNames(organizationId: string, projectId: strin
 }
 
 /**
- * What clears folders for a member who is not the session: someone a
- * conversation is shared with, or the asker of an agent turn. Read from the
- * roles WorkOS reports for their membership (cached for at most a minute), and
- * fails closed: no membership, or a lookup that failed, clears nothing.
+ * What clears folders in `projectId` for a member who is not the session:
+ * someone a conversation is shared with, or the asker of an agent turn. Read
+ * from the roles WorkOS reports for their membership (cached for at most a
+ * minute), and fails closed: no membership, or a lookup that failed, clears
+ * nothing. In a closed project they read only because it is closed, they clear
+ * what a member with no role clears ({@link clearanceOf}).
  */
-export async function clearanceOfMember(organizationId: string, userId: string): Promise<FolderClearance> {
+export async function clearanceOfMember(
+  organizationId: string,
+  userId: string,
+  projectId: string
+): Promise<FolderClearance> {
   const roles = await resolveMembershipRoles(organizationId, userId)
-  if (!roles || roles.length === 0) return { roles: [], seesEverything: false }
-  return { roles, seesEverything: await anyRoleAdministers(organizationId, roles) }
+  if (!roles || roles.length === 0) return ANY_MEMBER
+  const clearance = { roles, seesEverything: await anyRoleAdministers(organizationId, roles) }
+  if (clearance.seesEverything) return clearance
+  const project = await findProjectTenancy(projectId)
+  if (!isProjectClosed(project)) return clearance
+  const membership = await resolveSubjectMembership(organizationId, userId)
+  const outsider = await readsOnlyBecauseClosed(organizationId, projectId, membership?.organizationMembershipId ?? null)
+  return outsider ? ANY_MEMBER : clearance
 }
 
 /**
@@ -308,7 +361,7 @@ export async function isFolderVisibleToMember(
   if (folderId === null) return true
   const folders = await loadCustomFolderTree(organizationId, projectId)
   if (!folders) return true
-  const clearance = await clearanceOfMember(organizationId, userId)
+  const clearance = await clearanceOfMember(organizationId, userId, projectId)
   return computeFolderAccess(folders, clearance, '').isVisible(folderId)
 }
 

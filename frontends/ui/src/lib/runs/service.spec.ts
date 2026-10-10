@@ -95,6 +95,7 @@ import {
   addRunDocument,
   applyRunLedgerOp,
   cancelRun,
+  writeNowRun,
   createRunMessage,
   findRunMessageByBackendJobId,
   getRunView,
@@ -170,8 +171,11 @@ const step = {
   docs: [],
 }
 
+const MEMBER = { role: 'project-editor', closed: false, readsBecauseClosed: false } as const
+
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(requireProjectAccess).mockResolvedValue(MEMBER)
   vi.mocked(taskRepository.findRunById).mockResolvedValue(run)
   vi.mocked(taskRepository.findRunInProject).mockResolvedValue(run)
   vi.mocked(taskRepository.findRunByBackendJobId).mockResolvedValue(run)
@@ -550,7 +554,7 @@ describe('cancelRun', () => {
   it('refuses before the backend when the caller may not chat in the project', async () => {
     // Once per call this test makes: `clearMocks` drops calls, not implementations.
     vi.mocked(requireProjectAccess)
-      .mockResolvedValueOnce(undefined as never)
+      .mockResolvedValueOnce(MEMBER)
       .mockRejectedValueOnce(new NotFoundError())
 
     await expect(cancelRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(NotFoundError)
@@ -684,6 +688,39 @@ describe('findRunMessageByBackendJobId', () => {
  * and it writes nothing itself — the ledger lists the document through the
  * run's own stream once the worker has taken it.
  */
+/**
+ * A closed project (ADR-0090): every member reads it and may chat about it, but
+ * someone who reads it only because it is closed does not steer another
+ * person's run, and nobody hands a run a document, which files into it.
+ */
+describe('run mutations in a closed project', () => {
+  const outsider = { role: 'project-viewer', closed: true, readsBecauseClosed: true } as const
+
+  it('refuses someone who reads the project only because it is closed, unless the run is theirs', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValue(outsider)
+    vi.mocked(taskRepository.findRunInProject).mockResolvedValue({ ...run, requesterUserId: 'user_someone_else' } as TaskRun)
+    await expect(cancelRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(NotFoundError)
+    await expect(writeNowRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(NotFoundError)
+    expect(cancelBackendJob).not.toHaveBeenCalled()
+
+    vi.mocked(taskRepository.findRunInProject).mockResolvedValue({ ...run, requesterUserId: session.userId } as TaskRun)
+    await expect(cancelRun(session, 'project-1', RUN)).resolves.toMatchObject({ runId: RUN })
+  })
+
+  it('lets a member of the project cancel', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ ...MEMBER, closed: true })
+    await expect(cancelRun(session, 'project-1', RUN)).resolves.toMatchObject({ runId: RUN })
+  })
+
+  it('refuses to hand a run a document, a member included', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ ...MEMBER, closed: true })
+    await expect(
+      addRunDocument(session, 'project-1', RUN, { name: 'Plan.pdf', title: 'Plan', shelf: 'project' })
+    ).rejects.toMatchObject({ details: { reason: 'project-closed' } })
+    expect(addDocumentToBackendJob).not.toHaveBeenCalled()
+  })
+})
+
 describe('addRunDocument', () => {
   const doc = { name: 'Einreichplan.pdf', title: 'Einreichplan', shelf: 'project' as const }
 

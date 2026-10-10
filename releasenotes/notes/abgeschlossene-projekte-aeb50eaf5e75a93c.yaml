@@ -1,0 +1,9 @@
+---
+features:
+  - >
+    You can now close a finished project in its settings. It stays complete and
+    searchable, becomes read-only, and everyone in your office can read it,
+    while folders with their own access list stay restricted.
+  - >
+    Files of a closed project say so wherever they appear, and the projects
+    list can show active, closed or all projects.
