@@ -11,14 +11,18 @@ Covers:
 """
 
 import io
+import json
 import time
 from unittest.mock import MagicMock
 
 import pytest
 from knowledge_layer.llamaindex import adapter
+from knowledge_layer.llamaindex import visual_analysis
 from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
 from knowledge_layer.llamaindex.adapter import _build_image_caption_document
 from knowledge_layer.llamaindex.adapter import _looks_like_image
+from knowledge_layer.llamaindex.adapter import _read_image_as_jpeg
+from knowledge_layer.llamaindex.adapter import _strip_visual_marker
 from PIL import Image
 
 from aiq_agent.common.credential_resolution import ResolvedCredential
@@ -132,6 +136,64 @@ class TestBuildImageCaptionDocument:
 
         assert _build_image_caption_document(str(p), "broken.png", 10, "png") is None
         vlm.assert_not_called()
+
+
+class TestStripVisualMarker:
+    """The ``[IMAGE from page 1]`` marker is for retrieval; a summary shown to people drops it."""
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("[IMAGE from page 1]\n\nEin Grundriss EG.", "Ein Grundriss EG."),
+            ("[DRAWING from page 12]\n\nSchnitt A-A", "Schnitt A-A"),
+            ("[CHART from page 3] Umsatz je Quartal", "Umsatz je Quartal"),
+            ("[IMAGE from page 1]", ""),
+        ],
+    )
+    def test_a_leading_marker_is_removed(self, text, expected):
+        assert _strip_visual_marker(text) == expected
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Ein Grundriss EG.",
+            "Text vor [IMAGE from page 1] mitten im Satz.",
+            "[IMAGE from page x]\n\nkein gültiger Marker",
+        ],
+    )
+    def test_text_without_a_leading_marker_is_unchanged(self, text):
+        assert _strip_visual_marker(text) == text
+
+
+class TestReadImageAppliesExifOrientation:
+    """A phone's portrait photo is stored as landscape pixels plus an Orientation tag."""
+
+    def _save(self, tmp_path, orientation: int | None):
+        img = Image.new("RGB", (40, 20), "green")
+        if orientation is not None:
+            exif = img.getexif()
+            exif[0x0112] = orientation
+            img.save(tmp_path / "phone.jpg", exif=exif)
+        else:
+            img.save(tmp_path / "phone.jpg")
+        return str(tmp_path / "phone.jpg")
+
+    def test_orientation_6_rotates_the_size_it_reports(self, tmp_path):
+        decoded = _read_image_as_jpeg(self._save(tmp_path, 6), "phone.jpg")
+
+        assert decoded is not None
+        _, width, height = decoded
+        assert (width, height) == (20, 40)
+
+    def test_the_jpeg_handed_to_the_vlm_is_upright_too(self, tmp_path):
+        image_bytes, _, _ = _read_image_as_jpeg(self._save(tmp_path, 6), "phone.jpg")
+
+        assert Image.open(io.BytesIO(image_bytes)).size == (20, 40)
+
+    def test_no_orientation_tag_keeps_the_size(self, tmp_path):
+        _, width, height = _read_image_as_jpeg(self._save(tmp_path, None), "phone.jpg")
+
+        assert (width, height) == (40, 20)
 
 
 # =============================================================================
@@ -515,3 +577,54 @@ class TestRunIngestionImageBranch:
         assert detail.status.value == "failed"
         assert "corrupted" in (detail.error_message or "").lower()
         vlm.assert_not_called()
+
+    def test_a_caption_fallback_summary_drops_the_retrieval_marker(self, tmp_path, monkeypatch, ingestor, summary_db):
+        """With summarisation off the caption is the summary; the page marker is not part of what people read."""
+        from aiq_agent.knowledge import get_available_documents
+
+        _patch_vlm_credential(monkeypatch, "vlm-key")
+        ingestor.generate_summary_enabled = False
+        monkeypatch.setattr(adapter, "_analyze_image_with_vlm", lambda *a, **k: ("image", "Ein Grundriss EG."))
+
+        img = tmp_path / "caption_only.png"
+        img.write_bytes(_png_bytes(size=(61, 47), color="yellow"))
+
+        job_id = ingestor.submit_job([str(img)], "coll_marker", config={"original_filenames": ["caption_only.png"]})
+        assert _wait_terminal(ingestor, job_id).is_success
+
+        summary = get_available_documents("coll_marker")[0].summary
+        assert not summary.startswith("[IMAGE from page")
+        assert summary == "Ein Grundriss EG."
+
+    def test_a_photo_gets_foto_even_when_the_classifier_said_grundriss(
+        self, tmp_path, monkeypatch, ingestor, summary_db
+    ):
+        """The vision model typed the pixels a photograph; the classifier only read the caption and said Grundriss."""
+        from aiq_agent.knowledge import document_classification
+        from aiq_agent.knowledge import get_available_documents
+
+        _patch_vlm_credential(monkeypatch, "vlm-key")
+        reply = json.dumps(
+            {
+                "segments": [
+                    {"domain": "general", "segment_type": "photo", "summary": "Baustellenfoto mit Kran."},
+                ],
+                "document": {},
+            }
+        )
+        analysis = visual_analysis.parse_visual_analysis(reply)
+        assert analysis is not None
+        monkeypatch.setattr(
+            adapter,
+            "_analyze_drawing_page_with_vlm",
+            lambda *a, **k: ("Baustellenfoto mit Kran.", {"analysis": analysis}),
+        )
+        monkeypatch.setattr(document_classification, "classify_document_tags", lambda *a, **k: ["Grundriss"])
+
+        img = tmp_path / "baustelle.png"
+        img.write_bytes(_png_bytes(size=(57, 43), color="purple"))
+
+        job_id = ingestor.submit_job([str(img)], "coll_photo", config={"original_filenames": ["baustelle.png"]})
+        assert _wait_terminal(ingestor, job_id).is_success
+
+        assert get_available_documents("coll_photo")[0].tags == ["Foto"]

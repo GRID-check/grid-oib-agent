@@ -20,6 +20,7 @@ from httpx import AsyncClient
 from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
 from aiq_agent.knowledge.factory import clear_active_ingestor
 from aiq_agent.knowledge.factory import configure_summary_db
+from aiq_agent.knowledge.factory import get_document_person_tags
 from aiq_agent.knowledge.factory import set_active_ingestor
 from aiq_api.routes.documents import add_document_routes
 
@@ -180,3 +181,50 @@ async def test_patch_deduplicates_valid_tags(app, store):
 
     assert res.status_code == 200
     assert res.json()["tags"] == ["Grundriss", "Schnitt"]
+
+
+@pytest.mark.asyncio
+async def test_patch_marks_the_tags_as_a_persons_choice(app, store):
+    """The edit is stored as a person's, so the backfill and the re-ingest leave it alone."""
+    store.register("proj_a", "plan.pdf", "A floor plan.", tags=["Grundriss"])
+
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/collections/proj_a/documents/plan.pdf/tags",
+            json={"tags": ["Schnitt", "Brandschutz"]},
+        )
+
+    assert res.status_code == 200
+    assert get_document_person_tags("proj_a", ["plan.pdf"]) == {"plan.pdf": ["Schnitt", "Brandschutz"]}
+
+
+@pytest.mark.asyncio
+async def test_patch_empty_is_a_persons_choice_of_no_tags(app, store):
+    store.register("proj_a", "plan.pdf", "A floor plan.", tags=["Grundriss"])
+
+    async with _client(app) as client:
+        res = await client.patch(
+            "/v1/collections/proj_a/documents/plan.pdf/tags",
+            json={"tags": []},
+        )
+
+    assert res.status_code == 200
+    assert get_document_person_tags("proj_a", ["plan.pdf"]) == {"plan.pdf": []}
+
+
+@pytest.mark.asyncio
+async def test_a_patched_tag_set_survives_a_re_ingest_of_the_document(app, store):
+    """The classifier's guess for the re-read file does not undo the correction."""
+    store.register("proj_a", "plan.pdf", "A floor plan.", tags=["Grundriss"])
+
+    async with _client(app) as client:
+        await client.patch(
+            "/v1/collections/proj_a/documents/plan.pdf/tags",
+            json={"tags": ["Schnitt", "Brandschutz"]},
+        )
+
+    store.register("proj_a", "plan.pdf", "A newer summary.", tags=["Bescheid"])
+
+    doc = store.get_all("proj_a")[0]
+    assert doc.summary == "A newer summary."
+    assert doc.tags == ["Schnitt", "Brandschutz"]

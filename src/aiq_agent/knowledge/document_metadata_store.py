@@ -64,7 +64,12 @@ _OPTIONAL_COLUMNS: tuple[str, ...] = (
     "folder_path",
     "provenance",
     "doc_class_suggestion",
+    "tags_set_by",
 )
+
+#: ``tags_set_by`` value for tags a PERSON chose. Machine writes (ingest, the
+#: backfill script) never overwrite them — see :meth:`DocumentMetadataStore.register`.
+TAGS_SET_BY_PERSON = "person"
 
 # Every raw-SQL statement in this module interpolates ONLY trusted, code-defined
 # SQL identifiers: the table/index name constants above, and column names drawn
@@ -324,6 +329,12 @@ class DocumentMetadataStore:
         A re-ingest silently un-renamed and un-filed the document, and the only
         symptom was the agent describing a folder structure the user no longer
         had. ``excluded`` is spelled the same in SQLite and Postgres.
+
+        Tags a PERSON set (``tags_set_by = 'person'``) are kept as they are: the
+        classifier's fresh output replaces only its own earlier guess. Without
+        this, „Erneut lesen" silently threw away every correction anybody had
+        made, because the re-read re-classifies and this upsert wrote the result
+        over whatever was there.
         """
         import json
 
@@ -339,9 +350,17 @@ class DocumentMetadataStore:
                         f"INSERT INTO {TABLE_NAME} (collection, filename, summary, tags) "
                         "VALUES (:collection, :filename, :summary, :tags) "
                         "ON CONFLICT (collection, filename) DO UPDATE SET "
-                        "summary = excluded.summary, tags = excluded.tags"
+                        "summary = excluded.summary, "
+                        f"tags = CASE WHEN {TABLE_NAME}.tags_set_by = :person "
+                        f"THEN {TABLE_NAME}.tags ELSE excluded.tags END"
                     ),
-                    {"collection": collection, "filename": filename, "summary": summary, "tags": tags_json},
+                    {
+                        "collection": collection,
+                        "filename": filename,
+                        "summary": summary,
+                        "tags": tags_json,
+                        "person": TAGS_SET_BY_PERSON,
+                    },
                 )
                 conn.commit()
                 logger.debug("Registered metadata for %s in %s", filename, collection)
@@ -349,22 +368,99 @@ class DocumentMetadataStore:
             logger.warning("Failed to register metadata for %s: %s", filename, e)
 
     def update_tags(self, collection: str, filename: str, tags: list[str] | None) -> bool:
-        """Replace only the ``tags`` of an existing metadata row (sync).
+        """Replace the machine's ``tags`` on an existing metadata row (sync).
 
-        The one-sentence ``summary`` is NEVER touched — this is the tag-edit /
-        backfill seam, distinct from :meth:`register` (which owns the summary).
-        An empty or ``None`` ``tags`` clears the column (stored as SQL NULL,
-        which decodes back to ``None``).
+        The one-sentence ``summary`` is NEVER touched — this is the backfill
+        seam, distinct from :meth:`register` (which owns the summary). An empty
+        or ``None`` ``tags`` clears the column (stored as SQL NULL, which decodes
+        back to ``None``).
 
-        Returns ``True`` when a row existed and was updated, ``False`` when no
-        metadata row exists for ``(collection, filename)`` — so callers (the edit
-        endpoint) can surface a 404 rather than silently creating a summary-less,
-        NOT NULL-violating row.
+        A row whose tags a person chose is left alone, like :meth:`register`
+        leaves it: a machine write never overrules a person's. A person's own
+        edit goes through :meth:`set_tags_by_person`.
+
+        Returns ``True`` when a row was updated, ``False`` when no metadata row
+        exists for ``(collection, filename)`` or its tags are a person's.
         """
         import json
 
+        from sqlalchemy import text
+
         tags_json = json.dumps(tags) if tags else None
-        return self._update_column(collection, filename, "tags", tags_json)
+        try:
+            with self._sync_engine.connect() as conn:
+                result = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(
+                        f"UPDATE {TABLE_NAME} SET tags = :tags "
+                        "WHERE collection = :collection AND filename = :filename "
+                        "AND (tags_set_by IS NULL OR tags_set_by <> :person)"
+                    ),
+                    {"tags": tags_json, "collection": collection, "filename": filename, "person": TAGS_SET_BY_PERSON},
+                )
+                conn.commit()
+                return (result.rowcount or 0) > 0
+        except Exception as e:
+            logger.warning("Failed to update tags for %s: %s", filename, e)
+            return False
+
+    def set_tags_by_person(self, collection: str, filename: str, tags: list[str] | None) -> bool:
+        """Store the tags a PERSON chose, and mark them as theirs (sync).
+
+        From then on neither a re-ingest (:meth:`register`) nor the backfill
+        (:meth:`update_tags`) replaces them. An empty list is a choice too — "no
+        tags" — and is kept the same way. ``False`` when no row exists.
+        """
+        import json
+
+        from sqlalchemy import text
+
+        tags_json = json.dumps(tags) if tags else None
+        try:
+            with self._sync_engine.connect() as conn:
+                result = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(
+                        f"UPDATE {TABLE_NAME} SET tags = :tags, tags_set_by = :person "
+                        "WHERE collection = :collection AND filename = :filename"
+                    ),
+                    {"tags": tags_json, "collection": collection, "filename": filename, "person": TAGS_SET_BY_PERSON},
+                )
+                conn.commit()
+                return (result.rowcount or 0) > 0
+        except Exception as e:
+            logger.warning("Failed to set tags for %s: %s", filename, e)
+            return False
+
+    def get_person_tags_batch(self, collection: str, filenames: list[str]) -> dict[str, list[str]]:
+        """The tags a PERSON chose, for the rows among ``filenames`` that have them.
+
+        A row whose person cleared every tag answers ``[]`` — still a choice, and
+        distinct from a row that is absent (the machine's tags, or no row).
+        Fail-open to ``{}``.
+        """
+        if not filenames:
+            return {}
+        from sqlalchemy import bindparam
+        from sqlalchemy import text
+
+        result: dict[str, list[str]] = {}
+        try:
+            with self._sync_engine.connect() as conn:
+                rows = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(
+                        f"SELECT filename, tags FROM {TABLE_NAME} "
+                        "WHERE collection = :collection AND filename IN :filenames AND tags_set_by = :person"
+                    ).bindparams(bindparam("filenames", expanding=True)),
+                    {"collection": collection, "filenames": list(filenames), "person": TAGS_SET_BY_PERSON},
+                )
+                for row in rows:
+                    result[row[0]] = self._decode_tags(row[1]) or []
+        except Exception as e:
+            logger.warning("Failed to batch-get person tags for %s: %s", collection, e)
+            return {}
+        return result
 
     def set_doc_class(self, collection: str, filename: str, doc_class: str | None) -> bool:
         """Replace only the ``doc_class`` of an existing metadata row (sync).

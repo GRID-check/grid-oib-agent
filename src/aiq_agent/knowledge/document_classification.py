@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Iterable
 
 from aiq_agent.common.message_utils import response_text
 
@@ -514,3 +515,36 @@ def classify_document_tags(text: str, file_name: str, llm, *, organization_id: s
     if tags:
         logger.info("[TAGS] Classified %s -> %s", file_name, tags)
     return tags
+
+
+#: The vision model's segment type for a photograph or rendering
+#: (``visual_domains._PICTORIAL_TYPES``).
+PHOTO_SEGMENT_TYPE = "photo"
+PHOTO_TAG = "Foto"
+
+
+def reconcile_image_tags(
+    tags: list[str] | None,
+    *,
+    content_type: str | None,
+    segment_types: Iterable[str],
+) -> list[str] | None:
+    """Make an uploaded image the vision model saw as a photograph a ``Foto``.
+
+    The tag classifier reads TEXT — for an image, the vision model's caption —
+    so it never saw the pixels the vision model did. A site photo whose caption
+    describes the wall plan pinned up in it came out a ``Grundriss``, and a
+    photo with a sparse caption came out with no type at all, while the vision
+    model had already said "photograph". That verdict is the stronger evidence
+    about what the FILE is, so it decides the document type; the disciplines the
+    classifier found in the caption (a fire door in the photo is still
+    Brandschutz) are kept.
+
+    Only for an image whose dominant content is pictorial (``content_type ==
+    "image"``): a scanned plan is typed ``drawing`` and keeps the classifier's
+    plan type. Deterministic and model-free.
+    """
+    if content_type != "image" or PHOTO_SEGMENT_TYPE not in set(segment_types):
+        return tags
+    disciplines = [tag for tag in (tags or []) if tag in DISCIPLINE_TAGS]
+    return [PHOTO_TAG, *disciplines][:MAX_TAGS]

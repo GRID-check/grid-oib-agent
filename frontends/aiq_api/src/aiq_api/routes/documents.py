@@ -25,7 +25,7 @@ from aiq_agent.knowledge import get_available_documents_async
 from aiq_agent.knowledge import rewrite_document_folder_paths
 from aiq_agent.knowledge import set_document_display_title
 from aiq_agent.knowledge import set_document_folder_path
-from aiq_agent.knowledge import update_document_tags
+from aiq_agent.knowledge import set_document_tags_by_person
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.document_classification import ALLOWED_TAGS
 from aiq_agent.knowledge.document_classification import MAX_TAGS
@@ -255,6 +255,9 @@ def add_document_routes(router: APIRouter):
         - No summary row for ``(collection, file_name)`` → 404 (the summary is
           the anchor; there is nothing to tag without one).
         The summary itself is never modified.
+
+        The tags are stored as a PERSON's choice, so a later re-ingest keeps
+        them instead of writing the classifier's guess back over the correction.
         """
         # De-duplicate while preserving order so the response is stable.
         deduped: list[str] = []
@@ -284,7 +287,7 @@ def add_document_routes(router: APIRouter):
                 },
             )
 
-        updated = await asyncio.to_thread(update_document_tags, collection_name, file_name, deduped)
+        updated = await asyncio.to_thread(set_document_tags_by_person, collection_name, file_name, deduped)
         if not updated:
             raise HTTPException(
                 status_code=404,
