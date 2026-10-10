@@ -76,7 +76,11 @@ function restrictionTitle(item: MemoryItem, t: Translator): string {
 
 interface ProjectMemoryPanelProps {
   projectId: string
-  /** A closed project's memory is read-only (ADR-0090): no add, edit, pin or remove. */
+  /**
+   * A list without the controls to add, confirm, pin, edit or remove: for a
+   * reader without `project:memory:write`, whose every click would answer 404,
+   * and for a closed project, whose memory is read-only (ADR-0090).
+   */
   readOnly?: boolean
 }
 
@@ -329,7 +333,7 @@ export function ProjectMemoryPanel({
         )}
       </div>
 
-      {adding && (
+      {!readOnly && adding && (
         <RaisedCard className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
           <RaisedCardBody className="space-y-3 p-4">
             <div className="flex flex-wrap items-start gap-3">

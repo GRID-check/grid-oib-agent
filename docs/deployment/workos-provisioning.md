@@ -96,12 +96,14 @@ same 13 roles, verified role-by-role against the catalog after each run.
 
 The **folder tier** (ADR-0097, 2026-10-09) came later and is not in either count
 yet: the `folder` resource type exists in Staging (created 2026-10-09) and in
-Production (created 2026-10-10, `authz_resource_type_01M4KGD04HGQMPAZR09R15538W`),
-and its two permissions and two roles are created by the next deploy. A
-read-only comparison of Production on 2026-10-10 found that `--apply` there
-also adds `platform:observability:view` and the `platform-observability-analyst`
-role, adds that permission to `org-platform-owner` and `org-platform-support`,
-and removes nothing.
+Production (created 2026-10-10, `authz_resource_type_01M4KGD04HGQMPAZR09R15538W`).
+In Production `folder:read`, `folder:write`, `folder-reader` and `folder-editor`
+were also created by hand on 2026-10-10, with the catalog's names, descriptions
+and permission sets, so the deploy's catalog Job finds them already in place. In
+Staging the next deploy creates them. A read-only comparison of Production on
+2026-10-10 found that `--apply` there also adds `platform:observability:view` and
+the `platform-observability-analyst` role, adds that permission to
+`org-platform-owner` and `org-platform-support`, and removes nothing.
 [Rolling out folder roles](#rolling-out-folder-roles-adr-0097) has the order.
 
 Two Production-specific notes:
