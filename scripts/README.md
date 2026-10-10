@@ -78,34 +78,6 @@ Starts the NAT FastAPI server for deep research with async job support.
 | `http://localhost:8000/v1/jobs/async/submit` | Submit async job (POST) |
 | `http://localhost:8000/v1/jobs/async/job/{id}/stream` | SSE stream for job progress |
 
-### `start_as_skill.sh` - Agent Skill Backend
-
-Starts the AI-Q API backend for use by Agent Skills such as `aiq-research`. This does not start the Next.js UI and disables the optional debug console.
-
-```bash
-./scripts/start_as_skill.sh
-./scripts/start_as_skill.sh --port 8100
-./scripts/start_as_skill.sh --config_file configs/config_oib_openrouter.yml
-```
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--host <host>` | Server host (default: 0.0.0.0) |
-| `--port <port>` | Server port (default: 8000) |
-| `--config_file <path>` | Use an API-enabled configuration file |
-
-**Available Endpoints:**
-
-| Endpoint | Description |
-|----------|-------------|
-| `http://localhost:8000/docs` | API Documentation (Swagger UI) |
-| `http://localhost:8000/health` | Health check |
-| `http://localhost:8000/v1/jobs/async/agents` | List available agent types |
-| `http://localhost:8000/v1/jobs/async/submit` | Submit async job (POST) |
-| `http://localhost:8000/v1/jobs/async/job/{id}/stream` | SSE stream for job progress |
-
 ### `start_e2e.sh` - End-to-End Mode
 
 Starts both backend and frontend for full WebSocket support and HITL workflows.
@@ -143,8 +115,6 @@ When developing new features:
 4. **Run the agent**:
    ```bash
    ./scripts/start_cli.sh
-   # OR
-   ./scripts/start_as_skill.sh
    # OR
    ./scripts/start_e2e.sh
    ```

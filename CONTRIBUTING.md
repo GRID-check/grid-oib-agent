@@ -10,7 +10,7 @@ from one place.
 - How we work, in detail: [docs/contributing/README.md](docs/contributing/README.md)
 - What an agent must act on while working: [AGENTS.md](AGENTS.md)
 - The bar every change must clear before it is "done":
-  [aiq-definition-of-done skill](skills/aiq-definition-of-done/SKILL.md)
+  [docs/contributing/definition-of-done.md](docs/contributing/definition-of-done.md)
 
 ## Setup (run once)
 
@@ -49,7 +49,7 @@ person to trip over them.
 ## Release notes
 
 Every change a customer can notice ships with a release note in the same PR —
-this is an obligation, enforced by the **Release note** CI job, not a
+this is an obligation, enforced by CI's **Repo checks** job, not a
 convention. Notes are written with [reno](https://docs.openstack.org/reno/latest/)
 and published automatically to piloti.at/changelog (German and English) when the
 PR merges.
@@ -67,8 +67,9 @@ Full playbook: [docs/contributing/release-notes.md](docs/contributing/release-no
 
 ## Local validation
 
-Run what your change touches before pushing (the full matrix is in the
-[aiq-definition-of-done skill](skills/aiq-definition-of-done/SKILL.md)):
+Run what your change touches before pushing (what you must be able to show
+for each kind of change is in the
+[definition of done](docs/contributing/definition-of-done.md)):
 
 All commands live in the root [`Taskfile.yml`](Taskfile.yml) and are run with
 [go-task](https://taskfile.dev) (`npm i -g @go-task/cli`). CI calls the same
@@ -101,24 +102,38 @@ Example: `ci: replace SonarQube + CodeQL with a free in-CI security stack`. A PR
 opened from the GitHub UI keeps whatever title it was given — fix the title, not
 just the commits.
 
+## Opening a pull request
+
+- Base it on `develop`, carrying only the files this change needs.
+  `git diff --name-only origin/develop...HEAD` is the list a reviewer will see.
+- Fill every section of the
+  [template](.github/pull_request_template.md). **Validation** holds the
+  commands you ran and their output, or the closing checklist from the
+  [definition of done](docs/contributing/definition-of-done.md); "ran the
+  tests" is not evidence. A UI change carries its captures as attachments
+  ([docs/ux/visual-screenshots.md](docs/ux/visual-screenshots.md)).
+- CI runs on the pull request itself, and every push updates its checks.
+
 ## CI and the merge gate
 
 - The single required status check is **CI OK**
   ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): it passes only when
-  every needed lint/test/build job succeeded or was skipped by the path filter.
-- Security scanning runs in
-  [`.github/workflows/security.yml`](.github/workflows/security.yml): Semgrep
-  (SAST), OSV-Scanner (dependency CVEs from every lockfile), gitleaks and trivy
-  — fully in-CI, no paid licence. What each tool blocks on, and the three
-  non-obvious things about the trivy job:
+  every needed job succeeded or was skipped because the change could not affect
+  it. How CI decides what to run, and why:
+  [docs/contributing/ci.md](docs/contributing/ci.md).
+- Security checks a change can fail are part of CI: gitleaks on every run,
+  Semgrep on the findings a PR introduces, trivy on the image pins it adds.
+  The weekly [`.github/workflows/security.yml`](.github/workflows/security.yml)
+  scans everything else that can turn red without a code change (OSV-Scanner
+  over every lockfile, every pin, the whole tree). What each tool blocks on:
   [docs/contributing/testing-and-verification.md](docs/contributing/testing-and-verification.md).
 - Dependency-update PRs are opened by Dependabot
   ([`.github/dependabot.yml`](.github/dependabot.yml)).
 
 ## Secret scanning
 
-Gitleaks scans full history on every PR and push, plus a weekly run
-([`.github/workflows/security.yml`](.github/workflows/security.yml)). Its
+Gitleaks scans full history on every PR and push (CI's **Repo checks** job),
+plus a weekly run ([`.github/workflows/security.yml`](.github/workflows/security.yml)). Its
 allowlist is [`.gitleaks.toml`](.gitleaks.toml): test, doc, mock and fixture
 paths, lockfiles and `.env.example`, one regex for placeholder words (`example`,
 `dummy`, `changeme` and the like), and one exact literal, Pulumi's public secret

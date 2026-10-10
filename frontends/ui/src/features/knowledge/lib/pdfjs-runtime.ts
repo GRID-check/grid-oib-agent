@@ -135,7 +135,7 @@ export const renderTextLayer = async (
  * cited passage was never marked while the page itself rendered fine. pdf.js's
  * own `TextLayer` reads the stream with `getReader()`, which is why selecting
  * text kept working and made the fault look like a matching bug. This reads it
- * the same way. `eslint.config.mjs` bans `getTextContent` so it stays that way.
+ * the same way. `.oxlintrc.json` bans `getTextContent` so it stays that way.
  *
  * `TextMarkedContent` entries carry structure, not text; `'str' in item`
  * narrows to the runs that have any, without a cast.

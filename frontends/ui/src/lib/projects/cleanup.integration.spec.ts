@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * „Ausmisten" against a REAL Postgres (ADR-0091), through the restricted role:
+ * „Ausmisten" against a REAL Postgres (ADR-0092), through the restricted role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/projects/cleanup.integration.spec.ts

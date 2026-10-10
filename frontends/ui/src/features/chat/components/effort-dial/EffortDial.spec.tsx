@@ -58,15 +58,36 @@ describe('EffortDial', () => {
     expect(screen.getByTestId('effort-dial-thumb')).toHaveAttribute('data-share', '0.75')
   })
 
-  it('holds the dot trail still while the thumb reveals it', async () => {
+  it('carries the fill with the thumb', async () => {
     mockOrgSettings({})
     render(<EffortDial conversationId="c1" />)
 
     fireEvent.click(screen.getByTestId('effort-dial-trigger'))
     fireEvent.change(await screen.findByTestId('effort-dial-slider'), { target: { value: '3' } })
 
-    // The trail's window glides with the thumb; the dots inside glide back by the same share.
-    expect(screen.getByTestId('effort-dial-trail')).toHaveAttribute('data-share', '-0.75')
+    expect(screen.getByTestId('effort-dial-fill')).toHaveAttribute('data-share', '0.75')
+  })
+
+  it('warns while Maximum is chosen, and only then', async () => {
+    mockOrgSettings({})
+    render(<EffortDial conversationId="c1" />)
+
+    fireEvent.click(screen.getByTestId('effort-dial-trigger'))
+    const slider = await screen.findByTestId('effort-dial-slider')
+    expect(screen.queryByTestId('effort-dial-maximum-warning')).not.toBeInTheDocument()
+
+    fireEvent.change(slider, { target: { value: '4' } })
+    expect(screen.getByTestId('effort-dial-maximum-warning')).toHaveTextContent(
+      'Rarely smarter than High'
+    )
+    expect(screen.getByTestId('effort-dial-trigger')).toHaveClass('text-warning')
+
+    fireEvent.change(slider, { target: { value: '3' } })
+    // It folds away rather than vanishing, so it leaves the DOM after its exit.
+    await waitFor(() =>
+      expect(screen.queryByTestId('effort-dial-maximum-warning')).not.toBeInTheDocument()
+    )
+    expect(screen.getByTestId('effort-dial-trigger')).not.toHaveClass('text-warning')
   })
 
   it('does not open its help tooltip when a click opens the dial', async () => {

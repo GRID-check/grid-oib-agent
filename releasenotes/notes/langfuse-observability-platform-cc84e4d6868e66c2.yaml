@@ -1,0 +1,13 @@
+---
+operators:
+  - >
+    Langfuse now shows each chat turn as the reader got it, with the answer as its output, its route,
+    confidence and sources, and the environment and release that produced it. Background model calls
+    such as titles and summaries now appear too, with their cost.
+  - >
+    The checks every answer passes through, citation health, quote corrections, repairs and confidence
+    caps, are now scores in Langfuse next to the user's vote and its reason. Every down-voted answer
+    lands in a review queue for domain experts.
+  - >
+    Analysts can now be given read-only access to Langfuse with their own role, without platform
+    administration rights. Langfuse runs version 4.56.0.
