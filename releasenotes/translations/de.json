@@ -1184,6 +1184,10 @@
     "de": "Bestehende Budgetlimits wurden von Euro in Punkte umgerechnet. Prüfen Sie Ihre Organisations-, Mitglieder- und Projektlimits einmal und passen Sie sie an, wenn die neuen Werte nicht dem entsprechen, was Sie gemeint haben."
   },
   {
+    "en": "Facts Piloti suggests from a closed project's documents are checked against the quoted words, so a value the quote contradicts is no longer suggested.",
+    "de": "Fakten, die Piloti aus den Dokumenten eines abgeschlossenen Projekts vorschlägt, werden mit den zitierten Wörtern abgeglichen, sodass ein Wert, der dem Zitat widerspricht, nicht mehr vorgeschlagen wird."
+  },
+  {
     "en": "File names Piloti writes in an answer open the file more reliably, because Piloti now writes each name exactly as it is stored.",
     "de": "Dateien lassen sich zuverlässiger öffnen, da Piloti Dateinamen in Antworten jetzt exakt so schreibt, wie sie gespeichert sind."
   },
@@ -1674,6 +1678,10 @@
   {
     "en": "Piloti knows which documents are still missing and answers accordingly. Without a Bebauungsplan it says so instead of answering as if it had read one.",
     "de": "Piloti weiß, welche Unterlagen noch fehlen, und antwortet entsprechend vorsichtig. Fehlt der Bebauungsplan, sagt es das, statt zu antworten, als hätte es ihn gelesen."
+  },
+  {
+    "en": "Piloti looks into past projects on its own more reliably for questions about practice, and no longer does so for plain questions about a rule.",
+    "de": "Piloti zieht bei Fragen zur Praxis zuverlässiger selbstständig frühere Projekte heran und tut dies bei einfachen Fragen zu einer Vorschrift nicht mehr."
   },
   {
     "en": "Piloti no longer ends a conversation without noting what it learned about the project. Its note limit now counts only the notes it actually keeps.",
@@ -2730,6 +2738,10 @@
   {
     "en": "When two sources contradict each other, Piloti now shows the difference, names both with their reference and says which rule decides, or that the sources cannot settle it.",
     "de": "Widersprechen sich zwei Quellen, zeigt Piloti den Unterschied jetzt an, nennt beide mit Fundstelle und sagt, welche Regel den Vorrang entscheidet, oder dass sich der Widerspruch aus den Quellen nicht auflösen lässt."
+  },
+  {
+    "en": "When you ask how something was solved before, Piloti now starts with the past projects that fit your question, not only those most like your building, and puts the passages that show a solution first.",
+    "de": "Wenn Sie fragen, wie etwas früher gelöst wurde, zeigt Piloti jetzt zuerst frühere Projekte, die zu Ihrer Frage passen – nicht nur jene, die Ihrem Gebäude am ähnlichsten sind – und stellt Passagen, die eine Lösung zeigen, an den Anfang."
   },
   {
     "en": "When you close a project, Piloti can read its documents and suggest its Bundesland, building class, construction, uses, OIB edition and the decisions it made, each with the document and page it comes from. You confirm each one, and similar projects are then found by what they are.",
