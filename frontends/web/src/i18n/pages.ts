@@ -19,7 +19,7 @@ interface Row {
 const de = {
   why: {
     heading: 'Warum Piloti? Weil es nicht nachschlägt, sondern mitarbeitet.',
-    lede: 'Die Stelle im Gesetz, der Plan von 2019, die Auflage vom Amt: Piloti findet sie, mit Quellen, die Sie am Original prüfen. Und dann macht es weiter, bis die Entscheidung im Akt steht.',
+    lede: 'Die Stelle im Gesetz, die Unterlage von 2019, die Auflage vom Amt: Piloti findet sie, mit Quellen, die Sie am Original prüfen. Und dann macht es weiter, bis die Entscheidung im Akt steht.',
     ctaPrimary: 'Mit einer echten Frage testen',
     ctaSecondary: 'Neuerungen ansehen',
     audiences: {
@@ -42,14 +42,14 @@ const de = {
         },
         {
           who: 'Wer über Daten entscheidet',
-          need: 'Klarheit, wohin Pläne und Unterlagen gehen, bevor ein Werkzeug ins Büro kommt.',
-          gets: 'Kein Training mit Ihren Daten, Pläne bleiben Eigentum des Büros, und jeder beteiligte Anbieter steht offen in der Datenschutzerklärung.',
+          need: 'Klarheit, wohin Unterlagen gehen, bevor ein Werkzeug ins Büro kommt.',
+          gets: 'Kein Training mit Ihren Daten, Unterlagen bleiben Eigentum des Büros, und jeder beteiligte Anbieter steht offen in der Datenschutzerklärung.',
         },
       ],
     },
     chatgpt: {
       title: 'Warum nicht einfach ChatGPT?',
-      body: 'ChatGPT beantwortet Fragen. Piloti beantwortet sie im Zusammenhang Ihres Projekts: mit Ihren Unterlagen, dem österreichischen Baurecht und Quellen, die Sie prüfen können. Ein allgemeines Sprachmodell ist ein gutes Werkzeug für Texte. Für eine Frage, deren Antwort in eine Einreichung geht, fehlt ihm dreierlei: die richtige Fassung, Ihr Projekt und der Beleg.',
+      body: 'ChatGPT beantwortet Fragen. Piloti arbeitet im Zusammenhang Ihres Projekts: mit Ihren Unterlagen, dem österreichischen Baurecht und Quellen, die Sie prüfen können. Ein allgemeines Sprachmodell ist ein gutes Werkzeug für Texte. Für eine Frage, deren Antwort in eine Einreichung geht, fehlt ihm dreierlei: die richtige Fassung, Ihr Projekt und der Beleg.',
       headA: 'Allgemeiner Chatbot',
       headB: 'Piloti',
       rows: [
@@ -66,10 +66,10 @@ const de = {
         {
           label: 'Ihr Projekt',
           a: 'Was Sie in dieses eine Gespräch hochladen',
-          b: 'Pläne, Bescheide und Raumprogramme im Projekt, für das ganze Team, mit Fassungen und Freigabe',
+          b: 'Unterlagen, Bescheide und Raumprogramme im Projekt, für das ganze Team, mit Fassungen und Freigabe',
         },
         {
-          label: 'Pläne',
+          label: 'Zeichnungen',
           a: 'Liest den Text eines PDFs',
           b: 'Sieht Grundriss und Schnitt als Bild an und markiert, welche Zeichnung auf dem Blatt gelesen wurde',
         },
@@ -90,7 +90,7 @@ const de = {
       body: 'Das Sprachmodell darunter können alle kaufen. Was Piloti ausmacht, liegt darüber, und es wird mit jedem Projekt Ihres Büros besser:',
       items: [
         { name: 'Österreichisches Baurecht', body: 'Landesbauordnungen, OIB-Richtlinien und ein Normenverzeichnis.' },
-        { name: 'Ihr Projekt', body: 'Pläne, Bescheide und Auflagen, dort abgelegt, wo das Team arbeitet.' },
+        { name: 'Ihr Projekt', body: 'Unterlagen, Bescheide und Auflagen, dort abgelegt, wo das Team arbeitet.' },
         { name: 'Ihr Büro', body: 'Wie Ihr Büro Dinge löst: Standards, Details und Erfahrung aus früheren Projekten.' },
         { name: 'Arbeitsweisen', body: 'Gebäudeklasse, Brandschutz, Einreichcheck, Bestand: eingebaute Abläufe, die Ihr Büro um eigene ergänzt.' },
         { name: 'Projektgedächtnis', body: 'Was in einem Projekt geklärt ist, geht als Fakt oder offener Punkt in die nächste Antwort ein.' },
@@ -101,7 +101,7 @@ const de = {
       title: 'Worauf Sie sich verlassen können',
       items: [
         'Jede Antwort bringt ihre Quellen mit, bis auf Paragraf, Punkt oder Seite. Sie prüfen am Original, bevor etwas in die Einreichung geht; die Verantwortung für die Planung bleibt, wo sie hingehört, bei Ihnen.',
-        'Ihre Daten bleiben Ihre: Wir trainieren keine Modelle damit, Pläne und Projekte bleiben Eigentum Ihres Büros, und das Archiv Ihres Büros sieht kein anderes Büro.',
+        'Ihre Daten bleiben Ihre: Wir trainieren keine Modelle damit, Dateien und Projekte bleiben Eigentum Ihres Büros, und das Archiv Ihres Büros sieht kein anderes Büro.',
         'Sie bauen mit: Pilotbüros bekommen früh Zugang, einen direkten Draht zu uns Gründern und bestimmen mit, was wir als Nächstes bauen.',
       ],
       link: 'Details in der Datenschutzerklärung',
@@ -114,7 +114,7 @@ const de = {
     },
     compare: {
       title: 'Piloti im Vergleich',
-      body: 'Sie prüfen gerade mehrere KI-Werkzeuge für Ihr Büro? Piloti neben ChatGPT, Copilot, NotebookLM, Reiner AI und BaurechtGPT, verglichen, und warum Piloti für Planungsfragen in Österreich die bessere Wahl ist.',
+      body: 'Sie prüfen gerade mehrere KI-Werkzeuge für Ihr Büro? Piloti neben ChatGPT, Copilot, NotebookLM, Reiner AI und BaurechtGPT, verglichen, und warum Piloti für Planungsbüros in Österreich die bessere Wahl ist.',
       link: 'Alle Vergleiche',
     },
   },
@@ -217,7 +217,7 @@ const en: typeof de = {
     },
     compare: {
       title: 'Piloti compared',
-      body: 'Weighing several AI tools for your office? Piloti next to ChatGPT, Copilot, NotebookLM, Reiner AI and BaurechtGPT, compared, and why Piloti is the better choice for planning questions in Austria.',
+      body: 'Weighing several AI tools for your office? Piloti next to ChatGPT, Copilot, NotebookLM, Reiner AI and BaurechtGPT, compared, and why Piloti is the better choice for planning offices in Austria.',
       link: 'All comparisons',
     },
   },

@@ -13,9 +13,9 @@ export const vergleichBau: LandingEntry[] = [
     de: {
       title: 'Reiner AI Alternative für Österreich: Piloti im Vergleich',
       description:
-        'Piloti oder Reiner AI (oft „Rainer AI“ gesucht)? Landesbauordnungen, OIB-Richtlinien, Belege, Pläne und Projektarbeit im Vergleich für Büros in Österreich.',
+        'Piloti oder Reiner AI (oft „Rainer AI“ gesucht)? Landesbauordnungen, OIB-Richtlinien, Belege, Projektdateien und Projektarbeit im Vergleich für Büros in Österreich.',
       heading: 'Piloti oder Reiner AI?',
-      lede: 'Piloti ist für Planungsbüros in Österreich gebaut: Es liest Landesbauordnung, OIB-Richtlinien und Ihre Pläne und belegt jede Antwort mit der Fundstelle. Reiner AI ist ein KI-Werkzeug für Bau- und Vertragsdokumente in Deutschland. Hier der Vergleich.',
+      lede: 'Piloti ist für Planungsbüros in Österreich gebaut: Es liest Landesbauordnung, OIB-Richtlinien und Ihre Projektdateien und belegt jede Antwort mit der Fundstelle. Reiner AI ist ein KI-Werkzeug für Bau- und Vertragsdokumente in Deutschland. Hier der Vergleich.',
       note: 'Gemeint ist Reiner AI (reiner.ai) aus Deutschland, oft auch als „Rainer AI“ gesucht. Angaben zu Reiner AI laut reiner.ai.',
       answer:
         'Für Planungsfragen in Österreich ist Piloti die bessere Wahl: Es arbeitet mit den neun Landesbauordnungen aus dem RIS und den OIB-Richtlinien, prüft jede Fundstelle vor dem Anzeigen und bringt Aufgaben, Berichte und Freigaben ins Projekt. Reiner AI ist auf deutsche Bauverträge und HOAI ausgerichtet.',
@@ -28,7 +28,7 @@ export const vergleichBau: LandingEntry[] = [
               'Österreichisches Baurecht als Grundlage: die neun Landesbauordnungen aus dem RIS und die OIB-Richtlinien, zitiert, wie ein Bescheid sie nennt.',
               'Das Bundesland zählt. Piloti nennt die OIB-Ausgabe, die im Land Ihres Projekts gilt, und öffnet die RIS-Stelle direkt im Werkzeug.',
               'Belege, die halten: Jede Fundstelle wird vor dem Anzeigen gegen den Quelltext geprüft, bis auf Paragraf, Punkt oder Seite.',
-              'Das Projekt als Arbeitsort. Pläne, Bescheide und Antworten liegen dort, wo das Team arbeitet, mit Fassungen, Freigabe und einem Gedächtnis dafür, was schon geklärt ist.',
+              'Das Projekt als Arbeitsort. Unterlagen, Bescheide und Antworten liegen dort, wo das Team arbeitet, mit Fassungen, Freigabe und einem Gedächtnis dafür, was schon geklärt ist.',
               'Eine Frage wird zu Arbeit: Tiefenrecherche mit Bericht im Projekt, Befunde als offene Punkte, Aktenvermerke zur Freigabe.',
             ],
           },
@@ -64,9 +64,9 @@ export const vergleichBau: LandingEntry[] = [
               b: '„Referenzen auf einen Klick“ zu den verarbeiteten Textstellen',
             },
             {
-              label: 'Pläne',
+              label: 'Zeichnungen',
               a: 'Sieht Grundriss und Schnitt als Bild an und markiert die gelesene Zeichnung',
-              b: 'Agent „Planprüfer“: prüft Pläne auf Vollständigkeit, formale Anforderungen und Normenkonformität',
+              b: 'Agent „Planprüfer“: prüft Einreichunterlagen auf Vollständigkeit, formale Anforderungen und Normenkonformität',
             },
             {
               label: 'Projektarbeit',
@@ -113,7 +113,7 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'Werden meine Daten zum Training verwendet?',
-          a: 'Nein. Piloti trainiert keine Modelle mit den Daten Ihres Büros, Ihre Pläne bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. Reiner AI nennt ebenfalls eine „Zero-Training Policy“. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
+          a: 'Nein. Piloti trainiert keine Modelle mit den Daten Ihres Büros, Ihre Dateien bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. Reiner AI nennt ebenfalls eine „Zero-Training Policy“. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
         },
       ],
     },
@@ -237,7 +237,7 @@ export const vergleichBau: LandingEntry[] = [
       lede: 'Piloti arbeitet mit dem Gesetzestext, den OIB-Richtlinien und den Unterlagen Ihres Projekts, und es zitiert so, wie die Behörde zitiert. WEKA Bau AI antwortet aus der Fachdatenbank eines deutschen Verlags. Hier der Vergleich.',
       note: 'Gemeint ist WEKA Bau AI der WEKA Media GmbH & Co. KG aus Deutschland. Angaben laut weka.de, shop.weka.de und der WEKA-Pressemitteilung vom 4. Februar 2026.',
       answer:
-        'Für Projekte in Österreich ist Piloti die bessere Wahl: Es liest Landesbauordnung und OIB-Richtlinien selbst, zieht Ihr Büroarchiv und Ihre Pläne heran und belegt jede Antwort mit einer geprüften Fundstelle. WEKA Bau AI passt zu deutschem Bauvertragsrecht.',
+        'Für Projekte in Österreich ist Piloti die bessere Wahl: Es liest Landesbauordnung und OIB-Richtlinien selbst, zieht Ihr Büroarchiv und Ihre Projektdateien heran und belegt jede Antwort mit einer geprüften Fundstelle. WEKA Bau AI passt zu deutschem Bauvertragsrecht.',
       blocks: [
         {
           kind: 'split',
@@ -286,7 +286,7 @@ export const vergleichBau: LandingEntry[] = [
               b: '„Transparente Quellenangaben“, im Volltext des Fachartikels überprüfbar',
             },
             {
-              label: 'Pläne',
+              label: 'Zeichnungen',
               a: 'Sieht Grundriss und Schnitt als Bild an und markiert die gelesene Zeichnung',
               b: 'Auf den gelesenen Seiten nicht beschrieben',
             },
@@ -297,7 +297,7 @@ export const vergleichBau: LandingEntry[] = [
             },
             {
               label: 'Projektarbeit',
-              a: 'Projekte mit Plänen, Fassungen, Freigabe, Aufgaben und einem Gedächtnis für Geklärtes und Offenes',
+              a: 'Projekte mit Dateien, Fassungen, Freigabe, Aufgaben und einem Gedächtnis für Geklärtes und Offenes',
               b: 'Auf den gelesenen Seiten nicht beschrieben',
             },
           ],
@@ -334,7 +334,7 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'Was passiert mit den Daten meines Büros?',
-          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Ihre Pläne bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. WEKA gibt an, die Prompts nicht zu speichern, und nennt ISO/IEC 27001. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
+          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Ihre Dateien bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. WEKA gibt an, die Prompts nicht zu speichern, und nennt ISO/IEC 27001. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
         },
       ],
     },
@@ -457,7 +457,7 @@ export const vergleichBau: LandingEntry[] = [
       description:
         'Piloti oder BauKI? Landesbauordnungen, OIB-Richtlinien, Belege, Büroarchiv, Berichte und Projektarbeit im Vergleich – für Planungsbüros in Österreich.',
       heading: 'Piloti oder BauKI?',
-      lede: 'Piloti ist für österreichische Projekte gebaut: Landesbauordnung aus dem RIS, OIB-Richtlinien in der Ausgabe des Bundeslands, Pläne als Bild gelesen, Arbeit im Projekt. BauKI ist ein Werkzeug zum Selbstanmelden für Bauvorschriften in Deutschland. Hier der Vergleich.',
+      lede: 'Piloti ist für österreichische Projekte gebaut: Landesbauordnung aus dem RIS, OIB-Richtlinien in der Ausgabe des Bundeslands, Zeichnungen als Bild gelesen, Arbeit im Projekt. BauKI ist ein Werkzeug zum Selbstanmelden für Bauvorschriften in Deutschland. Hier der Vergleich.',
       note: 'Gemeint ist BauKI (bauki.eu) der Plandirekt24 UG aus Mölln, Deutschland. Angaben zu BauKI laut bauki.eu.',
       answer:
         'Für Planungsbüros in Österreich ist Piloti die bessere Wahl: Es arbeitet mit Landesbauordnung und OIB-Richtlinien, prüft nach Gebäudeklasse mit Quelle je Zeile und macht aus einer Frage Aufgaben, Berichte und Freigaben im Projekt. BauKI zielt auf deutsche Baugesetze.',
@@ -469,7 +469,7 @@ export const vergleichBau: LandingEntry[] = [
             items: [
               'Österreichisches Landesrecht aus dem RIS und die OIB-Richtlinien in der Ausgabe, die im Bundesland gilt, zitiert, wie ein Bescheid sie nennt.',
               'Prüfungen nach Gebäudeklasse als Tabelle, mit Quelle und Ergebnis je Zeile („2 erfüllt · 1 offen“).',
-              'Pläne und Fotos werden als Bild gelesen, dazu IFC-Vorschau und Modellbereich.',
+              'Zeichnungen und Fotos werden als Bild gelesen, dazu IFC-Vorschau und Modellbereich.',
               'Arbeit statt Chat: Aufgaben bis Freitag, wiederkehrende Prüfungen, Befunde als offene Punkte im Projektgedächtnis.',
               'Freigabe im Büro: Ein Dokument von Piloti wird erst zur zitierbaren Quelle, wenn das Büro es freigibt und veröffentlicht.',
             ],
@@ -506,8 +506,8 @@ export const vergleichBau: LandingEntry[] = [
               b: 'Hochgeladene Dateien als dauerhafte Wissensdatenbank; Synchronisation mit Google Drive',
             },
             {
-              label: 'Pläne & Modelle',
-              a: 'Pläne und Fotos werden als Bild angesehen; IFC-Vorschau und Modellbereich',
+              label: 'Zeichnungen & Modelle',
+              a: 'Zeichnungen und Fotos werden als Bild angesehen; IFC-Vorschau und Modellbereich',
               b: 'IFC-Viewer',
             },
             {
@@ -554,7 +554,7 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'Was passiert mit den Daten meines Büros?',
-          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Pläne bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. Die Einzelheiten stehen in der Datenschutzerklärung.',
+          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Dateien bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. Die Einzelheiten stehen in der Datenschutzerklärung.',
         },
       ],
     },
@@ -726,7 +726,7 @@ export const vergleichBau: LandingEntry[] = [
               b: 'Wissensgraph, Mindmap, Compliance-Check, Agenten wie Brandschutz-Check, Normen-Vergleich und Konflikt-Scanner',
             },
             {
-              label: 'Pläne',
+              label: 'Zeichnungen',
               a: 'Sieht Grundriss und Schnitt als Bild an und markiert die gelesene Zeichnung',
               b: 'Auf der Website nicht beschrieben',
             },
@@ -775,7 +775,7 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'Was passiert mit den Daten meines Büros?',
-          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Pläne bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. K24AI nennt ebenfalls „Kein Training mit Ihren Dokumenten“. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
+          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Dateien bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. K24AI nennt ebenfalls „Kein Training mit Ihren Dokumenten“. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
         },
       ],
     },
@@ -899,10 +899,10 @@ export const vergleichBau: LandingEntry[] = [
       description:
         'BaurechtGPT vom Forum Verlag oder Piloti? Rechtsgrundlage, Belege, Unterlagen und Projektarbeit im Vergleich – und warum der Name nicht Österreich meint.',
       heading: 'BaurechtGPT oder Piloti für österreichisches Baurecht?',
-      lede: 'Piloti ist für österreichisches Baurecht gebaut: Landesbauordnung aus dem RIS, OIB-Richtlinien, Ihre Pläne und Unterlagen, jede Antwort mit geprüfter Fundstelle. BaurechtGPT ist ein Chatbot der Forum Verlag Herkert GmbH, einem Fachverlag aus Deutschland, und antwortet aus deutschem Recht.',
+      lede: 'Piloti ist für österreichisches Baurecht gebaut: Landesbauordnung aus dem RIS, OIB-Richtlinien, Ihre Unterlagen, jede Antwort mit geprüfter Fundstelle. BaurechtGPT ist ein Chatbot der Forum Verlag Herkert GmbH, einem Fachverlag aus Deutschland, und antwortet aus deutschem Recht.',
       note: 'Gemeint ist BaurechtGPT (gpt.forum-verlag.com) der Forum Verlag Herkert GmbH, Deutschland. Angaben laut Forum Verlag, auf gpt.forum-verlag.com und im Forum-Verlag-Shop.',
       answer:
-        'Für österreichisches Baurecht ist Piloti die bessere Wahl: Es arbeitet mit den neun Landesbauordnungen aus dem RIS und den OIB-Richtlinien, liest Ihre Pläne und belegt jede Antwort mit einer geprüften Fundstelle. BaurechtGPT beruht laut Forum Verlag auf deutschem Recht.',
+        'Für österreichisches Baurecht ist Piloti die bessere Wahl: Es arbeitet mit den neun Landesbauordnungen aus dem RIS und den OIB-Richtlinien, liest Ihre Projektdateien und belegt jede Antwort mit einer geprüften Fundstelle. BaurechtGPT beruht laut Forum Verlag auf deutschem Recht.',
       blocks: [
         {
           kind: 'split',
@@ -911,7 +911,7 @@ export const vergleichBau: LandingEntry[] = [
             items: [
               'Österreichisches Landesrecht aus dem RIS und die OIB-Richtlinien, zitiert, wie ein Bescheid sie nennt.',
               'Die Ausgabe, die gilt: Piloti nennt die OIB-Ausgabe, die im Bundesland Ihres Projekts verbindlich ist.',
-              'Ihre Pläne und Unterlagen: Büroarchiv und Projektdokumente sind Quellen, Grundriss und Schnitt werden als Bild gelesen.',
+              'Ihre Unterlagen: Büroarchiv und Projektdokumente sind Quellen, Grundriss und Schnitt werden als Bild gelesen.',
               'Mehr als Antworten: Einreichcheck, Tiefenrecherche mit Bericht, Aktenvermerke zur Freigabe.',
               'Arbeit im Team: Projekte mit Aufgaben, Fassungen, Freigabe und einem Gedächtnis für Geklärtes und Offenes.',
             ],
@@ -947,7 +947,7 @@ export const vergleichBau: LandingEntry[] = [
             },
             {
               label: 'Eigene Unterlagen',
-              a: 'Büroarchiv und Projektdokumente als Quellen; Pläne werden als Bild angesehen',
+              a: 'Büroarchiv und Projektdokumente als Quellen; Zeichnungen werden als Bild angesehen',
               b: 'Auf den gelesenen Seiten nicht genannt',
             },
             {
@@ -994,7 +994,7 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'Was passiert mit den Daten meines Büros?',
-          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Pläne bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. Auch der Forum Verlag gibt an, keine Modelle mit Kundendaten zu trainieren. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
+          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Dateien bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. Auch der Forum Verlag gibt an, keine Modelle mit Kundendaten zu trainieren. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
         },
       ],
     },

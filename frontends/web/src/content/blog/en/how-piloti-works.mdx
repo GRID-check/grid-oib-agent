@@ -23,7 +23,7 @@ Getting that right is not a prompt. It is a pipeline with six layers, and this p
   caption="Every Piloti answer falls through this stack. Each layer only trusts what the layer above already cleaned up."
   layers={[
     { label: 'SOURCES', sublabel: 'LAW · OFFICE · PROJECT · WEB', glyph: 'tiles' },
-    { label: 'INGESTION', sublabel: 'TEXT, TABLES, PLANS', glyph: 'funnel' },
+    { label: 'INGESTION', sublabel: 'TEXT, TABLES, DRAWINGS', glyph: 'funnel' },
     { label: 'INDEX', sublabel: 'VECTORS + FULL TEXT, ONE STORE', glyph: 'disc', accent: true },
     { label: 'RETRIEVAL', sublabel: 'TWO CHANNELS IN PARALLEL', glyph: 'lines' },
     { label: 'VERIFICATION', sublabel: 'QUOTES CHECKED AGAINST SOURCE', glyph: 'check' },
@@ -55,7 +55,7 @@ The second fact is the important one, and it is a hierarchy: where a source *liv
   levels={[
     { label: 'PLATFORM', holds: 'BUILDING LAW, SHARED LESSONS', visible: 'EVERYONE' },
     { label: 'OFFICE', holds: 'YOUR ARCHIVE, YOUR STANDARDS', visible: 'YOUR OFFICE' },
-    { label: 'PROJECT', holds: 'BRIEFS, PERMITS, PLANS', visible: 'PROJECT MEMBERS' },
+    { label: 'PROJECT', holds: 'BRIEFS, PERMITS, DRAWINGS', visible: 'PROJECT MEMBERS' },
     { label: 'CONVERSATION', holds: 'WHAT YOU ATTACH RIGHT NOW', visible: 'THIS CHAT' },
   ]}
   search="A QUESTION SEARCHES OUTWARD"
@@ -67,7 +67,7 @@ One rule sits above all the automation: when a person classifies a document, tha
 
 ## From PDF to something a machine can search
 
-Most building law arrives as PDF, and PDF fights back. This is the ingestion layer, and it extracts page by page. Text is pulled with watermarks stripped, tables are extracted separately so a load table stays a table, and plan pages are rendered and described by a vision model, which turns “the site plan on page 12” into text a search can actually find. The result is split into chunks of roughly a thousand tokens with overlap, so each piece is small enough to match precisely and large enough to keep its context.
+Most building law arrives as PDF, and PDF fights back. This is the ingestion layer, and it extracts page by page. Text is pulled with watermarks stripped, tables are extracted separately so a load table stays a table, and drawing pages are rendered and described by a vision model, which turns “the site plan on page 12” into text a search can actually find. The result is split into chunks of roughly a thousand tokens with overlap, so each piece is small enough to match precisely and large enough to keep its context.
 
 Each chunk is then stored twice in the index layer. Once as an embedding, a numeric fingerprint of its meaning that lets the system find a clause even when the question uses entirely different words. And once as plain text in a full-text index, so an exact term can be found exactly. Keeping both is deliberate, and the next section is about why.
 

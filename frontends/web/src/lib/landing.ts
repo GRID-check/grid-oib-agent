@@ -83,7 +83,7 @@ export const SECTIONS: Record<SectionId, { og: OgArtId } & Record<Locale, Sectio
       description:
         'Piloti neben ChatGPT, Microsoft Copilot, NotebookLM, Reiner AI und weiteren KI-Werkzeugen für Planungsbüros: ehrlich verglichen, mit Datum und Quellen.',
       heading: 'Piloti im Vergleich',
-      lede: 'Warum Piloti für Planungsfragen in Österreich die bessere Wahl ist: neben den Werkzeugen, die Büros heute vergleichen. Angaben zu anderen Anbietern stammen von deren eigenen Websites, mit dem Monat, in dem wir sie gelesen haben.',
+      lede: 'Warum Piloti für Planungsbüros in Österreich die bessere Wahl ist: neben den Werkzeugen, die Büros heute vergleichen. Angaben zu anderen Anbietern stammen von deren eigenen Websites, mit dem Monat, in dem wir sie gelesen haben.',
     },
     en: {
       label: 'Comparisons',
@@ -91,7 +91,7 @@ export const SECTIONS: Record<SectionId, { og: OgArtId } & Record<Locale, Sectio
       description:
         'Piloti next to ChatGPT, Microsoft Copilot, NotebookLM, Reiner AI and other AI tools for planning offices: compared honestly, with dates and sources.',
       heading: 'Piloti compared',
-      lede: 'Why Piloti is the better choice for planning questions in Austria, next to the tools offices compare today. Details on other vendors come from their own websites, with the month we read them.',
+      lede: 'Why Piloti is the better choice for planning offices in Austria, next to the tools offices compare today. Details on other vendors come from their own websites, with the month we read them.',
     },
   },
   anwendungen: {
@@ -102,7 +102,7 @@ export const SECTIONS: Record<SectionId, { og: OgArtId } & Record<Locale, Sectio
       description:
         'Gebäudeklasse, Brandschutz, Einreichcheck, Bestand, Bebauung, Wärmeschutz, Barrierefreiheit: wie Piloti typische Planungsfragen in Österreich bearbeitet.',
       heading: 'Wofür Büros Piloti einsetzen',
-      lede: 'Piloti bringt für die häufigsten Planungsfragen eigene Arbeitsweisen mit. Jede sagt, was sie prüft, was sie braucht und wo sie aufhört.',
+      lede: 'Piloti bringt für die häufigsten Planungsaufgaben eigene Arbeitsweisen mit. Jede sagt, was sie prüft, was sie braucht und wo sie aufhört.',
     },
     en: {
       label: 'Use cases',
@@ -110,7 +110,7 @@ export const SECTIONS: Record<SectionId, { og: OgArtId } & Record<Locale, Sectio
       description:
         'Building class, fire safety, submission check, existing buildings, plot rules, thermal protection: how Piloti handles planning questions in Austria.',
       heading: 'What offices use Piloti for',
-      lede: 'Piloti brings its own ways of working for the most common planning questions. Each says what it checks, what it needs and where it stops.',
+      lede: 'Piloti brings its own ways of working for the most common planning tasks. Each says what it checks, what it needs and where it stops.',
     },
   },
   fuer: {
@@ -121,7 +121,7 @@ export const SECTIONS: Record<SectionId, { og: OgArtId } & Record<Locale, Sectio
       description:
         'Piloti für Architekturbüros, Ziviltechniker:innen und Ingenieurbüros, Baumeister und Bauträger in Österreich: was es jeweils übernimmt und was nicht.',
       heading: 'Für wen Piloti gebaut ist',
-      lede: 'Wer in Österreich plant, prüft täglich Baurecht, Pläne und Erfahrung gegeneinander. Was Piloti dabei je nach Büro übernimmt.',
+      lede: 'Wer in Österreich plant, prüft täglich Baurecht, Unterlagen und Erfahrung gegeneinander. Was Piloti dabei je nach Büro übernimmt.',
     },
     en: {
       label: 'Who it is for',

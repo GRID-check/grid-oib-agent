@@ -68,7 +68,7 @@ export const anwendungen: LandingEntry[] = [
               body: 'Die Einordnung stützt sich auf den Wortlaut der Begriffsbestimmungen. Jedes Zitat wird vor dem Anzeigen gegen den Quelltext geprüft.',
             },
             {
-              name: 'Den Plan ansehen, wenn er entscheidet',
+              name: 'Die Zeichnung ansehen, wenn sie entscheidet',
               body: 'Liegen Schnitt oder Ansicht im Projekt, sieht Piloti sie als Bild an und sagt, welche Zeichnung auf dem Blatt es gelesen hat.',
             },
           ],
@@ -88,7 +88,7 @@ export const anwendungen: LandingEntry[] = [
           kind: 'text',
           title: 'Gut zu wissen',
           body: [
-            'Die Einordnung liefert Piloti mit Fundstelle, damit Ihr Büro sie nachprüfen kann; die Verantwortung für die Planung bleibt bei Ihnen. Eine Kote, die der Plan nicht eindeutig zeigt, erfragt Piloti, statt sie zu schätzen. Ein Grenzprojekt besprechen Sie mit dieser Begründung im Vorgespräch mit der Behörde.',
+            'Die Einordnung liefert Piloti mit Fundstelle, damit Ihr Büro sie nachprüfen kann; die Verantwortung für die Planung bleibt bei Ihnen. Eine Kote, die die Zeichnung nicht eindeutig zeigt, erfragt Piloti, statt sie zu schätzen. Ein Grenzprojekt besprechen Sie mit dieser Begründung im Vorgespräch mit der Behörde.',
           ],
         },
       ],
@@ -195,7 +195,7 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           q: 'Is the building class the same as the Bauklasse?',
-          a: 'No. The building class comes from the OIB guidelines and mainly drives the fire safety requirements. The Bauklasse is a term of the Vienna building code through which the zoning plan sets the permitted building height. A Viennese building has both, and they follow from different rules.',
+          a: 'No. The building class comes from the OIB guidelines and mainly drives the fire safety requirements. The Bauklasse is a term of the Vienna building code through which the development plan sets the permitted building height. A Viennese building has both, and they follow from different rules.',
         },
         {
           q: 'How is a terraced house classified?',
@@ -215,7 +215,7 @@ export const anwendungen: LandingEntry[] = [
       heading: 'Fluchtweg und Brandabschnitt prüfen nach OIB-Richtlinie 2',
       lede: 'Feuerwiderstand, Fluchtweglänge, Brandabschnitt: Piloti klärt zuerst die Gebäudeklasse, zitiert dann die Anforderung bis zum Punkt und prüft auf Wunsch Ihren Grundriss dagegen, Segment für Segment.',
       answer:
-        'Piloti prüft den Brandschutz nach OIB-Richtlinie 2 in der Reihenfolge, in der die Richtlinie gebaut ist: zuerst Gebäudeklasse und die im Bundesland geltende Ausgabe, dann die Anforderung mit geprüfter Fundstelle, dann auf Wunsch der Befund am Plan. Jede Antwort sagt, ob sie die Anforderung beschreibt oder ihre Erfüllung prüft.',
+        'Piloti prüft den Brandschutz nach OIB-Richtlinie 2 in der Reihenfolge, in der die Richtlinie gebaut ist: zuerst Gebäudeklasse und die im Bundesland geltende Ausgabe, dann die Anforderung mit geprüfter Fundstelle, dann auf Wunsch der Befund an der Zeichnung. Jede Antwort sagt, ob sie die Anforderung beschreibt oder ihre Erfüllung prüft.',
       blocks: [
         {
           kind: 'pairs',
@@ -245,7 +245,7 @@ export const anwendungen: LandingEntry[] = [
           body: [
             'Die OIB-Richtlinie 2 ist nach Gebäudeklassen gebaut. Eine Feuerwiderstandsklasse ohne die Klasse, aus der sie folgt, ist eine Zahl ohne Anspruch, und eine Zahl aus der falschen Ausgabe liest sich so überzeugend wie die richtige. Die Ausgabe 2023 ist nicht überall verbindlich; wo ein Land sie nicht erklärt hat, gilt laut OIB-Übersicht in der Regel noch die Ausgabe 2019.',
             'Dazu kommt Landesrecht. Die Länder übernehmen die Richtlinie über ihre Bautechnikvorschriften, mit eigenen Abweichungen. In Wien stehen neben der Wiener Bautechnikverordnung 2023 die Merkblätter der MA 37. Was bindet und was nur auslegt, gehört deshalb in die Antwort.',
-            'Und am Ende steht der Unterschied, der am leichtesten verloren geht. Die Richtlinie sagt, was erfüllt sein muss. Ob es in diesem Gebäude erfüllt ist, ist ein Befund am Vorhaben. Eine grobe Prüfung am Plan ist kein Brandschutzkonzept.',
+            'Und am Ende steht der Unterschied, der am leichtesten verloren geht. Die Richtlinie sagt, was erfüllt sein muss. Ob es in diesem Gebäude erfüllt ist, ist ein Befund am Vorhaben. Eine grobe Prüfung an der Zeichnung ist kein Brandschutzkonzept.',
           ],
         },
         {
@@ -269,7 +269,7 @@ export const anwendungen: LandingEntry[] = [
               body: 'Ob einer verlangt ist, folgt aus Klasse und Nutzung. Ob er zählt, folgt daraus, wohin er führt. Piloti beantwortet beides oder sagt, welche der beiden offen ist.',
             },
             {
-              name: 'Am Plan prüfen, wenn Sie das wollen',
+              name: 'An der Zeichnung prüfen, wenn Sie das wollen',
               body: 'Liegen Grundrisse im Projekt, liest Piloti sie als Bild und prüft Segment für Segment. Das Ergebnis heißt dann Befund, nicht Anforderung, und die Antwort sagt, welches der beiden Sie vor sich haben.',
             },
           ],
@@ -295,7 +295,7 @@ export const anwendungen: LandingEntry[] = [
       faq: [
         {
           q: 'Kann eine KI den Brandschutz nach OIB-Richtlinie 2 prüfen?',
-          a: 'Sie kann die Anforderungen mit Fundstelle nennen und einen Plan grob dagegen lesen. Piloti tut beides und sagt jeweils, welches davon die Antwort ist. Das Brandschutzkonzept und die Verantwortung dafür bleiben bei den Planenden.',
+          a: 'Sie kann die Anforderungen mit Fundstelle nennen und eine Zeichnung grob dagegen lesen. Piloti tut beides und sagt jeweils, welches davon die Antwort ist. Das Brandschutzkonzept und die Verantwortung dafür bleiben bei den Planenden.',
         },
         {
           q: 'Warum fragt Piloti zuerst nach der Gebäudeklasse?',
@@ -487,7 +487,7 @@ export const anwendungen: LandingEntry[] = [
           items: [
             'Das Bundesland, und wenn Sie es schon wissen, das Verfahren.',
             'Die Art des Vorhabens: Neubau, Zubau, Umbau, Nutzungsänderung.',
-            'Die Unterlagen, die schon da sind: Pläne, Baubeschreibung, Nachweise, Zustimmungen, als PDF, Word, Excel oder ganzer Ordner.',
+            'Die Unterlagen, die schon da sind: Zeichnungen, Baubeschreibung, Nachweise, Zustimmungen, als PDF, Word, Excel oder ganzer Ordner.',
             'Falls es eine gibt: die Einreich-Checkliste Ihres Büros im Büroarchiv.',
           ],
         },
@@ -846,7 +846,7 @@ export const anwendungen: LandingEntry[] = [
       heading: 'Was darf ich auf dem Grundstück bauen?',
       lede: 'Höhe, Abstand, Dichte, Widmung, Stellplätze: Piloti nennt die Regel aus dem Landesrecht mit Fundstelle, liest den Bebauungsplan im Projekt mit und rechnet mit seinen Festlegungen, als Lageplan-Skizze und Kennzahl.',
       answer:
-        'Was auf einem Grundstück gebaut werden darf, legen das Landesrecht und der Flächenwidmungs- und Bebauungsplan der Gemeinde fest, nicht die OIB-Richtlinien. Piloti nennt die Regel mit Fundstelle, rechnet mit den Festlegungen des Plans im Projekt Bebauungsgrad, Dichte und Abstände je Seite und zeigt das Ergebnis als Lageplan-Skizze.',
+        'Was auf einem Grundstück gebaut werden darf, legen das Landesrecht und der Flächenwidmungs- und Bebauungsplan der Gemeinde fest, nicht die OIB-Richtlinien. Piloti nennt die Regel mit Fundstelle, rechnet mit den Festlegungen des Bebauungsplans im Projekt Bebauungsgrad, Dichte und Abstände je Seite und zeigt das Ergebnis als Lageplan-Skizze.',
       blocks: [
         {
           kind: 'pairs',
@@ -876,7 +876,7 @@ export const anwendungen: LandingEntry[] = [
           body: [
             'Abstände, Höhen, Dichte, Widmung und Stellplätze sind Landes- und Gemeinderecht: Bauordnung, Flächenwidmungsplan, Bebauungsplan, Stellplatzregeln. Die Antwort hängt deshalb immer am Bundesland, und es gibt keine Zahl, die in Graz und in Bregenz gleich gilt.',
             'Die Begriffe wandern mit. In Wien steuert die Bauklasse die zulässige Gebäudehöhe, andere Länder arbeiten mit Geschoßzahlen, Höhen oder Dichtewerten, und was hier Bauwich heißt, heißt dort Abstand. Eine erinnerte Wiener Regel auf ein anderes Land gelegt ist falsch und sieht richtig aus.',
-            'Und dann die eigentliche Lücke: Welche Regel greift, lässt sich aus dem Gesetz sagen. Was der Bebauungsplan für dieses eine Grundstück festlegt, steht nur im Plan selbst.',
+            'Und dann die eigentliche Lücke: Welche Regel greift, lässt sich aus dem Gesetz sagen. Was der Bebauungsplan für dieses eine Grundstück festlegt, steht nur in ihm selbst.',
           ],
         },
         {
@@ -896,7 +896,7 @@ export const anwendungen: LandingEntry[] = [
               body: 'Berührt eine Frage Landesrecht und OIB-Richtlinie zugleich, etwa Abstand und Brandschutz an der Grundgrenze, sagt Piloti, welche Ebene welchen Teil trägt. Was bindet und was nur auslegt, ist hier die eigentliche Information.',
             },
             {
-              name: 'Mit dem Plan rechnen, wenn er da ist',
+              name: 'Mit dem Bebauungsplan rechnen, wenn er da ist',
               body: 'Liegt der Bebauungsplan oder ein Auszug im Projekt, liest Piloti die Festlegungen und rechnet damit: Bebauungsgrad, Dichte, Abstände je Seite.',
             },
             {
@@ -926,7 +926,7 @@ export const anwendungen: LandingEntry[] = [
       faq: [
         {
           q: 'Wie finde ich heraus, was ich auf meinem Grundstück bauen darf?',
-          a: 'Im Flächenwidmungs- und Bebauungsplan Ihrer Gemeinde und in der Bauordnung Ihres Bundeslands. Der Plan setzt fest, was für das Grundstück gilt; das Gesetz sagt, wie diese Festlegungen zu lesen sind und was gilt, wo der Plan schweigt. Piloti liest beides zusammen, sobald der Plan im Projekt liegt.',
+          a: 'Im Flächenwidmungs- und Bebauungsplan Ihrer Gemeinde und in der Bauordnung Ihres Bundeslands. Der Bebauungsplan setzt fest, was für das Grundstück gilt; das Gesetz sagt, wie diese Festlegungen zu lesen sind und was gilt, wo der Bebauungsplan schweigt. Piloti liest beides zusammen, sobald er im Projekt liegt.',
         },
         {
           q: 'Regeln die OIB-Richtlinien den Abstand zur Grundgrenze?',
@@ -934,11 +934,11 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           q: 'Was ist der Unterschied zwischen Flächenwidmungsplan und Bebauungsplan?',
-          a: 'Der Flächenwidmungsplan legt fest, wofür eine Fläche genutzt werden darf, etwa als Bauland oder Grünland. Der Bebauungsplan regelt, wie darauf gebaut werden darf: Lage, Höhe, Dichte, Abstände. Wie die Pläne heißen und was sie enthalten, bestimmt das Landesrecht; in Wien sind beide in einem Plandokument zusammengefasst.',
+          a: 'Der Flächenwidmungsplan legt fest, wofür eine Fläche genutzt werden darf, etwa als Bauland oder Grünland. Der Bebauungsplan regelt, wie darauf gebaut werden darf: Lage, Höhe, Dichte, Abstände. Wie sie heißen und was sie enthalten, bestimmt das Landesrecht; in Wien sind beide in einem Plandokument zusammengefasst.',
         },
         {
           q: 'Kann Piloti den Bebauungsplan für meine Adresse abrufen?',
-          a: 'Eine Webrecherche von Piloti kann das Planportal Ihrer Gemeinde finden, mit verlinkter Quelle. Am belastbarsten wird die Antwort mit dem Plan oder einem Auszug im Projekt: Dann liest Piloti die Festlegungen und rechnet damit.',
+          a: 'Eine Webrecherche von Piloti kann das Planportal Ihrer Gemeinde finden, mit verlinkter Quelle. Am belastbarsten wird die Antwort mit dem Bebauungsplan oder einem Auszug im Projekt: Dann liest Piloti die Festlegungen und rechnet damit.',
         },
       ],
     },
@@ -947,9 +947,9 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Checking the zoning plan: what may I build on this plot? Height class, setbacks, zoning, density and parking under state law, explained with citations.',
       heading: 'What may I build on this plot?',
-      lede: 'Height, setback, density, zoning, parking: Piloti names the rule from state law with a citation, reads the zoning plan in the project alongside it and calculates with its provisions, as a site plan sketch and key figures.',
+      lede: 'Height, setback, density, zoning, parking: Piloti names the rule from state law with a citation, reads the development plan in the project alongside it and calculates with its provisions, as a site plan sketch and key figures.',
       answer:
-        'What may be built on a plot is set by state law and the municipality’s land-use and zoning plan, not by the OIB guidelines. Piloti names the rule with a citation, calculates site coverage, density and setbacks per side from the provisions of the plan in the project, and shows the result as a site plan sketch.',
+        'What may be built on a plot is set by state law and the municipality’s land-use and zoning plan, not by the OIB guidelines. Piloti names the rule with a citation, calculates site coverage, density and setbacks per side from the provisions of the development plan in the project, and shows the result as a site plan sketch.',
       blocks: [
         {
           kind: 'pairs',
@@ -977,9 +977,9 @@ export const anwendungen: LandingEntry[] = [
           kind: 'text',
           title: 'Why no Austria-wide number helps here',
           body: [
-            'Setbacks, heights, density, zoning and parking are state and municipal law: building code, land-use plan, zoning plan, parking rules. The answer therefore always depends on the state, and there is no number that applies equally in Graz and in Bregenz.',
+            'Setbacks, heights, density, zoning and parking are state and municipal law: building code, land-use plan, development plan, parking rules. The answer therefore always depends on the state, and there is no number that applies equally in Graz and in Bregenz.',
             'The terms move too. In Vienna the Bauklasse controls the permitted building height; other states work with numbers of storeys, heights or density values, and what one state calls Bauwich another calls Abstand. A remembered Vienna rule applied to another state is wrong and looks right.',
-            'And then the real gap: which rule applies can be read from the law. What the zoning plan fixes for this one plot is only in the plan itself.',
+            'And then the real gap: which rule applies can be read from the law. What the development plan fixes for this one plot is only in the document itself.',
           ],
         },
         {
@@ -988,7 +988,7 @@ export const anwendungen: LandingEntry[] = [
           items: [
             {
               name: 'Name state and instrument',
-              body: 'If the project records the state, Piloti works under it. If not, that is the question. Then: which instrument carries the answer, building code, land-use plan, zoning plan or parking rule?',
+              body: 'If the project records the state, Piloti works under it. If not, that is the question. Then: which instrument carries the answer, building code, land-use plan, development plan or parking rule?',
             },
             {
               name: 'Fetch the provision',
@@ -999,8 +999,8 @@ export const anwendungen: LandingEntry[] = [
               body: 'If a question touches state law and an OIB guideline at once, such as setback and fire safety at the boundary, Piloti says which level carries which part. What binds and what only interprets is the real information here.',
             },
             {
-              name: 'Calculate with the plan when it is there',
-              body: 'If the zoning plan or an extract is in the project, Piloti reads its provisions and calculates with them: site coverage, density, setbacks per side.',
+              name: 'Calculate with the development plan when it is there',
+              body: 'If the development plan or an extract is in the project, Piloti reads its provisions and calculates with them: site coverage, density, setbacks per side.',
             },
             {
               name: 'Say what is missing',
@@ -1022,26 +1022,26 @@ export const anwendungen: LandingEntry[] = [
           kind: 'text',
           title: 'Good to know',
           body: [
-            'Piloti reads the provisions for your plot from the zoning plan you upload to the project; without it, it says which rule applies and where the provision can be found. Every number appears with its source, so your office can check it. An unclear provision is for the municipality or a pre-application meeting with the building authority.',
+            'Piloti reads the provisions for your plot from the development plan you upload to the project; without it, it says which rule applies and where the provision can be found. Every number appears with its source, so your office can check it. An unclear provision is for the municipality or a pre-application meeting with the building authority.',
           ],
         },
       ],
       faq: [
         {
           q: 'How do I find out what I may build on my plot?',
-          a: 'In your municipality’s land-use and zoning plan and in your state’s building code. The plan fixes what applies to the plot; the law says how its provisions are to be read and what applies where the plan is silent. Piloti reads both together once the plan is in the project.',
+          a: 'In your municipality’s land-use and zoning plan and in your state’s building code. The development plan fixes what applies to the plot; the law says how its provisions are to be read and what applies where the development plan is silent. Piloti reads both together once it is in the project.',
         },
         {
           q: 'Do the OIB guidelines set the distance to the plot boundary?',
-          a: 'The setbacks that govern development are in state law and the zoning plan. OIB guideline 2 can add fire safety requirements at the plot boundary. Piloti keeps the two levels apart in the answer and says which carries which part.',
+          a: 'The setbacks that govern development are in state law and the development plan. OIB guideline 2 can add fire safety requirements at the plot boundary. Piloti keeps the two levels apart in the answer and says which carries which part.',
         },
         {
-          q: 'What is the difference between the land-use plan and the zoning plan?',
-          a: 'The land-use plan (Flächenwidmungsplan) sets what an area may be used for, such as building land or green land. The zoning plan (Bebauungsplan) sets how it may be built on: position, height, density, setbacks. What the plans are called and what they contain is set by state law; in Vienna both are combined in one plan document.',
+          q: 'What is the difference between the land-use plan and the development plan?',
+          a: 'The land-use plan (Flächenwidmungsplan) sets what an area may be used for, such as building land or green land. The development plan (Bebauungsplan) sets how it may be built on: position, height, density, setbacks. What the instruments are called and what they contain is set by state law; in Vienna both are combined in one document.',
         },
         {
-          q: 'Can Piloti fetch the zoning plan for my address?',
-          a: 'Piloti’s web research can find your municipality’s plan portal, with the source linked. The answer is most solid with the plan or an extract in the project: then Piloti reads the provisions and calculates with them.',
+          q: 'Can Piloti fetch the development plan for my address?',
+          a: 'Piloti’s web research can find your municipality’s planning portal, with the source linked. The answer is most solid with the development plan or an extract in the project: then Piloti reads the provisions and calculates with them.',
         },
       ],
     },
@@ -1260,7 +1260,7 @@ export const anwendungen: LandingEntry[] = [
       heading: 'Treppe, Geländer und Barrierefreiheit nach OIB-Richtlinie 4 prüfen',
       lede: 'Ob ein Auftritt reicht oder ein Geländer hoch genug ist, sieht man in einer Zeichnung schneller als in einem Satz. Piloti liefert beides: das Urteil mit Fundstelle und die Maßskizze dazu.',
       answer:
-        'Piloti prüft Treppen, Geländer, Türen und Rampen gegen die OIB-Richtlinie 4 „Nutzungssicherheit und Barrierefreiheit“ in der Ausgabe, die Ihr Bundesland verbindlich erklärt hat: Es stellt Ihr Maß der zitierten Anforderung gegenüber, zeichnet es als Skizze und führt jedes Maß, das dem Plan fehlt, als offenen Punkt.',
+        'Piloti prüft Treppen, Geländer, Türen und Rampen gegen die OIB-Richtlinie 4 „Nutzungssicherheit und Barrierefreiheit“ in der Ausgabe, die Ihr Bundesland verbindlich erklärt hat: Es stellt Ihr Maß der zitierten Anforderung gegenüber, zeichnet es als Skizze und führt jedes Maß, das der Zeichnung fehlt, als offenen Punkt.',
       blocks: [
         {
           kind: 'pairs',
@@ -1311,7 +1311,7 @@ export const anwendungen: LandingEntry[] = [
             },
             {
               name: 'Fehlende Maße offen lassen',
-              body: 'Fehlt ein Maß, steht die Prüfung als „Angabe fehlt“, mit dem, was dem Plan fehlt. Ein geschätztes Maß kommt in keine Skizze, weil die Skizze genau das ist, was ohne den Text weitergereicht wird.',
+              body: 'Fehlt ein Maß, steht die Prüfung als „Angabe fehlt“, mit dem, was der Zeichnung fehlt. Ein geschätztes Maß kommt in keine Skizze, weil die Skizze genau das ist, was ohne den Text weitergereicht wird.',
             },
           ],
         },
@@ -1343,8 +1343,8 @@ export const anwendungen: LandingEntry[] = [
           a: 'Das hängt von Nutzung, Größe und Bundesland ab. Welche Gebäude und Teile barrierefrei zu planen sind, ergibt sich aus der Bauordnung oder Bautechnikvorschrift des Landes zusammen mit der OIB-Richtlinie 4. Piloti nennt die Bestimmung Ihres Landes mit Fundstelle.',
         },
         {
-          q: 'Kann Piloti Maße aus einem Plan ablesen?',
-          a: 'Es sieht Pläne als Bild an, liest bemaßte Werte, wo die Zeichnung sie zeigt, und sagt, welche Zeichnung auf dem Blatt es gelesen hat. Unbemaßte Längen schätzt es nicht. Fehlt ein Maß, fragt Piloti danach.',
+          q: 'Kann Piloti Maße aus einer Zeichnung ablesen?',
+          a: 'Es sieht Zeichnungen als Bild an, liest bemaßte Werte, wo die Zeichnung sie zeigt, und sagt, welche Zeichnung auf dem Blatt es gelesen hat. Unbemaßte Längen schätzt es nicht. Fehlt ein Maß, fragt Piloti danach.',
         },
         {
           q: 'Was ist der Unterschied zwischen Rohbaulichte und lichter Durchgangsbreite?',
@@ -1419,7 +1419,7 @@ export const anwendungen: LandingEntry[] = [
           title: 'What Piloti needs from you',
           items: [
             'The state, the use and the type of building, such as housing, office or open to the public.',
-            'The dimensions in question, from your question or from dimensioned plans and sections in the project.',
+            'The dimensions in question, from your question or from dimensioned drawings and sections in the project.',
             'Whether they are structural or finished dimensions.',
             'Whether it is new build or existing.',
           ],
@@ -1461,9 +1461,9 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Aufenthaltsraum nach OIB-RL 3: Ist der Raum einer, und was gilt dann für Raumhöhe, Belichtung und Lüftung? Piloti ordnet ein, zitiert und prüft Ihre Maße.',
       heading: 'Ist das ein Aufenthaltsraum, und was verlangt die OIB-Richtlinie 3 dann?',
-      lede: 'Piloti ordnet den Raum nach seiner Nutzung ein, nicht nach dem Raumstempel im Plan, und prüft dann Raumhöhe, Belichtung und Lüftung gegen die OIB-Richtlinie 3, mit Fundstelle und Skizze zum Lichteinfall.',
+      lede: 'Piloti ordnet den Raum nach seiner Nutzung ein, nicht nach dem Raumstempel in der Zeichnung, und prüft dann Raumhöhe, Belichtung und Lüftung gegen die OIB-Richtlinie 3, mit Fundstelle und Skizze zum Lichteinfall.',
       answer:
-        'Piloti ordnet einen Raum mit Fundstelle als Aufenthaltsraum ein, nach der Begriffsbestimmung und seiner tatsächlichen Nutzung statt nach seinem Namen im Plan, holt dann die Anforderungen der OIB-Richtlinie 3 an Raumhöhe, Belichtung und Lüftung aus der Klausel und prüft Ihre Maße dagegen.',
+        'Piloti ordnet einen Raum mit Fundstelle als Aufenthaltsraum ein, nach der Begriffsbestimmung und seiner tatsächlichen Nutzung statt nach seinem Namen in der Zeichnung, holt dann die Anforderungen der OIB-Richtlinie 3 an Raumhöhe, Belichtung und Lüftung aus der Klausel und prüft Ihre Maße dagegen.',
       blocks: [
         {
           kind: 'pairs',
@@ -1491,7 +1491,7 @@ export const anwendungen: LandingEntry[] = [
           kind: 'text',
           title: 'Warum die Einordnung zuerst kommt',
           body: [
-            'Die OIB-Richtlinie 3 knüpft ihre Anforderungen an Raumhöhe, Belichtung und Lüftung daran, ob ein Raum ein Aufenthaltsraum ist. Das ist eine rechtliche Einordnung. „Hobbyraum“ im Plan entscheidet sie nicht, die Nutzung schon. Ein Kellerraum, in dem regelmäßig gearbeitet wird, kann einer sein; ein großzügiger Abstellraum ist es nicht.',
+            'Die OIB-Richtlinie 3 knüpft ihre Anforderungen an Raumhöhe, Belichtung und Lüftung daran, ob ein Raum ein Aufenthaltsraum ist. Das ist eine rechtliche Einordnung. „Hobbyraum“ in der Zeichnung entscheidet sie nicht, die Nutzung schon. Ein Kellerraum, in dem regelmäßig gearbeitet wird, kann einer sein; ein großzügiger Abstellraum ist es nicht.',
             'Danach kommen die Maße, und an ihnen hängen zwei typische Fehler. Die Geschoßhöhe ist nicht die lichte Raumhöhe. Und ein Lichteinfall, den ein gegenüberliegendes Gebäude beschneidet, verbietet das Fenster nicht: Er ändert die erforderliche Fensterfläche. Wer aus „beschnitten“ ein „nicht erfüllt“ macht, hat die Bestimmung übersprungen.',
             'Auch hier holen Bestand, Zubau und größere Renovierung oft andere Anforderungen als Neubau, und die Ausgabe des Landes bindet mit.',
           ],
@@ -1514,7 +1514,7 @@ export const anwendungen: LandingEntry[] = [
             },
             {
               name: 'Das Maß zuordnen',
-              body: 'Das Maß kommt aus der Frage, dem Plan oder den Unterlagen, und seine Herkunft steht im Satz. Erst die Anforderung, dann das Maß, nie umgekehrt, sonst wird das Falsche sauber geprüft.',
+              body: 'Das Maß kommt aus der Frage, der Zeichnung oder den Unterlagen, und seine Herkunft steht im Satz. Erst die Anforderung, dann das Maß, nie umgekehrt, sonst wird das Falsche sauber geprüft.',
             },
           ],
         },
@@ -1522,7 +1522,7 @@ export const anwendungen: LandingEntry[] = [
           kind: 'list',
           title: 'Was Piloti von Ihnen braucht',
           items: [
-            'Wofür der Raum genutzt wird, nicht nur wie er im Plan heißt.',
+            'Wofür der Raum genutzt wird, nicht nur wie er in der Zeichnung heißt.',
             'Die lichte Raumhöhe, nicht die Geschoßhöhe.',
             'Raumfläche, Fenstergröße und Glasanteil, und was dem Fenster gegenüberliegt.',
             'Das Bundesland, und ob Neubau oder Bestand.',
@@ -1539,7 +1539,7 @@ export const anwendungen: LandingEntry[] = [
       faq: [
         {
           q: 'Was ist ein Aufenthaltsraum?',
-          a: 'Ein Raum, der zum längeren Aufenthalt von Menschen bestimmt ist, etwa ein Wohn-, Schlaf- oder Arbeitsraum. Die maßgebliche Bestimmung steht in den OIB-Richtlinien bzw. im Landesrecht, und sie kann sich von Land zu Land im Detail unterscheiden. Entscheidend ist die Nutzung, nicht der Name im Plan.',
+          a: 'Ein Raum, der zum längeren Aufenthalt von Menschen bestimmt ist, etwa ein Wohn-, Schlaf- oder Arbeitsraum. Die maßgebliche Bestimmung steht in den OIB-Richtlinien bzw. im Landesrecht, und sie kann sich von Land zu Land im Detail unterscheiden. Entscheidend ist die Nutzung, nicht der Name in der Zeichnung.',
         },
         {
           q: 'Ist ein Kellerraum ein Aufenthaltsraum?',
@@ -1649,7 +1649,7 @@ export const anwendungen: LandingEntry[] = [
           a: 'The minimum height is in OIB guideline 3 in the edition your state has declared. It means the clear room height, not the storey height. Piloti cites the value with its source and checks your dimension against it.',
         },
         {
-          q: 'May I plan a window if the neighbouring building cuts off the daylight?',
+          q: 'May I design a window if the neighbouring building cuts off the daylight?',
           a: 'Cut-off daylight does not prohibit the window. It changes how large the window area must be. Piloti shows the incidence of light as a sketch and cites the clause that sets the area.',
         },
       ],
@@ -1708,7 +1708,7 @@ export const anwendungen: LandingEntry[] = [
             },
             {
               name: 'Die Tiefenrecherche planen',
-              body: 'Für eine größere Frage legt Piloti zuerst einen Plan vor, den Sie ändern, bevor die Recherche beginnt.',
+              body: 'Für eine größere Frage legt Piloti zuerst einen Rechercheplan vor, den Sie ändern, bevor die Recherche beginnt.',
             },
             {
               name: 'Den Bericht ablegen',
@@ -1732,7 +1732,7 @@ export const anwendungen: LandingEntry[] = [
           kind: 'list',
           title: 'Was Piloti von Ihnen braucht',
           items: [
-            'Das Projekt mit seinen Unterlagen: Pläne, Bescheide, frühere Vermerke.',
+            'Das Projekt mit seinen Unterlagen: Zeichnungen, Bescheide, frühere Vermerke.',
             'Was festgehalten werden soll, in einem Satz: die Entscheidung, die Frage, der Termin.',
             'Ständige Anweisungen für Form und Schwerpunkt, wenn Ihr Büro eine feste Gliederung hat.',
             'Wer im Büro freigibt.',
@@ -1813,8 +1813,8 @@ export const anwendungen: LandingEntry[] = [
               body: 'As a question or as a task with a deadline: “Mach den Einreichcheck bis Freitag.” Recurring work you schedule: “Prüf das jeden Montag.” Tasks run under your name and with your permissions.',
             },
             {
-              name: 'Plan the in-depth research',
-              body: 'For a larger question, Piloti first proposes a plan, which you change before the research starts.',
+              name: 'Edit the research plan',
+              body: 'For a larger question, Piloti first proposes a research plan, which you change before the research starts.',
             },
             {
               name: 'File the report',
@@ -1883,7 +1883,7 @@ export const anwendungen: LandingEntry[] = [
       heading: 'Das Büroarchiv befragen: Wissensmanagement im Architekturbüro',
       lede: 'Das Wissen eines Büros steckt in alten Projekten, Bescheiden und Vermerken. Piloti macht dieses Archiv befragbar: Sie fragen wie eine Kollegin und bekommen Dokument und Stelle, getrennt von dem, was das Gesetz verlangt.',
       answer:
-        'Piloti durchsucht das Büroarchiv, das Sie hochladen, also Pläne, Bescheide, Vermerke und Checklisten, und beantwortet Fragen daraus mit Fundstelle, getrennt von dem, was Gesetz und OIB-Richtlinien verlangen. Das Archiv sieht kein anderes Büro, und mit den Daten des Büros werden keine Modelle trainiert.',
+        'Piloti durchsucht das Büroarchiv, das Sie hochladen, also Unterlagen, Bescheide, Vermerke und Checklisten, und beantwortet Fragen daraus mit Fundstelle, getrennt von dem, was Gesetz und OIB-Richtlinien verlangen. Das Archiv sieht kein anderes Büro, und mit den Daten des Büros werden keine Modelle trainiert.',
       blocks: [
         {
           kind: 'pairs',
@@ -1903,7 +1903,7 @@ export const anwendungen: LandingEntry[] = [
             },
             {
               name: 'Daten, die Ihnen gehören',
-              body: 'Kein Training von Modellen mit Büro-Daten; Pläne bleiben Eigentum des Büros; auf Wunsch mit eigenem Schlüssel für den Modellanbieter.',
+              body: 'Kein Training von Modellen mit Büro-Daten; Dateien bleiben Eigentum des Büros; auf Wunsch mit eigenem Schlüssel für den Modellanbieter.',
             },
           ],
         },
@@ -1965,11 +1965,11 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           q: 'Sieht ein anderes Büro meine Dokumente?',
-          a: 'Nein. Das Büroarchiv ist für kein anderes Büro sichtbar, und Piloti trainiert keine Modelle mit den Daten Ihres Büros. Pläne bleiben Eigentum des Büros.',
+          a: 'Nein. Das Büroarchiv ist für kein anderes Büro sichtbar, und Piloti trainiert keine Modelle mit den Daten Ihres Büros. Dateien bleiben Eigentum des Büros.',
         },
         {
           q: 'Welche Dateien kann ich ins Büroarchiv laden?',
-          a: 'PDF, Word, Excel, PowerPoint, CSV und Bilder, einzeln oder als ganze Ordner. IFC-Modelle zeigt Piloti in einer Vorschau mit Modellbereich. Pläne und Fotos sieht Piloti als Bild an, wenn die Zeichnung für die Antwort zählt.',
+          a: 'PDF, Word, Excel, PowerPoint, CSV und Bilder, einzeln oder als ganze Ordner. IFC-Modelle zeigt Piloti in einer Vorschau mit Modellbereich. Zeichnungen und Fotos sieht Piloti als Bild an, wenn die Zeichnung für die Antwort zählt.',
         },
         {
           q: 'Ist Piloti schon verfügbar?',

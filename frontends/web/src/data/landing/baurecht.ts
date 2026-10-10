@@ -89,7 +89,7 @@ export const baurecht: LandingEntry[] = [
           kind: 'text',
           title: 'Gut zu wissen',
           body: [
-            'Über das Ansuchen entscheidet die Baubehörde, die Verantwortung für den Entwurf bleibt beim Büro. Piloti nennt jede Quelle so, dass Sie sie im RIS nachlesen, stellt Merkblätter der MA 37 als Auslegung neben das Gesetz und fragt nach, wenn Einreichdatum oder Widmung fehlen. Was Flächenwidmungs- und Bebauungsplan für Ihr Grundstück festsetzen, liest es aus dem Plan im Projekt.',
+            'Über das Ansuchen entscheidet die Baubehörde, die Verantwortung für den Entwurf bleibt beim Büro. Piloti nennt jede Quelle so, dass Sie sie im RIS nachlesen, stellt Merkblätter der MA 37 als Auslegung neben das Gesetz und fragt nach, wenn Einreichdatum oder Widmung fehlen. Was Flächenwidmungs- und Bebauungsplan für Ihr Grundstück festsetzen, liest es aus dem Bebauungsplan im Projekt.',
           ],
         },
       ],
@@ -187,7 +187,7 @@ export const baurecht: LandingEntry[] = [
           kind: 'text',
           title: 'Good to know',
           body: [
-            'The building authority decides on the application; responsibility for the design stays with the office. Piloti names every source so you can read it in RIS, sets MA 37 information sheets beside the law as interpretation, and asks when the submission date or zoning is missing. What the zoning and development plan fixes for your plot, it reads from the plan in the project.',
+            'The building authority decides on the application; responsibility for the design stays with the office. Piloti names every source so you can read it in RIS, sets MA 37 information sheets beside the law as interpretation, and asks when the submission date or zoning is missing. What the zoning and development plan fixes for your plot, it reads from the development plan in the project.',
           ],
         },
       ],
@@ -255,7 +255,7 @@ export const baurecht: LandingEntry[] = [
           title: 'Der Bebauungsplan entscheidet mit',
           body: [
             'Viele Fragen zu einem Grundstück in Niederösterreich beantwortet nicht die Bauordnung allein. Was dort gebaut werden darf, hängt am Bebauungsplan der Gemeinde, und den erlässt jede Gemeinde für sich.',
-            'Piloti trennt deshalb: Was die NÖ Bauordnung 2014 allgemein regelt, belegt es mit Fundstelle. Was nur der Bebauungsplan festlegen kann, liest es aus dem Plan, wenn er im Projekt liegt. Fehlt er, sagt Piloti das, statt einen Wert zu raten, und nennt die Baubehörde der Gemeinde als Stelle, die ihn hat.',
+            'Piloti trennt deshalb: Was die NÖ Bauordnung 2014 allgemein regelt, belegt es mit Fundstelle. Was nur der Bebauungsplan festlegen kann, liest es aus dem Bebauungsplan, wenn er im Projekt liegt. Fehlt er, sagt Piloti das, statt einen Wert zu raten, und nennt die Baubehörde der Gemeinde als Stelle, die ihn hat.',
           ],
         },
         {
@@ -299,7 +299,7 @@ export const baurecht: LandingEntry[] = [
         },
         {
           q: 'Kann Piloti Fragen zur NÖ Bauordnung beantworten?',
-          a: 'Ja, mit Fundstelle aus der NÖ Bauordnung 2014 und den OIB-Richtlinien, geprüft gegen den Quelltext, bevor sie erscheint. Was nur der Bebauungsplan Ihrer Gemeinde festlegt, beantwortet Piloti aus dem Plan, wenn er im Projekt liegt, sonst sagt es, dass er fehlt.',
+          a: 'Ja, mit Fundstelle aus der NÖ Bauordnung 2014 und den OIB-Richtlinien, geprüft gegen den Quelltext, bevor sie erscheint. Was nur der Bebauungsplan Ihrer Gemeinde festlegt, beantwortet Piloti aus dem Bebauungsplan, wenn er im Projekt liegt, sonst sagt es, dass er fehlt.',
         },
         {
           q: 'Gilt am Wiener Stadtrand die Wiener oder die niederösterreichische Bauordnung?',
@@ -345,7 +345,7 @@ export const baurecht: LandingEntry[] = [
           title: 'The development plan has a say',
           body: [
             'Many questions about a plot in Lower Austria are not answered by the building code alone. What may be built there depends on the municipality’s development plan, and each municipality issues its own.',
-            'Piloti therefore keeps them apart: what the NÖ Bauordnung 2014 governs in general, it cites with the passage. What only the development plan can fix, it reads from the plan if the plan is in the project. If it is missing, Piloti says so instead of guessing a value, and names the municipal building authority as the place that holds it.',
+            'Piloti therefore keeps them apart: what the NÖ Bauordnung 2014 governs in general, it cites with the passage. What only the development plan can fix, it reads from the development plan if it is in the project. If it is missing, Piloti says so instead of guessing a value, and names the municipal building authority as the place that holds it.',
           ],
         },
         {
@@ -389,7 +389,7 @@ export const baurecht: LandingEntry[] = [
         },
         {
           q: 'Can Piloti answer questions on the Lower Austria building code?',
-          a: 'Yes, with a citation from the NÖ Bauordnung 2014 and the OIB guidelines, checked against the source text before it appears. What only your municipality’s development plan fixes, Piloti answers from the plan if it is in the project; otherwise it says the plan is missing.',
+          a: 'Yes, with a citation from the NÖ Bauordnung 2014 and the OIB guidelines, checked against the source text before it appears. What only your municipality’s development plan fixes, Piloti answers from the development plan if it is in the project; otherwise it says the development plan is missing.',
         },
         {
           q: 'On the edge of Vienna, does the Vienna or the Lower Austria code apply?',
@@ -611,7 +611,7 @@ export const baurecht: LandingEntry[] = [
           title: 'Die neueste Ausgabe ist nicht die geltende',
           body: [
             'Auf der Website des OIB stehen die Richtlinien in der Ausgabe 2023 und die RL 6 in der Ausgabe 2025. Für ein Projekt in der Steiermark sind das laut OIB-Übersicht nicht die verbindlichen Texte: Dort gilt die Ausgabe 2019, solange das Land keine neuere für verbindlich erklärt. Ein Wert, der zwischen den Ausgaben geändert wurde, ist in einem steirischen Einreichplan dann schlicht falsch zitiert.',
-            'Piloti zitiert die OIB-Richtlinien mit Ausgabe und nennt für ein steirisches Projekt die, die dort laut OIB-Übersicht gilt. So geht eine Anforderung mit der Fundstelle in Plan oder Bericht, die im Land verbindlich ist.',
+            'Piloti zitiert die OIB-Richtlinien mit Ausgabe und nennt für ein steirisches Projekt die, die dort laut OIB-Übersicht gilt. So geht eine Anforderung mit der Fundstelle in Unterlage oder Bericht, die im Land verbindlich ist.',
             'Die OIB-Richtlinien 2027 werden vorbereitet. Wann die Steiermark welche Ausgabe übernimmt, sagt die Verordnung des Landes, nicht die OIB-Website.',
           ],
         },
@@ -1601,7 +1601,7 @@ export const baurecht: LandingEntry[] = [
           kind: 'text',
           title: 'The neighbour’s edition is not the right one',
           body: [
-            'An office in Vienna or Lower Austria works day to day with the 2023 edition, according to the OIB overview. When it plans in Burgenland, the 2019 edition applies there. A requirement that changed between editions can then end up in the submission drawing with the wrong value, without anyone noticing while drawing.',
+            'An office in Vienna or Lower Austria works day to day with the 2023 edition, according to the OIB overview. When an office works in Burgenland, the 2019 edition applies there. A requirement that changed between editions can then end up in the submission drawing with the wrong value, without anyone noticing while drawing.',
             'Piloti names the edition that applies in Burgenland according to the OIB overview for every OIB requirement, and keeps the state in the project. Anyone weighing two sites gets Burgenland and Lower Austria side by side in tabs on request.',
           ],
         },

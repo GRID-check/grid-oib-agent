@@ -142,7 +142,7 @@ export function siteGraph(locale: Locale, site: URL | undefined) {
       name: SITE_NAME,
       url: home,
       applicationCategory: 'BusinessApplication',
-      applicationSubCategory: locale === 'de' ? 'KI-Wissensplattform für Planungsbüros' : 'AI knowledge platform for planning offices',
+      applicationSubCategory: locale === 'de' ? 'Arbeitsbereich für Planungsbüros' : 'Workspace for planning offices',
       operatingSystem: 'Web',
       inLanguage: ['de-AT', 'en'],
       description: ui[locale].meta.description,

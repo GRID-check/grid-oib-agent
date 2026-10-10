@@ -13,7 +13,7 @@ export const fuer: LandingEntry[] = [
     de: {
       title: 'KI für Architekturbüros in Österreich – Piloti',
       description:
-        'KI für Architekturbüros in Österreich: Piloti beantwortet Baurechtsfragen aus Bauordnung, OIB-Richtlinien und Ihren Plänen, mit geprüfter Fundstelle.',
+        'KI für Architekturbüros in Österreich: Piloti ist der Arbeitsbereich für Projekte, Unterlagen und Baurecht, mit geprüfter Fundstelle zu jeder Antwort.',
       heading: 'KI für Architekturbüros: was Piloti im Büro übernimmt',
       lede: 'Zwischen Entwurf und Einreichung liegt eine lange Reihe kleiner Rechtsfragen. Piloti ist für genau diese Strecke gebaut: für die Frage, die Fundstelle und das, was danach im Akt stehen muss.',
       answer:
@@ -69,7 +69,7 @@ export const fuer: LandingEntry[] = [
           kind: 'text',
           title: 'Ihre Daten',
           body: [
-            'Mit den Daten Ihres Büros werden keine Modelle trainiert, Ihre Pläne bleiben Ihr Eigentum, und Ihr Büroarchiv ist für kein anderes Büro sichtbar. Die Einzelheiten stehen in der Datenschutzerklärung.',
+            'Mit den Daten Ihres Büros werden keine Modelle trainiert, Ihre Dateien bleiben Ihr Eigentum, und Ihr Büroarchiv ist für kein anderes Büro sichtbar. Die Einzelheiten stehen in der Datenschutzerklärung.',
           ],
         },
         {
@@ -94,10 +94,10 @@ export const fuer: LandingEntry[] = [
         },
         {
           q: 'Wie schnell antwortet Piloti?',
-          a: 'Eine typische Antwort braucht etwa 30 s. Eine Tiefenrecherche dauert länger: Sie beginnt mit einem Plan, den Sie bearbeiten, und endet mit einem Bericht im Projekt.',
+          a: 'Eine typische Antwort braucht etwa 30 s. Eine Tiefenrecherche dauert länger: Sie beginnt mit einem Rechercheplan, den Sie bearbeiten, und endet mit einem Bericht im Projekt.',
         },
         {
-          q: 'Werden unsere Pläne zum Training verwendet?',
+          q: 'Werden unsere Dateien zum Training verwendet?',
           a: 'Nein. Mit Daten aus Ihrem Büro werden keine Modelle trainiert, Zeichnungen bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. Die Einzelheiten stehen in der Datenschutzerklärung.',
         },
         {
@@ -134,7 +134,7 @@ export const fuer: LandingEntry[] = [
           kind: 'text',
           title: 'Daily life in an Austrian architecture office',
           body: [
-            'A roof conversion in Vienna, a housing block in Lower Austria, a competition in Styria: many offices plan in several states at once, and each has its own building code and its own status on the OIB guidelines. The questions are often small, but they never stop: which building class? Is the escape route enough? Is that still a habitable room?',
+            'A roof conversion in Vienna, a housing block in Lower Austria, a competition in Styria: many offices work in several states at once, and each has its own building code and its own status on the OIB guidelines. The questions are often small, but they never stop: which building class? Is the escape route enough? Is that still a habitable room?',
             'The answers are scattered. In the RIS, in the guidelines, in a file note from 2019, in the head of the colleague who has been through it three times. Asking interrupts someone; not asking risks a request for rectification.',
           ],
         },
@@ -194,7 +194,7 @@ export const fuer: LandingEntry[] = [
         },
         {
           q: 'How fast does Piloti answer?',
-          a: 'A typical answer takes about 30 s. In-depth research takes longer: it starts with a plan you edit and ends with a report in the project.',
+          a: 'A typical answer takes about 30 s. In-depth research takes longer: it starts with a research plan you edit and ends with a report in the project.',
         },
         {
           q: 'Are our drawings used for training?',
@@ -228,7 +228,7 @@ export const fuer: LandingEntry[] = [
           kind: 'list',
           title: 'Was Piloti übernimmt',
           items: [
-            'Tiefenrecherche: Piloti schlägt einen Plan vor, Sie bearbeiten ihn, der Bericht landet im Projekt unter „Berichte“, mit Urteil und Befundmatrix, als PDF oder Word exportierbar.',
+            'Tiefenrecherche: Piloti schlägt einen Rechercheplan vor, Sie bearbeiten ihn, der Bericht landet im Projekt unter „Berichte“, mit Urteil und Befundmatrix, als PDF oder Word exportierbar.',
             'Brandschutz: Brandabschnitte, Fluchtwege und Feuerwiderstand, sobald die Gebäudeklasse steht, getrennt nach dem, was die Richtlinie verlangt, und dem, ob dieses Gebäude es erfüllt.',
             'Wärme- und Schallschutz: U-Wert-, HWB- und Schallanforderungen, zuerst geklärt, ob Neubau oder Bestand.',
             'Prüfungen nach Gebäudeklasse als Tabelle mit Fundstelle und Ergebnis je Zeile, etwa „2 erfüllt · 1 offen“, und Varianten in Tabs, etwa zwei Bundesländer nebeneinander.',
@@ -254,7 +254,7 @@ export const fuer: LandingEntry[] = [
             },
             {
               name: 'Dienstag',
-              body: 'Tiefenrecherche zu einer Aufstockung, die in Wien und in Graz geplant wird. Sie streichen einen Punkt aus dem vorgeschlagenen Plan und ergänzen einen; danach liegt der Bericht im Projekt.',
+              body: 'Tiefenrecherche zu einer Aufstockung, die in Wien und in Graz geplant wird. Sie streichen einen Punkt aus dem vorgeschlagenen Rechercheplan und ergänzen einen; danach liegt der Bericht im Projekt.',
             },
             {
               name: 'Mittwoch',
@@ -274,7 +274,7 @@ export const fuer: LandingEntry[] = [
           kind: 'text',
           title: 'Daten und Vertraulichkeit',
           body: [
-            'Unterlagen Ihrer Auftraggeber bleiben im Projekt, Ihr Büroarchiv ist für kein anderes Büro sichtbar, mit den Daten wird kein Modell trainiert, und Pläne bleiben Eigentum des Büros. Die Einzelheiten für Ihre Verträge stehen in der Datenschutzerklärung.',
+            'Unterlagen Ihrer Auftraggeber bleiben im Projekt, Ihr Büroarchiv ist für kein anderes Büro sichtbar, mit den Daten wird kein Modell trainiert, und Dateien bleiben Eigentum des Büros. Die Einzelheiten für Ihre Verträge stehen in der Datenschutzerklärung.',
           ],
         },
         {
@@ -324,7 +324,7 @@ export const fuer: LandingEntry[] = [
           kind: 'list',
           title: 'What Piloti takes on',
           items: [
-            'In-depth research: Piloti proposes a plan, you edit it, and the report lands in the project under “Berichte”, with verdict and findings matrix, exportable as PDF or Word.',
+            'In-depth research: Piloti proposes a research plan, you edit it, and the report lands in the project under “Berichte”, with verdict and findings matrix, exportable as PDF or Word.',
             'Fire safety: fire compartments, escape routes and fire resistance once the building class stands, separating what the guideline demands from whether this building meets it.',
             'Thermal and sound insulation: U-value, HWB and sound requirements, after first settling whether it is new build or existing.',
             'Checks by building class as tables with a citation and a result per row, for example “2 met · 1 open”, and options in tabs, such as two states side by side.',
@@ -350,7 +350,7 @@ export const fuer: LandingEntry[] = [
             },
             {
               name: 'Tuesday',
-              body: 'In-depth research on an added storey planned in both Vienna and Graz. You strike one point from the proposed plan and add one; then the report is in the project.',
+              body: 'In-depth research on an added storey planned in both Vienna and Graz. You strike one point from the proposed research plan and add one; then the report is in the project.',
             },
             {
               name: 'Wednesday',
@@ -447,7 +447,7 @@ export const fuer: LandingEntry[] = [
           items: [
             {
               name: 'Montag',
-              body: 'Der Bebauungsplan des Grundstücks kommt ins Projekt. Piloti fasst die Festlegungen zusammen, die für eine Reihenhausanlage zählen, und nennt, was der Plan offenlässt.',
+              body: 'Der Bebauungsplan des Grundstücks kommt ins Projekt. Piloti fasst die Festlegungen zusammen, die für eine Reihenhausanlage zählen, und nennt, was der Bebauungsplan offenlässt.',
             },
             {
               name: 'Dienstag',
@@ -471,7 +471,7 @@ export const fuer: LandingEntry[] = [
           kind: 'text',
           title: 'Ihre Daten',
           body: [
-            'Grundstücksunterlagen und Projektdaten bleiben im Projekt, Ihr Archiv sieht kein anderes Unternehmen, mit Ihren Daten werden keine Modelle trainiert, und Pläne bleiben Ihr Eigentum. Die Einzelheiten stehen in der Datenschutzerklärung.',
+            'Grundstücksunterlagen und Projektdaten bleiben im Projekt, Ihr Archiv sieht kein anderes Unternehmen, mit Ihren Daten werden keine Modelle trainiert, und Dateien bleiben Ihr Eigentum. Die Einzelheiten stehen in der Datenschutzerklärung.',
           ],
         },
         {
@@ -496,7 +496,7 @@ export const fuer: LandingEntry[] = [
         },
         {
           q: 'Kann Piloti sagen, wie viel ich auf einem Grundstück bauen darf?',
-          a: 'Wenn der Bebauungsplan im Projekt liegt, fasst Piloti seine Festlegungen mit Fundstelle zusammen und nennt die Regeln des Landesrechts, die dazukommen. Ohne den Plan sagt es, wo Sie nachsehen. Verbindlich ist die Auskunft der Baubehörde.',
+          a: 'Wenn der Bebauungsplan im Projekt liegt, fasst Piloti seine Festlegungen mit Fundstelle zusammen und nennt die Regeln des Landesrechts, die dazukommen. Ohne den Bebauungsplan sagt es, wo Sie nachsehen. Verbindlich ist die Auskunft der Baubehörde.',
         },
         {
           q: 'Hilft Piloti bei Reihenhausanlagen?',
@@ -532,7 +532,7 @@ export const fuer: LandingEntry[] = [
           kind: 'text',
           title: 'Where building law sits in a master builder’s or developer’s day',
           body: [
-            'Master builders (Baumeister) plan and build, often single-family houses, row house schemes and smaller housing blocks. Developers take projects from the plot onwards. In both cases a string of decisions falls before the first spade goes into the ground: whether a plot is worth it, what the development plan allows, which building class the project falls into and what that means for fire safety.',
+            'Master builders (Baumeister) design and build, often single-family houses, row house schemes and smaller housing blocks. Developers take projects from the plot onwards. In both cases a string of decisions falls before the first spade goes into the ground: whether a plot is worth it, what the development plan allows, which building class the project falls into and what that means for fire safety.',
             'These questions often land with the planning office, the authority or the one person in-house who knows building law best. Piloti is meant for this groundwork, so that the conversation with planners and authority starts with the right questions.',
           ],
         },
@@ -543,7 +543,7 @@ export const fuer: LandingEntry[] = [
           items: [
             {
               name: 'Monday',
-              body: 'The plot’s development plan goes into the project. Piloti summarises the provisions that matter for a row house scheme and names what the plan leaves open.',
+              body: 'The plot’s development plan goes into the project. Piloti summarises the provisions that matter for a row house scheme and names what the development plan leaves open.',
             },
             {
               name: 'Tuesday',
@@ -592,7 +592,7 @@ export const fuer: LandingEntry[] = [
         },
         {
           q: 'Can Piloti tell me how much I may build on a plot?',
-          a: 'If the development plan is in the project, Piloti summarises its provisions with citations and names the state law rules that apply on top. Without the plan it says where to look. The building authority’s answer is the binding one.',
+          a: 'If the development plan is in the project, Piloti summarises its provisions with citations and names the state law rules that apply on top. Without the development plan it says where to look. The building authority’s answer is the binding one.',
         },
         {
           q: 'Does Piloti help with row house schemes?',

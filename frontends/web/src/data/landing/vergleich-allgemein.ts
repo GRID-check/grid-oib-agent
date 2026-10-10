@@ -59,7 +59,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             },
             {
               label: 'Projekt und Team',
-              a: 'Projekte mit Plänen, Dateien, Fassungen, Projektgedächtnis, Aufgaben und Freigabe im Posteingang',
+              a: 'Projekte mit Dateien, Fassungen, Projektgedächtnis, Aufgaben und Freigabe im Posteingang',
               b: 'Unterhaltungen; in ChatGPT Business laut OpenAI Anbindung von Firmenwissen wie SharePoint und Google Drive, mit Links zurück zur Quelle',
             },
             {
@@ -78,7 +78,7 @@ export const vergleichAllgemein: LandingEntry[] = [
               'Österreichisches Baurecht als Grundlage: die neun Landesbauordnungen aus dem RIS und die OIB-Richtlinien, zitiert bis zum Paragrafen oder Punkt.',
               'Bundesland und Ausgabe als Teil der Antwort. Fehlt das Bundesland oder die Gebäudeklasse, fragt Piloti nach oder nennt die Annahme.',
               'Geprüfte Fundstellen: Jede wird gegen den Quelltext abgeglichen, bevor sie erscheint.',
-              'Pläne als Bild: Piloti sieht Grundriss und Schnitt an und markiert, welche Zeichnung auf dem Blatt es gelesen hat.',
+              'Zeichnungen als Bild: Piloti sieht Grundriss und Schnitt an und markiert, welche Zeichnung auf dem Blatt es gelesen hat.',
               'Das Projekt als Arbeitsort: Aufgaben, Tiefenrecherche mit Bericht, Aktenvermerke zur Freigabe und ein Gedächtnis für das schon Geklärte.',
             ],
           },
@@ -115,7 +115,7 @@ export const vergleichAllgemein: LandingEntry[] = [
         },
         {
           q: 'Ist ChatGPT im Planungsbüro DSGVO-konform?',
-          a: 'Das hängt vom Tarif und von Ihrer Vereinbarung mit OpenAI ab, nicht vom Werkzeug allein. Laut OpenAI werden Business- und Enterprise-Daten standardmäßig nicht zum Training verwendet, in Free und Plus schon, abschaltbar in den Einstellungen; wer Pläne oder Namen von Bauherr:innen in ein privates Konto kopiert, sollte das wissen. Piloti trainiert keine Modelle mit Büro-Daten, und das Büroarchiv sieht kein anderes Büro.',
+          a: 'Das hängt vom Tarif und von Ihrer Vereinbarung mit OpenAI ab, nicht vom Werkzeug allein. Laut OpenAI werden Business- und Enterprise-Daten standardmäßig nicht zum Training verwendet, in Free und Plus schon, abschaltbar in den Einstellungen; wer Zeichnungen oder Namen von Bauherr:innen in ein privates Konto kopiert, sollte das wissen. Piloti trainiert keine Modelle mit Büro-Daten, und das Büroarchiv sieht kein anderes Büro.',
         },
         {
           q: 'Welche ChatGPT-Alternative passt für Architekten in Österreich?',
@@ -129,7 +129,7 @@ export const vergleichAllgemein: LandingEntry[] = [
         'ChatGPT or Piloti for Austrian building law? Piloti cites the state building code and OIB guideline for each state, checked and inside the project.',
       heading: 'ChatGPT or Piloti for building law?',
       lede: 'Piloti answers planning questions on Austrian projects from the state building codes and the OIB guidelines, with state, edition and a checked citation. Many offices already use ChatGPT for emails and summaries. Here is what makes the difference for building law.',
-      note: 'ChatGPT details as stated by OpenAI (openai.com, help.openai.com), read in September 2026. We do not list prices, because they vary by plan and region.',
+      note: 'ChatGPT details as stated by OpenAI (openai.com, help.openai.com), read in September 2026. We do not list prices, because they vary by tariff and region.',
       answer:
         'For Austrian building law, Piloti is the better choice: it draws on the state’s building code and the OIB edition in force there, checks every citation against the source text and records the result in the project. ChatGPT remains a good tool for writing.',
       blocks: [
@@ -197,7 +197,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             items: [
               'Writing: emails to clients, building descriptions, summaries of long permits or expert reports.',
               'Breadth: spreadsheet formulas, translations, code, far beyond building law.',
-              'Ready to use, with public plans.',
+              'Ready to use, in its public versions.',
             ],
           },
         },
@@ -225,7 +225,7 @@ export const vergleichAllgemein: LandingEntry[] = [
         },
         {
           q: 'Is ChatGPT GDPR-compliant for a planning office?',
-          a: 'That depends on the plan and on your agreement with OpenAI, not on the tool alone. According to OpenAI, Business and Enterprise data is not used for training by default; on Free and Plus it is, and that can be switched off in settings. Anyone copying drawings or clients’ names into a personal account should know this. Piloti does not train models on office data, and no other office sees the office archive.',
+          a: 'That depends on the tariff and on your agreement with OpenAI, not on the tool alone. According to OpenAI, Business and Enterprise data is not used for training by default; on Free and Plus it is, and that can be switched off in settings. Anyone copying drawings or clients’ names into a personal account should know this. Piloti does not train models on office data, and no other office sees the office archive.',
         },
         {
           q: 'Which ChatGPT alternative fits architects in Austria?',
@@ -289,7 +289,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             },
             {
               label: 'Projektarbeit',
-              a: 'Projekte mit Plänen, Fassungen, Projektgedächtnis, Aufgaben und Freigabe im Posteingang',
+              a: 'Projekte mit Dateien, Fassungen, Projektgedächtnis, Aufgaben und Freigabe im Posteingang',
               b: 'Arbeitet in Ihren Dateien und Anwendungen; Ablage und Freigabe regeln Sie in SharePoint und Teams wie bisher',
             },
             {
@@ -307,7 +307,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             items: [
               'Österreichisches Baurecht als eigene Grundlage: neun Landesbauordnungen aus dem RIS und die OIB-Richtlinien.',
               'Die Ausgabe, die im Bundesland gilt. Piloti nennt sie, wenn sie den Wert verändert, und fragt nach, wenn Bundesland oder Gebäudeklasse fehlen.',
-              'Pläne als Bild: Piloti sieht Grundriss und Schnitt an und markiert, welche Zeichnung auf dem Blatt es gelesen hat.',
+              'Zeichnungen als Bild: Piloti sieht Grundriss und Schnitt an und markiert, welche Zeichnung auf dem Blatt es gelesen hat.',
               'Ein Ablauf für Planungsfragen: Tiefenrecherche mit Bericht im Projekt, Befunde als offene Punkte, Aktenvermerke mit Freigeben, Änderungen anfordern oder Ablehnen.',
             ],
           },
@@ -354,11 +354,11 @@ export const vergleichAllgemein: LandingEntry[] = [
         },
         {
           q: 'Trainiert Microsoft mit den Daten aus Copilot?',
-          a: 'Laut Microsoft werden Eingaben, Antworten und über Microsoft Graph abgerufene Daten nicht zum Training der Basismodelle verwendet. Piloti trainiert ebenfalls keine Modelle mit Büro-Daten, und Pläne bleiben Eigentum des Büros.',
+          a: 'Laut Microsoft werden Eingaben, Antworten und über Microsoft Graph abgerufene Daten nicht zum Training der Basismodelle verwendet. Piloti trainiert ebenfalls keine Modelle mit Büro-Daten, und Dateien bleiben Eigentum des Büros.',
         },
         {
           q: 'Wo verarbeitet Copilot die Daten?',
-          a: 'Microsoft verarbeitet Copilot-Daten europäischer Kunden laut eigener Angabe innerhalb seiner europäischen Datengrenze, mit Ausnahmen für einzelne Modellanbieter. Wie Piloti mit Daten umgeht, steht in der Datenschutzerklärung: kein Training mit Büro-Daten, Pläne bleiben Eigentum des Büros, das Büroarchiv sieht kein anderes Büro.',
+          a: 'Microsoft verarbeitet Copilot-Daten europäischer Kunden laut eigener Angabe innerhalb seiner europäischen Datengrenze, mit Ausnahmen für einzelne Modellanbieter. Wie Piloti mit Daten umgeht, steht in der Datenschutzerklärung: kein Training mit Büro-Daten, Dateien bleiben Eigentum des Büros, das Büroarchiv sieht kein anderes Büro.',
         },
       ],
     },
@@ -580,7 +580,7 @@ export const vergleichAllgemein: LandingEntry[] = [
           kind: 'text',
           title: 'Gut zu wissen',
           body: [
-            'Die Verantwortung für den Entwurf bleibt beim Planungsbüro. Piloti nennt zu jeder Antwort die Quellen, damit Sie sie prüfen können, und fragt nach, wenn ein entscheidender Fakt wie das Bundesland fehlt. Was der Bebauungsplan für Ihr Grundstück festlegt, liest Piloti aus dem Plan im Projekt; fehlt er, sagt es, wo Sie nachsehen.',
+            'Die Verantwortung für den Entwurf bleibt beim Planungsbüro. Piloti nennt zu jeder Antwort die Quellen, damit Sie sie prüfen können, und fragt nach, wenn ein entscheidender Fakt wie das Bundesland fehlt. Was der Bebauungsplan für Ihr Grundstück festlegt, liest Piloti aus dem Bebauungsplan im Projekt; fehlt er, sagt es, wo Sie nachsehen.',
           ],
         },
       ],
@@ -599,7 +599,7 @@ export const vergleichAllgemein: LandingEntry[] = [
         },
         {
           q: 'Verwendet Google meine Dokumente zum Training?',
-          a: 'Laut Google werden hochgeladene Daten nie zum Training verwendet. Auch Piloti trainiert keine Modelle mit Büro-Daten, und Pläne bleiben Eigentum des Büros.',
+          a: 'Laut Google werden hochgeladene Daten nie zum Training verwendet. Auch Piloti trainiert keine Modelle mit Büro-Daten, und Dateien bleiben Eigentum des Büros.',
         },
       ],
     },
@@ -640,7 +640,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             {
               label: 'State and edition',
               a: 'Draws on the state’s laws and names the OIB edition in force there',
-              b: 'You decide which version you add; up to 50 sources per notebook on the free plan, 100 to 600 on higher plans',
+              b: 'You decide which version you add; up to 50 sources per notebook on the free tier, 100 to 600 on higher tiers',
             },
             {
               label: 'Evidence',
@@ -684,7 +684,7 @@ export const vergleichAllgemein: LandingEntry[] = [
           kind: 'text',
           title: 'What a building-law notebook takes to maintain',
           body: [
-            'Using NotebookLM for building law means building your own rulebook: the OIB guidelines in the edition in force in the state, the building code and building-technology rules of every state the office plans in, and guidance sheets. In Vienna that is the Bauordnung für Wien and the Wiener Bautechnikverordnung 2023, in Salzburg the Bautechnikgesetz 2015 and the Baupolizeigesetz 1997, in Tyrol the Tiroler Bauordnung 2022. Nine states, nine collections.',
+            'Using NotebookLM for building law means building your own rulebook: the OIB guidelines in the edition in force in the state, the building code and building-technology rules of every state the office works in, and guidance sheets. In Vienna that is the Bauordnung für Wien and the Wiener Bautechnikverordnung 2023, in Salzburg the Bautechnikgesetz 2015 and the Baupolizeigesetz 1997, in Tyrol the Tiroler Bauordnung 2022. Nine states, nine collections.',
             'Then the maintenance starts. According to the OIB overview, the 2025 edition of OIB guideline 6 is so far in force only in Tyrol and Vienna, the 2027 edition is being prepared, and state laws are amended. Someone in the office has to notice each new version, add it and take the old one out of the notebook. Miss that, and the notebook cites cleanly from an outdated source. With Piloti you ask the question, and the project’s state law is already to hand.',
           ],
         },
@@ -692,7 +692,7 @@ export const vergleichAllgemein: LandingEntry[] = [
           kind: 'text',
           title: 'Good to know',
           body: [
-            'Responsibility for the design stays with the planning office. Piloti names the source of every answer so that you can check it, and asks when a deciding fact such as the state is missing. What the zoning plan fixes for your plot, Piloti reads from the plan in the project; if it is missing, Piloti tells you where to look.',
+            'Responsibility for the design stays with the planning office. Piloti names the source of every answer so that you can check it, and asks when a deciding fact such as the state is missing. What the development plan fixes for your plot, Piloti reads from the development plan in the project; if it is missing, Piloti tells you where to look.',
           ],
         },
       ],
@@ -707,7 +707,7 @@ export const vergleichAllgemein: LandingEntry[] = [
         },
         {
           q: 'How many sources fit in a notebook?',
-          a: 'According to Google, up to 50 sources per notebook on the free plan and 100 to 600 on higher plans, each up to 500,000 words or 200 MB. For building law the limit is rarely the quantity, rather the upkeep: which version currently applies.',
+          a: 'According to Google, up to 50 sources per notebook on the free tier and 100 to 600 on higher tiers, each up to 500,000 words or 200 MB. For building law the limit is rarely the quantity, rather the upkeep: which version currently applies.',
         },
         {
           q: 'Does Google use my documents for training?',
@@ -771,7 +771,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             },
             {
               label: 'Projektarbeit',
-              a: 'Projekte mit Plänen, Fassungen, Aufgaben, Projektgedächtnis und Freigabe',
+              a: 'Projekte mit Dateien, Fassungen, Aufgaben, Projektgedächtnis und Freigabe',
               b: 'Spaces verbinden Websuche und eigene Dateien zu einem Thema',
             },
             {
@@ -791,7 +791,7 @@ export const vergleichAllgemein: LandingEntry[] = [
               'OIB-Richtlinien mit Punkt und Seite, in der Ausgabe, die dort gilt.',
               'Fundstellen werden gegen den Quelltext geprüft, bevor sie erscheinen.',
               'Websuche inklusive: Jede Quelle ist verlinkt, und die Antwort zeigt, ob eine Aussage aus dem Baurecht, dem Büro, dem Projekt oder dem Web stammt.',
-              'Das Projekt: Pläne, Aufgaben, Aktenvermerke zur Freigabe und ein Gedächtnis für das schon Geklärte.',
+              'Das Projekt: Dateien, Aufgaben, Aktenvermerke zur Freigabe und ein Gedächtnis für das schon Geklärte.',
             ],
           },
           right: {
@@ -844,7 +844,7 @@ export const vergleichAllgemein: LandingEntry[] = [
         'Perplexity or Piloti for building law? Piloti draws on the state building code from RIS and the OIB guideline for each state, with a checked citation.',
       heading: 'Perplexity or Piloti?',
       lede: 'For every planning question, Piloti draws on the project’s state law from RIS and the OIB guidelines, and researches the web as well where that helps. Perplexity searches the web and names the sources for every answer. For building law, what decides is which version applies in the state.',
-      note: 'Perplexity details as stated by Perplexity (perplexity.ai), read in September 2026. We do not list prices, because they vary by plan.',
+      note: 'Perplexity details as stated by Perplexity (perplexity.ai), read in September 2026. We do not list prices, because they vary by tariff.',
       answer:
         'For Austrian building law, Piloti is the better choice: it draws on the state law and the OIB edition in force in the project’s state, checks every citation against the source text and works inside the project. Perplexity fits current research on the open web.',
       blocks: [
@@ -917,7 +917,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             items: [
               'What is current on the web: subsidies, manufacturer data, market reports, an amendment that is in the news.',
               'Broad research and news far beyond building law, with sources for every answer.',
-              'Ready to use, including on the free plan.',
+              'Ready to use, including on the free tier.',
             ],
           },
         },
@@ -969,7 +969,7 @@ export const vergleichAllgemein: LandingEntry[] = [
       lede: 'Piloti nimmt Ihnen das Zusammensuchen ab und führt Sie für jede Fundstelle an die amtliche Quelle zurück. Das RIS ist die amtliche Quelle für Landesrecht, die OIB-Website die für die Richtlinien, beide frei zugänglich. Hier, was Piloti daraus für ein Projekt macht.',
       note: 'RIS: Rechtsinformationssystem des Bundes (ris.bka.gv.at). OIB: Österreichisches Institut für Bautechnik (oib.or.at). Angaben zu den OIB-Ausgaben laut OIB-Übersicht zum Inkrafttreten.',
       answer:
-        'Piloti übernimmt die Arbeit rund um das RIS: Es sucht die Bestimmungen aus dem Landesrecht des Projekts und aus den OIB-Richtlinien in der dort geltenden Ausgabe zusammen, verbindet sie mit den Plänen und hält das Ergebnis als Aktenvermerk fest. Jede Fundstelle führt zurück ins RIS, die amtliche und freie Quelle für den Originaltext.',
+        'Piloti übernimmt die Arbeit rund um das RIS: Es sucht die Bestimmungen aus dem Landesrecht des Projekts und aus den OIB-Richtlinien in der dort geltenden Ausgabe zusammen, verbindet sie mit den Dateien des Projekts und hält das Ergebnis als Aktenvermerk fest. Jede Fundstelle führt zurück ins RIS, die amtliche und freie Quelle für den Originaltext.',
       blocks: [
         {
           kind: 'text',
@@ -1001,9 +1001,9 @@ export const vergleichAllgemein: LandingEntry[] = [
               b: 'Sie suchen die Landesvorschrift und prüfen in der OIB-Übersicht und im Landesrecht, welche Ausgabe gilt',
             },
             {
-              label: 'Pläne',
+              label: 'Zeichnungen',
               a: 'Sieht Grundriss und Schnitt als Bild an und markiert die gelesene Zeichnung',
-              b: 'Sie legen Plan und Vorschrift selbst nebeneinander',
+              b: 'Sie legen Zeichnung und Vorschrift selbst nebeneinander',
             },
             {
               label: 'Dokumentation',
@@ -1024,7 +1024,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             items: [
               'Das Zusammensuchen: Piloti holt die einschlägigen Bestimmungen aus dem Landesrecht des Projekts und aus den OIB-Richtlinien zusammen.',
               'Die Ausgabe: Piloti nennt die OIB-Ausgabe, die im Bundesland gilt, wenn sie den Wert verändert.',
-              'Die Verbindung zum Projekt: Pläne, Bescheide und frühere Klärungen liegen im selben Projekt wie die Antwort.',
+              'Die Verbindung zum Projekt: Unterlagen, Bescheide und frühere Klärungen liegen im selben Projekt wie die Antwort.',
               'Die Dokumentation: Begründung, Annahmen und Fundstelle stehen in der Antwort, als Word herunterladbar oder als Aktenvermerk zur Freigabe.',
             ],
           },
@@ -1049,7 +1049,7 @@ export const vergleichAllgemein: LandingEntry[] = [
           kind: 'text',
           title: 'Gut zu wissen',
           body: [
-            'Auslegung und Abwägung im Einzelfall bleiben beim Planungsbüro. Piloti nennt zu jeder Antwort die Fundstellen und öffnet das RIS an der markierten Stelle, damit Sie den Originaltext mit einem Klick lesen. Was der Bebauungsplan für Ihr Grundstück festlegt, liest Piloti aus dem Plan im Projekt; fehlt er, sagt es, wo Sie nachsehen.',
+            'Auslegung und Abwägung im Einzelfall bleiben beim Planungsbüro. Piloti nennt zu jeder Antwort die Fundstellen und öffnet das RIS an der markierten Stelle, damit Sie den Originaltext mit einem Klick lesen. Was der Bebauungsplan für Ihr Grundstück festlegt, liest Piloti aus dem Bebauungsplan im Projekt; fehlt er, sagt es, wo Sie nachsehen.',
           ],
         },
       ],
@@ -1086,7 +1086,7 @@ export const vergleichAllgemein: LandingEntry[] = [
           kind: 'text',
           title: 'What Piloti takes on',
           body: [
-            'Piloti pulls together the relevant provisions from the project’s state law and the OIB guidelines, sets them next to plan, section and what is already settled, and writes the result down with reasoning, assumptions and citation. If a deciding fact such as the building class is missing, it asks once or states its assumption.',
+            'Piloti pulls together the relevant provisions from the project’s state law and the OIB guidelines, sets them next to drawings, sections and what is already settled, and writes the result down with reasoning, assumptions and citation. If a deciding fact such as the building class is missing, it asks once or states its assumption.',
             'Piloti cites state law the way an official decision does and opens the RIS source inside Piloti at the marked passage. OIB citations carry clause and page, for example “Pkt. 3.5.2 · S. 7”. The way to the original text is one click.',
           ],
         },
@@ -1160,7 +1160,7 @@ export const vergleichAllgemein: LandingEntry[] = [
           kind: 'text',
           title: 'Good to know',
           body: [
-            'Interpretation and judgement in the individual case stay with the planning office. Piloti gives the citation for every answer and opens RIS at the marked passage, so that you read the original text in one click. What the zoning plan fixes for your plot, Piloti reads from the plan in the project; if it is missing, Piloti tells you where to look.',
+            'Interpretation and judgement in the individual case stay with the planning office. Piloti gives the citation for every answer and opens RIS at the marked passage, so that you read the original text in one click. What the development plan fixes for your plot, Piloti reads from the development plan in the project; if it is missing, Piloti tells you where to look.',
           ],
         },
       ],

@@ -26,6 +26,15 @@ const FORBIDDEN = [
   [/\b(Die KI-Plattform|The AI platform)\b|ist die KI-Wissensplattform|is the AI knowledge platform/, 'category claim: say "eine" / "an"'],
   [/jede Aussage lässt sich bis|every statement can be traced|(zu|für) jede[rn]? Aussage die (Quelle|Fundstelle)|(source|citation)s? (of|for) every statement|check every statement/i, 'unsupported claim: an answer cites its sources, not every statement its origin'],
   [/Piloti (kennt|versteht)\b|Piloti (knows|understands)\b/, 'anthropomorphic claim: say what Piloti works with'],
+  // A file is a Dokument, Datei or Unterlage; "plan" names a drawing or a legal
+  // instrument, and nothing knows a file is one until its Dokumentart says so
+  // (CONTEXT.md, Fassung). Compounds (Bebauungsplan, Lageplan) are not standalone
+  // words and pass without an entry. The allowed phrases are drawing types and
+  // legal instruments (floor plan, zoning plan), research and subscription
+  // plans, the hero's "Plan more", and code keys such as `plan:` or `plan.line`.
+  [/(?<![\p{L}\-.])(plans?|pläne|plänen)(?![\p{L}\-])(?!\s*[:=])(?!\.[\p{L}_])/iu,
+    'a file called a plan: say Dokument, Datei, Unterlage or Zeichnung',
+    /\bPlan more\b|\b(zoning|development|land-use|floor|site|roof|research|monthly|subscription|pricing) plans?\b|\bplan (and section|chest)\b|\bplan symbols\b/giu],
   // Retracted in October 2026: pages stated which OIB edition Piloti's corpus
   // holds and called its values mere pointers. Nobody on the site's side knows
   // what the corpus holds at a given time; say what Piloti does instead.
@@ -33,7 +42,9 @@ const FORBIDDEN = [
 ]
 
 const ROOTS = ['src/i18n', 'src/components', 'src/content', 'src/data', 'src/pages', 'src/lib', 'src/layouts', 'src/consts.ts']
-const SKIP = /changelog\.json$|lint-claims/
+// The changelog is history. art.json is the riso manifest: its alt text
+// describes what a picture shows, a drawn plan included, and it is generated.
+const SKIP = /changelog\.json$|art\.json$|lint-claims/
 
 function* files(path) {
   if (statSync(path).isFile()) return yield path

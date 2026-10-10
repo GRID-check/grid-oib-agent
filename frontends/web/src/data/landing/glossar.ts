@@ -270,7 +270,7 @@ export const glossar: LandingEntry[] = [
           kind: 'text',
           title: 'Gut zu wissen',
           body: [
-            'Wie das Mittel im Einzelfall gebildet wird, entscheidet die Planung; Piloti zeigt, was die Definition sagt, und legt die Annahme offen. Das Fluchtniveau nimmt es aus Ihren Unterlagen, statt es aus Höhenkoten im Plan nachzurechnen.',
+            'Wie das Mittel im Einzelfall gebildet wird, entscheidet die Planung; Piloti zeigt, was die Definition sagt, und legt die Annahme offen. Das Fluchtniveau nimmt es aus Ihren Unterlagen, statt es aus Höhenkoten in der Zeichnung nachzurechnen.',
           ],
         },
       ],
@@ -405,7 +405,7 @@ export const glossar: LandingEntry[] = [
           kind: 'text',
           title: 'Die Regel: mehr als die Hälfte über Gelände',
           body: [
-            'Entscheidend ist die Summe der äußeren Begrenzungsflächen eines Geschoßes, nicht eine einzelne Fassade. Am ebenen Grundstück ist das selten eine Frage. Am Hang schon: Ein Geschoß, das talseitig frei steht und bergseitig im Erdreich liegt, kann oberirdisch sein, auch wenn es im Plan „Untergeschoß“ heißt.',
+            'Entscheidend ist die Summe der äußeren Begrenzungsflächen eines Geschoßes, nicht eine einzelne Fassade. Am ebenen Grundstück ist das selten eine Frage. Am Hang schon: Ein Geschoß, das talseitig frei steht und bergseitig im Erdreich liegt, kann oberirdisch sein, auch wenn es in der Zeichnung „Untergeschoß“ heißt.',
             'Maßgeblich ist das Gelände nach Fertigstellung. Eine Anschüttung kann ein Geschoß unter die Hälfte drücken, ein Abgraben für Lichthöfe oder eine Terrasse hebt es darüber. Beides steht im Einreichplan, und dort sollte man es auch prüfen.',
           ],
         },
@@ -438,7 +438,7 @@ export const glossar: LandingEntry[] = [
       faq: [
         {
           q: 'Ist ein Keller ein oberirdisches Geschoß?',
-          a: 'Ein Keller, der überwiegend im Erdreich liegt, ist kein oberirdisches Geschoß. Liegen seine äußeren Begrenzungsflächen in Summe zu mehr als der Hälfte über dem Gelände nach Fertigstellung, etwa am Hang, und enthält er Wohnungen oder Betriebseinheiten, zählt er mit, gleich wie er im Plan heißt.',
+          a: 'Ein Keller, der überwiegend im Erdreich liegt, ist kein oberirdisches Geschoß. Liegen seine äußeren Begrenzungsflächen in Summe zu mehr als der Hälfte über dem Gelände nach Fertigstellung, etwa am Hang, und enthält er Wohnungen oder Betriebseinheiten, zählt er mit, gleich wie er in der Zeichnung heißt.',
         },
         {
           q: 'Zählt ein Dachgeschoß als oberirdisches Geschoß?',
@@ -882,7 +882,7 @@ export const glossar: LandingEntry[] = [
     de: {
       title: 'Bebauungsplan lesen: was er in Österreich regelt',
       description:
-        'Bebauungsplan lesen: was Baulinien, Bauklasse, Bauweise und Dichte festlegen, wo Sie den Plan finden und was gilt, wenn es für ein Grundstück keinen gibt.',
+        'Bebauungsplan lesen: was Baulinien, Bauklasse, Bauweise und Dichte festlegen, wo Sie den Bebauungsplan finden und was gilt, wenn es für ein Grundstück keinen gibt.',
       heading: 'Wie liest man einen Bebauungsplan?',
       lede: 'Bevor irgendeine OIB-Frage zählt, entscheidet der Bebauungsplan, was auf dem Grundstück überhaupt stehen darf. Er ist Gemeinderecht auf Grundlage von Landesrecht, und in jedem Bundesland ein wenig anders. Piloti liest ihn mit, sobald er im Projekt liegt.',
       answer:
@@ -917,17 +917,17 @@ export const glossar: LandingEntry[] = [
           kind: 'steps',
           title: 'So lesen Sie ihn',
           items: [
-            { name: 'Fassung sichern', body: 'Plannummer bzw. Plandokument und Datum der Kundmachung notieren. Ein Plan in Überarbeitung kann in wenigen Monaten anders aussehen.' },
+            { name: 'Fassung sichern', body: 'Plannummer bzw. Plandokument und Datum der Kundmachung notieren. Ein Bebauungsplan in Überarbeitung kann in wenigen Monaten anders aussehen.' },
             { name: 'Legende und Planzeichen', body: 'Jede Linie und jedes Kürzel hat eine Bedeutung, die in der Legende oder in der Planzeichenverordnung des Landes steht, nicht im allgemeinen Sprachgebrauch.' },
-            { name: 'Textliche Bestimmungen', body: 'Die Festlegungen in Worten gehören zum Plan. Sie enthalten oft das, woran eine Einreichung scheitert: Dachneigung, Einfriedung, Begrünung.' },
-            { name: 'Lücken schließen', body: 'Was der Plan nicht regelt, regelt das Landesrecht mit seinen allgemeinen Bestimmungen, etwa zu Abständen.' },
+            { name: 'Textliche Bestimmungen', body: 'Die Festlegungen in Worten gehören zum Bebauungsplan. Sie enthalten oft das, woran eine Einreichung scheitert: Dachneigung, Einfriedung, Begrünung.' },
+            { name: 'Lücken schließen', body: 'Was der Bebauungsplan nicht regelt, regelt das Landesrecht mit seinen allgemeinen Bestimmungen, etwa zu Abständen.' },
           ],
         },
         {
           kind: 'text',
           title: 'Gut zu wissen',
           body: [
-            'Was der Bebauungsplan für genau dieses Grundstück festlegt, liest Piloti aus dem Plan im Projekt. Liegt er dort nicht, sagt es das und wo Sie nachsehen, statt eine Festlegung anzunehmen.',
+            'Was der Bebauungsplan für genau dieses Grundstück festlegt, liest Piloti aus dem Bebauungsplan im Projekt. Liegt er dort nicht, sagt es das und wo Sie nachsehen, statt eine Festlegung anzunehmen.',
           ],
         },
       ],
@@ -964,7 +964,7 @@ export const glossar: LandingEntry[] = [
           title: 'What a development plan is',
           body: [
             'The zoning plan (Flächenwidmungsplan) says what an area is zoned for, such as residential building land or green land. The development plan says how the building land may be built on. Both are municipal regulations, issued under the state’s spatial planning act or building code.',
-            'Names and contents differ. In Vienna, the zoning and development plan is one plan document under the Bauordnung für Wien, and it sets the Bauklasse. Other states have development plans, partial development plans or development guidelines, and not every plot is covered by one.',
+            'Names and contents differ. In Vienna, the zoning and development plan is one document under the Bauordnung für Wien, and it sets the Bauklasse. Other states have development plans, partial development plans or development guidelines, and not every plot is covered by one.',
           ],
         },
         {
@@ -988,17 +988,17 @@ export const glossar: LandingEntry[] = [
           kind: 'steps',
           title: 'How to read it',
           items: [
-            { name: 'Pin the version', body: 'Note the plan number or plan document and the date of promulgation. A plan under revision can look different in a few months.' },
+            { name: 'Pin the version', body: 'Note the number of the development plan or of its document, and the date of promulgation. A development plan under revision can look different in a few months.' },
             { name: 'Legend and symbols', body: 'Every line and abbreviation has a meaning set in the legend or the state’s plan symbols regulation, not in everyday language.' },
-            { name: 'Written provisions', body: 'The provisions in words are part of the plan. They often hold what a submission fails on: roof pitch, fencing, greening.' },
-            { name: 'Close the gaps', body: 'What the plan does not govern, state law governs with its general provisions, for example on distances.' },
+            { name: 'Written provisions', body: 'The provisions in words are part of the development plan. They often hold what a submission fails on: roof pitch, fencing, greening.' },
+            { name: 'Close the gaps', body: 'What the development plan does not govern, state law governs with its general provisions, for example on distances.' },
           ],
         },
         {
           kind: 'text',
           title: 'Good to know',
           body: [
-            'What the development plan fixes for this very plot, Piloti reads from the plan in the project. If it is not there, it says so and where to look, instead of assuming a provision.',
+            'What the development plan fixes for this very plot, Piloti reads from the development plan in the project. If it is not there, it says so and where to look, instead of assuming a provision.',
           ],
         },
       ],
@@ -1009,7 +1009,7 @@ export const glossar: LandingEntry[] = [
         },
         {
           q: 'What is the difference between a zoning plan and a development plan?',
-          a: 'The zoning plan sets what an area may be used for, such as building land or green land. The development plan sets how the building land may be built on: position, height, building pattern, density. In Vienna both are combined in one plan document.',
+          a: 'The zoning plan sets what an area may be used for, such as building land or green land. The development plan sets how the building land may be built on: position, height, building pattern, density. In Vienna both are combined in one document.',
         },
         {
           q: 'What applies if there is no development plan?',
@@ -1030,7 +1030,7 @@ export const glossar: LandingEntry[] = [
     de: {
       title: 'Einreichplan: Inhalt und Unterlagen in Österreich',
       description:
-        'Einreichplan Inhalt: welche Pläne und Unterlagen ein Bauansuchen in Österreich braucht, wer unterschreibt und warum das je Bundesland anders ist.',
+        'Einreichplan Inhalt: welche Zeichnungen und Unterlagen ein Bauansuchen in Österreich braucht, wer unterschreibt und warum das je Bundesland anders ist.',
       heading: 'Was gehört in einen Einreichplan?',
       lede: 'Ein Einreichplan wird selten abgelehnt, weil der Entwurf schlecht ist, sondern weil etwas fehlt. Was hineingehört, bestimmt die Bauordnung des Landes, in dem das Projekt steht. Der Einreichcheck von Piloti zeigt, was dem Paket noch fehlt, bevor die Behörde es tut.',
       answer:
@@ -1041,7 +1041,7 @@ export const glossar: LandingEntry[] = [
           title: 'Was ein Einreichplan ist',
           body: [
             'Der Einreichplan zeigt der Behörde das Vorhaben so, dass sie es nach Bau- und Raumordnungsrecht beurteilen kann. Er ist kein Ausführungsplan: Details der Konstruktion gehören meist nicht hinein, Lage, Höhen, Nutzungen und Abstände sehr wohl.',
-            'Welche Pläne und Beilagen verlangt sind, steht in der Bauordnung und teils in eigenen Verordnungen des Landes. Auch das Verfahren unterscheidet sich: Bauansuchen, Bauanzeige, Bauanmeldung, je nach Land und Vorhaben mit anderen Unterlagen.',
+            'Welche Zeichnungen und Beilagen verlangt sind, steht in der Bauordnung und teils in eigenen Verordnungen des Landes. Auch das Verfahren unterscheidet sich: Bauansuchen, Bauanzeige, Bauanmeldung, je nach Land und Vorhaben mit anderen Unterlagen.',
           ],
         },
         {
@@ -1081,7 +1081,7 @@ export const glossar: LandingEntry[] = [
       faq: [
         {
           q: 'Was muss ein Einreichplan enthalten?',
-          a: 'In der Regel Lageplan, Grundrisse aller Geschoße, Schnitte und Ansichten mit Höhenangaben sowie eine Baubeschreibung. Welche Pläne und Beilagen genau verlangt sind, legt die Bauordnung des Bundeslandes fest, teils ergänzt durch eigene Verordnungen.',
+          a: 'In der Regel Lageplan, Grundrisse aller Geschoße, Schnitte und Ansichten mit Höhenangaben sowie eine Baubeschreibung. Welche Zeichnungen und Beilagen genau verlangt sind, legt die Bauordnung des Bundeslandes fest, teils ergänzt durch eigene Verordnungen.',
         },
         {
           q: 'Wer darf Einreichpläne erstellen?',
@@ -1100,7 +1100,7 @@ export const glossar: LandingEntry[] = [
     en: {
       title: 'Submission drawings (Einreichplan): contents in Austria',
       description:
-        'What submission drawings (Einreichplan) contain: which plans and documents an Austrian building application needs, and why it differs by state.',
+        'What submission drawings (Einreichplan) contain: which drawings and documents an Austrian building application needs, and why it differs by state.',
       heading: 'What goes into submission drawings?',
       lede: 'Submission drawings are rarely rejected because the design is bad, but because something is missing. What belongs in them is set by the building code of the state the project is in. Piloti’s submission check shows what the package still lacks before the authority does.',
       answer:
@@ -1230,7 +1230,7 @@ export const glossar: LandingEntry[] = [
         },
         {
           q: 'Ist eine Küche ein Aufenthaltsraum?',
-          a: 'Das hängt von Größe und Nutzung ab. Eine Wohnküche, in der man sich länger aufhält, wird meist als Aufenthaltsraum behandelt; eine kleine Kochnische eher nicht. Maßgeblich sind die Definition in der Fassung Ihres Landes und die Nutzung im Plan.',
+          a: 'Das hängt von Größe und Nutzung ab. Eine Wohnküche, in der man sich länger aufhält, wird meist als Aufenthaltsraum behandelt; eine kleine Kochnische eher nicht. Maßgeblich sind die Definition in der Fassung Ihres Landes und die Nutzung in der Zeichnung.',
         },
         {
           q: 'Darf ein Kellerraum ein Aufenthaltsraum sein?',
@@ -1363,7 +1363,7 @@ export const glossar: LandingEntry[] = [
           kind: 'text',
           title: 'Gut zu wissen',
           body: [
-            'Bei größeren oder besonderen Vorhaben gehören Brandschutzkonzept und Brandschutzplaner:in dazu; Piloti liefert die Anforderungen mit Fundstelle zu. Flächen nimmt es aus Ihren Unterlagen, statt sie im Plan zu messen.',
+            'Bei größeren oder besonderen Vorhaben gehören Brandschutzkonzept und Brandschutzplaner:in dazu; Piloti liefert die Anforderungen mit Fundstelle zu. Flächen nimmt es aus Ihren Unterlagen, statt sie in der Zeichnung zu messen.',
           ],
         },
       ],
@@ -1515,7 +1515,7 @@ export const glossar: LandingEntry[] = [
           kind: 'text',
           title: 'Gut zu wissen',
           body: [
-            'Flächen und Höhen nimmt Piloti aus Ihren Unterlagen, die Einstufung bleibt Ihre Entscheidung. Die Bauweise nach dem Bebauungsplan liest es aus dem Plan, sobald er im Projekt liegt.',
+            'Flächen und Höhen nimmt Piloti aus Ihren Unterlagen, die Einstufung bleibt Ihre Entscheidung. Die Bauweise nach dem Bebauungsplan liest es aus dem Bebauungsplan, sobald er im Projekt liegt.',
           ],
         },
       ],
@@ -1592,7 +1592,7 @@ export const glossar: LandingEntry[] = [
           kind: 'text',
           title: 'Good to know',
           body: [
-            'Piloti takes areas and heights from your documents; the classification remains your decision. It reads the building pattern under the development plan from the plan as soon as it is in the project.',
+            'Piloti takes areas and heights from your documents; the classification remains your decision. It reads the building pattern under the development plan as soon as it is in the project.',
           ],
         },
       ],
