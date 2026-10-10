@@ -2092,12 +2092,24 @@
     "de": "Die Detailansicht zeigt, wo eine Datei auf Ihrem Büroserver lag, und ein Klick kopiert den Pfad, damit Sie am Original weiterarbeiten können."
   },
   {
+    "en": "The dots in the effort slider no longer seem to slide along with the handle. They now stay in place and grow denser as you turn the effort up.",
+    "de": "Die Punkte im Aufwand-Slider scheinen sich nicht mehr mit dem Regler zu bewegen. Sie bleiben jetzt an Ort und Stelle und werden dichter, wenn Sie den Aufwand erhöhen."
+  },
+  {
+    "en": "The effort slider now warns when it is set to Maximum, and the level chip in the composer turns amber while it is on. Maximum thinks much longer and costs far more tokens, and is rarely smarter than High.",
+    "de": "Der Effort-Slider warnt jetzt, wenn er auf Maximum eingestellt ist, und der Level-Chip im Composer wird währenddessen bernsteinfarben. Maximum rechnet deutlich länger und verbraucht wesentlich mehr Tokens, ist aber nur selten intelligenter als High."
+  },
+  {
     "en": "The empty chat no longer offers example questions or explains that answers cite their sources, and the composer no longer states that a plain message goes to Piloti. Mentioning a colleague works exactly as before, and the composer still names the recipient whenever it is not Piloti — when you have tagged someone, or when the chat is waiting on a person.",
     "de": "Im leeren Chat werden keine Beispielfragen mehr angezeigt und es wird nicht mehr erklärt, dass Antworten ihre Quellen zitieren. Im Eingabefeld steht auch nicht mehr, dass eine einfache Nachricht an Piloti geht. Jemanden zu erwähnen funktioniert wie bisher, und im Eingabefeld wird weiterhin der Empfänger genannt, wenn es nicht Piloti ist – wenn Sie jemanden markiert haben oder der Chat auf eine Person wartet."
   },
   {
     "en": "The empty chat screen is quieter. The badge that labelled every new chat as a private workspace is gone, since every chat starts that way, and the controls above the greeting no longer sit in a panel with nothing opposite it.",
     "de": "Der leere Chat-Bildschirm wirkt ruhiger. Das Badge, das jeden neuen Chat als privaten Arbeitsbereich gekennzeichnet hat, ist verschwunden, da jeder Chat so beginnt. Auch die Bedienelemente über der Begrüßung befinden sich nicht mehr in einem Panel, dem nichts gegenübersteht."
+  },
+  {
+    "en": "The end of an answer no longer shows a hard cut and stray marks just above the question field.",
+    "de": "Am Ende einer Antwort gibt es keinen abrupten Schnitt und keine vereinzelten Zeichen mehr direkt über dem Fragenfeld."
   },
   {
     "en": "The exported report is now presented as a Piloti document, with a cover page, a running header and page numbers, and it includes the answer cards that until now existed only on screen.",
@@ -2582,6 +2594,10 @@
   {
     "en": "While Piloti works, its thinking indicator and the lines of the Herleitung no longer strain a phone.",
     "de": "Solange Piloti arbeitet, belasten der Hinweis „denkt nach“ und die Linien der Herleitung das Telefon nicht mehr."
+  },
+  {
+    "en": "While Piloti works, the Herleitung shows its whole reasoning graph again, with a spinning icon and moving connectors, instead of a cut-off window.",
+    "de": "Während Piloti arbeitet, zeigt die Herleitung wieder den vollständigen Begründungsgraphen mit einem rotierenden Symbol und beweglichen Verbindungslinien statt eines abgeschnittenen Fensters."
   },
   {
     "en": "While a run is going, Dokument hinzufügen adds another document, and the block shows whether each named document was read. A report names any it did not reach.",

@@ -3,15 +3,15 @@
 Branch-to-environment CD, gated on the full CI pipeline.
 
 ```
-develop ──(CI OK + Security OK)──▶ deploy.yml ──▶ pulumi up  dev  stack ──▶ staging domain
-prod    ──(CI OK + Security OK)──▶ deploy.yml ──▶ pulumi up  prod stack ──▶ production domain
+develop ──(green CI push run)──▶ deploy.yml ──▶ pulumi up  dev  stack ──▶ staging domain
+prod    ──(promotion PR, reviewers)──▶ deploy.yml ──▶ pulumi up  prod stack ──▶ production domain
 ```
 
-On `develop`, Publish Images rebuilds only the images whose files changed (a
-blog-post commit rebuilds just `grid-web`); deploy.yml pins exactly those
-services at the new `sha-<commit>` and leaves the rest on their previously
-deployed image. `release/**` pushes, version tags and manual runs build and pin
-all three images.
+CI builds each image only when GHCR has no image with the same inputs, and tags
+all three images `sha-<commit>` once every check on the commit has passed
+([ci.md](../contributing/ci.md#images-and-deploys)). So every commit CI passed
+has all three images, every deploy pins all three to the commit it deploys, and
+a commit CI failed cannot be deployed by accident.
 
 - **State + secrets**: [Pulumi Cloud](https://app.pulumi.com). Stack state lives
   there, and the app secrets live in the **ESC environment `grid-oib/<stack>`**,
@@ -20,28 +20,26 @@ all three images.
   config changes stay reviewable in the PR diff); after the ESC migration it
   contains no `secure:` blocks.
 - **The only GitHub secret** the pipeline needs is `PULUMI_ACCESS_TOKEN`.
-- **Gating**: `deploy.yml` triggers on **Publish Images** completing successfully,
-  then re-checks that both aggregate gates (`CI OK` **and** `Security OK`) are green
-  on the exact commit before it touches the cluster. That re-check is its own
-  `gate` job, and it has three outcomes rather than two: green → deploy; a
-  **failed** CI/Security run → the gate fails, loudly, because a commit that
-  should have shipped did not; a **cancelled** one → the gate passes and the
-  deploy is *skipped*, because cancelled means the commit was superseded by a
-  newer push (the concurrency group killed its CI) and the newer tip brings its
-  own chain. A merge train used to paint that third case red, which is how a
-  real deploy failure stops being noticed.
-- **Reused PR results**: CI and Security still run on every push and still
-  have to conclude `success` for the gate, but a push whose tree a green
-  `pull_request` run already tested skips every job and passes in seconds. A
-  squash merge onto a `develop` that did not move since the PR's last run is
-  exactly that case. The PR run's final gate (`CI OK`, `Security OK`) uploads a
-  marker artifact named `ci-green-<tree>` / `security-green-<tree>` (7 days);
-  on push, `changes` runs
-  [`ci/reuse_green_run.py`](../../ci/reuse_green_run.py), which counts a
-  marker only when its run completed with `success`, was a `pull_request` run
-  of the same workflow from this repository (not a fork), and ran a workflow
-  file identical to the pushed commit's. Anything else, an API error included,
-  runs everything as before. The weekly Security scan never reuses.
+- **Gating**: `deploy.yml` runs on `workflow_run` of **CI**, for a run that
+  concluded `success`, was a `push` (not a pull request whose branch happens to
+  be called `develop`) and came from this repository. A green push run of CI
+  means every check passed and the commit's images are tagged, so there is
+  nothing left to poll. A **cancelled** run is a commit superseded while queued:
+  the newer commit's run covers it (it diffs against the last green commit) and
+  deploys instead. A **failed** run deploys nothing, and the next green commit
+  deploys everything since.
+- **What GitHub shows**: each deploy job is a deployment to its GitHub
+  environment, with the URL the stack reports (output `appUrl`), so the
+  repository's Deployments page and each deployed commit link to the running
+  app. The run summary lists the commit and the three image refs it pinned.
+- **The Pulumi CLI** is the release of the `@pulumi/pulumi` SDK that
+  `deploy/pulumi/package-lock.json` pins, not `latest`. Dependabot bumps the
+  SDK, and the CLI follows in the same reviewed diff; staging and prod always
+  run the same one.
+- **Reused PR results**: a push whose tree a green pull request run already
+  tested, on top of a green parent, skips its checks and still builds and tags
+  the images, so it deploys like any other green push. How the reuse is decided:
+  [ci.md](../contributing/ci.md#how-a-ci-run-decides-what-to-run).
 
 ## One-time setup
 
@@ -82,10 +80,27 @@ Create **`staging`** (and later `production`). On each, add the secret
 `PULUMI_ACCESS_TOKEN` (used for the gate previews and the apply). On **`production`**, add **required reviewers** so a prod deploy
 pauses for manual approval.
 
+Restrict each environment to the branch it deploys (**Deployment branches and
+tags → Selected branches**): `develop` for `staging`, `prod` for `production`.
+An environment secret is then unreadable from any other branch's workflow run,
+including a workflow file someone edits on a feature branch. Delete the
+repository-level `PULUMI_ACCESS_TOKEN` once both environments hold their own:
+a repository secret reaches every workflow on every branch.
+
+Optional, and better than any stored token: exchange the job's GitHub OIDC
+token for a short-lived Pulumi token with
+[`pulumi/auth-actions`](https://www.pulumi.com/docs/pulumi-cloud/access-management/oidc/client/github/).
+It needs the GitHub issuer registered in Pulumi Cloud (Settings → OIDC Issuers,
+with a policy limited to this repository and environment), `id-token: write` on
+the deploy jobs, and one step in place of the secret; after that there is no
+`PULUMI_ACCESS_TOKEN` left to leak or rotate.
+
 ### 4. Branch protection (Settings → Branches)
-For `develop` and `prod`, require the status checks **`CI OK`** and
-**`Security OK`**. This is what makes "only after the whole pipeline passes" real —
-without it, removing `continue-on-error` only fails jobs, it doesn't block merges.
+For `develop`, require the status checks **`CI OK`** and **`Conventional PR
+title`**. For `prod`, require the promotion PR's `CI OK`. Do not require
+`Security OK`: the security scans a change can fail are inside `CI OK`, the
+weekly Security run gates nothing, and a required check that never reports
+blocks every PR.
 
 ### 5. DNS
 Point `app.<domain>` / `s3.<domain>` (prod) and `app.dev.<domain>` / `s3.dev.<domain>`
@@ -95,7 +110,7 @@ DNS resolves and a staging cert issues, then flip prod to `false`.
 
 ## Runner → cluster reachability
 Only the **apply** needs the cluster. The **gates** (typecheck, CRD-schema
-validation, CrossGuard) run on Blacksmith/GitHub-hosted runners and only need
+validation, CrossGuard) run on GitHub-hosted runners and only need
 Pulumi Cloud — the plan they check is built from stack config, so they pass with
 a kubeconfig pointing at an unreachable API (see
 [`deploy/pulumi/README.md`](../../deploy/pulumi/README.md) → *Validation*). The
@@ -138,25 +153,18 @@ preview is the policy checkpoint, and drift between gate and apply is the
 accepted residual (see
 [pulumi-cloud-feature-audit.md](pulumi-cloud-feature-audit.md)).
 
-## Partial deploys (per-service images)
+## Image pinning
 
-`publish-images.yml` has a "Detect changes" job (dorny/paths-filter) that gates
-the three image builds on `develop`: an image rebuilds only when files it
-depends on changed (backend / frontend / web filters; blog content lives under
-`frontends/web/src/content/**`, inside the web filter, so a blog-post commit
-rebuilds only `grid-web`). `release/**` pushes, version tags and manual
-`workflow_dispatch` always build all three.
-
-`deploy.yml` pins **per service**
+`deploy.yml` pins one ref per service
 ([`resolve-image-refs.sh`](../../deploy/pulumi/scripts/resolve-image-refs.sh)):
 
-- a service the triggering Publish Images run built (its `Build & push <service>
-  image` job succeeded) is pinned to the commit's `sha-<40-hex>` tag;
-- a service it did **not** build is pinned to the newest commit on develop's
-  first-parent line, at or before the deployed one, whose `sha-<commit>` tag
-  GHCR actually has (a manifest `HEAD` per commit, up to 200 commits back). A
-  commit whose publish failed has no tag and is stepped over. A bare dispatch
-  (no `imageTag`) resolves all three this way.
+- after a green CI run, all three are the commit's `sha-<40-hex>` tag, which
+  the workflow verifies GHCR has before it pins anything;
+- an operator rollback (dispatch with `imageTag`) pins all three to that tag,
+  verified the same way;
+- a bare dispatch (no `imageTag`) pins each service to the newest commit on
+  develop's first-parent line whose `sha-<commit>` tag GHCR has (a manifest
+  `HEAD` per commit, up to 200 back). That is the newest commit CI passed.
 
 Then the **downgrade guard**: each resolved commit must be the deployed commit
 or a descendant of it, where "deployed" is the stack output `deployedImages`
@@ -171,11 +179,12 @@ never reaches git, so `pulumi config get grid-oib:backendImage` on a fresh
 checkout is empty and `imageTag` reads `latest` whatever is running. That is why
 the guard reads the stack output.
 
-The gates are unchanged — CI + Security green, tag-shape validation, preflight,
-plan validation and the policy pack all still run for every deploy. Manual
-rollback dispatches (operator-supplied `imageTag`) still pin **all three**
-services to that tag, after the workflow verifies the tag is published for
-every image — see "Rolling back".
+Images used to be built per service only when that service's paths changed, so
+a commit could have one image and not the others, and this section was about
+picking a different commit for each service. A merge train broke it: queued
+publishes were dropped, the survivor diffed only against its own parent, and
+the changes of five merged pull requests never reached an image. Images are now
+named by their inputs and tagged per green commit, so that state cannot arise.
 
 ## Rolling out ADR-0071
 
@@ -196,7 +205,7 @@ and use "Erneut lesen"; it converts again and ingests through the new path.
 
 Closing the window means a frontend-only deploy first, and the pipeline has no
 such step: a manual dispatch pins all three images, and a local `pulumi up`
-from a fresh checkout does not know the deployed pins (see "Partial deploys").
+from a fresh checkout does not know the deployed pins (see "Image pinning").
 Pick a quiet moment instead, or accept the retries.
 
 Gotenberg must be running (`gotenbergEnabled`, default on) before the new
@@ -209,15 +218,9 @@ service moves to an older commit: an automatic deploy that resolves one fails
 the downgrade guard.
 
 1. Actions → **Deploy (staging)** → *Run workflow*.
-2. Set **`imageTag`** to the previous good build's tag (`sha-` + the full commit
-   sha; find it in that commit's Publish Images run). A rollback pins **all
-   three** services to that tag — the workflow first verifies the tag is
-   published for **all three** images, so a rollback to a commit whose Publish
-   Images run built only some images fails fast with a clear error instead of
-   rolling the others into ImagePullBackOff. Single-tag rollbacks are therefore
-   restricted to commits that built all three images; roll back an older
-   **partial** state by pinning the exact per-service refs via the stack config
-   instead.
+2. Set **`imageTag`** to the previous good build's tag: `sha-` + the full sha
+   of any `develop` commit whose CI push run passed. A rollback pins **all
+   three** services to that tag, after verifying GHCR has it for all three.
 3. It goes through the identical gates and the identical gated rollout — surge,
    readiness soak, drain. Nothing special-cases a rollback.
 

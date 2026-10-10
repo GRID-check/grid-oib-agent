@@ -217,6 +217,16 @@ describe("the api tier", () => {
     expect(cfg.ingestWorker).not.toHaveProperty("enabled");
   });
 
+  it("carries no Langfuse API env where the tier is not deployed", () => {
+    // Langfuse needs the collector, which TUNED turns off. A host with no
+    // Service behind it would make every score post time out instead of being
+    // the capability-off no-op `langfuse_scores.emit_scores` is.
+    expect(cfg.langfuse.enabled).toBe(false);
+    for (const env of [chatEnvValues, apiEnvValues]) {
+      expect(Object.keys(env).filter((name) => name.startsWith("LANGFUSE_"))).toEqual([]);
+    }
+  });
+
   it("runs research on the database queue alone: the api workload carries no execution switch", () => {
     expect(apiEnvValues).not.toHaveProperty("GRID_JOB_EXECUTION");
   });

@@ -119,7 +119,7 @@ def fetch_turn_flags(*, organization_id: str | None, project_id: str | None = No
         raise RuntimeError("GRID_INTERNAL_API_TOKEN is not configured")
 
     # The project, when the turn has one: a closed project withdraws deep
-    # research and tasks (ADR-0089), because both file into it.
+    # research and tasks (ADR-0090), because both file into it.
     params = {"organizationId": organization_id} if organization_id else {}
     if project_id:
         params["projectId"] = project_id

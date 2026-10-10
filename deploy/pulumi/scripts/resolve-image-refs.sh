@@ -8,19 +8,18 @@
 #
 # Environment:
 #   GITHUB_REPOSITORY_OWNER  registry owner; folded to lowercase
-#   GITHUB_REPOSITORY        owner/repo, for the built-jobs lookup
 #   DEPLOY_SHA               the develop commit being deployed (40 hex)
-#   RUN_ID                   the triggering Publish Images run; empty on dispatch
+#   RUN_ID                   the green CI run that triggered this deploy; empty on dispatch
 #   EXPLICIT_TAG             the operator's rollback tag; empty otherwise
 #   RESOLVE_DEPTH            first-parent commits to search (default 200)
 #   FIND_PUBLISHED_TAG       registry lookup; default find-published-tag.sh here
 # Needs `git` with history back to the deployed commit (checkout
-# `fetch-depth: 0`), `pulumi` with the stack selected, `jq`, and `gh` when
-# RUN_ID is set.
+# `fetch-depth: 0`), `pulumi` with the stack selected, and `jq`.
 #
 # Where each service's tag comes from:
-#   1. built by the triggering run: its job "Build & push <service> image"
-#      succeeded, so the tag is sha-<DEPLOY_SHA>;
+#   1. a green CI run triggered the deploy: sha-<DEPLOY_SHA>, for all three.
+#      CI tags every image for a commit only once all its checks passed
+#      (ci.yml, `publish`), so a green run means all three tags exist;
 #   2. operator rollback (dispatch with EXPLICIT_TAG): that tag, for all three;
 #   3. otherwise the newest commit on develop's first-parent history, at or
 #      before DEPLOY_SHA, whose sha-<commit> tag GHCR actually has.
@@ -61,14 +60,6 @@ commit_of() {
   return 0
 }
 
-# Which images did the triggering publish run build? Job names are the
-# contract with publish-images.yml, and only successful jobs count.
-built_jobs=""
-if [ -n "$RUN_ID" ]; then
-  built_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" \
-    --jq '.jobs[] | select(.conclusion == "success") | .name')"
-fi
-
 # What the stack last deployed. The committed stack file cannot say: CI's
 # `pulumi config set` never reaches git, so `pulumi config get` on a fresh
 # checkout reads `imageTag: latest` whatever is running. The stack output is
@@ -99,7 +90,7 @@ newest_published_tag() {
 
 resolve_ref() {
   local service="$1" deployed="$2" tag rc=0
-  if [ -n "$RUN_ID" ] && grep -qxF "Build & push $service image" <<<"$built_jobs"; then
+  if [ -n "$RUN_ID" ]; then
     tag="sha-${DEPLOY_SHA}"
   elif [ -n "$rollback" ]; then
     tag="$EXPLICIT_TAG"
