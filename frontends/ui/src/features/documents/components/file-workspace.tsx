@@ -27,6 +27,10 @@ import { useModelStage } from '../hooks/use-model-stage'
 import { useSettleTrackedUploads } from '../hooks/use-settle-tracked-uploads'
 import { useShelfUpload } from '../hooks/use-shelf-upload'
 import { useViewPreference } from '../hooks/use-view-preference'
+import { useBriefCollapsed } from '../hooks/use-brief-collapsed'
+import { useBulkReingest } from '../hooks/use-bulk-reingest'
+import { useMissingDocuments } from '../hooks/use-missing-documents'
+import { buildFolderBrief, matchesBriefSelection, type BriefSelection } from '../lib/folder-knowledge'
 import type { DocumentWireRow } from '../lib/file-item'
 import {
   NO_FILE_FILTERS,
@@ -48,6 +52,7 @@ import { FileBrowserPane } from './file-browser-pane'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { FileFilterMenu } from './file-filter-menu'
 import { FilePreviewDialog } from './file-preview-dialog'
+import { FolderBrief } from './folder-brief'
 import { FileSearchField } from './file-search-bar'
 import { FolderAccessDialog } from './folder-access-dialog'
 import { FolderUploadDialog } from './folder-upload-dialog'
@@ -273,6 +278,15 @@ export function FileWorkspace({
     [filteredFiles, selectedFolderId, tree.error]
   )
   const tagOptions = useMemo(() => tagOptionsOf(files, locale), [files, locale])
+  const briefSurface = useFolderBriefSurface({
+    shelf,
+    files,
+    folders: tree.error ? [] : folders,
+    selectedFolderId,
+    onOpenFolder: selectFolder,
+    onReingested: handlers.onReingested,
+    mayReadAgain: canManage && writableHere,
+  })
   const filterEmptyNotice = useFilterEmptyNotice({
     filters,
     setFilters,
@@ -476,6 +490,8 @@ export function FileWorkspace({
                 label: t('workspace.uploadDocuments'),
               })}
               uploadCard={uploader({ variant: 'dropcard' })}
+              brief={briefSurface.brief}
+              slice={briefSurface.slice}
             />
           )}
         </div>
@@ -550,6 +566,89 @@ export function FileWorkspace({
       )}
     </div>
   )
+}
+
+/**
+ * The folder brief and the slice of the subtree it opens, for the level the
+ * reader stands on.
+ *
+ * Built from the UNFILTERED corpus: the brief describes the folder, and a
+ * filter that hides half of it must not make Piloti appear to know half as
+ * much. The slice is drawn from the same subtree the brief counted, so a chip
+ * that says „Grundriss 12" opens twelve documents.
+ */
+function useFolderBriefSurface({
+  shelf,
+  files,
+  folders,
+  selectedFolderId,
+  onOpenFolder,
+  onReingested,
+  mayReadAgain,
+}: {
+  shelf: FileShelf
+  files: readonly FileItem[]
+  folders: readonly FolderItem[]
+  selectedFolderId: string | null
+  onOpenFolder: (id: string | null) => void
+  onReingested: (id: string, status: string) => void
+  mayReadAgain: boolean
+}) {
+  const t = useTranslations('files')
+  const [collapsed, setCollapsed] = useBriefCollapsed()
+  const [selection, setSelection] = useState<{ folderId: string | null; selection: BriefSelection } | null>(null)
+  const bulk = useBulkReingest(onReingested)
+  const missing = useMissingDocuments(shelf.projectId)
+  const brief = useMemo(() => buildFolderBrief(files, folders, selectedFolderId), [files, folders, selectedFolderId])
+  const folderName = selectedFolderId
+    ? (folders.find((folder) => folder.id === selectedFolderId)?.name ?? null)
+    : null
+
+  // A slice belongs to the folder it was opened in; walking elsewhere drops it.
+  const active = selection && selection.folderId === selectedFolderId ? selection.selection : null
+
+  const readAgain = useCallback(async () => {
+    const ids = brief.attention.failed.map((file) => file.id)
+    const result = await bulk.run(ids)
+    const started = result.done - result.failed
+    if (started > 0) toast.success(t('brief.readAgainDone', { count: started }))
+    if (result.failed > 0) toast.error(t('brief.readAgainPartial', { count: result.failed }))
+  }, [brief.attention.failed, bulk, t])
+
+  const sliceLabel = (current: BriefSelection): string => {
+    const what =
+      current.kind === 'tag'
+        ? current.tag
+        : current.kind === 'unplaced'
+          ? t('brief.slice.unplaced')
+          : t(`brief.slice.${current.state}`)
+    const where = folderName ? t('brief.sliceScopeFolder', { name: folderName }) : t('brief.sliceScopeRoot')
+    return `${what} · ${where}`
+  }
+
+  return {
+    brief: (
+      <FolderBrief
+        brief={brief}
+        folderName={folderName}
+        shelfKind={shelf.source}
+        onSelect={(next) => setSelection({ folderId: selectedFolderId, selection: next })}
+        onOpenFolder={onOpenFolder}
+        onReadAgain={mayReadAgain ? () => void readAgain() : undefined}
+        readAgainProgress={bulk.progress}
+        collapsed={collapsed}
+        onCollapsedChange={setCollapsed}
+        missing={missing}
+      />
+    ),
+    slice: active
+      ? {
+          files: brief.files.filter((file) => matchesBriefSelection(file, active)),
+          label: sliceLabel(active),
+          onClear: () => setSelection(null),
+        }
+      : undefined,
+  }
 }
 
 /**

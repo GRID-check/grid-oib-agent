@@ -17,7 +17,7 @@ import { getRestrictedFolderIds } from '@/lib/authz/folder-access'
 import { SCREENED_ONLY } from '@/lib/documents/document-reader'
 import { listProjectDocumentRoles } from './repository'
 import type { DocumentRoleReader } from './repository'
-import { buildDocumentRolesSection } from './prompt-section'
+import { buildDocumentRolesSection, missingSlots } from './prompt-section'
 import type { RecommendedSlot } from './prompt-section'
 
 /**
@@ -36,6 +36,76 @@ async function readerFor(
   return { hiddenFolderIds: await getRestrictedFolderIds(organizationId, projectId), documents: SCREENED_ONLY }
 }
 
+/**
+ * What the intake answers say this project should hold, per building, and the
+ * buildings' names. Shared by the agent's block and the folder brief.
+ */
+export function recommendedSlotsFor(profile: Awaited<ReturnType<typeof findProjectProfile>>): {
+  recommended: RecommendedSlot[]
+  bauwerkNames: Record<string, string>
+} {
+  const bauwerkNames: Record<string, string> = {}
+  if (!profile) return { recommended: [], bauwerkNames }
+  const { answers, bauwerke } = answersFromProfile(profile, projectIntakeDefinitionV1)
+  // Project-scope recommendations once, then each building's own. A
+  // `bauwerk` condition read without an instance resolves against the
+  // project-global answer, which would recommend Bestandspläne for every
+  // building the moment any one of them is a Bestand.
+  //
+  // Each recommendation keeps the instance it was made for. Collapsing them
+  // into a set of roles made two buildings' Bestandspläne indistinguishable,
+  // so binding one silenced the other's missing entry.
+  const collected = new Map<string, RecommendedSlot>()
+  const add = (role: DocumentRole, scopeInstanceId: string | null) => {
+    collected.set(`${role}@${scopeInstanceId ?? ''}`, { role, scopeInstanceId })
+  }
+  for (const role of recommendedRoles(answers)) add(role, null)
+  for (const bauwerk of bauwerke) {
+    bauwerkNames[bauwerk.id] = bauwerk.name
+    for (const role of recommendedRoles(answers, bauwerk.id)) {
+      add(role, documentRoleDefinition(role).scope === 'bauwerk' ? bauwerk.id : null)
+    }
+  }
+  return { recommended: [...collected.values()], bauwerkNames }
+}
+
+export interface MissingDocument {
+  role: DocumentRole
+  /** The role's label, e.g. „Energieausweis". */
+  label: string
+  /** The building it is missing for, when the role is per building. */
+  bauwerkName: string | null
+}
+
+/**
+ * What Piloti expects this project to hold and does not — exactly the agent's
+ * `documents_missing:` list, read through the same reader, so a person sees the
+ * gaps the agent sees.
+ *
+ * Null when the read fails — NOT an empty list. The prompt block can fail open
+ * to saying nothing; a person-facing list cannot, because an empty one reads as
+ * "nothing is missing", which is a claim the failed read never made.
+ */
+export async function loadMissingDocuments(
+  projectId: string,
+  organizationId: string | null | undefined
+): Promise<MissingDocument[] | null> {
+  try {
+    const [bindings, profile] = await Promise.all([
+      readerFor(projectId, organizationId).then((reader) => listProjectDocumentRoles(projectId, reader)),
+      findProjectProfile(projectId, organizationId),
+    ])
+    const { recommended, bauwerkNames } = recommendedSlotsFor(profile)
+    return missingSlots(bindings, recommended).map((slot) => ({
+      role: slot.role,
+      label: documentRoleDefinition(slot.role).label,
+      bauwerkName: slot.scopeInstanceId ? (bauwerkNames[slot.scopeInstanceId] ?? null) : null,
+    }))
+  } catch {
+    return null
+  }
+}
+
 export async function loadDocumentRolesPromptSection(
   projectId: string,
   organizationId: string | null | undefined
@@ -46,35 +116,7 @@ export async function loadDocumentRolesPromptSection(
       findProjectProfile(projectId, organizationId),
     ])
 
-    let recommended: RecommendedSlot[] = []
-    const bauwerkNames: Record<string, string> = {}
-
-    if (profile) {
-      const { answers, bauwerke } = answersFromProfile(profile, projectIntakeDefinitionV1)
-      // Project-scope recommendations once, then each building's own. A
-      // `bauwerk` condition read without an instance resolves against the
-      // project-global answer, which would recommend Bestandspläne for every
-      // building the moment any one of them is a Bestand.
-      //
-      // Each recommendation keeps the instance it was made for. Collapsing them
-      // into a set of roles made two buildings' Bestandspläne indistinguishable,
-      // so binding one silenced the other's missing entry.
-      const collected = new Map<string, RecommendedSlot>()
-      const add = (role: DocumentRole, scopeInstanceId: string | null) => {
-        collected.set(`${role}@${scopeInstanceId ?? ''}`, { role, scopeInstanceId })
-      }
-      for (const role of recommendedRoles(answers)) {
-        add(role, documentRoleDefinition(role).scope === 'bauwerk' ? null : null)
-      }
-      for (const bauwerk of bauwerke) {
-        bauwerkNames[bauwerk.id] = bauwerk.name
-        for (const role of recommendedRoles(answers, bauwerk.id)) {
-          add(role, documentRoleDefinition(role).scope === 'bauwerk' ? bauwerk.id : null)
-        }
-      }
-      recommended = [...collected.values()]
-    }
-
+    const { recommended, bauwerkNames } = recommendedSlotsFor(profile)
     return buildDocumentRolesSection(bindings, recommended, bauwerkNames)
   } catch {
     return ''

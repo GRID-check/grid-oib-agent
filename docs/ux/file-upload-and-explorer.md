@@ -254,11 +254,69 @@ the IFC ceiling (262.1 MB → 250.0 MB). That is the limit becoming the number t
 administrator actually configured. Raise the env var if the old headroom was
 being relied on.
 
+## The folder brief and the read state of a folder
+
+**Preview:** `/dev/folder-brief`
+
+At the Jour fixe of 2026-10-09, feld72 raised three things. The read state of
+nested folders was not visible. Answers called documents missing that had been
+read. And checking folder by folder did not scale. The folder brief and the
+state on each folder tile answer all three from the listing the Files view
+already holds.
+
+The brief sits above the file list at every folder level, in Dateien and in the
+Büroablage, under the heading „Was Piloti hier weiß“. It describes the folder
+and everything below it, not only the level on screen. It opens by default, and
+its fold is remembered per browser, as the card and list choice is.
+
+| Part | What it says | Each count opens |
+|---|---|---|
+| Bar and legend | How many documents in the subtree Piloti can cite, and where the rest stand: citable, being read, failed, held back, not in the knowledge base. The headline gives the same answer in words. | The flat list of that state, across all subfolders |
+| What it is about | The document types and disciplines Piloti assigned to the citable documents, most frequent first, and the kinds of content it found. „Sonstiges“ always comes last. | The flat list of documents with that tag |
+| What needs a person | Failed documents, with one button to read all of them again. Documents held back by the content check. Citable documents Piloti placed in no document type. | The flat list of those documents |
+| Where it sticks | Up to four subfolders, worst first, whose own documents need attention or are being read. Each is named by its path, so the reader lands on the folder with the trouble and not on an ancestor. | Walks into that folder |
+
+At the project root only, a fifth part, „Was Piloti noch fehlt“, lists the
+documents the intake answers say the project should hold and that no file is
+bound to yet. These are the entries the agent reads as its missing documents. A
+file that is in the project but not yet bound to its role still shows here as
+missing, because Piloti cannot tell which file it is until it is bound.
+
+The re-read button appears only for a reader who may write in that folder,
+because a re-read changes the document for everybody who can open it. It sends
+the same request as a document's own „Erneut lesen“, four at a time, and each
+row turns to „Wird gelesen“ as its answer comes in.
+
+**Folder tiles and rows** show the worst state of everything in their subtree,
+as one swatch and one phrase, in this order: failed, held back, being read, and
+then „Alles gelesen“ when every document Piloti is meant to read is citable. An
+unplaced document is not named on a tile. It appears only in the brief's „Where
+it sticks“, because on most folders of a project it would be noise. An empty
+folder, or one holding only documents Piloti never reads, shows nothing.
+
+**Where the data comes from.** Nothing is fetched for the brief or the tiles.
+The browser computes both from the listing the Files view already loads:
+`buildFolderBrief` for the folder on screen, and `subtreeTallies` for every
+folder at once, in one pass over the documents. The one extra request is
+`GET /api/projects/{id}/document-roles`, which supplies the missing list. The
+browser reads it again whenever a document in the tab changes. The Büroablage
+has no project, so it makes no such request and shows no missing list.
+
+**Content of unreadable documents is never shown.** The brief takes what it says
+about a document only from citable documents. A document that is failed, held
+back, still being read, or not in the knowledge base is counted. Its tags,
+disciplines, content kinds and summary stay out of the brief. A document the
+content check has not released cannot reach the reader through the brief.
+
 ## Where the code lives
 
 | Concern | Module |
 |---|---|
 | Byte-level upload transport (the only XHR in the app) | `src/lib/http/xhr-upload.ts` |
+| The folder brief: a folder's subtree tally, the brief, what each count selects | `src/features/documents/lib/folder-knowledge.ts`; `src/features/documents/components/folder-brief.tsx` |
+| A folder's read state on its tile or row | `src/features/documents/components/folder-read-state.tsx` |
+| Bulk re-read, four requests at a time, and the one request each sends | `src/features/documents/hooks/use-bulk-reingest.ts`; `src/features/documents/lib/reingest-request.ts` |
+| The missing list, shared with the agent's prompt | `src/lib/document-roles/prompt-loader.ts` (`loadMissingDocuments`); `src/features/documents/hooks/use-missing-documents.ts` |
 | Phase model, batch summary, rate/ETA estimator | `src/features/documents/lib/upload-progress.ts` |
 | Bounded-concurrency batch runner | `src/features/documents/lib/upload-queue.ts` |
 | Explorer ordering (numeric collator, status rank) | `src/features/documents/lib/file-sort.ts` |

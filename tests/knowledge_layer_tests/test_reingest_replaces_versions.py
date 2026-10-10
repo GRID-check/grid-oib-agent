@@ -33,6 +33,7 @@ no chunks at all. The end-to-end tests at the bottom pin exactly that.
   answer changes nothing.
 """
 
+import json
 import threading
 import time
 import uuid
@@ -85,7 +86,7 @@ def registries(monkeypatch):
     monkeypatch.setattr(chunk_text_store, "get_chunk_text_store", lambda: store)
     monkeypatch.setattr(adapter_module, "bump_collection_version", lambda name: bumped.append(name))
     # What people set on the previous versions' rows: empty unless a test says.
-    human_set: dict[str, dict[str, str]] = {"doc_class": {}, "display_title": {}, "folder_path": {}}
+    human_set: dict[str, dict] = {"doc_class": {}, "display_title": {}, "folder_path": {}, "tags": {}}
 
     def reader(field):
         return lambda coll, names: {name: human_set[field][name] for name in names if name in human_set[field]}
@@ -93,6 +94,7 @@ def registries(monkeypatch):
     monkeypatch.setattr(knowledge, "get_document_doc_classes", reader("doc_class"))
     monkeypatch.setattr(knowledge, "get_document_display_titles", reader("display_title"))
     monkeypatch.setattr(knowledge, "get_document_folder_paths", reader("folder_path"))
+    monkeypatch.setattr(knowledge, "get_document_person_tags", reader("tags"))
     # Stored names with a metadata row: where the find learns tmp[8]_ spellings.
     rows: list[str] = []
     monkeypatch.setattr(
@@ -195,6 +197,40 @@ def test_what_people_set_on_the_previous_version_is_carried(ingestor, registries
         "display_title": "Statik Bauteil B",
         "folder_path": "/Einreichung",
     }
+
+
+def test_a_persons_tags_on_the_previous_version_are_carried_as_json(ingestor, registries):
+    registries["rows"].append("tmpa1b2c3d4_statik.pdf")
+    registries["human_set"]["tags"]["tmpa1b2c3d4_statik.pdf"] = ["Schnitt", "Brandschutz"]
+
+    found = ingestor._find_previous_versions(_collection({"c1": "tmpa1b2c3d4_statik.pdf"}), "proj_1", ["statik.pdf"])
+
+    assert isinstance(found["statik.pdf"].preserved["tags"], str)
+    assert json.loads(found["statik.pdf"].preserved["tags"]) == ["Schnitt", "Brandschutz"]
+
+
+def test_a_persons_tags_are_carried_from_the_real_store(ingestor, stores):
+    from aiq_agent.knowledge import register_summary
+    from aiq_agent.knowledge import set_document_tags_by_person
+
+    register_summary("proj_p", "statik.pdf", "Die alte Statik.", tags=["Grundriss"])
+    set_document_tags_by_person("proj_p", "statik.pdf", ["Schnitt"])
+
+    found = ingestor._find_previous_versions(_collection({"c1": "statik.pdf"}), "proj_p", ["statik.pdf"])
+
+    assert json.loads(found["statik.pdf"].preserved["tags"]) == ["Schnitt"]
+
+
+def test_the_classifiers_tags_on_the_previous_version_are_not_carried(ingestor, stores):
+    """Machine tags are re-derived from the new bytes; only a person's choice is carried."""
+    from aiq_agent.knowledge import register_summary
+
+    register_summary("proj_m", "statik.pdf", "Die alte Statik.", tags=["Grundriss"])
+
+    found = ingestor._find_previous_versions(_collection({"c1": "statik.pdf"}), "proj_m", ["statik.pdf"])
+
+    assert found["statik.pdf"].chunk_ids == ["c1"]
+    assert "tags" not in found["statik.pdf"].preserved
 
 
 def test_a_failed_metadata_read_still_finds_the_chunks(ingestor, registries, monkeypatch):
@@ -477,6 +513,53 @@ def test_a_reupload_that_indexes_replaces_the_previous_version(tmp_path, live_in
     assert len(summaries) == 1 and summaries[0] != "Die alte Statik."
 
 
+def _classify_tags_as(monkeypatch, ing, tags: list[str]) -> None:
+    """Run the tag classifier on every upload, and have it answer ``tags``.
+
+    The summary is switched on so the job reaches the classifier at all; the
+    summary LLM is the fixture's stub.
+    """
+    from aiq_agent.knowledge import document_classification
+
+    ing.generate_summary_enabled = True
+    monkeypatch.setattr(document_classification, "classify_document_tags", lambda *_args, **_kwargs: tags)
+
+
+def _tags_of(collection_name: str, file_name: str):
+    from aiq_agent.knowledge import get_available_documents
+
+    return {doc.file_name: doc.tags for doc in get_available_documents(collection_name)}[file_name]
+
+
+def test_a_reupload_with_no_person_choice_takes_the_classifiers_tags(tmp_path, monkeypatch, live_ingestor, stores):
+    _classify_tags_as(monkeypatch, live_ingestor, ["Bescheid"])
+    _seed_previous_version(live_ingestor, stores, "proj_auto", "statik.txt")
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Neue Fassung der Statik mit geänderter Bewehrung.", encoding="utf-8")
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_auto", config={"original_filenames": ["statik.txt"]})
+
+    assert _wait_terminal(live_ingestor, job_id).file_details[0].status.value == "success"
+    assert _tags_of("proj_auto", "statik.txt") == ["Bescheid"]
+
+
+def test_a_person_tagged_document_keeps_its_tags_when_reingested(tmp_path, monkeypatch, live_ingestor, stores):
+    """The classifier's new guess for the same file name does not overwrite what a person chose."""
+    from aiq_agent.knowledge import set_document_tags_by_person
+
+    _classify_tags_as(monkeypatch, live_ingestor, ["Bescheid"])
+    _seed_previous_version(live_ingestor, stores, "proj_tags", "statik.txt")
+    set_document_tags_by_person("proj_tags", "statik.txt", ["Schnitt", "Brandschutz"])
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Neue Fassung der Statik mit geänderter Bewehrung.", encoding="utf-8")
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_tags", config={"original_filenames": ["statik.txt"]})
+
+    assert _wait_terminal(live_ingestor, job_id).file_details[0].status.value == "success"
+    assert "old-1" not in _chunks(live_ingestor, "proj_tags")  # still a real replacement
+    assert _tags_of("proj_tags", "statik.txt") == ["Schnitt", "Brandschutz"]
+
+
 def test_a_legacy_tmp_prefixed_version_is_replaced_through_its_metadata_row(tmp_path, live_ingestor, stores):
     """The filtered read cannot match a random prefix; the row it left behind names it."""
     from aiq_agent.knowledge import get_document_doc_class
@@ -493,6 +576,24 @@ def test_a_legacy_tmp_prefixed_version_is_replaced_through_its_metadata_row(tmp_
     # The Dokumentart moved from the old spelling's row to the new one.
     assert get_document_doc_class("proj_tmp", "statik.txt") == "tragwerk"
     assert get_document_doc_class("proj_tmp", "tmpa1b2c3d4_statik.txt") is None
+
+
+def test_a_person_tagged_legacy_tmp_version_keeps_its_tags_under_the_new_name(
+    tmp_path, monkeypatch, live_ingestor, stores
+):
+    """The tags a person chose on the old spelling's row move to the new name when that row is retired."""
+    from aiq_agent.knowledge import set_document_tags_by_person
+
+    _classify_tags_as(monkeypatch, live_ingestor, ["Bescheid"])
+    _seed_previous_version(live_ingestor, stores, "proj_tmp_tags", "tmpa1b2c3d4_statik.txt")
+    set_document_tags_by_person("proj_tmp_tags", "tmpa1b2c3d4_statik.txt", ["Schnitt", "Brandschutz"])
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Neue Fassung der Statik.", encoding="utf-8")
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_tmp_tags", config={"original_filenames": ["statik.txt"]})
+
+    assert _wait_terminal(live_ingestor, job_id).file_details[0].status.value == "success"
+    assert _tags_of("proj_tmp_tags", "statik.txt") == ["Schnitt", "Brandschutz"]
 
 
 # ---------------------------------------------------------------------------

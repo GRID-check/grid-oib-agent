@@ -249,6 +249,28 @@ Where it sits, per file, against the five places ingestion sends content out:
 
 Each file of a screened job gets `file_details[].screening` on its job status: `quarantined`; `clean` when everything that goes on was screened; `partial` when the text layer was clean but something of the file reaches a model unscreened: pages the triage sends to transcription or drawing analysis (or a PDF it could not measure), or embedded rasters the VLM will caption (pdfplumber's per-page image count, read before any model call; the enrichment step also marks the file `partial` when it sends rasters the count missed); `partial` also when some of the file's text was never read, so never screened: a PDF page the text pass could not read (`pages_failed`; its tables, when the table pass reads them, are screened), or spreadsheet rows past the 10,000-row cap (`rows_over_cap`, not indexed either), or cells the extractors drop or shorten: spreadsheet columns past the 60th and the tail of a spreadsheet or CSV cell longer than 500 characters (`content_cut` on the documents, not indexed either); `unchecked` for a standalone image or a file with no local text. The triage the screen measured is handed to `route_pdf_pages`, so a screened PDF is measured once. Known gaps, accepted for content that cannot be read locally: scanned and drawing pages, standalone images and embedded rasters reach the VLM without being screened; the outcome says so (`partial` or `unchecked`), never `clean`. The thumbnail is drawn after the screen, and only when it passed. The log line for a quarantine names reason kinds and counts only, not the term, the value or the file name.
 
+### Photographs: orientation, the `Foto` tag and the image summary
+
+Three things change for an uploaded image.
+
+- **Orientation.** A phone stores a portrait photo as landscape pixels with an
+  EXIF `Orientation` tag. The reader applies the tag (`ImageOps.exif_transpose`)
+  before the vision model sees the image and before the thumbnail is drawn
+  (`_read_image_as_jpeg` in the knowledge layer's adapter, and the thumbnail step
+  beside it). The model reads the photo upright, and the recorded width and
+  height are the upright ones.
+- **The `Foto` tag.** The tag classifier reads text, and for an image the text is
+  the vision model's caption, so the classifier never sees the pixels. When the
+  vision model sees a photograph (segment type `photo`), `reconcile_image_tags`
+  sets the document type to `Foto` and keeps the disciplines the classifier found
+  in the caption. A fire door in a photo is still Brandschutz. The rule applies
+  only when the image's dominant content is pictorial. A scanned plan is typed
+  `drawing` and keeps the classifier's plan type.
+- **The summary.** The caption stored as the summary drops its
+  `[IMAGE from page N]` marker (`_strip_visual_marker`). The marker is for
+  retrieval, which cites a page. People read the summary, so it starts with the
+  description.
+
 ### A re-upload replaces the previous version once it has indexed
 
 Chunks are keyed by file name within a collection, so a file uploaded under a
@@ -258,7 +280,8 @@ per file, under a lock on (collection, normalized name):
 
 1. Before the file is read, `_find_previous_versions` reads which chunk ids
    answer to its name and what a person set on their metadata row:
-   `doc_class`, `display_title`, `folder_path`. It deletes nothing. The read is
+   `doc_class`, `display_title`, `folder_path`, and `tags` when a person chose
+   them (`tags_set_by = 'person'`). It deletes nothing. The read is
    a Chroma `where={"file_name": {"$in": [...]}}` over the spellings a stored
    version can carry: the name, its percent-encoded forms, and the
    `tmp[8]_`-prefixed names the metadata rows know
@@ -271,7 +294,10 @@ per file, under a lock on (collection, normalized name):
    (`ChunkTextStore.delete_chunks`), and bumps the collection version. The
    metadata row under the new name is the new version's row and keeps the
    fields people set; a row under another spelling of the name is dropped, and
-   its fields were carried onto the new row.
+   its fields were carried onto the new row. Tags a person chose survive the
+   same way: the upsert keeps them on a row of the same name, and a row under
+   another spelling has them carried over with `set_document_tags_by_person`.
+   The classifier's tags are re-derived from the new bytes.
 
 A file that fails (an encrypted PDF, nothing extracted, no VLM key for an
 image, any exception) retires nothing: the previous version stays the one
@@ -416,7 +442,7 @@ python scripts/backfill_document_tags.py --collection oib_knowledge
 python scripts/backfill_document_tags.py --force            # re-classify rows that already have tags
 ```
 
-It never re-ingests or re-embeds and never touches the summary — it only fills the `tags` column. It is idempotent (rows with tags are skipped unless `--force`) and fail-soft per document.
+It never re-ingests or re-embeds and never touches the summary — it only fills the `tags` column. It is idempotent (rows with tags are skipped unless `--force`) and fail-soft per document. `--force` re-classifies the machine's tags. It cannot undo a correction a person made: the backfill writes through `update_tags`, which skips any row whose tags are a person's (`tags_set_by = 'person'`).
 
 ### Fixed: silent summary-row loss on double LLM failure (2026-07-16)
 

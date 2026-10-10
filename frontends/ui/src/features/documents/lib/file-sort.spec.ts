@@ -47,6 +47,24 @@ describe('sortFiles', () => {
     ])
   })
 
+  test('ranks a file in no status group after every group, held and unindexed alike', () => {
+    const files = [
+      doc({ filename: 'stored.pdf', status: 'stored' }),
+      doc({ filename: 'quarantined.pdf', status: 'quarantined' }),
+      doc({ filename: 'ready.pdf', status: 'processed' }),
+      doc({ filename: 'failed.pdf', status: 'failed' }),
+      doc({ filename: 'processing.pdf', status: 'ingesting' }),
+    ]
+
+    expect(names(sortFiles(files, { key: 'status', direction: 'asc' }, 'en'))).toEqual([
+      'failed.pdf',
+      'processing.pdf',
+      'ready.pdf',
+      'quarantined.pdf',
+      'stored.pdf',
+    ])
+  })
+
   test('sorts by size and by date, descending being the useful default', () => {
     const files = [
       doc({ filename: 'small.pdf', fileSize: 10, createdAt: '2026-01-01T00:00:00Z' }),

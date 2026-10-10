@@ -401,6 +401,58 @@ class TestDocumentMetadataStore:
             engine.dispose()
             DocumentMetadataStore.dispose_engine(db_url)
 
+    def test_existing_table_without_tags_set_by_is_migrated(self):
+        """A table that predates tags_set_by is migrated in place: machine tags stay machine-owned."""
+        from sqlalchemy import create_engine
+        from sqlalchemy import inspect
+        from sqlalchemy import text
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "legacy_tsb.db"
+            db_url = f"sqlite:///{db_path}"
+
+            # Legacy DB: every column up to tags and doc_class, but WITHOUT tags_set_by.
+            engine = create_engine(db_url)
+            with engine.connect() as conn:
+                conn.execute(
+                    text(
+                        "CREATE TABLE summaries ("
+                        "collection VARCHAR(256) NOT NULL, "
+                        "filename VARCHAR(512) NOT NULL, "
+                        "summary TEXT NOT NULL, "
+                        "tags TEXT, "
+                        "doc_class VARCHAR(64), "
+                        "created_at DATETIME, "
+                        "PRIMARY KEY (collection, filename))"
+                    )
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO summaries (collection, filename, summary, tags) "
+                        "VALUES ('c', 'old.pdf', 'Legacy.', '[\"Grundriss\"]')"
+                    )
+                )
+                conn.commit()
+
+            assert "tags_set_by" not in {c["name"] for c in inspect(engine).get_columns("summaries")}
+
+            DocumentMetadataStore._tables_initialized.discard(db_url)
+            store = DocumentMetadataStore(db_url)
+            assert "tags_set_by" in {c["name"] for c in inspect(engine).get_columns("document_metadata")}
+
+            # The legacy row's tags are the machine's, so they are not a person's choice.
+            assert store.get_all("c")[0].tags == ["Grundriss"]
+            assert store.get_person_tags_batch("c", ["old.pdf"]) == {}
+
+            # A person's choice on the migrated row is then protected from a re-summarise.
+            assert store.set_tags_by_person("c", "old.pdf", ["Schnitt"]) is True
+            store.register("c", "old.pdf", "Newer.", tags=["Bescheid"])
+            assert store.get_person_tags_batch("c", ["old.pdf"]) == {"old.pdf": ["Schnitt"]}
+            assert store.get_all("c")[0].tags == ["Schnitt"]
+
+            engine.dispose()
+            DocumentMetadataStore.dispose_engine(db_url)
+
     def test_set_and_get_display_title_roundtrip(self, store):
         """set_display_title updates an existing row; get_display_title reads it back."""
         store.register("coll", "doc.pdf", "A summary.")
@@ -608,6 +660,85 @@ class TestDocumentMetadataStore:
         """Updating tags for a non-existent summary row returns False (no insert)."""
         assert store.update_tags("coll", "ghost.pdf", ["Grundriss"]) is False
         # No summary-less row is created (summary is NOT NULL).
+        assert store.get_all("coll") == []
+
+    def test_update_tags_overwrites_machine_tags_and_returns_true(self, store):
+        """A machine-tagged row (register, no person edit) is still backfilled by update_tags."""
+        store.register("coll", "plan.pdf", "A floor plan.", tags=["Grundriss"])
+        store.register("coll", "plan.pdf", "A floor plan.", tags=["Grundriss"])  # re-ingest, still machine
+
+        assert store.update_tags("coll", "plan.pdf", ["Schnitt"]) is True
+
+        assert store.get_all("coll")[0].tags == ["Schnitt"]
+        assert store.get_person_tags_batch("coll", ["plan.pdf"]) == {}
+
+    # -- person-set tags ---------------------------------------------------
+
+    def test_a_re_register_keeps_the_tags_a_person_set(self, store):
+        """A person's tags survive a re-summarise; the summary itself is still replaced."""
+        store.register("coll", "plan.pdf", "First summary.", tags=["Grundriss"])
+        assert store.set_tags_by_person("coll", "plan.pdf", ["Schnitt", "Brandschutz"]) is True
+
+        store.register("coll", "plan.pdf", "Newer summary.", tags=["Bescheid"])
+
+        doc = store.get_all("coll")[0]
+        assert doc.summary == "Newer summary."
+        assert doc.tags == ["Schnitt", "Brandschutz"]
+
+    def test_a_person_who_cleared_the_tags_is_not_overwritten_by_register(self, store):
+        """An empty person choice ("no tags") is a choice: the classifier cannot refill it."""
+        store.register("coll", "plan.pdf", "A plan.", tags=["Grundriss"])
+        assert store.set_tags_by_person("coll", "plan.pdf", []) is True
+
+        store.register("coll", "plan.pdf", "A plan.", tags=["Schnitt"])
+
+        assert store.get_all("coll")[0].tags is None
+
+    def test_update_tags_leaves_person_tags_alone_and_returns_false(self, store):
+        """The backfill seam does not overwrite a person's tags, and says so."""
+        store.register("coll", "plan.pdf", "A floor plan.", tags=["Grundriss"])
+        store.set_tags_by_person("coll", "plan.pdf", ["Schnitt"])
+
+        assert store.update_tags("coll", "plan.pdf", ["Bescheid"]) is False
+
+        doc = store.get_all("coll")[0]
+        assert doc.tags == ["Schnitt"]
+        assert doc.summary == "A floor plan."
+
+    def test_update_tags_leaves_a_person_cleared_row_alone(self, store):
+        """A person who cleared every tag is not refilled by the backfill either."""
+        store.register("coll", "plan.pdf", "A floor plan.", tags=["Grundriss"])
+        store.set_tags_by_person("coll", "plan.pdf", [])
+
+        assert store.update_tags("coll", "plan.pdf", ["Bescheid"]) is False
+        assert store.get_all("coll")[0].tags is None
+
+    def test_person_tags_batch_returns_only_rows_a_person_set(self, store):
+        """Machine rows, untagged rows and absent rows are not in the answer; a cleared row is []."""
+        store.register("coll", "machine.pdf", "M.", tags=["Grundriss"])
+        store.register("coll", "person.pdf", "P.", tags=["Schnitt"])
+        store.register("coll", "untagged.pdf", "U.")
+        store.register("coll", "cleared.pdf", "C.", tags=["Bescheid"])
+        store.set_tags_by_person("coll", "person.pdf", ["Brandschutz"])
+        store.set_tags_by_person("coll", "cleared.pdf", [])
+
+        result = store.get_person_tags_batch(
+            "coll", ["machine.pdf", "person.pdf", "untagged.pdf", "cleared.pdf", "ghost.pdf"]
+        )
+
+        assert result == {"person.pdf": ["Brandschutz"], "cleared.pdf": []}
+
+    def test_person_tags_batch_empty_input_and_other_collection(self, store):
+        """No filenames asks nothing; another collection's person tags are not returned."""
+        store.register("coll_a", "plan.pdf", "A.", tags=["Grundriss"])
+        store.set_tags_by_person("coll_a", "plan.pdf", ["Schnitt"])
+
+        assert store.get_person_tags_batch("coll_a", []) == {}
+        assert store.get_person_tags_batch("coll_b", ["plan.pdf"]) == {}
+
+    def test_set_tags_by_person_missing_row_returns_false(self, store):
+        """No summary row, no person tags, and no summary-less row is created."""
+        assert store.set_tags_by_person("coll", "ghost.pdf", ["Grundriss"]) is False
         assert store.get_all("coll") == []
 
     # -- list_collections --------------------------------------------------

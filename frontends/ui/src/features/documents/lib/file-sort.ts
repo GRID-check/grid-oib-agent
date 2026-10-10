@@ -8,6 +8,7 @@
 
 import type { FileItem } from '../components/project-file-workspace'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import { statusGroupOf, type FileStatusGroup } from './file-filters'
 
 /**
  * Columns the detail view can order by.
@@ -28,22 +29,24 @@ export interface FileSort {
  * Sort order for the status column: what still needs the user's attention
  * first, what is finished last. Alphabetical would put "failed" between
  * "citable" and "processing" and bury the one row that needs acting on.
+ *
+ * Ranked by the status GROUP (`statusGroupOf`, a view of `readStateOf`), not by
+ * a copy of the vocabulary. A file in no group (held, or stored and never
+ * indexed) ranks after `ready`: it is not waiting on Piloti, and it is not
+ * something Piloti can cite either.
  */
-const STATUS_RANK: Record<string, number> = {
+const STATUS_GROUP_RANK: Record<FileStatusGroup, number> = {
   failed: 0,
-  error: 0,
-  uploading: 1,
-  pending: 2,
-  processing: 2,
-  ingesting: 2,
-  ready: 3,
-  uploaded: 3,
-  ingested: 3,
-  success: 3,
-  completed: 3,
+  processing: 1,
+  ready: 2,
 }
 
-const statusRank = (status: string | null): number => STATUS_RANK[(status ?? '').toLowerCase()] ?? 4
+const NO_GROUP_RANK = 3
+
+const statusRank = (status: string | null): number => {
+  const group = statusGroupOf(status)
+  return group === null ? NO_GROUP_RANK : STATUS_GROUP_RANK[group]
+}
 
 /**
  * A listing row MAY carry semantic match evidence (`SemanticHit`), and only the

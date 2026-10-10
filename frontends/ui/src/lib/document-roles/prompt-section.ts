@@ -121,6 +121,25 @@ function renderSlot(slot: Slot, names: BauwerkNames): string {
 }
 
 /**
+ * The recommended slots no binding fills — what Piloti expects this project to
+ * have and does not. Keyed by role AND building (see below). One function, so
+ * the agent's `documents_missing:` and the folder brief's „Was Piloti noch
+ * fehlt" are the same list and cannot disagree.
+ */
+export function missingSlots(
+  bindings: readonly Pick<PromptRoleBinding, 'role' | 'scopeInstanceId'>[],
+  recommended: readonly RecommendedSlot[]
+): RecommendedSlot[] {
+  // Keyed by role AND scope instance, not role alone. With two buildings and a
+  // Bestandsplan bound only to the first, a role-only key counted the role as
+  // covered and dropped the second building's entry — the agent then could not
+  // tell that the Hoftrakt has no plan, which is precisely what this list
+  // exists to say.
+  const bound = new Set(bindings.map((binding) => slotKey(binding.role, binding.scopeInstanceId)))
+  return recommended.filter((entry) => !bound.has(slotKey(entry.role, entry.scopeInstanceId)))
+}
+
+/**
  * Render the `documents:` section, or an empty string when there is nothing
  * worth saying.
  *
@@ -140,21 +159,13 @@ export function buildDocumentRolesSection(
   const shown = slots.slice(0, MAX_SLOT_LINES)
   const present = shown.map((slot) => renderSlot(slot, bauwerkNames))
 
-  // Keyed by role AND scope instance, not role alone. With two buildings and a
-  // Bestandsplan bound only to the first, a role-only key counted the role as
-  // covered and dropped the second building's entry — the agent then could not
-  // tell that the Hoftrakt has no plan, which is precisely what this section
-  // exists to say.
-  const bound = new Set(slots.map((slot) => slotKey(slot.role, slot.scopeInstanceId)))
   // The cap covers BOTH lists. Bounding only the filled slots left `missing`
   // free to grow — and it is the list that grows fastest, since every
   // recommended role is repeated per building and none of them is satisfied
   // until a document arrives. A project with many buildings and no documents
   // yet produced the longest block of all, which is the opposite of the
   // intent.
-  const allMissing = recommended.filter(
-    (entry) => !bound.has(slotKey(entry.role, entry.scopeInstanceId))
-  )
+  const allMissing = missingSlots(bindings, recommended)
   const missingBudget = Math.max(0, MAX_SLOT_LINES - shown.length)
   const missing = allMissing
     .slice(0, missingBudget)

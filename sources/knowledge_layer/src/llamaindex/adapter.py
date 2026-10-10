@@ -1630,12 +1630,18 @@ def _read_image_as_jpeg(file_path: str, file_name: str) -> tuple[bytes, int, int
     import io
 
     from PIL import Image
+    from PIL import ImageOps
 
     try:
         with open(file_path, "rb") as handle:
             raw = handle.read()
-        with Image.open(io.BytesIO(raw)) as pil_image:
-            pil_image.load()
+        with Image.open(io.BytesIO(raw)) as opened:
+            opened.load()
+            # A phone stores a portrait photo as landscape pixels plus an EXIF
+            # Orientation tag. Apply it before anything reads the size or the
+            # pixels, or the vision model reads the photo on its side and the
+            # recorded dimensions are swapped.
+            pil_image = ImageOps.exif_transpose(opened)
             width, height = pil_image.size
             rgb_image = pil_image.convert("RGB")
             rgb_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
@@ -1783,6 +1789,17 @@ def analyze_visual(
 #: Chunk-body prefix per content type. Kept as a map so every source spells the
 #: marker the same way — ``get_document_visual_details`` strips it back off.
 _VISUAL_PREFIXES = {"drawing": "DRAWING", "chart": "CHART", "image": "IMAGE"}
+_VISUAL_MARKER = re.compile(r"^\[(?:DRAWING|CHART|IMAGE) from page \d+\]\s*")
+
+
+def _strip_visual_marker(text: str) -> str:
+    """A visual chunk's body without its ``[IMAGE from page 1]`` marker.
+
+    The marker is for retrieval, which cites a page; a summary built from the
+    chunk is shown to people, who saw "[IMAGE from page 1] Foto der Baustelle…"
+    as the description of their photo.
+    """
+    return _VISUAL_MARKER.sub("", text, count=1)
 
 
 def visual_documents(
@@ -2472,17 +2489,26 @@ class _PreviousVersion:
 
 
 def _read_human_set_fields(collection_name: str, found: dict[str, _PreviousVersion]) -> None:
-    """Copy what people set on each previous version's row onto its entry. Fail-open."""
+    """Copy what people set on each previous version's row onto its entry. Fail-open.
+
+    ``tags`` is carried only when a person chose them, as their JSON text: the
+    classifier's own tags are re-derived from the new bytes, as they should be.
+    """
     try:
         from aiq_agent.knowledge import get_document_display_titles
         from aiq_agent.knowledge import get_document_doc_classes
         from aiq_agent.knowledge import get_document_folder_paths
+        from aiq_agent.knowledge import get_document_person_tags
 
         stored_names = [stored for version in found.values() for stored in version.stored_names]
+        person_tags = {
+            stored: json.dumps(tags) for stored, tags in get_document_person_tags(collection_name, stored_names).items()
+        }
         for name, values in (
             ("doc_class", get_document_doc_classes(collection_name, stored_names)),
             ("display_title", get_document_display_titles(collection_name, stored_names)),
             ("folder_path", get_document_folder_paths(collection_name, stored_names)),
+            ("tags", person_tags),
         ):
             for stored, value in values.items():
                 version = found.get(_normalized_file_name(stored))
@@ -3941,6 +3967,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         import httpx
         from PIL import Image
+        from PIL import ImageOps
 
         # Longest-edge cap for the generated thumbnail (px).
         THUMBNAIL_MAX_DIM = 400
@@ -3963,6 +3990,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             try:
                 pil_image = Image.open(file_path)
                 pil_image.load()
+                # Upright, as the camera meant it (EXIF Orientation) — see
+                # `_read_image_as_jpeg`.
+                pil_image = ImageOps.exif_transpose(pil_image)
                 if pil_image.mode != "RGB":
                     pil_image = pil_image.convert("RGB")
             except Exception:
@@ -4991,6 +5021,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     if executor:
                         executor.shutdown(wait=False)
 
+                    # The vision model saw the pixels; the classifier only read
+                    # its caption. A photograph is a Foto whatever it shows.
+                    if is_image and text_documents:
+                        from aiq_agent.knowledge.document_classification import reconcile_image_tags
+
+                        tags = reconcile_image_tags(
+                            tags,
+                            content_type=text_documents[0].metadata.get("content_type"),
+                            segment_types=(doc.metadata.get("drawing_type") or "" for doc in text_documents),
+                        )
+
                     self._remember_permit(config, collection_name, file_name, tags, text_documents)
 
                     # Standalone images must appear in the per-turn
@@ -5002,7 +5043,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # Scrub any licence/watermark stamp out of the caption
                         # before it becomes the summary; if scrubbing empties it,
                         # leave summary as None rather than emit an empty summary.
-                        caption_text = _scrub_watermark_phrases(text_documents[0].get_content())
+                        caption_text = _scrub_watermark_phrases(_strip_visual_marker(text_documents[0].get_content()))
                         summary = caption_text[:500] or None
 
                     valid_documents = [
@@ -5203,6 +5244,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         folder_path = folder_path or preserved.get("folder_path")
                         if folder_path:
                             set_document_folder_path(collection_name, file_name, folder_path)
+                        # Tags a person chose survive the re-read. The upsert above
+                        # already keeps them on a row of the same name; this
+                        # carries them from a row under another spelling, which
+                        # retiring the previous version removed.
+                        if "tags" in preserved:
+                            from aiq_agent.knowledge import set_document_tags_by_person
+
+                            set_document_tags_by_person(collection_name, file_name, json.loads(preserved["tags"]))
                         if preserved.get("display_title"):
                             from aiq_agent.knowledge import set_document_display_title
 

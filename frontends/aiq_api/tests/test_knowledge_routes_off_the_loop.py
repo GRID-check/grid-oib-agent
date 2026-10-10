@@ -118,7 +118,7 @@ def store_threads(monkeypatch):
 
         return call
 
-    monkeypatch.setattr(documents_module, "update_document_tags", recorder("update_document_tags", True))
+    monkeypatch.setattr(documents_module, "set_document_tags_by_person", recorder("set_document_tags_by_person", True))
     monkeypatch.setattr(documents_module, "set_document_display_title", recorder("set_document_display_title", True))
     monkeypatch.setattr(documents_module, "set_document_folder_path", recorder("set_document_folder_path", True))
     monkeypatch.setattr(documents_module, "rewrite_document_folder_paths", recorder("rewrite", 3))

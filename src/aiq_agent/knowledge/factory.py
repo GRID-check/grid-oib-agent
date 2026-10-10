@@ -522,16 +522,31 @@ def register_summary(
 
 
 def update_document_tags(collection: str, filename: str, tags: list[str] | None) -> bool:
-    """Replace only the controlled tags of an existing summary row.
+    """Replace the MACHINE's controlled tags on an existing summary row.
 
-    The single factory seam behind BOTH the classify-only backfill script and
-    the user-facing tag-edit endpoint. Never touches the summary; returns
-    ``False`` when no summary row exists (callers 404). Tag-vocabulary
-    validation is the caller's responsibility — the store persists whatever it
-    is given, so every caller MUST validate against
-    ``document_classification.ALLOWED_TAGS`` first.
+    The seam behind the classify-only backfill script. Never touches the
+    summary, and never overwrites tags a person chose
+    (:func:`set_document_tags_by_person`); returns ``False`` when no summary row
+    exists or its tags are a person's. Tag-vocabulary validation is the
+    caller's responsibility — the store persists whatever it is given, so every
+    caller MUST validate against ``document_classification.ALLOWED_TAGS`` first.
     """
     return _get_document_metadata_store().update_tags(collection, filename, tags)
+
+
+def set_document_tags_by_person(collection: str, filename: str, tags: list[str] | None) -> bool:
+    """Store the tags a PERSON chose for a document, so no re-ingest replaces them.
+
+    The seam behind the user-facing tag edit. Same contract as
+    :func:`update_document_tags` otherwise: validated by the caller, never
+    touches the summary, ``False`` when no summary row exists (callers 404).
+    """
+    return _get_document_metadata_store().set_tags_by_person(collection, filename, tags)
+
+
+def get_document_person_tags(collection: str, filenames: list[str]) -> dict[str, list[str]]:
+    """The tags a person chose, for those of ``filenames`` that have them (``[]`` = chose none)."""
+    return _get_document_metadata_store().get_person_tags_batch(collection, filenames)
 
 
 def set_document_doc_class(collection: str, filename: str, doc_class: str | None) -> bool:

@@ -16,9 +16,11 @@ from aiq_agent.knowledge import document_classification
 from aiq_agent.knowledge.document_classification import ALLOWED_TAGS
 from aiq_agent.knowledge.document_classification import DISCIPLINE_TAGS
 from aiq_agent.knowledge.document_classification import DOCUMENT_TYPE_TAGS
+from aiq_agent.knowledge.document_classification import MAX_TAGS
 from aiq_agent.knowledge.document_classification import _build_tag_prompt
 from aiq_agent.knowledge.document_classification import classify_document_tags
 from aiq_agent.knowledge.document_classification import fallback_summary_from_text
+from aiq_agent.knowledge.document_classification import reconcile_image_tags
 from aiq_agent.knowledge.document_classification import summarize_document_text
 
 # =============================================================================
@@ -284,3 +286,51 @@ class TestTheDokumentartIsSuggested:
         install, _ = endpoint
         with install(None, status=503):
             assert document_classification.suggest_doc_class("text", "f.pdf") is None
+
+
+# =============================================================================
+# An image the vision model saw as a photograph (reconcile_image_tags)
+# =============================================================================
+
+
+class TestReconcileImageTags:
+    """The classifier reads the vision model's caption, not the pixels, so a photo
+    of a site can come out a Grundriss. The vision model's photo verdict wins the
+    document type; the classifier's disciplines are kept."""
+
+    def test_a_photo_takes_foto_and_keeps_the_disciplines(self):
+        result = reconcile_image_tags(
+            ["Grundriss", "Brandschutz", "Schallschutz"], content_type="image", segment_types=["photo"]
+        )
+        assert result == ["Foto", "Brandschutz", "Schallschutz"]
+
+    def test_every_other_document_type_is_dropped(self):
+        result = reconcile_image_tags(
+            ["Schnitt", "Gutachten", "Standsicherheit"], content_type="image", segment_types=["text", "photo"]
+        )
+        assert result == ["Foto", "Standsicherheit"]
+
+    @pytest.mark.parametrize("tags", [None, []])
+    def test_a_photo_with_no_classifier_tags_is_foto(self, tags):
+        assert reconcile_image_tags(tags, content_type="image", segment_types=["photo"]) == ["Foto"]
+
+    def test_one_photo_segment_among_many_is_enough(self):
+        segments = (kind for kind in ["legend", "photo"])  # a generator, as the adapter passes it
+        assert reconcile_image_tags(["Grundriss"], content_type="image", segment_types=segments) == ["Foto"]
+
+    @pytest.mark.parametrize("content_type", ["drawing", "chart", None])
+    def test_a_non_image_with_a_photo_segment_is_unchanged(self, content_type):
+        tags = ["Grundriss", "Brandschutz"]
+        assert reconcile_image_tags(tags, content_type=content_type, segment_types=["photo"]) == tags
+
+    def test_an_image_without_a_photo_segment_is_unchanged(self):
+        tags = ["Schnitt", "Brandschutz"]
+        assert reconcile_image_tags(tags, content_type="image", segment_types=["legend"]) == tags
+
+    def test_no_tags_and_no_photo_stays_none(self):
+        assert reconcile_image_tags(None, content_type="image", segment_types=["legend"]) is None
+
+    def test_the_result_is_capped_at_max_tags(self):
+        result = reconcile_image_tags(list(DISCIPLINE_TAGS), content_type="image", segment_types=["photo"])
+        assert len(result) == MAX_TAGS
+        assert result == ["Foto", *DISCIPLINE_TAGS[: MAX_TAGS - 1]]
