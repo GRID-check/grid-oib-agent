@@ -114,6 +114,41 @@ class TestTheRootPermissions:
             validate_path(f"{DRAFT_ROOT}../secrets.md")
 
 
+class TestEveryVerbRunsOnTheAsyncPath:
+    """Piloti's ToolNode awaits each tool's coroutine, never its sync twin.
+
+    The async half is a second implementation of every verb, and the one
+    production runs. ``read_file`` broke there alone for weeks: the backend
+    shadowed the protocol's ``aread`` with a method of its own shape, the sync
+    tests stayed green, and the model was told every draft was unreadable.
+    """
+
+    @pytest.mark.asyncio
+    async def test_read_file_returns_the_draft(self, backend: DraftBackend, cards: CardRegistry) -> None:
+        from types import SimpleNamespace
+
+        await backend.awrite(DRAFT, "# Vermerk\n\n## 3. Fluchtweg\nLang.\n")
+        read = next(tool for tool in draft_tools(backend) if tool.name == "read_file")
+
+        message = await read.coroutine(DRAFT, SimpleNamespace(tool_call_id="call-1"), offset=0, limit=100)
+
+        assert message.status != "error", message.content
+        assert "## 3. Fluchtweg" in message.content
+
+    def test_no_protocol_method_is_narrowed(self) -> None:
+        """A backend override must take every argument the stock tools pass it."""
+        import inspect
+
+        from deepagents.backends.protocol import BackendProtocol
+
+        for name, member in vars(DraftBackend).items():
+            stock = getattr(BackendProtocol, name, None)
+            if name.startswith("_") or not callable(member) or stock is None:
+                continue
+            ours = set(inspect.signature(member).parameters)
+            assert set(inspect.signature(stock).parameters) <= ours, f"DraftBackend.{name} narrows the protocol"
+
+
 class TestTheTurnFactory:
     @pytest.mark.asyncio
     async def test_no_conversation_id_means_no_tools(self, monkeypatch) -> None:
