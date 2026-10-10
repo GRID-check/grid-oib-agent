@@ -119,7 +119,11 @@ describe("with the Langfuse tier enabled", () => {
 
   beforeAll(async () => {
     RESOURCES.length = 0;
-    pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...langfuseStackConfig() });
+    pulumi.runtime.setAllConfig({
+      ...baseStackConfig(),
+      ...langfuseStackConfig(),
+      "grid-oib:platformAgentClientIds": "client_agent_a, client_agent_b",
+    });
     await import("../../index");
     // Pulumi resolves resource inputs asynchronously; give the mock registry a
     // turn of the loop to receive them all.
@@ -475,6 +479,89 @@ describe("with the Langfuse tier enabled", () => {
       expect(spec.oidc.scopes).not.toContain("platform:observability:view");
     });
 
+    // The policy is shared (`platformOidcSecurityPolicySpec`), so both platform
+    // hosts must carry the agent path identically.
+    describe.each([
+      ["grid-langfuse-security-policy", "grid-langfuse-route"],
+      ["grid-otel-security-policy", "grid-otel-route"],
+    ])("agent access through %s", (policyName, routeName) => {
+      const policy = async () =>
+        (await resolve(
+          find("kubernetes:gateway.envoyproxy.io/v1alpha1:SecurityPolicy", policyName).inputs.spec,
+        )) as any;
+
+      it("skips the redirect only for a token the JWT filter reads, and still checks it", async () => {
+        const spec = await policy();
+
+        expect(spec.oidc.passThroughAuthHeader).toBe(true);
+        // Not optional: a passed-through request without a valid token is
+        // refused, never admitted.
+        expect(spec.jwt.providers[0].optional).toBeUndefined();
+        expect(spec.authorization.defaultAction).toBe("Deny");
+        expect(spec.jwt.providers[0].extractFrom.headers).toEqual([
+          // First, and it must stay: where `forwardAccessToken` puts the
+          // browser session's token.
+          { name: "Authorization", valuePrefix: "Bearer " },
+          // Beside `Authorization`, which Langfuse's MCP server needs for its
+          // own Basic credential.
+          { name: "x-workos-token" },
+        ]);
+        // Envoy rejects the whole OAuth2 config when the ID-token header is
+        // also a passthrough header, which would break every browser login.
+        expect(spec.oidc.forwardIDToken).toBeUndefined();
+      });
+
+      it("pins the audience to the WorkOS environment, which is what WorkOS puts in aud", async () => {
+        const spec = await policy();
+
+        // WorkOS sets `aud` to the environment's client id on M2M tokens and on
+        // user tokens minted without a resource indicator. The application ids
+        // would reject every agent token here, and the browser's too.
+        expect(spec.jwt.providers[0].audiences).toEqual(["client"]);
+        expect(spec.oidc.resources).toBeUndefined();
+      });
+
+      it("allows only the gate's own client and the named agents, by client_id, on every rule", async () => {
+        const spec = await policy();
+        const rules = spec.authorization.rules as any[];
+
+        expect(rules[0].principal.jwt.scopes).toEqual(["platform:organizations:view"]);
+        // Every rule, the `alsoAdmit` ones included: the claim is AND-ed with
+        // the rule's scope, and rules are ORed, so a rule without it would
+        // admit any M2M application in the environment assigned that scope.
+        for (const { principal, action } of rules) {
+          expect(action).toBe("Allow");
+          expect(principal.jwt.provider).toBe(spec.jwt.providers[0].name);
+          expect(principal.jwt.claims).toEqual([
+            {
+              name: "client_id",
+              valueType: "String",
+              values: ["client_otel", "client_agent_a", "client_agent_b"],
+            },
+          ]);
+        }
+      });
+
+      it("answers a Basic-only request with a 401, not a login page", async () => {
+        const spec = await policy();
+
+        expect(spec.oidc.denyRedirect.headers).toEqual([
+          { name: "Authorization", type: "Prefix", value: "Basic " },
+        ]);
+      });
+
+      it("strips the agent token before the backend", async () => {
+        const route = (await resolve(
+          find("kubernetes:gateway.networking.k8s.io/v1:HTTPRoute", routeName).inputs.spec,
+        )) as any;
+
+        expect(route.rules[0].filters).toContainEqual({
+          type: "RequestHeaderModifier",
+          requestHeaderModifier: { remove: ["x-workos-token"] },
+        });
+      });
+    });
+
     it("serves the hostname on its own TLS listener", async () => {
       const spec = (await resolve(
         find("kubernetes:gateway.networking.k8s.io/v1:Gateway", "grid-gateway").inputs.spec,
@@ -675,7 +762,8 @@ describe("default membership env", () => {
 
 describe("the platform OIDC gate", () => {
   const cfg = {
-    observability: { oidcIssuer: "https://auth.example.test", oidcClientId: "client_x" },
+    observability: { oidcIssuer: "https://auth.example.test", oidcClientId: "client_x", agentClientIds: [] },
+    auth: { workosClientId: "client_env" },
   } as never;
 
   it("widens only the route that names a permission, and never repeats one", async () => {
@@ -751,6 +839,17 @@ describe("config gating", () => {
     // cutover, taken by a typo.
     const error = loadWith({ "grid-oib:langfuseV4WriteMode": "dual-write" });
     expect(error?.message).toMatch(/langfuseV4WriteMode/);
+  });
+
+  it("refuses an agent application named by its app_ id rather than its client id", () => {
+    const error = loadWith({ "grid-oib:platformAgentClientIds": "app_01ABC" });
+    expect(error?.message).toMatch(/platformAgentClientIds.*not a WorkOS client id/);
+  });
+
+  it("refuses more agent applications than the client_id rule can hold", () => {
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => `client_${i}`).join(",");
+    expect(loadWith({ "grid-oib:platformAgentClientIds": ids(127) })).toBeNull();
+    expect(loadWith({ "grid-oib:platformAgentClientIds": ids(128) })?.message).toMatch(/at most 127/);
   });
 
   it("defaults new Langfuse users to VIEWER", () => {
@@ -852,6 +951,13 @@ describe("config gating", () => {
       "grid-oib:observabilityEnabled": "false",
     });
     expect(loadConfig().langfuse.enabled).toBe(false);
+  });
+
+  it("skips the platform tiers without the environment client id their JWT audience needs", () => {
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...langfuseStackConfig(), "grid-oib:workosClientId": "" });
+    const config = loadConfig();
+    expect(config.observability.enabled).toBe(false);
+    expect(config.langfuse.enabled).toBe(false);
   });
 
   it("stays off by default", () => {

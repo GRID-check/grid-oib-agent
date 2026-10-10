@@ -438,6 +438,57 @@ that the traces go within the hour, not in the request, and a span exported
 after the stamp waits for the retention sweep. Copies saved into Langfuse
 datasets would survive a trace delete; Piloti creates none.
 
+## Amendment 5 (2026-10-08): agents pass the edge with a WorkOS token
+
+Coding agents could not read Langfuse at all. Its MCP server
+(`/api/public/mcp`) and REST API sit behind the edge OIDC gate, which answers
+every request without a browser session with a 302 to the AuthKit login.
+
+**Change:** the shared platform SecurityPolicy sets `passThroughAuthHeader`, and
+its JWT provider reads a token from `Authorization: Bearer` (the browser
+session, as before) or `x-workos-token`. A request carrying one skips the
+redirect and meets the unchanged JWKS check and permission rules
+(`platform:organizations:view`, and on Langfuse also
+`platform:observability:view`, ADR-0089). Agents mint the token from a WorkOS
+M2M application holding `platform:organizations:view`
+(`scripts/observability-agent-token.sh`), and send Langfuse's own key pair in
+`Authorization` as Langfuse expects.
+
+Passthrough changes who picks the token. Before, the only token ever verified
+was the one Envoy obtained itself; after, any application in the WorkOS
+environment that was assigned the scope would have passed. WorkOS names the
+minting application in `client_id` (and `sub` for M2M), not in `aud`: `aud` is
+the environment's client id on every M2M token and on a user token requested
+without a resource indicator ([token claims](https://workos.com/docs/authkit/connect/token-claims)).
+So the JWT provider's `audiences` is the environment (`workosClientId`), and the
+authorization rules each AND their permission with a `client_id` claim match
+on the gate's own Connect client plus the M2M applications listed in
+`platformAgentClientIds`. Listing those application ids as `audiences`, the
+first draft of this amendment, would have refused every agent token and every
+browser session. A `Basic`-only request gets a 401 (`denyRedirect`) instead of
+a login page, and the routes strip `x-workos-token` before the backend.
+
+**Rejected: routing `/api/public` past the gate on Langfuse's key alone.**
+Simpler, and how Langfuse Cloud serves it, but it makes a project key a
+cross-tenant read credential by itself, with no WorkOS identity behind it and
+nothing at the edge to revoke. Here both gates still stand: a leaked Langfuse key
+alone never passes the edge, and a WorkOS token alone gets no further than
+Langfuse.
+
+**Not closed: the Aspire dashboard.** The policy is shared, so its host accepts
+the token too, but the dashboard's Telemetry API still requires the random
+per-start `x-api-key` it mints, and `aspire agent mcp` can send no other
+credential. Making it agent-readable means running that API `Unsecured` behind
+the edge (the UI's arrangement) and reading the WorkOS token from `x-api-key`;
+that is a separate decision.
+
+**Verify before the first deploy:** decode one real token of each kind and
+confirm what the docs say: `aud` is `workosClientId`, `client_id` is the minting
+application, and `scope` holds `platform:organizations:view`. A wrong `scope` or
+`client_id` fails closed (403). A wrong `aud` is not fail-safe for browsers:
+sign-in to both platform hosts breaks until the audience is corrected.
+`docs/deployment/kubernetes.md` §9b lists the checks.
+
 ## References
 
 - ADR-0029: Aspire standalone dashboard as live telemetry pane

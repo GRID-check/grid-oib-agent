@@ -33,6 +33,21 @@ Main development command hub for common tasks.
 | `clean` | Remove build artifacts |
 | `help` | Show help message |
 
+### `observability-agent-token.sh` - Agent access to Langfuse
+
+Mints a WorkOS access token from an M2M application so a coding agent can pass
+the platform edge without a browser. `token` prints the JWT; `claims` prints its
+decoded payload for the pre-deploy check; `langfuse-headers` prints the JSON
+headers Claude Code's MCP `headersHelper` expects. Setup:
+`docs/deployment/kubernetes.md` §9b, *Agent access (MCP)*. Environment:
+`docs/deployment/environment-variables.md`.
+
+```bash
+./scripts/observability-agent-token.sh token
+./scripts/observability-agent-token.sh claims
+./scripts/observability-agent-token.sh langfuse-headers
+```
+
 ### `start_cli.sh` - CLI Mode
 
 Starts the agent in CLI mode with browser-based authentication.
