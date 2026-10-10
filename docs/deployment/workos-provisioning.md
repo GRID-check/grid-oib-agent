@@ -19,6 +19,17 @@ WORKOS_API_KEY=sk_… npm run provision:authz            # read-only drift check
 WORKOS_API_KEY=sk_… npm run provision:authz -- --apply # reconcile
 ```
 
+**Every deploy runs `--apply`.** The Kubernetes Job `grid-app-authz-catalog`
+(`deploy/pulumi/src/app/workos-authz-jobs.ts`) and the compose service
+`grid-workos-authz` run it against the environment the stack's
+`WORKOS_API_KEY` belongs to, so a permission or role added to the catalog
+exists in WorkOS once the release that checks it is deployed. It creates what
+is missing, sets a catalog role's permissions to the catalog's (a permission
+added to such a role in the dashboard is taken off again), and deletes no
+permission and no role. Custom roles are not in the catalog and are left alone. A tier whose resource type is missing fails
+the Job, and the stack update with it, naming the type. Running `--apply` by
+hand is for an environment no stack deploys against.
+
 The check is read-only and exits non-zero on drift — run it in CI. It exists
 because the two ⚠️ rows this runbook used to carry (`org:audit:view`,
 `org:archiv:manage`, both "create this in Staging", both still absent three
@@ -85,8 +96,13 @@ same 13 roles, verified role-by-role against the catalog after each run.
 
 The **folder tier** (ADR-0097, 2026-10-09) came later and is not in either count
 yet: the `folder` resource type exists in Staging (checked 2026-10-09) and not in
-Production, and its two permissions and two roles exist once
-`provision:authz -- --apply` has run against the environment.
+Production (checked 2026-10-10), and its two permissions and two roles are
+created by the first deploy after the type exists. A read-only comparison of
+Production on 2026-10-10 found that `--apply` there adds
+`platform:observability:view` and the `platform-observability-analyst` role,
+adds that permission to `org-platform-owner` and `org-platform-support`,
+removes nothing, and fails only on the four folder items while the type is
+missing.
 [Rolling out folder roles](#rolling-out-folder-roles-adr-0097) has the order.
 
 Two Production-specific notes:
@@ -638,7 +654,9 @@ Three things follow, and each has cost somebody an afternoon:
    but the external id may not). Was dashboard-only before.
 3. **Script**: `WORKOS_API_KEY=<key> npm run provision:authz -- --apply`.
    This creates every permission from §1/§1a/§1b/§1c/§2 and every role from §2a,
-   including the two platform-org roles, and is idempotent.
+   including the two platform-org roles, and is idempotent. Nothing to do if
+   the environment is the one a stack deploys against: the
+   `grid-app-authz-catalog` Job runs it on the next rollout.
 4. **Script**: re-run both without `--apply` and confirm
    "WorkOS matches the catalog." / "WorkOS matches the desired environment."
 5. **Script**: re-run `provision:workos-env --apply` with
@@ -686,43 +704,54 @@ its list hold a folder role on it. Migration `0128` carries over what needs no
 WorkOS (the reserved `*` entry becomes `project_folders.everyone_reads`, or the
 folder goes back to inheriting when everyone wrote it). The role entries become
 folder roles of the people who hold those roles, which only WorkOS knows, so a
-script does that. Per environment, in this order:
+script does that. **The deploy runs all of it**, after one dashboard step per
+environment:
 
-1. **Dashboard**: create the `folder` resource type, parent `project` (§0).
-   Staging has it; Production does not yet.
-2. **Script**: `WORKOS_API_KEY=<key> bun run provision:authz -- --apply` from
-   `frontends/ui` creates `folder:read`, `folder:write`, `folder-reader` and
-   `folder-editor`. Re-run it without `--apply` until it reports "WorkOS matches
-   the catalog."
-3. **Deploy** the release, which applies migration `0128` and reads folder
-   roles. From here until step 4 has run, a folder whose list named roles is
-   readable only by organization admins and, when everyone reads it, by every
-   project member: narrower than before, never wider. Saving a list in the new
-   dialog removes that folder's old grant rows, so the script leaves it alone.
-4. **Script**, right after the deploy: from `frontends/ui`,
+1. **Dashboard, once**: create the `folder` resource type, parent `project` (§0).
+   Staging has it; Production does not yet. Neither the SDK nor the public API
+   can create a resource type, so this is the one step no deploy can take.
+   Without it the catalog Job fails on the folder permissions and roles, the
+   stack update reports it, and the carry-over does not run.
+2. **Deploy.** In order, with nothing to run by hand:
+   - `grid-app-authz-catalog` creates `folder:read`, `folder:write`,
+     `folder-reader` and `folder-editor` (`provision:authz --apply`).
+   - `grid-app-migrate` applies migration `0128`.
+   - The frontend that reads folder roles rolls out. From here until the
+     carry-over has run, a folder whose list named roles is readable only by
+     organization admins and, when everyone reads it, by every project member:
+     narrower than before, never wider.
+   - `grid-app-folder-grants` carries the role grants over
+     (`migrate:folder-grants --apply`). It waits on the frontend rollout, the
+     migrations and the catalog Job. Compose runs both scripts in
+     `grid-workos-authz`, once the frontend is healthy.
 
-   ```bash
-   WORKOS_API_KEY=sk_… GRID_APP_MIGRATION_DATABASE_URL=postgres://… \
-     bun run migrate:folder-grants             # the plan, changes nothing
-   WORKOS_API_KEY=sk_… GRID_APP_MIGRATION_DATABASE_URL=postgres://… \
-     bun run migrate:folder-grants -- --apply  # register the folders, assign the roles
-   ```
+For every folder with its own list, every active member of the organization who
+holds a role the list names gets the folder role for the best level those roles
+granted. The Job's log prints, per folder, the roles, how many people that is,
+and any role no active member holds. It reads `project_folder_grants` across
+every organization, so it runs with the schema owner's connection; the runtime
+role is subject to row-level security and sees nothing. It converts only folders
+not yet registered in WorkOS and never removes a folder role, and saving a list
+in the new dialog deletes that folder's old grant rows, so a list someone
+changed is never carried over again and every later deploy's run is a no-op.
 
-   For every folder with its own list, every active member of the organization
-   who holds a role the list names gets the folder role for the best level
-   those roles granted. The plan prints, per folder, the roles, how many people
-   that is, and any role no active member holds. It reads `project_folder_grants`
-   across every organization, so it needs the schema owner's connection; the
-   runtime role is subject to row-level security and sees nothing. It converts
-   only folders not yet registered in WorkOS and never removes a folder role: a
-   registered folder's list is WorkOS's (converted before, or edited in the new
-   dialog), so running the script again changes nothing. A folder a failed run
-   registered but did not finish is finished with `-- --apply --finish=<folder id>`.
+By hand, for an environment no stack deploys against, from `frontends/ui`:
 
-**Why the deploy comes first.** Run before the deploy, the script would carry a
-list over as it stood then, and a list narrowed in the old dialog before the
-deploy would come back wider, because a second run skips a folder the first one
-registered. Run after it, the old dialog is gone and the gap is only narrower.
+```bash
+WORKOS_API_KEY=sk_… GRID_APP_MIGRATION_DATABASE_URL=postgres://… \
+  bun run migrate:folder-grants             # the plan, changes nothing
+WORKOS_API_KEY=sk_… GRID_APP_MIGRATION_DATABASE_URL=postgres://… \
+  bun run migrate:folder-grants -- --apply  # register the folders, assign the roles
+```
+
+A folder a failed run registered but did not finish is finished with
+`-- --apply --finish=<folder id>`.
+
+**Why the carry-over waits for the frontend.** Run before the new frontend, the
+script would carry a list over as it stood then, and a list narrowed in the old
+dialog afterwards would come back wider, because a later run skips a folder an
+earlier one registered. Run after it, the old dialog is gone and the gap is
+only narrower.
 
 **What changes for the office.** A role grant followed the role: someone given
 the role later reached the folder. A folder role is given to a person, so after
@@ -731,8 +760,9 @@ someone given the role afterwards is added to the folder by hand. The other
 way round too: someone who loses the role later keeps the folder role until
 someone takes them off the list.
 
-`project_folder_grants` stays until the script has run in every environment;
-a later migration drops it.
+`project_folder_grants` stays until the carry-over has run in every
+environment; the migration that drops it also deletes the
+`grid-app-folder-grants` Job and the second half of `grid-workos-authz`.
 
 ## How the app consumes this
 

@@ -769,3 +769,24 @@ export function migrationEnv(): EnvVar[] {
 export function auditSchemaEnv(): EnvVar[] {
   return [sref("WORKOS_API_KEY")];
 }
+
+/**
+ * Env for the WorkOS authorization-catalog Job: the API key, and the external
+ * id of the platform organization whose org-scoped roles the catalog also
+ * provisions (the frontend reads the same value).
+ */
+export function authzCatalogEnv(cfg: GridConfig): EnvVar[] {
+  return [
+    sref("WORKOS_API_KEY"),
+    { name: "GRID_PLATFORM_ORG_EXTERNAL_ID", value: cfg.auth.platformOrgExternalId },
+  ];
+}
+
+/**
+ * Env for the folder-grants carry-over Job (ADR-0097): the WorkOS key, and the
+ * schema owner's connection, because it reads `project_folder_grants` across
+ * every organization and the RLS-bound runtime role would see none of it.
+ */
+export function folderGrantsCarryOverEnv(): EnvVar[] {
+  return [sref("WORKOS_API_KEY"), sref("GRID_APP_MIGRATION_DATABASE_URL")];
+}
