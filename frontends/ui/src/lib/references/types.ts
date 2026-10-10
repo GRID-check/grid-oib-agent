@@ -99,6 +99,8 @@ export interface ReferenceBasis {
   facts: FingerprintFact[]
   /** Facts the briefing can still fill that are open; each one makes the ranking coarser. */
   missing: number
+  /** The reader may complete the briefing: `project:edit`, which a closed project refuses. */
+  editable: boolean
 }
 
 /** The similar-projects page: what it compared, the projects, and how many closed ones it left out. */

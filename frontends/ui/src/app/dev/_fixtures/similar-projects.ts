@@ -102,7 +102,7 @@ const BASIS = fingerprintOf({
 })
 
 /** The section with these projects, the unrelated one apart, and three more closed projects left out. */
-export const SIMILAR_PAGE: SimilarProjectsPage = { basis: { facts: BASIS, missing: 2 }, projects: SIMILAR_PROJECTS, more: 3 }
+export const SIMILAR_PAGE: SimilarProjectsPage = { basis: { facts: BASIS, missing: 2, editable: true }, projects: SIMILAR_PROJECTS, more: 3 }
 
 /** The same project in an office with no closed project yet. */
 export const EMPTY_SIMILAR_PAGE: SimilarProjectsPage = { ...SIMILAR_PAGE, projects: [], more: 0 }

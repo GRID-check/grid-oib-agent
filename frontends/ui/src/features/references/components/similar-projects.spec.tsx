@@ -54,14 +54,14 @@ const CONFIRMED: SimilarProject = {
 const UNRELATED: SimilarProject = { ...CONFIRMED, id: 'proj-wels', name: 'Halle Wels', alike: false, sharedTraits: [] }
 
 /** A page whose current project has only its Land recorded: the briefing can still add the rest. */
-function page(projects: SimilarProject[], more = 0): SimilarProjectsPage {
+function page(projects: SimilarProject[], more = 0, editable = true): SimilarProjectsPage {
   const basis = fingerprintOf({
     facts: { bundesland: { value: 'niederoesterreich', confidence: 'confirmed', source: 'onboarding', updatedAt: '' } },
     goals: {},
     unknowns: [],
     assumptions: {},
   })
-  return { basis: { facts: basis, missing: 3 }, projects, more }
+  return { basis: { facts: basis, missing: 3, editable }, projects, more }
 }
 
 describe('SimilarProjects', () => {
@@ -103,6 +103,12 @@ describe('SimilarProjects', () => {
     expect(screen.getByText('Federal state: Niederösterreich')).toBeInTheDocument()
     expect(screen.getByText('Building class: open')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Add in the brief' })).toHaveAttribute('href', '/app/projects/current/intake')
+  })
+
+  test('names the open facts but offers no brief that the reader cannot edit, as of a closed project', () => {
+    render(<SimilarProjects projectId="current" page={page([WOHNHAUS], 0, false)} />)
+    expect(screen.getByText(/3 facts are missing from the brief/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Add in the brief' })).not.toBeInTheDocument()
   })
 
   test('marks a shared trait only one side has from its documents as unconfirmed', () => {

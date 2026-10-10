@@ -20,7 +20,10 @@ describe('OtherProjectsNotice (ADR-0094)', () => {
 
     await userEvent.click(chip)
 
-    expect(await screen.findByText('This chat draws on other projects: Wohnbau Graz and Schule Linz.')).toBeVisible()
+    const panel = await screen.findByRole('dialog', {
+      name: 'This chat draws on other projects: Wohnbau Graz and Schule Linz.',
+    })
+    expect(panel).toHaveAccessibleDescription(/project memory/)
     expect(screen.getByText(/project memory/)).toBeVisible()
   })
 

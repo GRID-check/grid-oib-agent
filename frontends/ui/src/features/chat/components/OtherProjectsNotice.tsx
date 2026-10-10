@@ -18,7 +18,7 @@
  * A molecule over the `Chip` and `Popover` atoms; the composer decides when it shows.
  */
 
-import type { FC } from 'react'
+import { useId, type FC } from 'react'
 import { FolderSymlink } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -32,6 +32,8 @@ export interface OtherProjectsNoticeProps {
 export const OtherProjectsNotice: FC<OtherProjectsNoticeProps> = ({ projects }) => {
   const t = useTranslations('chat')
   const { locale } = useLocale()
+  const titleId = useId()
+  const bodyId = useId()
   if (projects.length === 0) return null
   const names = new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(
     projects.map((project) => project.name ?? t('otherProjects.gone'))
@@ -47,9 +49,19 @@ export const OtherProjectsNotice: FC<OtherProjectsNoticeProps> = ({ projects }) 
             </button>
           </Chip>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-80 space-y-1.5 p-4" role="status">
-          <p className="text-sm font-medium text-foreground">{t('otherProjects.title', { projects: names })}</p>
-          <p className="text-xs leading-relaxed text-muted-foreground">{t('otherProjects.body')}</p>
+        {/* Radix's dialog role, named and described by the two lines it shows. */}
+        <PopoverContent
+          align="start"
+          className="w-80 space-y-1.5 p-4"
+          aria-labelledby={titleId}
+          aria-describedby={bodyId}
+        >
+          <p id={titleId} className="text-sm font-medium text-foreground">
+            {t('otherProjects.title', { projects: names })}
+          </p>
+          <p id={bodyId} className="text-xs leading-relaxed text-muted-foreground">
+            {t('otherProjects.body')}
+          </p>
         </PopoverContent>
       </Popover>
     </div>

@@ -19,6 +19,7 @@
 import 'server-only'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { can } from '@/lib/authz/decide'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { memoryOriginOf } from '@/lib/cross-project/decision-origin'
 import { oibEditionOf, projectPeriodOf } from '@/lib/cross-project/service'
@@ -172,9 +173,13 @@ async function mapBounded<T, R>(items: readonly T[], limit: number, work: (item:
 }
 
 /** What the ranking compared: the current project's fingerprint, and how many facts the briefing could still add. */
-function basisOf(profile: Project['profile'] | null): ReferenceBasis {
+function basisOf(profile: Project['profile'] | null, editable: boolean): ReferenceBasis {
   const facts = fingerprintOf(profile)
-  return { facts, missing: facts.filter((fact) => fact.applies && fact.editable && fact.value === null).length }
+  return {
+    facts,
+    missing: facts.filter((fact) => fact.applies && fact.editable && fact.value === null).length,
+    editable,
+  }
 }
 
 /**
@@ -185,7 +190,11 @@ function basisOf(profile: Project['profile'] | null): ReferenceBasis {
  */
 export async function getSimilarProjects(session: AuthorizedSession, projectId: string): Promise<SimilarProjectsPage> {
   await requireProjectAccess(session, projectId, 'project:view')
-  const [current, visible] = await Promise.all([findProjectInOrg(projectId, session.organizationId), listProjects(session)])
+  const [current, visible, editable] = await Promise.all([
+    findProjectInOrg(projectId, session.organizationId),
+    listProjects(session),
+    can(session, 'project:edit', { type: 'project', id: projectId }),
+  ])
   if (!current) throw new NotFoundError()
 
   const closed = visible.filter((project) => project.id !== current.id && isProjectClosed(project))
@@ -193,7 +202,7 @@ export async function getSimilarProjects(session: AuthorizedSession, projectId: 
   const facts = { facts: similarityFacts(current.profile), confirmed: confirmedSimilarityFacts(current.profile) }
   const found = await mapBounded(ranked, READ_CONCURRENCY, (project) => referenceOf(session, project, facts))
   return {
-    basis: basisOf(current.profile),
+    basis: basisOf(current.profile, editable),
     projects: found.filter((reference): reference is SimilarProject => reference !== null),
     more: closed.length - ranked.length,
   }
