@@ -18,6 +18,7 @@ import zipfile
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import create_autospec
 
 import pytest
 from fastapi import APIRouter
@@ -354,7 +355,7 @@ async def test_a_zip_member_the_queue_refuses_is_rejected_and_the_others_go_on(a
             raise ingest_dispatch.QueueUnavailable("could not queue it")
         return real(prepared)
 
-    monkeypatch.setattr(ingest_dispatch, "enqueue_only", enqueue)
+    monkeypatch.setattr(ingest_dispatch, "enqueue_only", create_autospec(real, side_effect=enqueue))
     content = _build_zip({"good.pdf": _pdf_bytes(), "bad.pdf": _pdf_bytes()})
 
     async with _client(app) as client:

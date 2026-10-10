@@ -510,7 +510,7 @@ def _ingest_corpus(poll_seconds: float = 5.0, timeout_seconds: float = 3600.0) -
     from aiq_api.jobs import ingest_dispatch
 
     print("queueing the corpus:", oib_sync.sync())
-    if not ingest_dispatch.attach(oib_sync._get_oib_ingestor(), claim=True):
+    if not ingest_dispatch.attach(oib_sync._get_oib_ingestor()):
         return (
             "the ingest queue is off or has no database (GRID_INGEST_QUEUE, AIQ_SUMMARY_DB): "
             "nothing can ingest the corpus"
