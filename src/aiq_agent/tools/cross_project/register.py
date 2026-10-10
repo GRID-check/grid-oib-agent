@@ -1,4 +1,4 @@
-"""``project_lookup``: a chat looks across the office's other projects (ADR-0093).
+"""``project_lookup``: a chat looks across the office's other projects (ADR-0094).
 
 The escalation step of docs/design/cross-project-escalation.md: the model
 climbs from this project to the office's reference projects on its own, when
@@ -183,7 +183,7 @@ def _envelope() -> SignedEnvelope:
 
 
 def _with_answer(payload: dict[str, Any]) -> dict[str, Any]:
-    """The body, naming the answer this turn writes (ADR-0092).
+    """The body, naming the answer this turn writes (ADR-0093).
 
     The BFF marks that answer in the transaction that records what the lookup
     hands out, when the conversation then drew on a restricted folder, as the

@@ -41,6 +41,7 @@ from aiq_agent.common import provider_limiter
 from aiq_agent.common.credential_resolution import ResolvedCredential
 from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
 from aiq_agent.common.openrouter import limited_async_http_client
+from aiq_agent.observability.direct_trace import observed_generation
 
 from ..models.requests import LessonDistillRequest
 from ..models.requests import LessonDistillResponse
@@ -186,26 +187,37 @@ async def _chat_json(
     system_prompt: str,
     user_content: str,
     max_tokens: int,
+    *,
+    step: str,
 ) -> dict:
-    """One JSON-mode chat completion; raises ValueError on an unusable reply."""
-    response = await client.post(
-        f"{cred.base_url}/chat/completions",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {cred.api_key}"},
-        json=cred.request_body(
-            {
-                "model": cred.model,
-                "temperature": 0.2,
-                "max_tokens": max_tokens,
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-            }
-        ),
-    )
-    response.raise_for_status()
-    raw, _finish = message_content(response.json())
+    """One JSON-mode chat completion; raises ValueError on an unusable reply.
+
+    ``step`` (``distill`` or ``audit``) tells the two generations apart in Langfuse.
+    """
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+    async with observed_generation(
+        "lesson-distill", model=cred.model, messages=messages, metadata={"step": step}
+    ) as generation:
+        response = await client.post(
+            f"{cred.base_url}/chat/completions",
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {cred.api_key}"},
+            json=cred.request_body(
+                {
+                    "model": cred.model,
+                    "temperature": 0.2,
+                    "max_tokens": max_tokens,
+                    "response_format": {"type": "json_object"},
+                    "messages": messages,
+                }
+            ),
+        )
+        response.raise_for_status()
+        data = response.json()
+        generation.finish(data)
+    raw, _finish = message_content(data)
     return extract_json_object(raw)
 
 
@@ -237,7 +249,7 @@ def add_lesson_distill_routes(router: APIRouter) -> None:
 
         try:
             async with limited_async_http_client(cls=provider_limiter.BULK, timeout=45.0) as client:
-                distilled = await _chat_json(client, cred, DISTILL_SYSTEM_PROMPT, report_block, 600)
+                distilled = await _chat_json(client, cred, DISTILL_SYSTEM_PROMPT, report_block, 600, step="distill")
 
                 match_id = distilled.get("match_lesson_id")
                 known_ids = {entry.id for entry in request.existing_lessons}
@@ -271,7 +283,7 @@ def add_lesson_distill_routes(router: APIRouter) -> None:
                 # report — so injected report text cannot lobby its own screen.
                 audit_input = f"Candidate lesson: {lesson}\nCanonical summary: {canonical_summary or '—'}"
                 try:
-                    audit = await _chat_json(client, cred, AUDIT_SYSTEM_PROMPT, audit_input, 200)
+                    audit = await _chat_json(client, cred, AUDIT_SYSTEM_PROMPT, audit_input, 200, step="audit")
                     audit_passed = audit.get("passed") is True
                     if not audit_passed:
                         logger.info("Lesson audit flagged a candidate: %s", audit.get("reason"))

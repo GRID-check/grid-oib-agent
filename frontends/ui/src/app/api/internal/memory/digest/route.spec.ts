@@ -279,7 +279,7 @@ describe('restricted memory in the per-turn digest', () => {
     expect(response.status).toBe(200)
     expect(clearanceOfMember).toHaveBeenCalledWith(ORG_ID, 'user_gf', PROJECT_ID)
     expect(options().readableFolderIds).toEqual(['folder-open', 'folder-secret'])
-    // The answer the turn writes is marked in the admission's transaction (ADR-0092).
+    // The answer the turn writes is marked in the admission's transaction (ADR-0093).
     expect(admitSourceFolders).toHaveBeenCalledWith(
       {
         organizationId: ORG_ID,

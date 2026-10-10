@@ -121,7 +121,7 @@ class TestAnswerMessageId:
         assert answer_message_id("conv", None) == str(uuid.uuid5(uuid.NAMESPACE_URL, "grid:assistant:conv:default"))
 
     def test_the_running_turn_names_its_answer_before_it_exists(self, monkeypatch):
-        """ADR-0092: the BFF marks this id at admission; it must be the id the answer is streamed under."""
+        """ADR-0093: the BFF marks this id at admission; it must be the id the answer is streamed under."""
         from aiq_agent import project_context
         from aiq_agent.turn.response import turn_answer_message_id
 
@@ -156,7 +156,7 @@ class TestPostAnswerTurnFacts:
         assert self._facts(_state(research_truncated=True)).research_truncated is True
 
     def test_a_conversation_that_drew_on_another_project_crosses(self):
-        """Read while the turn is bound, because reflection runs after it is gone (ADR-0093)."""
+        """Read while the turn is bound, because reflection runs after it is gone (ADR-0094)."""
         from aiq_agent.knowledge.restricted_use import CrossProjectTurn
         from aiq_agent.knowledge.restricted_use import bind_cross_project_turn
         from aiq_agent.knowledge.restricted_use import reset_cross_project_turn

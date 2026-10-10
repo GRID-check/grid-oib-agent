@@ -11,7 +11,7 @@ whose answer can only ADD to the turn:
   memory note. What it gates is the PREFETCH below, never a tool.
 - ``corpus``: which body of knowledge the answer most likely lives in. It
   chooses what to prefetch; every tool stays bound whatever it says.
-  ``referenz`` is the office's OTHER projects (ADR-0093): how a comparable
+  ``referenz`` is the office's OTHER projects (ADR-0094): how a comparable
   project solved something, what an authority demanded there.
 - ``precedent``, asked only when the office has reference projects: whether
   an earlier project of this office likely faced the decision the message
@@ -99,7 +99,7 @@ CORPUS_THRESHOLD = 0.5
 #: search over several projects, and the precedent eval
 #: (`suite.py --set precedent`) is what should move it.
 PRECEDENT_THRESHOLD = 0.6
-#: The cross-project tool the reference prefetch calls (ADR-0093). A wire name.
+#: The cross-project tool the reference prefetch calls (ADR-0094). A wire name.
 PROJECT_LOOKUP = "project_lookup"
 #: A skill's body and shapes ride the turn when the choice lands on it at
 #: this probability AND its own "fits" noul is not near zero. Measured on the
@@ -428,7 +428,7 @@ def prefetch_calls(
     („Was sagt die OIB 2 dazu?"), which the decided path refuses to prefetch,
     and a family overview would fill round 0 with the wrong subject.
 
-    The office's reference projects (ADR-0093) are searched beside all that
+    The office's reference projects (ADR-0094) are searched beside all that
     when the decision chose them as the corpus or said a precedent likely
     exists, and the turn's catalog lists any (``reference_projects``):
     ``project_lookup`` over the CLOSED projects, most alike first. Closed

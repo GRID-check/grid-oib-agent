@@ -480,7 +480,7 @@ export interface PendingInteraction {
 }
 
 /** Citation source from research (deep SSE or shallow WS ``sources``). */
-/** The other project a cross-project lookup found a passage in (ADR-0093). */
+/** The other project a cross-project lookup found a passage in (ADR-0094). */
 export interface CitationProject {
   id: string
   name: string
@@ -580,7 +580,7 @@ export interface CitationSource {
    */
   regions?: PageRegion[]
   /**
-   * The OTHER project a cross-project lookup found this passage in (ADR-0093).
+   * The OTHER project a cross-project lookup found this passage in (ADR-0094).
    * The chip names it and the preview opens the document there. Absent for
    * every source of the chat's own scope.
    */
@@ -627,7 +627,7 @@ export interface WireCitationSource {
   binding_status?: string | null
   /** Boxes on the page, `[{box: [x0, y0, x1, y1], label}]` normalised 0-1 (issue #433). */
   regions?: unknown
-  /** `{id, name, status}` of the other project (ADR-0093); validated by `projectFromWire`. */
+  /** `{id, name, status}` of the other project (ADR-0094); validated by `projectFromWire`. */
   project?: unknown
 }
 

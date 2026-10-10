@@ -1,5 +1,5 @@
 /**
- * What a chat drew on from OTHER projects (ADR-0093): the record the
+ * What a chat drew on from OTHER projects (ADR-0094): the record the
  * cross-project lookups write, and what it refuses.
  *
  * ## Recorded when the BFF hands the content out
@@ -22,7 +22,7 @@
  *   * the answer the turn is writing (`answerMessageId`, the agent's
  *     `answer_message_id(conversation, turn)`) is marked in
  *     `message_restricted_use` when the conversation now drew on a restricted
- *     folder (ADR-0092), as `admitSourceFolders` marks it for the
+ *     folder (ADR-0093), as `admitSourceFolders` marks it for the
  *     conversation's own project. Open content of another project is not
  *     restricted use: `conversation_source_projects` stays outside
  *     `grid_conversation_restricted_use`, so a hand-out of projects alone marks
@@ -34,7 +34,7 @@
  * From then on the record decides who may read the conversation, what may
  * leave it (`restricted-egress.ts`) and what may be remembered from it
  * ({@link requireMayRememberFrom}). A project closed NOW restricts nobody: every
- * office member reads its open folders (ADR-0089). It stays recorded, so a
+ * office member reads its open folders (ADR-0090). It stays recorded, so a
  * reopen restricts again; the judges read `listRestrictingSourceProjects`.
  */
 
@@ -126,10 +126,10 @@ export async function recordCrossProjectHandOut(
 
 /**
  * Whether this conversation drew on another project that still restricts its
- * readers (ADR-0093): an active one, or a restricted folder of one. What a turn
+ * readers (ADR-0094): an active one, or a restricted folder of one. What a turn
  * reads to know its doors are shut. A closed project's open folders do not
  * count; its restricted folders do, because closing a project leaves them shut
- * (ADR-0089), and nothing else on the memory path knows a folder of another
+ * (ADR-0090), and nothing else on the memory path knows a folder of another
  * project: the agent's restriction evidence is this project's scope.
  */
 export async function drewOnOtherProjects(conversationId: string, organizationId: string): Promise<boolean> {

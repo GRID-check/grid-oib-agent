@@ -691,7 +691,7 @@ export function FilePreviewPane({
                 testId="file-preview-lifecycle-badge"
               />
               {/* A file of a closed project says which project, and that it is
-                  closed (ADR-0089), wherever it is previewed. */}
+                  closed (ADR-0090), wherever it is previewed. */}
               {closedProjectName !== null && (
                 <ProjectClosedChip projectName={closedProjectName} className="shrink-0" />
               )}

@@ -68,6 +68,14 @@ export const PLATFORM_PERMISSIONS = {
   /** Read platform configuration. The read half of {@link settingsManage}. */
   settingsView: 'platform:settings:view',
   settingsManage: 'platform:settings:manage',
+  /**
+   * Read the platform's LLM observability (Langfuse) and nothing else. Checked
+   * at the edge, not in the app: the Envoy SecurityPolicy in front of Langfuse
+   * admits it beside `organizationsView` (deploy/pulumi/src/platform/platform-oidc.ts,
+   * `OBSERVABILITY_VIEW_PERMISSION`), and Langfuse's own roles take it from
+   * there. The Aspire dashboard does not accept it.
+   */
+  observabilityView: 'platform:observability:view',
 } as const
 
 /** Project-tier permissions, checked per project via WorkOS FGA. */

@@ -50,8 +50,11 @@ group.
 
 ## Reference
 
-- Adding a tool: [`aiq-add-tool`](../../skills/aiq-add-tool/SKILL.md).
-  Adding a retrieval source: [`aiq-add-data-source`](../../skills/aiq-add-data-source/SKILL.md).
+- Adding a tool or a retrieval source:
+  [`adding-a-tool.md`](../../docs/architecture/adding-a-tool.md).
+- Editing a prompt template, and which model each agent role runs on:
+  [`backend-deep-dive.md`](../../docs/architecture/backend-deep-dive.md#prompts-three-layers-and-where-each-is-authored)
+  and [`llm-providers.md`](../../docs/architecture/llm-providers.md#which-model-each-role-uses).
 - How the backend fits together:
   [`docs/architecture/backend-deep-dive.md`](../../docs/architecture/backend-deep-dive.md).
 - `common/source_kinds.py`, `cards/registry.py` and `stages/runner.py` carry

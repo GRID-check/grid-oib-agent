@@ -217,7 +217,7 @@ describe('deleteConversationInOrg', () => {
   it('carries tenancy in the WHERE clause, not only in the service above it', async () => {
     await deleteConversationInOrg('conv_1', 'org_1')
 
-    // The conversation, then its record of restricted folders and of other projects (ADR-0093).
+    // The conversation, then its record of restricted folders and of other projects (ADR-0094).
     expect(captured).toHaveLength(3)
     expect(captured[2].sql).toContain('"conversation_source_projects"')
     expect(captured[2].params).toEqual(['org_1', 'conv_1'])

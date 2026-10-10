@@ -1,7 +1,7 @@
 /**
- * The two scrims that let the transcript pass under the floating composer
+ * The scrim that lets the transcript pass under the floating composer
  * instead of stopping at an edge. One component, so the product's chat column
- * (`MainLayout`) and the /dev routes that rebuild it draw the same thing: the
+ * (`MainLayout`) and the /dev routes that rebuild it draw the same edge: the
  * stream harness had neither, and recordings of it showed an edge the product
  * only half had.
  *
@@ -12,33 +12,18 @@
  * column into the composer's glass. Taller than the top scrim (h-40 vs h-24):
  * the composer is a multi-line card, not a slim pill row.
  *
- * The fade ABOVE the composer: the floor scrim resolves under the composer's
- * card (the stack is 140–190 px tall, the scrim 160), so an answer still
- * writing slid under the card's top edge with every line cut flat (recording
- * 2026-10). This one sits on the stack's top, read from `--composer-h`: solid
- * through the stack's top padding, where the text would otherwise show
- * unveiled above the card, then 2rem to transparent. Under the jump button and
- * the status dock (`ChatArea`'s `z-10`), which sit in that band and must stay
- * whole and clickable, and over the thread. Not drawn on the empty canvas,
- * where the composer is lifted off the floor and there is no transcript, nor
- * where the reader asked for contrast or the system's colours: a veil over
- * text is the one thing those settings exist to take away.
+ * There is no second fade above the composer. One was tried (2026-10): solid
+ * `background` across the whole column just above the card, it cut the answer
+ * card flat in a hard horizontal line, and below that line the transcript
+ * showed again beside the narrower composer, so a callout's red rule surfaced
+ * next to the input as a stray mark. The floor scrim alone is the edge.
  */
-export function ComposerScrim({ threadEmpty }: { threadEmpty: boolean }) {
+export function ComposerScrim() {
   return (
-    <>
-      <div
-        aria-hidden="true"
-        className="from-background pointer-events-none absolute inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-[2.5rem] to-transparent"
-      />
-      {!threadEmpty && (
-        <div
-          aria-hidden="true"
-          data-testid="composer-fade"
-          className="from-background pointer-events-none absolute inset-x-0 z-[5] h-12 bg-gradient-to-t from-[1rem] to-transparent contrast-more:hidden forced-colors:hidden"
-          style={{ bottom: 'calc(var(--composer-h, 11rem) - 1rem)' }}
-        />
-      )}
-    </>
+    <div
+      aria-hidden="true"
+      data-testid="composer-floor-scrim"
+      className="from-background pointer-events-none absolute inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-[2.5rem] to-transparent"
+    />
   )
 }

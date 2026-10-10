@@ -87,7 +87,7 @@ class TestWhatIsAsked:
 
 
 class TestTheReferenceProjects:
-    """ADR-0093: the office's other projects as a corpus, and a precedent question beside it."""
+    """ADR-0094: the office's other projects as a corpus, and a precedent question beside it."""
 
     def test_the_precedent_question_is_asked_only_when_the_office_has_reference_projects(self):
         assert "precedent" not in questions_for(_facts("Wie haben wir die Traufe gelöst?"))

@@ -10,6 +10,7 @@ import {
   orderedRollout,
   secretChecksumAnnotations,
 } from "../platform/rollout";
+import { withLangfuseKeysChecksum } from "../platform/langfuse";
 import { AppSecrets, AppWiring, chatEnv } from "./config";
 import { PORT, UID } from "../constants";
 
@@ -76,7 +77,7 @@ export function installBackend(
             // Credential rotation ⇒ pod-template change ⇒ a real, ordered
             // rolling update (rollout.ts). Without it the pods keep serving with
             // the pre-rotation keys and `pulumi up` still reports success.
-            annotations: secretChecksumAnnotations(secrets.checksum),
+            annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
           },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions

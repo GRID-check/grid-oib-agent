@@ -418,7 +418,7 @@ describe('listInbox — project href threads the delegated task', () => {
   /**
    * The target is the project, and project access says nothing about a
    * revision task whose document moved into a folder the recipient may not
-   * read (ADR-0092): its title and its link into the thread are withheld, as
+   * read (ADR-0093): its title and its link into the thread are withheld, as
    * the task list and the run view withhold them.
    */
   it('redacts a run row whose task the recipient may not see now, by the run it names', async () => {

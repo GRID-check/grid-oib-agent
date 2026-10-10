@@ -10,7 +10,7 @@ export const turnContextResponseSchema = z.object({
   orgInstructions: z.string().nullable(),
   /**
    * The conversation drew on another project that still restricts its readers
-   * (an active one, ADR-0093): the turn starts with every door a whole project
+   * (an active one, ADR-0094): the turn starts with every door a whole project
    * reads shut, memory included, instead of learning it from a refusal. Content
    * from a closed project does not count.
    */

@@ -44,8 +44,10 @@ shoving another's content.
 
 ## Rules that hold across every row
 
-- **One ambient loop per phase.** The Herleitung header shimmer before the
-  answer, the caret during the prose, nothing after the settle.
+- **The working turn looks alive.** Before the answer the Herleitung header
+  spins and shimmers, the frontier connectors march and a running chip pulses;
+  during the prose the caret, with the header icon spinning; nothing after the
+  settle.
 - **Fade, then resize.** A block that must change size while visible fades
   first, then changes height in one frame while invisible. Only card-slot
   growth, blocks arriving below the reading point and reader-started
@@ -60,7 +62,7 @@ shoving another's content.
 | P0 | idle | no running view | The composer shows Send. | none | InputArea |
 | P1 | sent | `user_message` sent, `beginTurn` | The question row rises in. An anchor glide brings the question to the top. The Herleitung header mounts in the same row with "Denkt nach…". Send becomes Stop at once. The field stays live for typing ahead. | header shimmer | ChatArea, ChatThinking |
 | P2 | working, no steps | `RUN_STARTED` | The same header. The timer fades in once it passes 2 s, counted from the question's timestamp. | shimmer | ChatThinking |
-| P3 | steps | first `STEP_*` | The panel opens with an opacity fade, capped at `min(50svh,420px)`, pinned to the bottom under a top mask. The live line cross-fades on each step. | shimmer | ChatThinking, ReasoningFlow |
+| P3 | steps | first `STEP_*` | The panel opens with an opacity fade and shows the whole graph, the executed-step chips under it. The live line cross-fades on each step. | spinner, shimmer, frontier edges | ChatThinking, ReasoningFlow |
 | P4 | masthead | `CUSTOM masthead` before the first word | The answer has begun: the panel folds and the answer card mounts under the bar with its masthead as one entrance. | shimmer | ChatArea, AgentResponse |
 | P5 | prose streaming | first `TEXT_MESSAGE_CONTENT` | Fold: the panel content fades on `motionQuickExit` with its height held, then the height drops in one frame. The answer row enters after the fold. The header label becomes the summary ("Herleitung · n Quellen") without shimmer and the timer keeps ticking. The paced reveal runs with a solid caret inside the text, which breathes after 600 ms without an advance. A leading summary is written in as the head of the prose. The footer is hidden. | caret | ChatArea, AgentResponse, use-paced-text |
 | P6 | snapshot | `STATE_SNAPSHOT` | Text that continues what was shown is kept. A rewrite fades the body in on the same element while its frame holds the old height and glides down. A masthead gated out fades, then loses its height in one frame. | caret | AgentResponse |
@@ -106,9 +108,9 @@ shoving another's content.
 | L29 | Observer joins mid-turn | The observer sees the asker's surface: steps so far, the text whole rather than from mid-sentence, one loop, a timer from the question. The swap to the persisted row is placed, not entered. An observer at the end of the thread has every colleague's turn anchored, question at the top; one reading further up is not moved. | Text starts mid-sentence; two shimmers; the timer counts from mount; the swap replays an entrance. | SH `live` | SpectatedTurn.spec "an observer who joined mid-answer waits for the whole text rather than starting mid-sentence", "keeps one ambient loop: the headline stops shimmering once the Herleitung carries it"; ChatArea.spec "anchors the next turn too, for a reader who watched the last one to its end", "leaves a reader who scrolled up to read where they are" |
 | L30 | Second question soon after the settle, or during the finish | Turn 1 finishes and settles before its header shows its check. Turn 1's follow-ups are not drawn. The memory chip lands in its reserved row. The anchor glides to Q2. | Two reveals run at once; turn 1 reads done mid-finish. | SS `two-turns` | Header order and follow-up absence asserted † |
 | L31 | Reader scrolled up while streaming | No yank: following starts only from the reader's own scroll to the end or the jump button. The jump button shows. A fold above the viewport is compensated. | WebKit has no `overflow-anchor`, so a fold above the viewport moves the page; a clamp read as "at the bottom" chases the reader. | SS | MP `--reader scroll`, `--browser webkit`; ChatArea.spec "a scroll the page caused never shows it, nor starts following"; WebKit fold CLS 0 † |
-| L32 | Reader toggles the Herleitung by hand | Opened: stays open through the answer, and the cap holds past the settle until the reader's next toggle. Closed: stays closed and the answer enters without waiting for a fold. | The cap drops in one frame at the settle; live-only chips leave and shrink the row; a closed panel still delays the answer 180 ms. | SS `toggle=open@<ms>` | ChatThinking.spec "a panel the reader opened while live keeps its cap through the settle", "a panel the reader opened is not folded or reopened by the turn"; MP `clsAfterSettle` 0 with the panel open † |
+| L32 | Reader toggles the Herleitung by hand | Opened: stays open through the answer. Closed: stays closed and the answer enters without waiting for a fold. | A closed panel still delays the answer 180 ms. | SS `toggle=open@<ms>` | ChatThinking.spec "the live panel shows the whole graph", "a panel the reader opened is not folded or reopened by the turn"; MP `clsAfterSettle` 0 with the panel open † |
 | L33 | Reduced motion | Every transition is instant. No shimmer, no caret breathe. The glide becomes a direct `scrollTop`. The reveal still paces. | A motion that ignores the media query; an opacity on a spring. | CT, HL with emulated media; SS | MP `--reduced-motion --animations` (flags only a run > 0 ms that is not a pure fade ≤ `--motion-quick`) |
-| L34 | Phone | Cap 50svh, the fan becomes one column, the header summary hides below `sm`, follow waits for touch end. | Steps and post-settle CLS higher than on desktop. | SS | MP at 390x844 (default) |
+| L34 | Phone | The fan becomes one column, the header summary hides below `sm`, follow waits for touch end. | Steps and post-settle CLS higher than on desktop. | SS | MP at 390x844 (default) |
 | L35 | Phone keyboard open | Send blurs the textarea and the keyboard closes during the glide. The shell sizes to the visual viewport. The anchor spacer refits on the resize. | iOS ignores `interactiveWidget`; the composer hides behind the keyboard; the glide target moves mid-glide. | none (manual, real iPhone) | use-visual-viewport.spec; ChatArea.spec "the anchor spacer shrinks as the list grows and refits when the viewport resizes"; refit during the glide † |
 | L36 | Dark mode | No light flash on load. The veil and masks use the card colour. The check glyph keeps its contrast. | Light flash on hydration; the veil paints over muted chips. | CT, HL; SS | theme-boot.spec "an explicit dark choice wins over a light OS"; MP `--color-scheme dark`; shots at P3, P5, P10 † |
 | L37 | Deep link to a message (`#message-<id>`, inbox link) | The thread opens on the named message, which owns the position: no bottom jump, no follow. A target missing from a thread whose messages have all arrived stops holding it; leaving that thread for one the link does not name drops the target. A shared thread's late history still lands it. | The bottom jump overrides the link a frame after it lands; an unresolvable target leaves every later thread unplaced and unfollowed. | SH; any thread with `#message-<id>` | use-message-anchor.spec "stops holding a thread that loaded without it", "still lands when the message arrives after all (a shared thread's history)", "is dropped when the reader leaves the thread it missed in"; ChatArea.spec "a deep-linked thread switched away from and back to is placed like any other" |
@@ -123,9 +125,9 @@ shoving another's content.
 | E03 | `status`, technical channel | Nothing live; a row in the opt-in technical steps | Panel | — | steps array identity |
 | E04 | `retrieval` round 0 | Live line "Sucht … nach '…'" and the framing node | Graph top | The pane height glides. | ReactFlow measure |
 | E05 | `retrieval` round ≥ 1 | A checkpoint layer "Schritt N" with its reason; the fan becomes the spine at round 2 | Graph | Lands below with a fade. Height glides and holds its maximum while live. Edges into the frontier march. | one layout pass per round |
-| E06 | `STEP_STARTED tool` | Executed-step chip | Chip row above the graph | Static glyph, no spinner. | chip list derive |
+| E06 | `STEP_STARTED tool` | Executed-step chip | Chip row under the graph | Its dot pulses while it runs. | chip list derive |
 | E07 | `STEP_FINISHED tool` | Chip settles; an error shows detail | Same | Glyph swap only. | — |
-| E08 | `sources` | Source cards under their round; one grouped column on a phone | Graph | Height glide; the bottom pin follows without smoothing. The header's source count updates. | layout pass |
+| E08 | `sources` | Source cards under their round; one grouped column on a phone | Graph | Height glide. The header's source count updates. | layout pass |
 | E09 | `skill` activated | Live line "Wendet … an" and a skill chip | Header and chip row | Static dot. At the settle it moves to the skills disclosure in the footer without shrinking an open panel. | — |
 | E10 | `skill` offered, loaded, hidden | Nothing | — | — | — |
 | E11 | `clarification` | Nothing (detail only) | — | Precedes E12. | — |
@@ -136,7 +138,7 @@ shoving another's content.
 | E16 | `scope: deep` step | Nothing in the Herleitung | Run block | — | — |
 | E17 | Reader folds or unfolds a round | Fan becomes its scent (count and top file) | Graph layer | Chevron rotates on `duration-quick`; pane height glides. | layout pass |
 | E18 | First answer word, masthead or card | The panel folds | Panel | Fade 180 ms with height held, then the height drops in one frame. The label becomes the summary. | — |
-| E19 | Settle | The dot becomes a check, the timer freezes; the label stays the summary | Header | Same frame as the answer's settle. The frozen figure is never below the last live figure. No "Fertig". | — |
+| E19 | Settle | The spinner becomes a check, the timer freezes; the label stays the summary | Header | Same frame as the answer's settle. The frozen figure is never below the last live figure. No "Fertig". | — |
 
 ## Open gaps
 

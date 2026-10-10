@@ -4,7 +4,7 @@ Nothing here decides access. The BFF reads the acting person out of the signed
 request-context envelope this module forwards byte-for-byte, builds that
 person's pinned session, decides which projects and folders are in reach,
 records what it hands out on the conversation, and refuses a conversation that
-is not its asker's alone (ADR-0054 §4, ADR-0055, ADR-0093). Echo, never sign:
+is not its asker's alone (ADR-0054 §4, ADR-0055, ADR-0094). Echo, never sign:
 see ``src/aiq_agent/tools/AGENTS.md``.
 
 The request bodies are described once, in zod (``frontends/ui/src/lib/cross-project/types.ts``),

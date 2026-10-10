@@ -323,7 +323,7 @@ class TestTheReadIsScopedToTheConversation:
 
         # The asker: a subject in a folder not every member may read is
         # admitted for the conversation against its audience (ADR-0088). The
-        # answer the turn writes: marked in that admission (ADR-0092).
+        # answer the turn writes: marked in that admission (ADR-0093).
         assert reads == [("ver-9", ORGANIZATION, CONVERSATION, ASKER, answer_message_id(CONVERSATION, None))]
 
     async def test_a_subject_from_a_restricted_folder_confines_the_turn(self, store, monkeypatch) -> None:
