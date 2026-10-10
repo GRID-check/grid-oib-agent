@@ -284,8 +284,16 @@
     "de": "Einen Ordner mit Unterordnern, die Sie nicht lesen dürfen, kann nur ein Organisations-Admin verschieben, und wer kein Admin mehr ist, erreicht binnen einer Minute nicht mehr jeden Ordner. Prüfanfragen gehen nur an Personen, die den Ordner lesen dürfen, und die Projektübersicht zählt nur die Dokumente, die Sie lesen dürfen."
   },
   {
+    "en": "A folder that was restricted to a role now lists the people who held that role when the change was rolled out; someone given the role later has to be added to the folder's list.",
+    "de": "Ein Ordner, der auf eine Rolle beschränkt war, listet jetzt die Personen auf, die diese Rolle bei Einführung der Änderung innehatten; Personen, denen die Rolle später zugewiesen wird, müssen zur Liste des Ordners hinzugefügt werden."
+  },
+  {
     "en": "A folder upload into a project with a restricted folder no longer refuses the subfolders of a folder it has just created.",
     "de": "Ein Ordner-Upload in ein Projekt mit einem eingeschränkten Ordner lehnt die Unterordner eines gerade erst angelegten Ordners nicht mehr ab."
+  },
+  {
+    "en": "A folder's own access list now names people instead of roles, each allowed to read or also to edit. Switch on \"Alle Projektmitglieder dürfen lesen\" when the whole project may read a folder and only some may change it.",
+    "de": "Die Zugriffsliste eines Ordners führt jetzt Personen statt Rollen auf, jeweils mit Lese- oder Lese- und Bearbeitungsberechtigung. Aktivieren Sie „Alle Projektmitglieder dürfen lesen“, wenn alle Projektmitglieder einen Ordner lesen dürfen, aber nur einige ihn bearbeiten dürfen."
   },
   {
     "en": "A follow-up like \"kürze Punkt 3\" changes that document in place instead of producing a second version of it, so the conversation keeps working on one draft rather than on a growing pile of near-copies.",
