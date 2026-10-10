@@ -37,6 +37,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import type { TaskDefinition, TaskRun } from '@/lib/db/schema'
 import { JobSubmitError } from '@/lib/jobs/backend-client'
 import { AGENT_RUN_INPUT_MAX_CHARS } from '@/lib/jobs/types'
+import { formatCount } from '@/lib/format'
 import { createTaskThread, submitAgentRun } from '@/lib/jobs/service'
 import { resolveSkillSnapshot } from '@/lib/skills/service'
 import * as repository from './repository'
@@ -45,6 +46,7 @@ import {
   delegateTask,
   isDelegatableTaskKind,
   TASK_GOAL_MAX_CHARS,
+  type DelegateTaskInput,
 } from './delegation'
 
 const session = {
@@ -362,13 +364,14 @@ describe('delegateTask', () => {
   })
 
   describe('a document longer than one run can carry', () => {
-    const revise = (sourceText: string) =>
+    const revise = (sourceText: string, handedOver: Pick<DelegateTaskInput, 'documents' | 'material'> = {}) =>
       delegateTask(session, {
         projectId: PROJECT,
         kind: 'revision',
         goal: 'Abschnitt 3 präzisieren',
         subject: { documentId: 'doc-3', versionId: 'ver-1', comment: 'Abschnitt 3 präzisieren' },
         sourceText,
+        ...handedOver,
       })
 
     it('never hands the submit route a prompt over its input ceiling', async () => {
@@ -410,6 +413,40 @@ describe('delegateTask', () => {
 
       const { run: over } = await revise(`${document}!`)
       expect(over?.status).toBe('failed')
+    })
+
+    it('counts the handed-over text and the named documents against the budget too', async () => {
+      // Everything before the version is the overhead, not the instruction
+      // alone: a budget that forgot the notes would pass a prompt the backend
+      // refuses, by exactly the notes' length.
+      const handedOver = {
+        material: 'TOP 1 Fenster: Huber bestellt Muster bis 17.10.\n'.repeat(400),
+        documents: { grundlage: [{ name: 'Notizen JF 12.pdf' }], ausgeschlossen: [] },
+      }
+      await revise('x')
+      const bareBudget = AGENT_RUN_INPUT_MAX_CHARS - (insertedDefinition.plan.prompt.length - 1)
+      await revise('x', handedOver)
+      const budget = AGENT_RUN_INPUT_MAX_CHARS - (insertedDefinition.plan.prompt.length - 1)
+      expect(budget).toBeLessThan(bareBudget - handedOver.material.length)
+      vi.mocked(submitAgentRun).mockClear()
+
+      const document = '# Bericht\n\n' + 'y'.repeat(budget - '# Bericht\n\n'.length - 1) + 'Z'
+      const { run } = await revise(document, handedOver)
+
+      const submitted = vi.mocked(submitAgentRun).mock.calls[0][0].prompt
+      expect(submitted.length).toBe(AGENT_RUN_INPUT_MAX_CHARS)
+      expect(submitted).toContain(document)
+      expect(submitted).toContain(handedOver.material.trim())
+      expect(submitted).toContain('- `Notizen JF 12.pdf`')
+      expect(run?.status).toBe('running')
+      vi.mocked(submitAgentRun).mockClear()
+
+      // One character over, still refused in words rather than cut, and the
+      // refusal names the budget that is left once the notes are in.
+      const { run: over } = await revise(`${document}!`, handedOver)
+      expect(submitAgentRun).not.toHaveBeenCalled()
+      expect(over?.status).toBe('failed')
+      expect(over?.error).toContain(`höchstens ${formatCount(budget, 'de-AT')} Zeichen`)
     })
   })
 
