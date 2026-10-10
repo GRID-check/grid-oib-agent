@@ -18,11 +18,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.knowledge.document_classification import DOCUMENT_TYPE_TAGS
 from aiq_agent.knowledge.inventory import set_turn_documents
 from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.schema import Chunk
 from aiq_agent.knowledge.schema import ContentType
 from aiq_agent.knowledge.scoping import ScopedCollection
+from sources.knowledge_layer.src.browse import MAX_TYPE_COUNTS
 from sources.knowledge_layer.src.browse import ListFilesConfig
 from sources.knowledge_layer.src.browse import file_rows
 from sources.knowledge_layer.src.browse import group_matches
@@ -664,3 +666,83 @@ class TestAShelfTheTurnRemoved:
     async def test_an_explicit_shelf_inside_the_selection_still_lists(self, scope, turn_shelves):
         turn_shelves({"archiv", "session", "base"})
         assert "Leitfaden_Buero.pdf" in await self._call(shelf="archiv")
+
+
+# ---------------------------------------------------------------------------
+# The Dokumentarten line: what a selection holds, counted over all of it.
+# ---------------------------------------------------------------------------
+
+
+def _typed(*tag_sets: tuple[str, ...], folder: str = "Plaene"):
+    return file_rows(_doc(f"Datei_{index:02}.pdf", folder, tags=tags) for index, tags in enumerate(tag_sets))
+
+
+def _profile_line(text: str) -> str:
+    return next(line for line in text.splitlines() if line.startswith("Dokumentarten"))
+
+
+class TestTheDokumentartProfile:
+    def test_it_counts_the_whole_selection_so_a_page_does_not_change_it(self):
+        rows = _typed(*[("Grundriss",)] * 5, *[("Schnitt",)] * 2)
+
+        first = select_files(rows, limit=2)
+        last = select_files(rows, offset=6, limit=2)
+
+        assert first.types == last.types == [("Grundriss", 5), ("Schnitt", 2)]
+        expected = "Dokumentarten (von Piloti zugeordnet): Grundriss 5 · Schnitt 2."
+        assert _profile_line(render_listing(first)) == _profile_line(render_listing(last)) == expected
+
+    def test_it_sits_directly_under_the_count_line(self):
+        lines = render_listing(select_files(_typed(("Grundriss",)))).splitlines()
+        count = next(index for index, line in enumerate(lines) if " Datei(en) auf " in line)
+        assert lines[count + 1].startswith("Dokumentarten")
+
+    def test_the_most_frequent_type_comes_first_and_ties_follow_the_vocabulary(self):
+        rows = _typed(
+            ("Schnitt",), ("Bescheid",), ("Ansicht",), ("Grundriss",), ("Schnitt",), ("Ansicht",), ("Grundriss",)
+        )
+        assert select_files(rows).types == [("Grundriss", 2), ("Schnitt", 2), ("Ansicht", 2), ("Bescheid", 1)]
+
+    def test_sonstiges_is_named_last_whatever_its_count(self):
+        rows = _typed(("Sonstiges",), ("Sonstiges",), ("Sonstiges",), ("Grundriss",))
+        assert select_files(rows).types == [("Grundriss", 1), ("Sonstiges", 3)]
+
+    def test_a_tag_repeated_on_one_row_is_counted_once(self):
+        listing = select_files(_typed(("Grundriss", "Grundriss", "Brandschutz")))
+        assert listing.types == [("Grundriss", 1)]
+        assert listing.untyped == 0
+
+    def test_a_row_with_only_discipline_or_unknown_tags_is_untyped(self):
+        listing = select_files(_typed(("Brandschutz",), ("Mystery",), ("Schnitt", "Schallschutz"), ()))
+        assert listing.types == [("Schnitt", 1)]
+        assert listing.untyped == 3
+
+    def test_the_untyped_count_is_named_on_the_profile_line(self):
+        text = render_listing(select_files(_typed(("Grundriss",), ("Brandschutz",))))
+        assert _profile_line(text) == "Dokumentarten (von Piloti zugeordnet): Grundriss 1; ohne Dokumentart: 1."
+
+    def test_no_untyped_clause_when_every_row_has_a_type(self):
+        text = render_listing(select_files(_typed(("Grundriss",), ("Grundriss",))))
+        assert _profile_line(text) == "Dokumentarten (von Piloti zugeordnet): Grundriss 2."
+
+    def test_at_most_the_cap_is_named_and_the_listing_keeps_them_all(self):
+        types = [tag for tag in DOCUMENT_TYPE_TAGS if tag != "Sonstiges"][:10]
+        listing = select_files(_typed(*[(tag,) for tag in types]))
+
+        line = _profile_line(render_listing(listing))
+
+        assert len(listing.types) == 10
+        assert line.count(" · ") == MAX_TYPE_COUNTS - 1
+        assert "Norm/Richtlinie" not in line and "Vertrag" not in line
+
+    def test_a_selection_with_no_document_type_says_so_rather_than_saying_nothing(self):
+        rendered = render_listing(select_files(_typed((), ("Brandschutz",))))
+        assert "keiner dieser Dateien hat Piloti eine Dokumentart zugeordnet" in rendered
+        assert "Dokumentarten (von Piloti zugeordnet)" not in rendered
+
+    def test_no_profile_line_for_an_empty_selection(self):
+        assert "Dokumentarten" not in render_listing(select_files([]))
+
+    def test_the_closing_note_says_unreadable_files_are_not_listed_and_names_their_key(self):
+        closing = render_listing(select_files(_rows())).rsplit("Das ist ein Verzeichnis", 1)[1]
+        assert "documents_unreadable:" in closing

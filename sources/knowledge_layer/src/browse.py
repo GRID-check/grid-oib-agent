@@ -354,6 +354,9 @@ def render_listing(listing: Listing, *, in_flight: Sequence[str] = ()) -> str:
             profile = " · ".join(f"{tag} {count}" for tag, count in listing.types[:MAX_TYPE_COUNTS])
             untyped = f"; ohne Dokumentart: {listing.untyped}" if listing.untyped else ""
             lines.append(f"Dokumentarten (von Piloti zugeordnet): {profile}{untyped}.")
+        elif listing.untyped:
+            # Said rather than left out: no line would read the same as "no profile".
+            lines.append("Dokumentarten: keiner dieser Dateien hat Piloti eine Dokumentart zugeordnet.")
 
     if listing.subfolders:
         lines.append("")
@@ -391,8 +394,8 @@ def render_listing(listing: Listing, *, in_flight: Sequence[str] = ()) -> str:
         "Das ist ein Verzeichnis, keine Quelle: eine Zeile beweist, dass die Datei existiert, nicht was "
         "darin steht. Es zeigt nur, was Piloti lesen konnte — eine Datei, deren Lesen fehlgeschlagen ist, "
         "steht hier nicht, aber unter `documents_unreadable:` im Projektkontext; fehlt eine Datei hier, ist "
-        "das kein Beweis, dass es sie nicht gibt. Schreibe Dateinamen genau so, wie sie hier stehen — der Leser sieht jeden als Link, "
-        "der die Datei öffnet. Lesen: `read_passage(document=…)`; darin suchen: "
+        "das kein Beweis, dass es sie nicht gibt. Schreibe Dateinamen genau so, wie sie hier stehen — "
+        "der Leser sieht jeden als Link, der die Datei öffnet. Lesen: `read_passage(document=…)`; darin suchen: "
         '`knowledge_search(file_name=…)`, wörtlich mit `match="exact"`; eine Seite ansehen: `view_knowledge_image`.'
     )
     return "\n".join(lines)
