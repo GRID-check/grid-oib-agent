@@ -138,6 +138,11 @@ export function similarityFacts(profile: Profile | null): SimilarityFacts {
   }
 }
 
+/** The facts a person confirmed, suggestions left out: what {@link similarityFacts} reads with no document reading. */
+export function confirmedSimilarityFacts(profile: Profile | null): SimilarityFacts {
+  return similarityFacts(profile ? { ...profile, assumptions: {} } : null)
+}
+
 /** The weights, exported so the spec states the order they produce. */
 export const SIMILARITY_WEIGHTS = {
   bundesland: 4,
@@ -172,11 +177,16 @@ export function similarity(current: SimilarityFacts, candidate: SimilarityFacts)
 
 /** A fact two projects share, by profile key and token (the Gebäudeklasse as its number). */
 export interface SharedTrait {
-  key: 'bundesland' | 'gebaeudeklasse' | 'bauweise' | 'nutzungen'
+  key: keyof SimilarityFacts
   value: string
 }
 
-/** What the facts have in common, in the order the ranking weighs them. */
+/**
+ * What the facts have in common, in the order the ranking weighs them: every
+ * fact that scored, so a reader is never shown a project ranked up for a reason
+ * the list leaves out. A neighbouring Gebäudeklasse scores a little but is not
+ * shared, and is not named.
+ */
 export function sharedTraits(current: SimilarityFacts, candidate: SimilarityFacts): SharedTrait[] {
   const traits: SharedTrait[] = []
   if (current.bundesland && current.bundesland === candidate.bundesland) {
@@ -187,7 +197,15 @@ export function sharedTraits(current: SimilarityFacts, candidate: SimilarityFact
   }
   for (const value of overlap(current.bauweise, candidate.bauweise)) traits.push({ key: 'bauweise', value })
   for (const value of overlap(current.nutzungen, candidate.nutzungen)) traits.push({ key: 'nutzungen', value })
+  for (const value of overlap(current.vorhabensart, candidate.vorhabensart)) traits.push({ key: 'vorhabensart', value })
   return traits
+}
+
+/** Whether `facts` hold this trait's value, so a caller can ask it of the confirmed facts alone. */
+export function holdsTrait(trait: SharedTrait, facts: SimilarityFacts): boolean {
+  if (trait.key === 'bundesland') return facts.bundesland === trait.value
+  if (trait.key === 'gebaeudeklasse') return facts.gebaeudeklasse.includes(Number(trait.value))
+  return facts[trait.key].includes(trait.value)
 }
 
 /**

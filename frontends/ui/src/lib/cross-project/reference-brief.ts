@@ -16,8 +16,8 @@ import 'server-only'
 import type { Project } from '@/lib/db/schema'
 import { isProjectClosed } from '@/lib/projects/project-status'
 import { findProjectInOrg, listProjectsInOrg } from '@/lib/projects/repository'
-import { factLabel, fingerprintLabels } from './fingerprint'
-import { rankBySimilarity, sharedTraits, similarityFacts, type SharedTrait, type SimilarityFacts } from './similarity'
+import { fingerprintLabels, sharedTraitLabel } from './fingerprint'
+import { rankBySimilarity, sharedTraits, similarityFacts, type SimilarityFacts } from './similarity'
 
 /** How many reference projects the catalog lists; the rest are found with `project_lookup`. */
 export const REFERENCE_BRIEF_MAX = 12
@@ -37,10 +37,6 @@ function periodLabel(project: Pick<Project, 'startedOn' | 'endedOn' | 'closedAt'
   return end ?? (start ? `${start}–` : null)
 }
 
-function traitLabel(trait: SharedTrait): string {
-  return trait.key === 'gebaeudeklasse' ? `GK ${trait.value}` : factLabel(trait.key, trait.value)
-}
-
 function summaryOf(project: Pick<Project, 'profileDisplay'>): string | null {
   const summary = project.profileDisplay?.summary?.replace(/\s+/g, ' ').trim()
   if (!summary) return null
@@ -55,7 +51,7 @@ function line(project: Project, current: SimilarityFacts | null): string {
   const summary = summaryOf(project)
   return [
     `- ${project.name} (id ${project.id})${head ? `: ${head}` : ''}`,
-    shared.length > 0 ? ` · gemeinsam: ${shared.map(traitLabel).join(', ')}` : '',
+    shared.length > 0 ? ` · gemeinsam: ${shared.map(sharedTraitLabel).join(', ')}` : '',
     summary ? ` · ${summary}` : '',
   ].join('')
 }

@@ -22,7 +22,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function ReferencesPage({ params }: ReferencesPageProps): Promise<JSX.Element> {
   return withPageSession(async (session) => {
     const { id } = await params
-    const projects = await getSimilarProjects(session, id)
-    return <SimilarProjects projects={projects} />
+    const page = await getSimilarProjects(session, id)
+    return <SimilarProjects projectId={id} page={page} />
   })
 }

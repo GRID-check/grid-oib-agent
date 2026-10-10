@@ -47,14 +47,27 @@ Trace metadata on the root:
 | `usage_llm_calls`, `usage_prompt_tokens`, `usage_completion_tokens`, `usage_total_tokens`, `usage_cost_usd`, `usage_cost_source`, `usage_error` | the turn's whole spend (`usage_rollup`) |
 | `answer_dialect` | block census and repairs by kind |
 | `ifc_op`, `ifc_outcome`, `ifc_model`, … | what a building-model tool did (`tools/bim/trace.py`) |
+| `answer_precedent_sources`, `answer_precedent_projects` | cited sources from another project (ADR-0094), and from how many projects: the office's experience reaching the answer |
+| `reference_projects_offered`, `precedent_p`, `reference_prefetch` | the turn's start: how many reference projects the catalog listed, the decision's p(precedent), and whether round 0 searched them on its own (`agents/piloti/register.py`) |
 | `organization_id`, `project_id` | the tenant, only with identity attributes on |
 
 Tags, the trace list's fast filter: `outcome:<…>`, `route:<…>`,
 `confidence:<…>`, `capped:<…>`, `citations-removed`, `quote-not-found`,
 `research-truncated`, `handed-off`, `error:<code>`, `feature:ifc`,
+`feature:cross-project` (a `project_lookup` ran), `reference-prefetch`,
+`cited-precedent`,
 `feature:<auxiliary feature>`, `surface:auxiliary`, and `org:<id>` with
 identity attributes on. Tags are labels, never ids or text, with the one
 exception of the tenant tag.
+
+Each `project_lookup` call (ADR-0094) is also a `retrieve.project_lookup`
+retriever observation, as `knowledge_search` is: its input the action and the
+body sent (`scope`, `query`, `offset`, `openFoldersOnly`), its output what came
+back as data, never passage text: `projects_in_scope`, `projects_searched`,
+`next_offset`, the counts of passages, decisions and permit records, each
+project named by id and status, and the picked passages by project, file, page
+and score. A refusal is `{"refused": <code>}`: `no_envelope`, `not_found`,
+`audience_changed`, `invalid`, `unreachable` or `invalid_arguments`.
 
 ## Scores
 

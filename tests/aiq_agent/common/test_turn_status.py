@@ -113,6 +113,20 @@ class TestRetrieval:
         )
         assert _live(steps)[0].values == {"corpus": "otherProjects", "query": "Traufe Holzbau"}
 
+    @pytest.mark.parametrize(
+        "args",
+        [
+            {"action": "brief", "project_id": "b0000000-0000-4000-8000-000000000002"},
+            {"action": "find", "scope": "closed"},
+        ],
+    )
+    def test_a_lookup_without_a_query_never_quotes_its_action_or_id(self, steps, args) -> None:
+        """„Sucht in anderen Projekten: „brief"" read the action word as what was asked."""
+        turn_status.emit_retrieval([{"name": "project_lookup", "args": args}], round_index=0)
+        payload = _live(steps)[0]
+        assert payload.key == "status.retrieval.plain"
+        assert payload.values == {"corpus": "otherProjects"}
+
     def test_a_search_with_no_query_uses_the_other_template(self, steps) -> None:
         turn_status.emit_retrieval([{"name": "web_search_tool", "args": {}}], round_index=0)
         payload = _live(steps)[0]

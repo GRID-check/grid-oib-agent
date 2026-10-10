@@ -907,6 +907,8 @@ export const chat = {
       webSearch: 'Web search',
       ris: 'RIS',
       corpus: 'Knowledge',
+      /** Looked in the office's other projects (ADR-0094), mostly its closed reference projects. */
+      otherProjects: 'Other projects',
       reading: 'Reading',
       /** The conversation's working directory: write, read, edit, list — one word. */
       draft: 'Draft',

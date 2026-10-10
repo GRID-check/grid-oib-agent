@@ -397,7 +397,9 @@ Gebäudeklasse, Bauweise and use), and it can search their documents (by topic,
 optionally by document type such as Detail or Gutachten, by OIB discipline,
 and by the project's period), find a project by name or address, and read a
 project's brief. While it searches, the status line says „in anderen
-Projekten". Piloti also finds what other projects **decided**: the decisions and
+Projekten"; once the answer is done, the Herleitung keeps an „Andere Projekte"
+step. The same list, with what each project shares with this one, is the
+project's [Ähnliche Projekte](projects.md#similar-projects) page. Piloti also finds what other projects **decided**: the decisions and
 constraints their project memory recorded while they ran („Stiegenhaus in
 Stahlbeton, weil das Gutachten nur so die Abweichung zuließ"). These often
 say why, which a document rarely does. They come first in the answer, cited

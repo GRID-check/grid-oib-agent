@@ -60,6 +60,9 @@ from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.knowledge.restricted_collections import is_restricted_collection
 from aiq_agent.knowledge.restricted_use import note_collections_read
 from aiq_agent.knowledge.restricted_use import note_cross_project_hand_out
+from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
+from aiq_agent.observability.retrieval_trace import PICK_LIMIT
+from aiq_agent.observability.retrieval_trace import emit_retrieval_span
 from aiq_agent.turn.response import turn_answer_message_id
 from nat.plugin_api import Builder
 from nat.plugin_api import FunctionBaseConfig
@@ -122,7 +125,8 @@ _DESCRIPTION = (
     "dieselbe Entscheidung schon getroffen hat. Nicht für reine Normtexte oder Definitionen. Das "
     "Projekt dieses Chats ist nie dabei, dafür die üblichen Werkzeuge. `action`: "
     "`search` durchsucht Dokumente (`query` nötig; `scope` `similar` = Projekte, die diesem am "
-    "ähnlichsten sind, zuerst (Standard), `closed` = nur abgeschlossene, `all` = alle neueste zuerst, "
+    "ähnlichsten sind, zuerst (Standard), `closed` = nur abgeschlossene, ebenso ähnlichste zuerst, "
+    "`all` = alle neueste zuerst, "
     "`named` = nur `project_ids`; optional `document_types`, `disciplines`, "
     "`period_from`/`period_to` als JJJJ-MM-TT für den Projektzeitraum). Ein Aufruf durchsucht "
     "höchstens 8 Projekte; nennt das Ergebnis eine nächste Seite, mit `offset` weiter. "
@@ -175,15 +179,18 @@ class ProjectLookupConfig(FunctionBaseConfig, name="project_lookup"):
 
 
 class _Refused(Exception):
-    def __init__(self, message: str) -> None:
+    """A lookup that answers the model with a sentence instead of content; ``code`` is what Langfuse records."""
+
+    def __init__(self, message: str, code: str = "invalid_arguments") -> None:
         super().__init__(message)
         self.message = message
+        self.code = code
 
 
 def _envelope() -> SignedEnvelope:
     header, signature = project_context.get_request_envelope_from_context()
     if not header or not signature:
-        raise _Refused(_NO_ENVELOPE)
+        raise _Refused(_NO_ENVELOPE, "no_envelope")
     return SignedEnvelope(header=header, signature=signature)
 
 
@@ -210,12 +217,12 @@ async def _call(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     except CrossProjectLookupError as exc:
         if exc.code == "CROSS_PROJECT_AUDIENCE_CHANGED":
             # The BFF's own sentence, in German: relayed to the reader as it is.
-            raise _Refused(f"Nicht möglich: {exc}") from exc
+            raise _Refused(f"Nicht möglich: {exc}", "audience_changed") from exc
         if exc.status == 404:
-            raise _Refused(_NOT_FOUND) from exc
+            raise _Refused(_NOT_FOUND, "not_found") from exc
         if exc.status in (400, 422):
-            raise _Refused(f"Fehler: Die Anfrage war ungültig ({exc}). Korrigiere die Argumente.") from exc
-        raise _Refused(_UNREACHABLE) from exc
+            raise _Refused(f"Fehler: Die Anfrage war ungültig ({exc}). Korrigiere die Argumente.", "invalid") from exc
+        raise _Refused(_UNREACHABLE, "unreachable") from exc
 
 
 def _land_note(project: dict[str, Any]) -> str | None:
@@ -366,7 +373,7 @@ def _decision_provenance(item: dict[str, Any]) -> str:
         return "von einer Person bestätigt"
     if origin == "documents":
         return "aus den Unterlagen erschlossen" + _evidence_cite(item.get("evidence"))
-    return "von Piloti festgehalten"
+    return "von Piloti notiert"
 
 
 def _evidence_cite(evidence: Any) -> str:
@@ -656,6 +663,72 @@ def _render_brief(body: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Langfuse
+# ---------------------------------------------------------------------------
+
+
+def _project_ref(project: object) -> dict[str, str] | None:
+    return (
+        {"id": str(project.get("id")), "status": str(project.get("status") or "active")}
+        if isinstance(project, dict) and project.get("id")
+        else None
+    )
+
+
+def _observed_projects(records: list[Any]) -> list[dict[str, str]]:
+    """The distinct projects a lookup's answer names, by id and status: never names, never text."""
+    seen: dict[str, dict[str, str]] = {}
+    for record in records:
+        ref = _project_ref(record.get("project") if isinstance(record, dict) else None)
+        if ref is not None:
+            seen.setdefault(ref["id"], ref)
+    return list(seen.values())
+
+
+def lookup_observation(action: str, body: dict[str, Any]) -> dict[str, Any]:
+    """What one lookup handed out, as Langfuse should see it: counts, project ids, picks; no passage text.
+
+    The tool's own output is German prose for the model, so without this a
+    trace could not say how many projects were searched, whether anything came
+    back, or which projects it came from (ADR-0089: everything observable).
+    """
+    if action == "search":
+        hits = [hit for hit in body.get("hits") or [] if isinstance(hit, dict)]
+        decisions, permits = _decisions(body), _permits(body)
+        return {
+            "projects_in_scope": body.get("projectsInScope"),
+            "projects_searched": body.get("projectsSearched"),
+            "next_offset": body.get("nextOffset"),
+            "passages": len(hits),
+            "decisions": len(decisions),
+            "permits": len(permits),
+            "projects": _observed_projects([*decisions, *permits, *hits]),
+            "picked": [
+                {
+                    "project": (_project_ref(hit.get("project")) or {}).get("id"),
+                    "file": hit.get("filename"),
+                    "page": hit.get("page"),
+                    "score": round(float(hit.get("score") or 0.0), 4),
+                }
+                for hit in hits[:PICK_LIMIT]
+            ],
+        }
+    if action == "find":
+        projects = [project for project in body.get("projects") or [] if isinstance(project, dict)]
+        return {
+            "total": body.get("total", len(projects)),
+            "projects": [ref for ref in map(_project_ref, projects) if ref],
+        }
+    return {"projects": [ref for ref in [_project_ref(body.get("project"))] if ref]}
+
+
+def _observe(action: str, payload: dict[str, Any], outcome: dict[str, Any]) -> None:
+    """One ``retrieve.project_lookup`` observation and the turn's ``feature:cross-project`` tag. Never raises."""
+    add_trace_tag("feature:cross-project")
+    emit_retrieval_span(tool_name=PROJECT_LOOKUP_TOOL, search_input={"action": action, **payload}, picks=outcome)
+
+
+# ---------------------------------------------------------------------------
 # The tool
 # ---------------------------------------------------------------------------
 
@@ -689,7 +762,9 @@ async def _lookup(
             offset=offset,
             open_folders_only=open_folders_only,
         )
-        return _render_search(await _call(SEARCH_PATH, payload))
+        body = await _call(SEARCH_PATH, payload)
+        _observe(action, payload, lookup_observation(action, body))
+        return _render_search(body)
     if action == "find":
         payload: dict[str, Any] = {}
         if query.strip():
@@ -698,10 +773,15 @@ async def _lookup(
             payload["from"] = period_from.strip()
         if period_to.strip():
             payload["to"] = period_to.strip()
-        return _render_find(await _call(PROJECTS_PATH, payload))
+        body = await _call(PROJECTS_PATH, payload)
+        _observe(action, payload, lookup_observation(action, body))
+        return _render_find(body)
     if not project_id.strip():
         raise _Refused("Fehler: `brief` braucht eine `project_id` (aus `find` oder einem Treffer).")
-    return _render_brief(await _call(BRIEF_PATH, {"projectId": project_id.strip()}))
+    payload = {"projectId": project_id.strip()}
+    body = await _call(BRIEF_PATH, payload)
+    _observe(action, payload, lookup_observation(action, body))
+    return _render_brief(body)
 
 
 async def run_project_lookup(
@@ -733,6 +813,7 @@ async def run_project_lookup(
             bool(open_folders_only),
         )
     except _Refused as refused:
+        _observe(str(action), {}, {"refused": refused.code})
         return refused.message
 
 

@@ -36,6 +36,7 @@ import { Item, ItemActions, ItemContent, ItemList } from '@/components/ui/item'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Textarea } from '@/components/ui/textarea'
 import { useLocale, useTranslations } from '@/i18n'
+import { isConfirmedMemory, memoryOriginOf } from '@/lib/cross-project/decision-origin'
 import { factLabel, fingerprintOf, type FingerprintKey } from '@/lib/cross-project/fingerprint'
 import type { ProjectMemoryItem } from '@/lib/db/schema'
 import type { ProjectExperienceError, ProjectExperienceResult } from '@/lib/project-experience/types'
@@ -76,13 +77,9 @@ type Extraction =
   | { status: 'done'; suggested: number; drafted: number; documents: number }
   | { status: 'failed'; error: ProjectExperienceError | null }
 
-export function isConfirmed(item: Pick<DebriefItem, 'verification' | 'pinned' | 'provenanceType'>): boolean {
-  return item.pinned || item.verification === 'user_confirmed' || item.provenanceType === 'user'
-}
-
 /** Drafted by the closing extraction and not yet a person's: it waits for a confirm or a dismiss. */
 function isSourceGrounded(item: Pick<DebriefItem, 'verification' | 'pinned' | 'provenanceType'>): boolean {
-  return item.verification === 'source_grounded' && !isConfirmed(item)
+  return item.verification === 'source_grounded' && !isConfirmedMemory(item)
 }
 
 /** A confirmed fact of this key, flat or per building: the same reading the experience route makes. */
@@ -375,6 +372,10 @@ export function ClosingDebrief({ projectId, profile, startedOn, canWriteMemory }
                   <ItemContent className="space-y-1">
                     <Badge variant="outline">{t(`lifecycle.debrief.decisions.kind.${item.kind === 'constraint' ? 'constraint' : 'decision'}`)}</Badge>
                     {grounded && <Badge variant="info">{t('lifecycle.debrief.decisions.grounded')}</Badge>}
+                    {/* Every origin named, as other projects will cite it: Piloti's own note too. */}
+                    {memoryOriginOf(item) === 'agent' && (
+                      <Badge variant="secondary">{t('lifecycle.debrief.decisions.noted')}</Badge>
+                    )}
                     <p className="text-foreground text-sm leading-snug">{item.content}</p>
                     {grounded && item.evidence && item.evidence.length > 0 && (
                       <p className="text-muted-foreground text-xs">
@@ -389,7 +390,7 @@ export function ClosingDebrief({ projectId, profile, startedOn, canWriteMemory }
                     )}
                   </ItemContent>
                   <ItemActions>
-                    {isConfirmed(item) ? (
+                    {isConfirmedMemory(item) ? (
                       <Badge variant="success">{t('lifecycle.debrief.decisions.confirmed')}</Badge>
                     ) : (
                       canWriteMemory && (

@@ -36,6 +36,19 @@ that never meets data delivers nothing.
 it, but almost nothing flows through it yet, and we have no instrument that
 would tell us if something did.
 
+*10 Oct:* the first instrument exists. Every turn's Langfuse root now says how
+many reference projects its catalog offered, p(precedent), whether round 0
+searched them on its own, and how many cited sources came from other projects
+(`answer_precedent_sources`, tag `cited-precedent`); each lookup is a
+`retrieve.project_lookup` observation with its reach and its picks
+([`langfuse.md`](../observability/langfuse.md)). That measures whether
+experience FLOWS. Whether readers USE it (opening a precedent or a reference)
+is still not recorded, so the similarity weights stay hand-set (audit item 13).
+The same day, the round-0 prefetch was found to search the eight NEWEST closed
+projects rather than the catalog's closest: the precedent eval's fixture BFF
+already walked them by likeness, so the baseline below measured an order
+production did not run until then.
+
 That reorders the next work. Before any new capability:
 
 1. **An eval for precedent questions** (done, 7 Oct). A fixture office, with

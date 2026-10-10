@@ -44,6 +44,8 @@ from aiq_agent.common.openrouter import pin_chat_model
 from aiq_agent.common.reasoning_settings import effort_of
 from aiq_agent.common.request_llm_context import read_request_llm_context
 from aiq_agent.common.tool_validation import format_no_sources_message
+from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
+from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
 from aiq_agent.project_context import get_organization_id_from_context
 from aiq_agent.project_context import get_project_id_from_context
 from aiq_agent.skills import SkillResolver
@@ -66,6 +68,7 @@ from nat.plugin_api import register_function
 from . import ask_user as _ask_user  # noqa: F401
 from .agent import PilotiAgent
 from .agent import TurnConfig
+from .decisions import PROJECT_LOOKUP
 from .decisions import SLOT as DECISION_SLOT
 from .decisions import TurnDecisions
 from .decisions import TurnFacts
@@ -567,7 +570,7 @@ def _turn_prefetch(decisions: TurnDecisions, facts: TurnFacts | None, state: Res
     """Round 0's tool calls; none when the config switched the decision off."""
     if facts is None:
         return ()
-    return tuple(
+    calls = tuple(
         prefetch_calls(
             decisions,
             facts.question,
@@ -576,6 +579,26 @@ def _turn_prefetch(decisions: TurnDecisions, facts: TurnFacts | None, state: Res
             reference_projects=facts.reference_projects,
         )
     )
+    record_reference_decision(decisions, facts.reference_projects, calls)
+    return calls
+
+
+def record_reference_decision(decisions: TurnDecisions, offered: int, calls: tuple) -> None:
+    """The office's experience at the start of a turn, for Langfuse (ADR-0089, ADR-0094).
+
+    How many reference projects the catalog offered, what the decision said
+    about a precedent, and whether round 0 searched the reference projects on
+    its own: the lookup's own observation cannot tell a prefetch from a call
+    the model chose, and a turn whose catalog was empty never reaches it.
+    """
+    prefetched = any(call.get("name") == PROJECT_LOOKUP for call in calls)
+    record_trace_metadata(
+        reference_projects_offered=offered,
+        precedent_p=round(decisions.precedent, 3) if decisions.precedent is not None else None,
+        reference_prefetch=prefetched,
+    )
+    if prefetched:
+        add_trace_tag("reference-prefetch")
 
 
 async def _run_agent(deployment: _Deployment, state: ResearchAgentState, turn: TurnConfig) -> ResearchAgentState | str:

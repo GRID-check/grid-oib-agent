@@ -140,6 +140,19 @@ describe('ClosingDebrief', () => {
     expect(screen.queryByText('Verworfene Variante mit Stahlbeton.')).not.toBeInTheDocument()
   })
 
+  test('names who stands behind each decision as other projects will cite it: Piloti’s own note too', async () => {
+    stubFetch({ memory: [...memory, drafted] })
+    render(<ClosingDebrief projectId="p1" profile={profile} startedOn="2024-03" canWriteMemory />)
+
+    const noted = await screen.findByText('Kapselung K₂60 mit Gipsfaserplatten, Prüfbericht liegt vor.')
+    expect(within(noted.closest('li') as HTMLElement).getByText('Noted by Piloti')).toBeInTheDocument()
+    const pinned = screen.getByText('Die Behörde verlangt die Fluchtwegbreite in jedem Grundriss.').closest('li') as HTMLElement
+    expect(within(pinned).queryByText('Noted by Piloti')).not.toBeInTheDocument()
+    const grounded = screen.getByText('Fluchttreppe außen in Stahl statt eines zweiten Stiegenhauses.').closest('li') as HTMLElement
+    expect(within(grounded).getByText('Drawn from the documents')).toBeInTheDocument()
+    expect(within(grounded).queryByText('Noted by Piloti')).not.toBeInTheDocument()
+  })
+
   test('confirming a decision records a person’s confirmation, and shows it', async () => {
     const fetchMock = stubFetch()
     render(<ClosingDebrief projectId="p1" profile={profile} startedOn="2024-03" canWriteMemory />)

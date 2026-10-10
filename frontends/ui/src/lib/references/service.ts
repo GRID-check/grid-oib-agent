@@ -22,13 +22,15 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { memoryOriginOf } from '@/lib/cross-project/decision-origin'
 import { oibEditionOf, projectPeriodOf } from '@/lib/cross-project/service'
-import { factLabel } from '@/lib/cross-project/fingerprint'
+import { factLabel, fingerprintOf, sharedTraitLabel } from '@/lib/cross-project/fingerprint'
 import {
   bundeslandOf,
+  confirmedSimilarityFacts,
+  holdsTrait,
   rankBySimilarity,
   sharedTraits,
+  similarity,
   similarityFacts,
-  type SharedTrait,
   type SimilarityFacts,
 } from '@/lib/cross-project/similarity'
 import type { Project } from '@/lib/db/schema'
@@ -43,11 +45,13 @@ import {
   SIMILAR_PERMIT_REQUIREMENTS_MAX,
   SIMILAR_PERMITS_MAX,
   SIMILAR_PROJECTS_MAX,
+  type ReferenceBasis,
   type ReferenceDecision,
   type ReferenceFact,
   type ReferencePermit,
   type ReferencePeriod,
   type SimilarProject,
+  type SimilarProjectsPage,
 } from './types'
 
 /** How many projects one page reads at the same time. */
@@ -70,11 +74,6 @@ function periodOf(project: Project): ReferencePeriod {
   return { start: period.start, end: period.end ?? closedOn }
 }
 
-/** A shared trait as its label: the Gebäudeklasse as „GK n", the rest as the intake's own words. */
-function traitLabel(trait: SharedTrait): string {
-  return trait.key === 'gebaeudeklasse' ? `GK ${trait.value}` : factLabel(trait.key, trait.value)
-}
-
 /** An active decision or constraint of the project's own memory: not an organization-wide item, not a question. */
 function isRecordedDecision(
   item: ProjectMemoryListItem
@@ -87,7 +86,7 @@ function isRecordedDecision(
 }
 
 function decisionsOf(items: readonly ProjectMemoryListItem[]): ReferenceDecision[] {
-  return items.filter(isRecordedDecision).slice(0, SIMILAR_DECISIONS_MAX).map((item) => ({
+  return items.filter(isRecordedDecision).map((item) => ({
     id: item.id,
     kind: item.kind,
     content: item.content,
@@ -114,10 +113,28 @@ function isDenial(error: unknown): boolean {
   return error instanceof NotFoundError || error instanceof ForbiddenError
 }
 
+/** The current project's facts, as the ranking reads them and as a person confirmed them. */
+interface Current {
+  facts: SimilarityFacts
+  confirmed: SimilarityFacts
+}
+
+/**
+ * What two projects share, each marked unconfirmed unless BOTH confirmed it:
+ * a trait one side only has from its documents is a guess about the match.
+ */
+function sharedTraitsOf(current: Current, profile: Project['profile'] | null): ReferenceFact<string>[] {
+  const confirmed = confirmedSimilarityFacts(profile)
+  return sharedTraits(current.facts, similarityFacts(profile)).map((trait) => ({
+    value: sharedTraitLabel(trait),
+    confirmed: holdsTrait(trait, current.confirmed) && holdsTrait(trait, confirmed),
+  }))
+}
+
 async function referenceOf(
   session: AuthorizedSession,
   project: Project,
-  current: SimilarityFacts
+  current: Current
 ): Promise<SimilarProject | null> {
   let memory: ProjectMemoryListItem[]
   let permits: ListedPermitRecord[]
@@ -130,15 +147,18 @@ async function referenceOf(
     if (isDenial(error)) return null
     throw error
   }
+  const decisions = decisionsOf(memory)
   return {
     id: project.id,
     name: project.name,
     period: periodOf(project),
     bundesland: bundeslandOfProject(project.profile),
     oibEdition: oibEditionOf(project.profile),
-    sharedTraits: sharedTraits(current, similarityFacts(project.profile)).map(traitLabel),
-    decisions: decisionsOf(memory),
+    alike: similarity(current.facts, similarityFacts(project.profile)) > 0,
+    sharedTraits: sharedTraitsOf(current, project.profile),
+    decisions: decisions.slice(0, SIMILAR_DECISIONS_MAX),
     permits: permitsOf(permits),
+    counts: { decisions: decisions.length, permits: permits.length },
   }
 }
 
@@ -151,19 +171,30 @@ async function mapBounded<T, R>(items: readonly T[], limit: number, work: (item:
   return results
 }
 
+/** What the ranking compared: the current project's fingerprint, and how many facts the briefing could still add. */
+function basisOf(profile: Project['profile'] | null): ReferenceBasis {
+  const facts = fingerprintOf(profile)
+  return { facts, missing: facts.filter((fact) => fact.applies && fact.editable && fact.value === null).length }
+}
+
 /**
  * The closed projects most like `projectId` that the reader may view, most
- * alike first, at most {@link SIMILAR_PROJECTS_MAX}. Requires `project:view` on
- * `projectId`; the current project is never in its own list.
+ * alike first, at most {@link SIMILAR_PROJECTS_MAX}, with what the ranking
+ * compared and how many it left out. Requires `project:view` on `projectId`;
+ * the current project is never in its own list.
  */
-export async function getSimilarProjects(session: AuthorizedSession, projectId: string): Promise<SimilarProject[]> {
+export async function getSimilarProjects(session: AuthorizedSession, projectId: string): Promise<SimilarProjectsPage> {
   await requireProjectAccess(session, projectId, 'project:view')
   const [current, visible] = await Promise.all([findProjectInOrg(projectId, session.organizationId), listProjects(session)])
   if (!current) throw new NotFoundError()
 
   const closed = visible.filter((project) => project.id !== current.id && isProjectClosed(project))
   const ranked = rankBySimilarity(current.profile, closed).slice(0, SIMILAR_PROJECTS_MAX)
-  const currentFacts = similarityFacts(current.profile)
-  const found = await mapBounded(ranked, READ_CONCURRENCY, (project) => referenceOf(session, project, currentFacts))
-  return found.filter((reference): reference is SimilarProject => reference !== null)
+  const facts = { facts: similarityFacts(current.profile), confirmed: confirmedSimilarityFacts(current.profile) }
+  const found = await mapBounded(ranked, READ_CONCURRENCY, (project) => referenceOf(session, project, facts))
+  return {
+    basis: basisOf(current.profile),
+    projects: found.filter((reference): reference is SimilarProject => reference !== null),
+    more: closed.length - ranked.length,
+  }
 }

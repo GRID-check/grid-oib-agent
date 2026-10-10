@@ -147,7 +147,8 @@ export const projects = {
         'What this project learned can serve every future project in the office: Piloti offers it when a similar question comes up. Take a moment before closing to check what stays.',
       fingerprint: {
         heading: 'How Piloti finds it again',
-        description: 'Piloti finds comparable projects by these facts. Add missing ones in the brief.',
+        description:
+          'Piloti finds comparable projects by these facts, and your office finds this one under “Similar projects”. Add missing ones in the brief.',
         missing: '{count, plural, one {# fact missing} other {# facts missing}}',
         complete: 'Complete',
         open: 'open',
@@ -190,6 +191,7 @@ export const projects = {
         confirmed: 'Confirmed',
         dismiss: 'Dismiss',
         grounded: 'Drawn from the documents',
+        noted: 'Noted by Piloti',
         evidencePage: '{file}, p. {page}',
         kind: { decision: 'Decision', constraint: 'Constraint' },
       },

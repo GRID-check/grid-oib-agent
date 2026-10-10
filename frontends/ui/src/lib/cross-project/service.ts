@@ -179,9 +179,11 @@ function listed(project: Project, currentProjectId: string | null): CrossProject
 }
 
 /**
- * The projects a search scope covers, the conversation's own left out: in the
- * listing's order (newest first), or, for `similar`, most like the current
- * project first (`similarity.ts`).
+ * The projects a search scope covers, the conversation's own left out: for
+ * `similar` and `closed`, most like the current project first (`similarity.ts`),
+ * so a search of the closed projects (the turn's precedent prefetch) walks the
+ * same projects the reference catalog lists first; for `all` and `named`, in the
+ * listing's order (newest first).
  */
 export function projectsInScope(
   reachable: readonly Project[],
@@ -192,7 +194,12 @@ export function projectsInScope(
     (project) => project.id !== current?.id && periodOverlaps(projectPeriodOf(project), request.from, request.to)
   )
   if (request.scope === 'similar') return rankBySimilarity(current?.profile ?? null, others)
-  if (request.scope === 'closed') return others.filter((project) => projectStatusOf(project) === 'closed')
+  if (request.scope === 'closed') {
+    return rankBySimilarity(
+      current?.profile ?? null,
+      others.filter((project) => projectStatusOf(project) === 'closed')
+    )
+  }
   if (request.scope === 'named') {
     const named = new Set(request.projectIds)
     return others.filter((project) => named.has(project.id))
@@ -411,7 +418,7 @@ export async function searchAcrossProjects(
 ): Promise<CrossProjectSearchResponse> {
   const [audience, current] = await Promise.all([
     audienceReach(caller.session, caller.conversationId),
-    request.scope === 'similar' ? currentProjectOf(caller) : Promise.resolve(null),
+    request.scope === 'similar' || request.scope === 'closed' ? currentProjectOf(caller) : Promise.resolve(null),
   ])
   // `openFoldersOnly` searches as a shared chat would: no restricted folder, so nothing that narrows the readers.
   const reach = request.openFoldersOnly ? { ...audience, restrictedFolders: false } : audience

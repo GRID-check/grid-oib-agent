@@ -886,6 +886,9 @@ export const chat: typeof en.chat = {
       webSearch: 'Websuche',
       ris: 'RIS',
       corpus: 'Wissen',
+      // In anderen Projekten des Büros nachgeschlagen (ADR-0094), meist in den
+      // abgeschlossenen Referenzprojekten.
+      otherProjects: 'Andere Projekte',
       reading: 'Lesen',
       // Das Arbeitsverzeichnis der Unterhaltung: schreiben, lesen, ändern,
       // auflisten — ein Wort für alle vier. Was Lesende interessiert, ist dass

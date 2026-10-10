@@ -610,6 +610,17 @@ def _action_key(base: str, args: Any) -> str | None:
 #: Argument names a retrieval query hides behind, in preference order.
 _QUERY_KEYS = ("query", "search_query", "question", "q", "text", "name_contains")
 
+#: Arguments that pick what a call does or which record it reads, never what
+#: was asked: ``project_lookup``'s ``action`` and ``scope``, and every id. The
+#: "first non-empty string" fallback skips them, so a ``brief`` with no query
+#: reads „Sucht in anderen Projekten", not „Sucht in anderen Projekten: „brief"".
+_SELECTOR_ARGS = frozenset({"action", "scope"})
+
+
+def _is_selector(name: str) -> bool:
+    return name in _SELECTOR_ARGS or name.endswith("_id")
+
+
 #: The retrieval tools' checkpoint argument: one sentence saying what the model
 #: now knows and what it still needs, written as part of the CALL rather than as
 #: prose beside it.
@@ -867,7 +878,7 @@ def _query_text(args: Any) -> str | None:
         # a retrieval call carries, so the "first non-empty string" fallback
         # would quote the model's own reasoning back at the reader as if it
         # were what they asked.
-        if name == CONCLUSION_ARG:
+        if name == CONCLUSION_ARG or _is_selector(name):
             continue
         if isinstance(value, str) and value.strip():
             return value.strip()

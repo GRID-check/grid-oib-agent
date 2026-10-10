@@ -392,3 +392,25 @@ def test_the_catalog_is_counted_by_its_project_lines_not_its_tail():
     )
     assert reference_project_count(catalog) == 2
     assert reference_project_count(None) == 0
+
+
+def test_the_turn_start_records_the_catalog_the_precedent_and_whether_round_0_looked(monkeypatch):
+    """Langfuse sees the office's experience at the start of a turn (ADR-0089): the lookup's own span cannot."""
+    from aiq_agent.agents.piloti.register import record_reference_decision
+
+    recorded: dict = {}
+    tags: list[str] = []
+    monkeypatch.setattr(register_module, "record_trace_metadata", lambda **pairs: recorded.update(pairs))
+    monkeypatch.setattr(register_module, "add_trace_tag", tags.append)
+    decisions = TurnDecisions(decided=True, precedent=0.8123)
+
+    record_reference_decision(decisions, 12, ({"name": "knowledge_search", "args": {}}, {"name": "project_lookup"}))
+
+    assert recorded == {"reference_projects_offered": 12, "precedent_p": 0.812, "reference_prefetch": True}
+    assert tags == ["reference-prefetch"]
+
+    recorded.clear()
+    tags.clear()
+    record_reference_decision(TurnDecisions.none(), 0, ())
+    assert recorded == {"reference_projects_offered": 0, "precedent_p": None, "reference_prefetch": False}
+    assert tags == []
