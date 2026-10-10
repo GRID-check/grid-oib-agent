@@ -240,7 +240,7 @@ allowed to leave this §3 standing.
 One place the rule cannot reach, and you have to check by hand: the substrate has
 a second implementation outside the BFF. `frontends/ui/purger/purge-project.js`
 carries its own copy of the delete cascade, in CommonJS, outside `tsc --noEmit`
-and outside `eslint src` (§3.5). Widening the union will not make it fail to
+and outside the lint run over `src` (§3.5). Widening the union will not make it fail to
 compile, and no test in this tier covers it. Grep the purger for your type's name
 before you call a cascade done. A lift of §3.5 that does not give the purger a
 shared source of the three delete statements is not a lift.

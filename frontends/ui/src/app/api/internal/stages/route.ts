@@ -32,7 +32,7 @@ import { isProjectClosed } from '@/lib/projects/project-status'
  * the Automation section can be hidden and `create_task` still hands work over
  * from a chat turn.
  *
- * `?projectId` names the turn's project. A CLOSED project (ADR-0089) withdraws
+ * `?projectId` names the turn's project. A CLOSED project (ADR-0090) withdraws
  * both capabilities: a research run and a task each file into the project,
  * which is read-only, so the agent must not offer what the BFF would refuse
  * after the reader approved it. The project is read by the same tenancy probe

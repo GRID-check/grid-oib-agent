@@ -259,7 +259,7 @@ describe('getFeedbackDigest — caching', () => {
     vi.mocked(globalThis.fetch).mockClear()
     const stale = { headline: 'Zimmerer-Honorar 48.000 EUR falsch.', strengths: [], concerns: [] }
     await store.set(current.replace(':v4:', ':v2:'), JSON.stringify(stale))
-    // v3 left out votes by conversation only; 0124's marks reach more (ADR-0092).
+    // v3 left out votes by conversation only; 0124's marks reach more (ADR-0093).
     await store.set(current.replace(':v4:', ':v3:'), JSON.stringify(stale))
 
     const result = await getFeedbackDigest(health(), Q)

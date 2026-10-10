@@ -158,7 +158,7 @@ services:
       # (aiq_api.plugin), because the WorkOS validator loads only when this is set.
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID:-}
       # The commit this deployment is running. Stamped into the image as a
-      # build arg by publish-images.yml, so it is normally already set inside
+      # build arg by CI's image build, so it is normally already set inside
       # the container and this line only matters for a locally built or
       # hand-tagged image. It appears in the `[boot]` log line and on the health
       # endpoints, and it is what makes a pilot report nameable.
@@ -620,7 +620,7 @@ services:
       - REDIS_URL=redis://dragonfly:6379/0
       - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
       # The commit this deployment is running. Stamped into the image as a
-      # build arg by publish-images.yml, so it is normally already set inside
+      # build arg by CI's image build, so it is normally already set inside
       # the container and this line only matters for a locally built or
       # hand-tagged image. It appears in the `[boot]` log line and on the health
       # endpoints, and it is what makes a pilot report nameable.

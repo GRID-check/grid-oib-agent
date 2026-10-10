@@ -1,5 +1,5 @@
 /**
- * The „Ausmisten" proposal as the wire carries it (ADR-0091). Isomorphic: the
+ * The „Ausmisten" proposal as the wire carries it (ADR-0092). Isomorphic: the
  * close dialog reads it, `cleanup-service` builds it.
  */
 

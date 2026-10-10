@@ -260,7 +260,7 @@ export const taskRuns = pgTable(
     projectCreatedIdx: index('idx_task_runs_project_created').on(table.projectId, table.createdAt),
     orgIdx: index('idx_task_runs_organization_id').on(table.organizationId),
     // A revision task's thread is judged by its document's current folder
-    // (migration 0124, ADR-0092): looked up by conversation, revisions only.
+    // (migration 0124, ADR-0093): looked up by conversation, revisions only.
     revisionConversationIdx: index('idx_task_runs_revision_conversation')
       .on(table.organizationId, table.conversationId)
       .where(sql`${table.kind} = 'revision'`),

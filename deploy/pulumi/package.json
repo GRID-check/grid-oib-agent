@@ -26,6 +26,6 @@
   "dependencies": {
     "@pulumi/cloudflare": "^6.19.0",
     "@pulumi/kubernetes": "^4.19.0",
-    "@pulumi/pulumi": "^3.145.0"
+    "@pulumi/pulumi": "^3.268.0"
   }
 }
