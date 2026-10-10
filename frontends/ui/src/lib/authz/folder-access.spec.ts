@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 vi.mock('./folder-access-repository', () => ({
-  projectHasCustomFolders: vi.fn(),
+  projectHasCustomOrBinnedFolders: vi.fn(),
   listProjectFolderTree: vi.fn(),
   listCustomFolderNames: vi.fn(),
 }))
@@ -36,11 +36,12 @@ import {
   unreadableFoldersBelow,
   withProjectCeiling,
   type AccessFolder,
+  type DeletedFolderContentPolicy,
   type FolderClearance,
   type FolderGrant,
   type FolderLevel,
 } from './folder-access'
-import { listProjectFolderTree, projectHasCustomFolders } from './folder-access-repository'
+import { listProjectFolderTree, projectHasCustomOrBinnedFolders } from './folder-access-repository'
 import { requireProjectAccess } from './projects'
 
 const COLLECTION = 'proj_8f2c3b1e-0000-4000-8000-000000000001'
@@ -192,9 +193,12 @@ describe('withProjectCeiling — the project permission caps write', () => {
 describe('computeFolderAccess — listings and retrieval', () => {
   const as = (roles: string[], seesEverything = false) => computeFolderAccess(TREE, who(roles, seesEverything), COLLECTION)
 
-  it('hides a folder the clearance may not read, and everything below it; tombstones never list', () => {
+  it('hides a folder the clearance may not read, and everything below it; a deleted folder from everyone', () => {
     const intern = as(['member'])
-    expect([...intern.hiddenFolderIds].sort()).toEqual([F.vertraege, F.honorare, F.waise].sort())
+    expect([...intern.hiddenFolderIds].sort()).toEqual([F.vertraege, F.honorare, F.waise, F.archiviert].sort())
+    // What is filed in a deleted folder is hidden from an admin too: the
+    // Papierkorb is the one place it is seen.
+    expect([...as([], true).hiddenFolderIds]).toEqual([F.archiviert])
     expect(intern.isVisible(F.verwaltung)).toBe(true)
     expect(intern.isVisible(F.statik)).toBe(true)
     expect(intern.isVisible(null)).toBe(true)
@@ -228,13 +232,25 @@ describe('computeFolderAccess — listings and retrieval', () => {
 
   it('is the fast, open answer when no folder has its own list', () => {
     const open = computeFolderAccess(
-      TREE.map((folder) => ({ ...folder, accessMode: 'inherit' as const, grants: [] })),
+      TREE.map((folder) => ({ ...folder, accessMode: 'inherit' as const, grants: [], deleted: false })),
       who([]),
       COLLECTION
     )
     expect(open.anyRestricted).toBe(false)
     expect(open.isVisible(F.vertraege)).toBe(true)
     expect(open.levelOf(F.vertraege)).toBe('write')
+  })
+
+  it('hides a folder in the bin and what is in it even when no folder has its own list', () => {
+    const tree = TREE.map((folder) => ({ ...folder, accessMode: 'inherit' as const, grants: [] }))
+    const access = computeFolderAccess(tree, who([], true), COLLECTION)
+    expect(access.anyRestricted).toBe(true)
+    expect(access.isVisible(F.archiviert)).toBe(false)
+    expect([...access.hiddenFolderIds]).toEqual([F.archiviert])
+    // A purged tombstone holds nothing: it still never lists, but is no reason to load the tree.
+    const purged = tree.map((folder) => (folder.deleted ? { ...folder, purgedAt: new Date() } : folder))
+    expect(computeFolderAccess(purged, who([]), COLLECTION).anyRestricted).toBe(false)
+    expect(computeFolderAccess(purged, who([]), COLLECTION).isVisible(F.archiviert)).toBe(false)
   })
 })
 
@@ -276,7 +292,7 @@ const session = (roles: string[] | undefined, permissions: string[] = []): Autho
 
 describe('the session loaders', () => {
   beforeEach(() => {
-    vi.mocked(projectHasCustomFolders).mockReset()
+    vi.mocked(projectHasCustomOrBinnedFolders).mockReset()
     vi.mocked(listProjectFolderTree).mockReset()
     vi.mocked(requireProjectAccess).mockReset()
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
@@ -304,7 +320,7 @@ describe('the session loaders', () => {
   })
 
   it('a demoted admin no longer reads or writes a folder whose list names none of their roles', async () => {
-    vi.mocked(projectHasCustomFolders).mockResolvedValue(true)
+    vi.mocked(projectHasCustomOrBinnedFolders).mockResolvedValue(true)
     vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
     vi.mocked(resolveMembershipRoles).mockResolvedValue(['member'])
     const demoted = session(['member'], ['org:projects:administer'])
@@ -314,16 +330,18 @@ describe('the session loaders', () => {
   })
 
   it('does not read the tree for a project where no folder has its own list', async () => {
-    vi.mocked(projectHasCustomFolders).mockResolvedValue(false)
+    vi.mocked(projectHasCustomOrBinnedFolders).mockResolvedValue(false)
     const access = await getProjectFolderAccess(session(['member']), 'proj-1', COLLECTION)
     expect(access.anyRestricted).toBe(false)
     expect(listProjectFolderTree).not.toHaveBeenCalled()
   })
 
   it('getRestrictedFolderIds: what a caller with no session must hide is what not every member may read', async () => {
-    vi.mocked(projectHasCustomFolders).mockResolvedValue(true)
+    vi.mocked(projectHasCustomOrBinnedFolders).mockResolvedValue(true)
     vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
-    expect((await getRestrictedFolderIds('org-1', 'proj-1')).sort()).toEqual([F.vertraege, F.honorare, F.waise].sort())
+    expect((await getRestrictedFolderIds('org-1', 'proj-1')).sort()).toEqual(
+      [F.vertraege, F.honorare, F.waise, F.archiviert].sort()
+    )
   })
 
   it('readableFolderIdsFor: every folder, tombstones included, the clearance may read now', async () => {
@@ -335,7 +353,7 @@ describe('the session loaders', () => {
   })
 
   it('filterUsersWhoMayReadFolder: each person by the roles WorkOS reports for them, the tree read once', async () => {
-    vi.mocked(projectHasCustomFolders).mockResolvedValue(true)
+    vi.mocked(projectHasCustomOrBinnedFolders).mockResolvedValue(true)
     vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
     const rolesOf: Record<string, string[] | null> = { gf: [GF], bh: [BH], nobody: ['member'], admin: ['admin'], down: null }
     vi.mocked(resolveMembershipRoles).mockImplementation(async (_org, userId) => rolesOf[userId])
@@ -347,7 +365,7 @@ describe('the session loaders', () => {
   })
 
   it('filterUsersWhoMayReadFolder: asks nobody for the root or a project with no own list', async () => {
-    vi.mocked(projectHasCustomFolders).mockResolvedValue(false)
+    vi.mocked(projectHasCustomOrBinnedFolders).mockResolvedValue(false)
     vi.mocked(resolveMembershipRoles).mockClear()
 
     expect([...(await filterUsersWhoMayReadFolder('org-1', 'proj-1', F.vertraege, ['a', 'b']))]).toEqual(['a', 'b'])
@@ -365,7 +383,7 @@ describe('the session loaders', () => {
 
 describe('requireFolderWrite — the one write check', () => {
   beforeEach(() => {
-    vi.mocked(projectHasCustomFolders).mockResolvedValue(true)
+    vi.mocked(projectHasCustomOrBinnedFolders).mockResolvedValue(true)
     vi.mocked(listProjectFolderTree).mockClear()
     vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
     vi.mocked(requireProjectAccess).mockReset()
@@ -473,5 +491,37 @@ describe('a role deleted in WorkOS leaves its folders to the admins (ADR-0088)',
     expect(foldersWithoutValidRole(named, beforeRename)).toEqual([])
     expect(foldersWithoutValidRole(named, afterRename)).toEqual([])
     expect(effectiveFolderLevel(folderTree(named), who(['org-geschaeftsfuehrung']), DEAD)).toBe('write')
+  })
+})
+
+describe('a purged folder: the organization decides who sees what was derived from it', () => {
+  // Archiviert (GF: read) after its purge, under each of the four settings.
+  const purgedUnder = (policy: DeletedFolderContentPolicy) =>
+    folderTree(
+      TREE.map((folder) =>
+        folder.id === F.archiviert ? { ...folder, purgedAt: new Date('2026-10-20T00:00:00Z'), purgedContent: policy } : folder
+      )
+    )
+
+  it.each([
+    ['unchanged', [GF], 'read'],
+    ['unchanged', [PL], 'none'],
+    ['project', [PL], 'read'],
+    ['project', [], 'read'],
+    ['admins', [GF], 'none'],
+    ['remove', [GF], 'none'],
+  ] as const)('%s: roles %j read it as %s', (policy, roles, expected) => {
+    expect(effectiveFolderLevel(purgedUnder(policy), who([...roles]), F.archiviert)).toBe(expected)
+  })
+
+  it.each(['unchanged', 'project', 'admins', 'remove'] as const)('%s: an organization admin still reads it', (policy) => {
+    expect(effectiveFolderLevel(purgedUnder(policy), who([], true), F.archiviert)).toBe('write')
+  })
+
+  it('leaves a folder in the bin (not purged) to its own grants, whatever the setting', () => {
+    const tree = folderTree(
+      TREE.map((folder) => (folder.id === F.archiviert ? { ...folder, purgedContent: 'admins' as const } : folder))
+    )
+    expect(effectiveFolderLevel(tree, who([GF]), F.archiviert)).toBe('read')
   })
 })

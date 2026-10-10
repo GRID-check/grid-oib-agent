@@ -77,6 +77,7 @@ import {
   LEGAL_HOLD_REASON,
   LEGAL_HOLD_SQLSTATE,
 } from '@/lib/compliance/legal-hold-codes'
+import { FOLDER_DELETED_REASON, FOLDER_DELETED_SQLSTATE } from '@/lib/projects/folder-bin-codes'
 
 /** Context passed to session-authenticated handlers. */
 export interface ApiContext<TParams = Record<string, never>> {
@@ -295,6 +296,15 @@ export function errorResponse(error: unknown, request: Request): Response {
     return errorPayload(
       { error: LEGAL_HOLD_MESSAGE, code: 'CONFLICT', details: { reason: LEGAL_HOLD_REASON } },
       409,
+      requestId,
+    )
+  }
+  // Something was filed into a folder that went to the Papierkorb between the
+  // write check and the insert (migration 0115's trigger): the folder is gone.
+  if (findPostgresCode(error) === FOLDER_DELETED_SQLSTATE) {
+    return errorPayload(
+      { error: 'Folder not found', code: 'NOT_FOUND', details: { reason: FOLDER_DELETED_REASON } },
+      404,
       requestId,
     )
   }

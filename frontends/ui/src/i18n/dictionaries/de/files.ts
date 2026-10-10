@@ -382,6 +382,39 @@ export const files: typeof en.files = {
       forbidden: 'Nur Projekt-Admins können ändern, wer einen Ordner lesen und bearbeiten darf.',
     },
   },
+  /** The Papierkorb of a project (ADR-0088). */
+  bin: {
+    title: 'Papierkorb',
+    subtitle:
+      'Gelöschte Ordner mit ihren Unterordnern und Dokumenten. Bis zur endgültigen Löschung lassen sie sich mit ihren Zugriffsrechten wiederherstellen.',
+    back: 'Zurück zu den Dateien',
+    empty: 'Der Papierkorb ist leer.',
+    emptyHint: 'Gelöschte Ordner erscheinen hier und lassen sich wiederherstellen.',
+    deletedBy: 'Gelöscht von {name} am {date}',
+    deletedOn: 'Gelöscht am {date}',
+    contents:
+      '{documents, plural, one {# Dokument} other {# Dokumente}} · {folders, plural, one {# Ordner} other {# Ordner}}',
+    purgeOn: 'Wird am {date} endgültig gelöscht',
+    purging: 'Wird gerade endgültig gelöscht',
+    failed: 'Die endgültige Löschung ist angehalten. Ein Admin kümmert sich darum.',
+    restore: 'Wiederherstellen',
+    restored: '„{name}“ ist wiederhergestellt. Die Dokumente werden neu eingelesen.',
+    restoredToRoot:
+      '„{name}“ ist wiederhergestellt, und zwar direkt im Projekt: Sein übergeordneter Ordner ist gelöscht.',
+    restoreNameTaken: 'Hier gibt es schon einen Ordner „{name}“. Benennen Sie ihn um und stellen Sie dann wieder her.',
+    restoreReadOnly: 'Wiederherstellen kann, wer den Ordner bearbeiten durfte.',
+    restoreError: 'Der Ordner konnte nicht wiederhergestellt werden. Bitte versuchen Sie es erneut.',
+    purge: 'Endgültig löschen',
+    purgeTitle: '„{name}“ endgültig löschen?',
+    purgeDescription:
+      'Der Ordner, seine Unterordner und {documents, plural, one {# Dokument} other {# Dokumente}} werden sofort gelöscht, mit allen Versionen und Vorschauen. Das lässt sich nicht rückgängig machen. Was Piloti daraus abgeleitet hat, folgt der Einstellung Ihrer Organisation.',
+    purged: '„{name}“ ist endgültig gelöscht.',
+    held: 'Für diesen Ordner gilt eine Aufbewahrungspflicht. Er kann gerade nicht gelöscht werden.',
+    purgeError: 'Der Ordner konnte nicht endgültig gelöscht werden. Bitte versuchen Sie es erneut.',
+    cancel: 'Abbrechen',
+    loadError: 'Der Papierkorb konnte nicht geladen werden.',
+    retry: 'Erneut versuchen',
+  },
   workspace: {
     renameFolderError: 'Der Ordner konnte nicht umbenannt werden. Bitte versuchen Sie es erneut.',
     deleteFolderError: 'Der Ordner konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.',
@@ -390,6 +423,14 @@ export const files: typeof en.files = {
       'Ordner „{name}“ löschen?\n\nDie {documents} Dokument(e) und {folders} Unterordner werden nicht gelöscht — sie werden nach „{parent}“ verschoben.',
     deleteFolderDone: '„{name}“ gelöscht.',
     deleteFolderMoved: 'Ordner gelöscht. {count} Dokument(e) nach „{parent}“ verschoben.',
+    binFolderConfirm:
+      'Ordner „{name}“ in den Papierkorb verschieben?\n\nSeine Unterordner und Dokumente kommen mit. Im Papierkorb lässt er sich mit seinen Zugriffsrechten wiederherstellen, bis er endgültig gelöscht wird.',
+    binFolderDone: '„{name}“ ist im Papierkorb. Wiederherstellbar bis {date}.',
+    deleteFolderProtected:
+      'Dieser Ordner enthält Inhalte, die Sie nicht löschen dürfen. Löschen kann ihn, wer alle seine Unterordner bearbeiten darf.',
+    deleteFolderIndexDown:
+      'Der Ordner wurde nicht gelöscht, weil der Suchindex nicht geantwortet hat. Bitte versuchen Sie es erneut.',
+    openBin: 'Papierkorb',
     corpusSubtitle: 'Projektwissen – diese Dokumente untermauern Pilotis Antworten',
     uploadDocuments: 'Dokumente hochladen',
     uploadProblem: 'Upload-Problem',

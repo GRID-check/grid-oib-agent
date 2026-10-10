@@ -806,6 +806,13 @@
       "when": 1791590400007,
       "tag": "0114_document_access_log",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1791676800007,
+      "tag": "0115_folder_bin",
+      "breakpoints": true
     }
   ]
 }

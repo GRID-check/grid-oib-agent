@@ -27,6 +27,7 @@ vi.mock('@/lib/authz/folder-access', () => ({
   clearanceOf: vi.fn(() => ({ roles: ['member'], seesEverything: false })),
   customFolderNames: vi.fn(),
   getHiddenFolderIds: vi.fn(async () => []),
+  purgedFolderDates: vi.fn(async () => new Map()),
   readableFolderIdsFor: vi.fn(),
 }))
 
@@ -37,7 +38,7 @@ vi.mock('./memory-service', () => ({
   updateProjectMemoryItem: vi.fn(async () => ({ id: 'item-1' })),
 }))
 
-import { customFolderNames, readableFolderIdsFor } from '@/lib/authz/folder-access'
+import { customFolderNames, purgedFolderDates, readableFolderIdsFor } from '@/lib/authz/folder-access'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { NotFoundError } from '@/lib/api/errors'
 import { makeMemoryItem } from '@/test-utils/db-fixtures'
@@ -81,6 +82,22 @@ describe('getProjectMemory', () => {
     })
     expect(items.find((item) => item.id === 'restricted')?.restrictedFolderNames).toEqual(['Verträge'])
     expect(items.find((item) => item.id === 'open')).not.toHaveProperty('restrictedFolderNames')
+    expect(items.find((item) => item.id === 'restricted')).not.toHaveProperty('sourceDeletedAt')
+  })
+
+  it('says when the folder a note came from was purged, for „Quelle gelöscht am …" (ADR-0088)', async () => {
+    vi.mocked(readableFolderIdsFor).mockResolvedValue([CONTRACTS])
+    vi.mocked(customFolderNames).mockResolvedValue(new Map([[CONTRACTS, 'Verträge']]))
+    vi.mocked(purgedFolderDates).mockResolvedValue(new Map([[CONTRACTS, new Date('2026-10-20T03:00:00Z')]]))
+    vi.mocked(listProjectMemory).mockResolvedValue([
+      makeMemoryItem({ id: 'open' }),
+      makeMemoryItem({ id: 'restricted', restrictedFolderIds: [CONTRACTS] }),
+    ])
+
+    const items = await getProjectMemory(SESSION, 'proj-1')
+
+    expect(items.find((item) => item.id === 'restricted')?.sourceDeletedAt).toBe('2026-10-20T03:00:00.000Z')
+    expect(items.find((item) => item.id === 'open')).not.toHaveProperty('sourceDeletedAt')
   })
 
   it('lists open memory only for an uncleared session, and asks for no folder names', async () => {

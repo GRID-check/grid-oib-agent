@@ -10,6 +10,7 @@ vi.mock('@/lib/db/tenant-context', () => ({
 }))
 vi.mock('@/lib/documents/shelf-authz', () => ({ requireShelfWrite: vi.fn() }))
 vi.mock('@/lib/authz/folder-access', () => ({ requireFolderWrite: vi.fn() }))
+vi.mock('@/lib/documents/folder-path', () => ({ resolveShelfFolderPath: vi.fn(async () => 'E-Mail-Import/Büro 2019') }))
 vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn() }))
 vi.mock('@/lib/jobs-queue/repository', () => ({ findOpenJobId: vi.fn() }))
 vi.mock('@/lib/jobs-queue/enqueue', () => ({ enqueueJob: vi.fn(async () => ({ jobId: 'job_next' })) }))
@@ -73,6 +74,7 @@ import { requireFolderWrite } from '@/lib/authz/folder-access'
 import { folderReadOnlyError } from '@/lib/authz/folder-access-rule'
 import { findRootProjectFolderByName } from '@/lib/projects/folder-service'
 import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
+import { resolveShelfFolderPath } from '@/lib/documents/folder-path'
 import { requireShelfWrite } from '@/lib/documents/shelf-authz'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
 import { findOpenJobId } from '@/lib/jobs-queue/repository'
@@ -411,6 +413,48 @@ describe('runMailImportSlice, upload batch', () => {
     await runMailImportSlice(null, payload, 'org_1')
     expect(discardStaging).toHaveBeenCalledOnce()
     expect(emitInboxItems).toHaveBeenCalledWith([expect.objectContaining({ type: 'mail_import.failed' })])
+  })
+
+  describe('when the archive folder went to the Papierkorb', () => {
+    it('ends the import at a slice start, filing nothing and making no new folder', async () => {
+      vi.mocked(repository.findMailImport).mockResolvedValueOnce(row({ nextPosition: 40, mailsFiled: 40 }))
+      vi.mocked(resolveShelfFolderPath).mockResolvedValueOnce(null)
+
+      expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(true)
+      expect(readArchivePage).not.toHaveBeenCalled()
+      expect(createFolderWithFreeName).not.toHaveBeenCalled()
+      expect(enqueueJob).not.toHaveBeenCalled()
+      expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
+        status: 'failed', errorCode: 'stopped', lastError: expect.stringMatching(/Papierkorb/),
+      }))
+      expect(emitInboxItems).toHaveBeenCalledWith([expect.objectContaining({ type: 'mail_import.failed' })])
+    })
+
+    it('ends the import at once when it is binned in the middle of a slice, instead of handing on', async () => {
+      vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+      vi.mocked(readArchivePage).mockResolvedValueOnce(page([mail], null, 1))
+      vi.mocked(fileMail).mockRejectedValueOnce(new NotFoundError('Folder not found in project'))
+      vi.mocked(resolveShelfFolderPath).mockResolvedValueOnce('E-Mail-Import/Büro 2019').mockResolvedValueOnce(null)
+
+      expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(true)
+      expect(enqueueJob).not.toHaveBeenCalled()
+      expect(repository.advanceMailImport).not.toHaveBeenCalled()
+      expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
+        status: 'failed', errorCode: 'stopped', lastError: expect.stringMatching(/Papierkorb/),
+      }))
+    })
+
+    it('hands on when only a folder inside it was binned: the next slice files the mail into a new one', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      vi.mocked(repository.findMailImport).mockResolvedValue(row())
+      vi.mocked(readArchivePage).mockResolvedValueOnce(page([mail], null, 1))
+      vi.mocked(fileMail).mockRejectedValueOnce(new NotFoundError('Folder not found in project'))
+
+      expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(true)
+      expect(enqueueJob).toHaveBeenCalledOnce()
+      expect(repository.updateMailImport).not.toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({ status: 'failed' }))
+      vi.mocked(repository.findMailImport).mockReset()
+    })
   })
 })
 

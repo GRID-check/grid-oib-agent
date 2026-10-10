@@ -42,8 +42,9 @@ const IN_FLIGHT_STATUSES = IN_FLIGHT_DOCUMENT_STATUSES
 
 /**
  * The one in-flight status the BACKEND cannot answer for. `processing` is
- * written only by `markDocumentProcessing`, for work running in the BFF itself
- * (IFC extraction, office rendition) before any ingest job exists. Whatever the
+ * written by `markDocumentProcessing`, for work running in the BFF itself
+ * (IFC extraction, office rendition) before any ingest job exists, and by a
+ * Papierkorb restore for the documents its job is about to read again. Whatever the
  * row's metadata still carries is from the PREVIOUS dispatch: `metadata` is not
  * cleared when the row goes back to `processing`, so a retried document asks
  * the batch endpoint about its old failed job and flips back to `failed` while

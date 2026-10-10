@@ -371,6 +371,7 @@ Read by `frontends/ui/workers/jobs/index.js`, the entry point of the `bff-jobs` 
 | `LOG_LEVEL` | No | `INFO` | Logging level: DEBUG, INFO, WARNING, ERROR. |
 | `PYTHONWARNINGS` | No | `ignore` | Python warnings filter. |
 | `PROJECT_PURGE_GRACE_DAYS` | No | see `docs/architecture/deletion-pipeline.md` | Grace period before soft-deleted projects are hard-purged (ADR-0011). |
+| `FOLDER_PURGE_GRACE_DAYS` | No | `14` | Days a deleted folder stays in the project's Papierkorb, restorable, before the purger erases its documents and keeps it as a tombstone (ADR-0088). Capped at 23, like every grace period, so an erasure still finishes inside the GDPR's one month; empty or invalid means 14. Read by the BFF when a folder is deleted. |
 
 ---
 
@@ -493,6 +494,9 @@ Capability only, read per call, and a silent no-op when anything is missing.
 Pulumi injects all five into the frontend only where the Langfuse tier is
 deployed (`frontendLangfuseEnv` in `deploy/pulumi/src/platform/langfuse.ts`),
 the keys by reference to the `langfuse-secrets` Secret; Compose sets none.
+The bff-jobs pool, whose environment is otherwise the frontend's, gets none of
+the five (`BFF_JOBS_WITHHELD` in `deploy/pulumi/src/app/config.ts`): only the
+request path scores a vote, and no NetworkPolicy admits that pool to Langfuse.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
