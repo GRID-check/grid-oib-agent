@@ -37,6 +37,10 @@ import {
  * is last because the badge already draws the eye. Settings stays pinned at the
  * bottom.
  *
+ * There is deliberately no Similar projects entry either: it is reference
+ * reading about the project, so it is a tile on the project's Overview and a
+ * section behind it (`/settings/references`), and `/referenzen` redirects there.
+ *
  * There is deliberately no Model entry: an IFC is a file, it opens
  * from the Files grid, and a second rail item for one file type was a
  * destination nobody navigated to. The palette additionally surfaces the

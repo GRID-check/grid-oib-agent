@@ -145,6 +145,7 @@ ANSWER_LIFTS: tuple[tuple[str, str], ...] = (
     ("answer_meta", "answer_meta"),
     ("retrieval_ledger", "retrieval_ledger"),
     ("quote_stamps", "quote_stamps"),
+    ("reasoning_effort", "reasoning_effort"),
 )
 
 
@@ -453,6 +454,7 @@ class ConversationGraph:
             project_context=state.project_context,
             platform_lessons=state.platform_lessons,
             org_instructions=state.org_instructions,
+            reference_projects=state.reference_projects,
             focus_file_name=state.focus_file_name,
             focus_shelf=state.focus_shelf,
             # Told to the model so it writes an answer instead of a hand-off
@@ -485,7 +487,7 @@ class ConversationGraph:
     async def _research_node(self, state: ConversationState) -> dict[str, Any]:
         trimmed = self._trimmed(state)
         logger.debug("research_node: available_documents = %s", state.available_documents)
-        # A shelf named in the question ("was hast du im Büroarchiv") is the
+        # A shelf named in the question ("was hast du in der Büroablage") is the
         # one the inventory prints in full this turn — a ContextVar read by
         # the prompt renderer; the graph runs in this task.
         set_listing_shelf(shelf_hint_from_query(get_latest_user_query(state.messages) or ""))

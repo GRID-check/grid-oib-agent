@@ -1,5 +1,6 @@
 'use client'
 
+import { SourceDeletedNote } from '@/components/projects/source-deleted-note'
 import type { JSX } from 'react'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -54,21 +55,31 @@ type MemoryItem = Omit<ProjectMemoryItem, 'createdAt' | 'updatedAt' | 'lastRefer
   lastReferencedAt: string | null
   /** The folders a restricted note (ADR-0087) is restricted to; only ever sent to a cleared reader. */
   restrictedFolderNames?: string[]
+  /** When a folder the note came from was purged (ADR-0088): „Quelle gelöscht am …". */
+  sourceDeletedAt?: string
 }
 
-/** The tooltip on a restricted note's lock: the folders it came from, when known. */
+/**
+ * The tooltip on a restricted note's lock: the folders it came from, when
+ * known, and whether a language model helped decide that (ADR-0087; AI Act).
+ */
 function restrictionTitle(item: MemoryItem, t: Translator): string {
   const folders = item.restrictedFolderNames ?? []
-  return folders.length > 0
-    ? t('memory.restricted.title', { folders: folders.join(', ') })
-    : t('memory.restricted.titleUnknown')
+  const where =
+    folders.length > 0
+      ? t('memory.restricted.title', { folders: folders.join(', ') })
+      : t('memory.restricted.titleUnknown')
+  if (!item.restrictionJudge) return where
+  const judge = item.restrictionJudge === 'failed' ? t('memory.restricted.judgeFailed') : t('memory.restricted.judged')
+  return `${where} ${judge}`
 }
 
 interface ProjectMemoryPanelProps {
   projectId: string
   /**
    * A list without the controls to add, confirm, pin, edit or remove: for a
-   * reader without `project:memory:write`, whose every click would answer 404.
+   * reader without `project:memory:write`, whose every click would answer 404,
+   * and for a closed project, whose memory is read-only (ADR-0090).
    */
   readOnly?: boolean
 }
@@ -516,7 +527,16 @@ export function ProjectMemoryPanel({
                                 label={restrictionTitle(item, t)}
                               />
                               {t('memory.restricted.badge')}
+                              {item.restrictionJudge && (
+                                <span data-testid="memory-restriction-judged">
+                                  {' · '}
+                                  {t('memory.restricted.judgedBadge')}
+                                </span>
+                              )}
                             </Badge>
+                          )}
+                          {item.sourceDeletedAt && (
+                            <SourceDeletedNote at={item.sourceDeletedAt} className="mt-1" />
                           )}
                           {item.conflictsWithId && (
                             <Badge

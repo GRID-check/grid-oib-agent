@@ -8,7 +8,7 @@
  * recommending five documents in reading order is asking the reader to choose
  * one, and the facts that choice turns on are not in the filename: how big it
  * is, how many pages, whether Piloti has actually read it, and which shelf it
- * came from — a plan in the Büroarchiv is somebody else's project, a private
+ * came from — a plan in the Büroablage is somebody else's project, a private
  * attachment is one this conversation alone can see.
  *
  * Every fact here is read off the document row the chip already resolved.
@@ -22,9 +22,11 @@ import { useLocale, useTranslations } from '@/i18n'
 import { formatBytes } from '@/lib/format'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { SectionLabel } from '@/components/ui/section-label'
+import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel } from '@/features/documents/document-kind'
 import { isCitable, isFailedStatus, isNeverIndexed } from '@/features/documents/components/document-status'
 import type { StoredFile } from '@/features/documents/hooks/use-surfaced-documents'
+import { PEEK_ACTION_CLASSES } from './CitationPeek'
 
 export const FileReferencePeek: FC<{
   stored: StoredFile
@@ -108,7 +110,7 @@ export const FileReferencePeek: FC<{
       <button
         type="button"
         onClick={onOpen}
-        className="inline-flex items-center gap-1 self-start text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className={cn(PEEK_ACTION_CLASSES, 'self-start text-primary')}
       >
         {t(isCitable(file) ? 'fileReference.openAsk' : 'fileReference.open')}
         <ArrowUpRight className="size-3.5" aria-hidden />

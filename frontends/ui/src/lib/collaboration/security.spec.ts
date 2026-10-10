@@ -30,6 +30,11 @@ vi.mock('@/lib/events/bus', () => ({
 }))
 
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+// The third-party precondition reads the project's status (ADR-0090): an active one here.
+vi.mock('@/lib/projects/repository', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/projects/repository')>()),
+  findProjectTenancy: vi.fn(async () => ({ organizationId: 'org_1', deletedAt: null, status: 'active' })),
+}))
 
 const listOrganizationMemberships = vi.fn()
 const authorizationCheck = vi.fn()

@@ -28,10 +28,20 @@ is skipped, and says so. Needs OPENROUTER_API_KEY and the corpus ingested into
 AIQ_CHROMA_DIR (`--ingest` queues the corpus's ingest jobs from the table in
 AIQ_SUMMARY_DB and the object store, and claims and runs them in this process). Every run costs model calls.
 
+`--set precedent` runs the precedent eval instead
+(`tests/fixtures/precedent/precedent_questions.yaml`): each turn is asked in
+the current project of a fixture office, with a signed envelope, and the
+internal routes a cross-project turn reads are served by `fixture_bff.py`.
+Its checks say whether the agent looked into other projects when it should
+and not when it should not, cited the right project, said when nothing
+comparable exists, and flagged an older edition
+(docs/roadmap/office-experience.md, step A).
+
     python scripts/turn_census/suite.py                        # the core set, 2 runs each
     python scripts/turn_census/suite.py --all --runs 3 --out /tmp/suite/after
     python scripts/turn_census/suite.py --baseline /tmp/suite/before/results.json
     python scripts/turn_census/suite.py --report /tmp/suite/after/results.json
+    python scripts/turn_census/suite.py --set precedent --runs 2
 """
 
 from __future__ import annotations
@@ -43,6 +53,8 @@ import re
 import statistics
 import sys
 import time
+from collections.abc import Callable
+from collections.abc import Collection
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -54,6 +66,7 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 QUESTIONS = ROOT / "tests" / "fixtures" / "herleitung" / "loop_eval_questions.yaml"
+PRECEDENT_QUESTIONS = ROOT / "tests" / "fixtures" / "precedent" / "precedent_questions.yaml"
 sys.path.insert(0, str(HERE))
 
 from census import ensure_key  # noqa: E402  (a sibling script, not a package)
@@ -114,6 +127,13 @@ class Run:
     #: The envelope's cards, kept so `--report` can re-check against edited expectations.
     envelope: dict | None = None
     checks: dict[str, bool] = field(default_factory=dict)
+    #: The cross-project lookups the fixture BFF served this run (`--set precedent`):
+    #: the model's own calls and the turn decision's round-0 prefetch alike.
+    lookups: list[str] = field(default_factory=list)
+    #: `--set precedent`: the fixture office the run sat in, and whether its
+    #: question is held out (written without reading answers, never tuned on).
+    scenario: str = ""
+    holdout: bool = False
     answer: str = ""
     error: str = ""
 
@@ -141,6 +161,13 @@ def log_signals(log_text: str) -> list[str]:
     elif "settled_replaced" in found:
         found[found.index("settled_replaced")] = "settled_patched"
     return found
+
+
+def load_precedent_questions(path: Path = PRECEDENT_QUESTIONS) -> list[dict]:
+    """The precedent eval's questions: every row runs, each in the fixture office's current project."""
+    import yaml
+
+    return list((yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("questions") or [])
 
 
 def load_questions(path: Path = QUESTIONS, *, core_only: bool = True) -> tuple[list[dict], list[str]]:
@@ -241,7 +268,12 @@ def _read_calls(run: Run, research: list[dict], answered_at: int | None, t0: flo
 
 def observe(question: dict, index: int, record: Path, log: Path) -> Run:
     """Everything one turn left behind, read into a Run."""
-    run = Run(question_id=str(question["id"]), run=index)
+    run = Run(
+        question_id=str(question["id"]),
+        run=index,
+        scenario=str(question.get("scenario") or ""),
+        holdout=bool(question.get("holdout")),
+    )
     rows = sorted(records(record), key=lambda r: r["t_start"])
     log_text = log.read_text(errors="replace") if log.exists() else ""
     if not rows:
@@ -257,6 +289,9 @@ def observe(question: dict, index: int, record: Path, log: Path) -> Run:
     run.envelope = {"kind": envelope.get("kind"), "cards": envelope.get("cards") or []} if envelope else None
     run.kind = str((envelope or {}).get("kind") or "")
     run.cited_families = sorted(set(_CITED_FAMILY.findall(run.answer)))
+    from fixture_bff import lookups_served
+
+    run.lookups = lookups_served(record.parent / "requests.jsonl", record.stem)
     if "escalated" in run.signals:
         run.kind = run.kind or "handoff"
     run.checks = check(question, run, envelope)
@@ -353,6 +388,111 @@ def check(question: dict, run: Run, envelope: dict | None) -> dict[str, bool]:
         options = shapes if isinstance(shapes, list) else [shapes]
         cards = (envelope or {}).get("cards") or []
         checks[f"shape:{'|'.join(options)}"] = any(_has_shape(option, run.answer, cards) for option in options)
+    projects = _office_projects(str(question.get("scenario") or "")) if expect.get("lookup") else None
+    checks.update(
+        precedent_checks(
+            expect, run, answer, question=str(question.get("question") or ""), judge=_judge(), projects=projects
+        )
+    )
+    return checks
+
+
+def _office_projects(scenario: str) -> list[str]:
+    """The names of the projects the fixture office of this scenario holds, the chat's own included."""
+    from fixture_bff import DEFAULT_SCENARIO
+    from fixture_bff import FixtureOffice
+
+    return FixtureOffice(scenario=scenario or DEFAULT_SCENARIO).project_names()
+
+
+def _judge() -> Judge | None:
+    """The model judge when a key is set (`judge.py`); None offline, which records the meaning checks as failed."""
+    import judge
+
+    return judge.ask if judge.available() else None
+
+
+def looked_up(run: Run) -> bool:
+    """Whether the turn read another project: a lookup the fixture BFF served it (round 0 included), or a model call."""
+    return bool(run.lookups) or any(str(name).endswith("project_lookup") for name in run.tool_calls)
+
+
+#: A judge of meaning: (check kind, question, answer) → yes, no, or None when it could not answer.
+Judge = Callable[[str, str, str], bool | None]
+
+#: What a run lists in its signals for a meaning check its judge could not answer: ``judge_unavailable:says_none``.
+JUDGE_UNAVAILABLE = "judge_unavailable:"
+#: The checks a model judges (``judge.py``), because they are meanings.
+MEANING_CHECKS = ("says_none", "caveat")
+
+#: One source line of the answer: ``- [1] [KB] file.pdf (Project name), p.2``. The qualifier in
+#: parentheses is the project a cross-project hit came from (``citation_verification``
+#: appends it to the citation key); a Richtlinie or a RIS line has none, and a filename that
+#: has parentheses of its own is not followed by ``, p.N`` or the end of the line.
+_SOURCE_PROJECT = re.compile(
+    r"^\s*(?:[-*]\s*)?\[\d+\]\s*\[KB\]\s+[^\n]*?\(([^()\n]+)\)(?:,\s*p\.\s*\d+)?\s*$", re.MULTILINE
+)
+
+
+def sourced_projects(answer: str) -> list[str]:
+    """The projects the answer's source lines name, in order: what the reader is told the answer rests on."""
+    return [" ".join(name.split()) for name in _SOURCE_PROJECT.findall(answer)]
+
+
+def _cited(options: list[Any], question: str, answer: str) -> bool:
+    """Whether the answer names the project by an option the QUESTION does not already contain.
+
+    An option the question holds is no evidence: an answer that only repeats
+    the question would satisfy it (10 of 23 groups did, on the first review).
+    """
+    asked = _normal(question)
+    return any(_normal(str(option)) in answer for option in options if _normal(str(option)) not in asked)
+
+
+def precedent_checks(
+    expect: dict,
+    run: Run,
+    answer: str,
+    *,
+    question: str = "",
+    judge: Judge | None = None,
+    projects: Collection[str] | None = None,
+) -> dict[str, bool]:
+    """The precedent eval's checks (`tests/fixtures/precedent/precedent_questions.yaml` says what each means).
+
+    `cites` counts only a name the question does not contain (:func:`_cited`).
+    `real_projects`, given the names of the projects the fixture office holds,
+    is a fact: every project the answer's source lines name exists in it.
+
+    `says_none` and `caveat` are meanings and go to the judge (`judge.py`) with
+    the raw answer. A judge that cannot answer (no key, a failed call, a reply
+    that is neither yes nor no) is a RECORDED failure of that check, with
+    ``judge_unavailable:<kind>`` in the run's signals: leaving the check out
+    shrank its denominator without a word (`says_none` 9/9 hid a tenth run).
+    An answer that is empty says nothing and fails without asking.
+    """
+    checks: dict[str, bool] = {}
+    run.signals[:] = [signal for signal in run.signals if not signal.startswith(JUDGE_UNAVAILABLE)]
+    lookup = expect.get("lookup")
+    if lookup == "required":
+        checks["looked_up"] = looked_up(run)
+    elif lookup == "forbidden":
+        checks["no_lookup"] = not looked_up(run)
+    for group in expect.get("cites") or []:
+        options = group if isinstance(group, list) else [group]
+        checks[f"cites:{options[0]}"] = _cited(options, question, answer)
+    for name in expect.get("not_cites") or []:
+        checks[f"not_cites:{name}"] = _normal(str(name)) not in answer
+    if projects is not None:
+        known = {_normal(" ".join(name.split())) for name in projects}
+        checks["real_projects"] = all(_normal(name) in known for name in sourced_projects(run.answer))
+    for kind in MEANING_CHECKS:
+        if not expect.get(kind):
+            continue
+        verdict = judge(kind, question, run.answer) if judge is not None and run.answer.strip() else None
+        checks[kind] = bool(verdict)
+        if verdict is None and run.answer.strip():
+            run.signals.append(f"{JUDGE_UNAVAILABLE}{kind}")
     return checks
 
 
@@ -410,7 +550,8 @@ def render(
         "",
         f"{meta.get('started', '')} · commit `{meta.get('commit', '?')}` · model config `{meta.get('config', '')}` · "
         f"{meta.get('runs_per_question', '')} run(s) per question"
-        + (f" · overrides {meta['overrides']}" if meta.get("overrides") else ""),
+        + (f" · overrides {meta['overrides']}" if meta.get("overrides") else "")
+        + (f" · fixture search: {meta['fixture_search']}" if meta.get("fixture_search") else ""),
         "",
         "Median (min–max). Seconds follow reasoning tokens at ~85 tok/s; the spike column is the "
         "largest single call, which is where run-to-run variance comes from."
@@ -444,6 +585,11 @@ def render(
         f"**All runs:** wall {_spread([r.wall_s for r in ok])} s · research calls "
         f"{_spread([r.research_calls for r in ok])} · reasoning tokens {_spread([r.reasoning_tokens for r in ok])}",
         "",
+        "## Each kind of check, over every run",
+        "",
+        *aggregate_lines(ok),
+        "",
+        *split_lines(ok),
         "## Checks that did not always hold",
         "",
         *(failing or ["None."]),
@@ -453,6 +599,48 @@ def render(
     if not_in_corpus:
         lines += ["", f"Skipped, the ingested corpus lacks the Richtlinie: {', '.join(not_in_corpus)}."]
     return "\n".join(lines) + "\n"
+
+
+def split_lines(runs: list[Run]) -> list[str]:
+    """The checks over the tuned and the held-out questions apart, and per scenario: where overfitting shows.
+
+    Nothing when every run is tuned and in the default office (the norm set).
+    """
+    if not any(run.holdout or run.scenario for run in runs):
+        return []
+    lines = ["## Tuned, held out, and per scenario", ""]
+    for label, part in (
+        ("Tuned questions", [run for run in runs if not run.holdout]),
+        ("Held-out questions", [run for run in runs if run.holdout]),
+    ):
+        lines += [f"**{label}** ({len(part)} runs):", "", *aggregate_lines(part), ""]
+    for scenario in sorted({run.scenario or "default" for run in runs}):
+        part = [run for run in runs if (run.scenario or "default") == scenario]
+        lines += [f"**Scenario `{scenario}`** ({len(part)} runs):", "", *aggregate_lines(part), ""]
+    return lines
+
+
+def aggregate_lines(runs: list[Run]) -> list[str]:
+    """Each kind of check (the part of its key before a colon), held in how many runs it was asked of."""
+    held: dict[str, list[bool]] = {}
+    for run in runs:
+        for key, value in run.checks.items():
+            held.setdefault(key.split(":", 1)[0], []).append(value)
+    lines = [f"- `{kind}`: {sum(values)}/{len(values)}" for kind, values in sorted(held.items())]
+    asked = sum(len(held.get(kind, [])) for kind in MEANING_CHECKS)
+    unavailable = [signal for run in runs for signal in run.signals if signal.startswith(JUDGE_UNAVAILABLE)]
+    if asked:
+        # Each is a failure in the counts above, never a missing run; this says how many were not the answer's fault.
+        by_kind = ", ".join(
+            f"{kind} {unavailable.count(JUDGE_UNAVAILABLE + kind)}"
+            for kind in MEANING_CHECKS
+            if JUDGE_UNAVAILABLE + kind in unavailable
+        )
+        lines.append(
+            f"- judge could not answer: {len(unavailable)} of {asked} meaning checks"
+            + (f" ({by_kind})" if by_kind else "")
+        )
+    return lines or ["None."]
 
 
 # --- Running -----------------------------------------------------------------
@@ -510,7 +698,7 @@ def _ingest_corpus(poll_seconds: float = 5.0, timeout_seconds: float = 3600.0) -
     from aiq_api.jobs import ingest_dispatch
 
     print("queueing the corpus:", oib_sync.sync())
-    if not ingest_dispatch.attach(oib_sync._get_oib_ingestor(), claim=True):
+    if not ingest_dispatch.attach(oib_sync._get_oib_ingestor()):
         return (
             "the ingest queue is off or has no database (GRID_INGEST_QUEUE, AIQ_SUMMARY_DB): "
             "nothing can ingest the corpus"
@@ -629,8 +817,13 @@ def run_suite(
     workers: int,
     overrides: list[list[str]] | None,
     stamp: str | None = None,
+    env_for: Any = None,
 ) -> list[Run]:
-    """Every question ``runs`` times, ``workers`` at once; each recorded as ``suite-{stamp}-{id}-{run}``."""
+    """Every question ``runs`` times, ``workers`` at once; each recorded as ``suite-{stamp}-{id}-{run}``.
+
+    ``env_for(conversation_id, question)``, when given, is each run's extra
+    environment (the precedent eval's envelope and fixture BFF).
+    """
     out.mkdir(parents=True, exist_ok=True)
     stamp = stamp or run_stamp()
     jobs = [(question, index) for question in questions for index in range(1, runs + 1)]
@@ -639,7 +832,8 @@ def run_suite(
         question, index = job
         conversation = f"suite-{stamp}-{question['id']}-{index}"
         try:
-            record = run_once(str(question["question"]).strip(), out, conversation, overrides)
+            extra = env_for(conversation, question) if env_for else None
+            record = run_once(str(question["question"]).strip(), out, conversation, overrides, extra)
             result = observe(question, index, record, record.with_suffix(".log"))
         except Exception as exc:  # noqa: BLE001 - one run's failure is that run's, not the suite's
             result = Run(question_id=str(question["id"]), run=index, error=f"{type(exc).__name__}: {exc}")
@@ -652,6 +846,63 @@ def run_suite(
     finally:
         # On Ctrl-C the queued paid runs are cancelled, not started one by one.
         pool.shutdown(wait=True, cancel_futures=True)
+
+
+def precedent_envelope(office: dict, conversation_id: str, secret: str, current: dict | None = None) -> tuple[str, str]:
+    """The signed request-context envelope the BFF would mint for a turn in the fixture office's current project.
+
+    Base64url JSON, HMAC-SHA256 over the exact bytes with the run's
+    ``GRID_INTERNAL_API_TOKEN``: the agent verifies it like a real one
+    (``GridRequestContext.from_envelope``). A solo chat, as the conversation
+    has no row: the fixture BFF searches every project in the office.
+    """
+    import base64
+    import hashlib
+    import hmac
+
+    current = current or office["current"]
+    raw = json.dumps(
+        {
+            "organizationId": office["organizationId"],
+            "userId": office["userId"],
+            "projectId": current["id"],
+            "conversationId": conversation_id,
+            "issuedAt": int(time.time() * 1000),
+            "contextTransport": "bff",
+            "bundesland": current.get("facts", {}).get("bundesland"),
+        },
+        ensure_ascii=False,
+    )
+    header = base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
+    signature = hmac.new(secret.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
+    return header, signature
+
+
+def start_fixture_bff(out: Path) -> tuple[Any, Any]:
+    """The fixture BFF on a free port, and each run's extra environment for it: envelope, token, address."""
+    import secrets
+
+    from fixture_bff import FixtureBFF
+    from fixture_bff import production_embedder
+
+    token = secrets.token_hex(16)
+    # Ranked by the deployment's own embedder, as production ranks; the token channel alone without a key.
+    bff = FixtureBFF(token, out / "requests.jsonl", embed=production_embedder()).start()
+
+    def env_for(conversation_id: str, question: dict) -> dict[str, str]:
+        from fixture_bff import DEFAULT_SCENARIO
+
+        # The run sits in its scenario's current project, and the fixture answers it from that office.
+        office = bff.assign(conversation_id, str(question.get("scenario") or DEFAULT_SCENARIO))
+        header, signature = precedent_envelope(office.office, conversation_id, token, office.current)
+        return {
+            "FRONTEND_INTERNAL_URL": bff.url,
+            "GRID_INTERNAL_API_TOKEN": token,
+            "GRID_EVAL_ENVELOPE": header,
+            "GRID_EVAL_ENVELOPE_SIG": signature,
+        }
+
+    return bff, env_for
 
 
 def recording(folder: Path, stamp: str | None, run: Run) -> Path | None:
@@ -678,7 +929,8 @@ def _rerender(report: Path, baseline: dict | None) -> int:
     """
     data = json.loads(report.read_text())
     runs = [Run(**row) for row in data["runs"]]
-    by_id = {str(q["id"]): q for q in load_questions(core_only=False)[0]}
+    rows = load_precedent_questions() if data["meta"].get("set") == "precedent" else load_questions(core_only=False)[0]
+    by_id = {str(q["id"]): q for q in rows}
     for index, run in enumerate(runs):
         question = by_id.get(run.question_id)
         if question is None:
@@ -785,12 +1037,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--report", type=Path, help="re-render a results.json; no model calls")
     parser.add_argument("--ingest", action="store_true", help="sync the OIB corpus into AIQ_CHROMA_DIR first")
     parser.add_argument("--override", nargs=2, action="append", metavar=("KEY", "VALUE"))
+    parser.add_argument(
+        "--set",
+        choices=("loop", "precedent"),
+        default="loop",
+        help="loop: the norm questions; precedent: questions in a fixture office's project (fixture_bff.py)",
+    )
     args = parser.parse_args(argv)
     baseline = json.loads(args.baseline.read_text()) if args.baseline else None
     if args.report:
         return _rerender(args.report, baseline)
     # The ids first: a typo must not cost an ingest.
-    selected = select_questions(args.only, args.all)
+    if args.set == "precedent":
+        rows = load_precedent_questions()
+        selected = ([q for q in rows if not args.only or str(q["id"]) in set(args.only)], [])
+    else:
+        selected = select_questions(args.only, args.all)
     if selected is None:
         return 2
     if failed := _preflight(args.out, args.ingest):
@@ -809,9 +1071,19 @@ def main(argv: list[str] | None = None) -> int:
         "runs_per_question": args.runs,
         "overrides": args.override or [],
         "stamp": stamp,
+        "set": args.set,
     }
     print(f"{len(questions)} question(s) × {args.runs} run(s), {args.workers} at a time → {args.out}")
-    runs = run_suite(questions, args.runs, args.out, args.workers, args.override, stamp)
+    args.out.mkdir(parents=True, exist_ok=True)
+    bff, env_for = start_fixture_bff(args.out) if args.set == "precedent" else (None, None)
+    if bff is not None:
+        # A run ranked by tokens alone measures a kinder search than production's: the report says which it was.
+        meta["fixture_search"] = "embeddings" if bff.embed is not None else "tokens only (no embedding key)"
+    try:
+        runs = run_suite(questions, args.runs, args.out, args.workers, args.override, stamp, env_for)
+    finally:
+        if bff is not None:
+            bff.stop()
     results = {"meta": meta, "skipped": skipped, "not_in_corpus": not_in_corpus, "runs": [asdict(r) for r in runs]}
     (args.out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1))
     report = render(runs, skipped, meta, baseline, not_in_corpus)

@@ -147,4 +147,40 @@ describe('ProjectsGrid', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
     expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument()
   })
+
+  describe('the status filter (ADR-0090)', () => {
+    const closed = (id: string, name: string): Project =>
+      createProject({ id, name, status: 'closed', closedAt: new Date('2026-09-01T00:00:00Z'), closedBy: 'u' })
+
+    test('is not offered while no project is closed', () => {
+      render(<ProjectsGrid projects={[createProject({ id: 'p1', name: 'Seestadt' })]} docCounts={{}} />)
+      expect(screen.queryByTestId('project-status-filter')).not.toBeInTheDocument()
+    })
+
+    test('opens on the active projects, with closed ones a click away, chip and all', async () => {
+      render(
+        <ProjectsGrid
+          projects={[createProject({ id: 'p1', name: 'Seestadt', status: 'active' }), closed('p2', 'Volksschule Grinzing')]}
+          docCounts={{}}
+        />,
+      )
+
+      expect(screen.getByText('Seestadt')).toBeInTheDocument()
+      expect(screen.queryByText('Volksschule Grinzing')).not.toBeInTheDocument()
+
+      await userEvent.click(screen.getByTestId('project-status-filter-closed'))
+      expect(screen.getByText('Volksschule Grinzing')).toBeInTheDocument()
+      expect(screen.queryByText('Seestadt')).not.toBeInTheDocument()
+      expect(screen.getAllByText('Closed').length).toBeGreaterThan(0)
+
+      await userEvent.click(screen.getByTestId('project-status-filter-all'))
+      expect(screen.getByText('Seestadt')).toBeInTheDocument()
+      expect(screen.getByText('Volksschule Grinzing')).toBeInTheDocument()
+    })
+
+    test('opens on all of them when nothing is active', () => {
+      render(<ProjectsGrid projects={[closed('p1', 'Lände 3')]} docCounts={{}} />)
+      expect(screen.getByText('Lände 3')).toBeInTheDocument()
+    })
+  })
 })

@@ -15,10 +15,14 @@
  * queue and the Files preview.
  */
 
-import type { JSX } from 'react'
+import { useState, type JSX } from 'react'
 import Link from 'next/link'
+import { ShieldQuestion } from 'lucide-react'
+import { toast } from 'sonner'
 
 import type { UploadSummary, UploadSummaryDocument } from '@/adapters/api/upload-batches-client'
+import { requestQuarantineRelease } from '@/adapters/api/upload-screening-client'
+import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import { ClampedText } from '@/components/ui/clamped-text'
 import { Item, ItemContent, ItemDescription, ItemMedia } from '@/components/ui/item'
@@ -28,9 +32,50 @@ import { useTranslations } from '@/i18n'
 import { documentTypeOf } from '@/lib/documents/tag-vocabulary'
 import { describeQuarantineReason } from '@/lib/upload-screening/quarantine'
 import { displayNameOf, otherTags } from '../lib/upload-summary'
+import { FacetChip, useTallyLabel } from './upload-atoms'
 
 /** Lines of a file's summary shown before it asks for the space. */
 const SUMMARY_LINES = 2
+
+/**
+ * „Freigabe anfragen" (ADR-0086): the uploader asks the people who may release
+ * a quarantined file to look at it. Only the uploader opens an upload summary,
+ * so whoever sees the button may press it. Once sent, it says so and rests: a
+ * second press would only fold into the same inbox row.
+ */
+function RequestReleaseButton({ documentId, name }: { documentId: string; name: string }): JSX.Element {
+  const t = useTranslations('uploadBatches')
+  const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle')
+
+  const ask = async (): Promise<void> => {
+    setState('sending')
+    try {
+      const { notified } = await requestQuarantineRelease(documentId)
+      setState('sent')
+      if (notified > 0) toast.success(t('summary.files.releaseRequestedToast', { name }))
+      else toast.info(t('summary.files.releaseRequestNobody', { name }))
+    } catch {
+      setState('idle')
+      toast.error(t('summary.files.releaseRequestError'))
+    }
+  }
+
+  return (
+    <div>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={state !== 'idle'}
+        loading={state === 'sending'}
+        onClick={() => void ask()}
+        data-testid={`upload-file-request-release-${documentId}`}
+      >
+        <ShieldQuestion className="size-4" aria-hidden />
+        {state === 'sent' ? t('summary.files.releaseRequested') : t('summary.files.requestRelease')}
+      </Button>
+    </div>
+  )
+}
 
 export function UploadedFileRow({
   document,
@@ -45,6 +90,7 @@ export function UploadedFileRow({
 }): JSX.Element {
   const t = useTranslations('uploadBatches')
   const tFiles = useTranslations('files')
+  const tallyLabel = useTallyLabel()
   const name = displayNameOf(document)
   const Icon = fileTypeIcon(null, document.filename)
   const type = documentTypeOf(document.tags)
@@ -75,8 +121,14 @@ export function UploadedFileRow({
           <DocumentStatusBadge status={document.status} />
         </div>
 
-        {(type || tags.length > 0 || document.pageCount) && (
+        {(document.replaced || document.restricted || type || tags.length > 0 || document.pageCount) && (
           <div className="flex flex-wrap items-center gap-1.5">
+            {document.replaced && (
+              <FacetChip facet="changed" label={tallyLabel('changed')} hint={t('summary.files.changedHint')} />
+            )}
+            {document.restricted && (
+              <FacetChip facet="protected" label={tallyLabel('protected')} hint={t('summary.files.protectedHint')} />
+            )}
             {type && (
               <Chip variant="outline" size="sm" title={tFiles('preview.indexed.documentType')}>
                 {type}
@@ -129,6 +181,7 @@ export function UploadedFileRow({
               </ul>
             )}
             <ItemDescription className="whitespace-normal">{tFiles('ingestFailure.quarantined')}</ItemDescription>
+            <RequestReleaseButton documentId={document.id} name={name} />
           </div>
         )}
 
@@ -138,6 +191,12 @@ export function UploadedFileRow({
             sentenceClassName="text-error"
             testId={`upload-file-failure-${document.id}`}
           />
+        )}
+        {document.outcome === 'failed' && document.screening === null && (
+          // Its reading ended before the check had a verdict, so colleagues do
+          // not see it until a reviewer releases it (ADR-0086); a retry of an
+          // IFC too large to read fails the same way.
+          <RequestReleaseButton documentId={document.id} name={name} />
         )}
 
         {partlyChecked && (

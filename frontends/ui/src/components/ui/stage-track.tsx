@@ -22,7 +22,7 @@
  * walked part takes a register — and only where the state EARNS one: a subject
  * still in flight is ink, because nothing has been asserted yet.
  *
- * Never the Büroarchiv gold: `--text-color-feedback-warning` is an alias of
+ * Never the Büroablage gold: `--text-color-feedback-warning` is an alias of
  * `--source-office` (`styles/tokens.css` says so on the line), so a stop shares
  * the error tint rather than taking amber.
  *

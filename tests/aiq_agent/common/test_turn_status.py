@@ -69,7 +69,7 @@ class TestDocumentsLoading:
     def test_a_shelf_of_the_readers_own_is_named(self, steps) -> None:
         step = turn_status.documents_loading_step(["archiv"])
         # The SHELF is in the key, not in the values: German needs the dative
-        # ("aus dem Büroarchiv") and English needs no article at all, so a
+        # ("aus der Büroablage") and English needs no article at all, so a
         # shelf name cannot be interpolated into one shared template.
         assert step == StatusStep(
             id="status:documents", slot="documents", key="status.documents.archiv", detail={"shelves": ["archiv"]}
@@ -104,6 +104,14 @@ class TestRetrieval:
             round_index=0,
         )
         assert _live(steps)[0].values["corpus"] == "ris"
+
+    def test_a_lookup_in_other_projects_says_where_it_went(self, steps) -> None:
+        """The reader sees the chat leave its own project (ADR-0094)."""
+        turn_status.emit_retrieval(
+            [{"name": "project_lookup", "args": {"action": "search", "query": "Traufe Holzbau"}}],
+            round_index=0,
+        )
+        assert _live(steps)[0].values == {"corpus": "otherProjects", "query": "Traufe Holzbau"}
 
     def test_a_search_with_no_query_uses_the_other_template(self, steps) -> None:
         turn_status.emit_retrieval([{"name": "web_search_tool", "args": {}}], round_index=0)

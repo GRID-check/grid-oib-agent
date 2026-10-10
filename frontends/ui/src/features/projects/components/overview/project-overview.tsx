@@ -10,13 +10,13 @@
  * section where that thing is changed. Renaming and deleting moved into the
  * hero's menu: one deliberate click away, out of the reading flow.
  *
- * What comes from the server (the brief, documents, standards, spend) arrives
- * as props. Memory and the roster are fetched by their tiles, from the same
- * endpoints their sections use, so a tile never shows a number its section
- * would not.
+ * What comes from the server (documents, activity, spend, the Steckbrief)
+ * arrives as props; similar projects stream in through a Suspense slot. Memory
+ * and the roster are fetched by their tiles, from the same endpoints their
+ * sections use, so a tile never shows a number its section would not.
  */
 
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import Link from 'next/link'
 import {
@@ -29,15 +29,19 @@ import {
   Trash2,
 } from 'lucide-react'
 import { ActionMenu } from '@/components/ui/action-menu'
-import { BentoGrid, BentoTile, type BentoSpan } from '@/components/ui/bento'
+import { BentoCell, BentoGrid, BentoTile, type BentoSpan } from '@/components/ui/bento'
 import { Button } from '@/components/ui/button'
+import { ProjectStatusChip } from '@/components/projects/project-status'
+import type { SteckbriefView } from '@/lib/projects/steckbrief-types'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatBytes, formatDate } from '@/lib/format'
 import type { FolderWithoutRole, ProjectOverviewData } from '../../types'
 import { settingsSectionHref } from '../../lib/settings-sections'
 import { FoldersWithoutRole } from '../folders-without-role'
 import { ProjectDeleteDialog } from '../project-delete-dialog'
+import { ProjectLifecycleCard } from '../project-lifecycle-card'
 import { ProjectRenameDialog } from '../project-rename-dialog'
+import { ProjectSteckbrief, type SteckbriefAccount } from '../project-steckbrief'
 import type { ProjectUsageView } from '../settings/usage-settings'
 import { ActivityPanel, type ProjectActivityView } from './activity-panel'
 import { DocumentsTile } from './documents-tile'
@@ -45,8 +49,12 @@ import { MembersTile, MemoryTile } from './live-tiles'
 import { UsageTile } from './usage-tile'
 
 export interface ProjectOverviewAccess {
-  /** Rename and delete (`project:manage`). */
+  /** Rename (`project:manage`, refused in a closed project). */
   manage: boolean
+  /** Close, reopen and delete: `project:manage` even when closed (ADR-0090). */
+  changeStatus: boolean
+  /** The closing debrief's confirm and lesson (`project:memory:write`). */
+  writeMemory: boolean
   /** Open the intake wizard (`project:edit`). */
   editProfile: boolean
   /** The roster tile (`project:members:manage`). */
@@ -65,6 +73,16 @@ export interface ProjectOverviewProps {
    * folder nobody can read is something to fix, not a figure to glance at.
    */
   foldersWithoutRole?: readonly FolderWithoutRole[]
+  /** The Steckbrief (ADR-0091): period and people, what stays once the project closes. */
+  steckbrief?: SteckbriefView
+  /** Accounts a Steckbrief person may be linked to; empty unless the reader may edit it. */
+  steckbriefAccounts?: readonly SteckbriefAccount[]
+  /**
+   * The similar-projects tile, streamed: finding them reads every closed
+   * project's memory and permits, and the rest of the dashboard should not wait
+   * for that. The page passes a Suspense boundary here.
+   */
+  similar?: ReactNode
   access: ProjectOverviewAccess
 }
 
@@ -73,6 +91,9 @@ export function ProjectOverview({
   activity,
   usage,
   foldersWithoutRole = [],
+  steckbrief,
+  steckbriefAccounts = [],
+  similar,
   access,
 }: ProjectOverviewProps): JSX.Element {
   const id = data.id
@@ -82,6 +103,9 @@ export function ProjectOverview({
   // something missing.
   const usageSpan: BentoSpan = access.manageMembers ? 'major' : 'wide'
   const membersSpan: BentoSpan = usage ? 'small' : 'wide'
+  // The project's record beside the control that closes it; alone, the record
+  // takes the row.
+  const steckbriefSpan: BentoSpan = access.changeStatus ? 'major' : 'wide'
   return (
     <div className="flex flex-col gap-4">
       <FoldersWithoutRole projectId={id} folders={foldersWithoutRole} />
@@ -104,6 +128,25 @@ export function ProjectOverview({
             span={membersSpan}
           />
         )}
+        {steckbrief && (
+          <BentoCell span={steckbriefSpan}>
+            <ProjectSteckbrief projectId={id} steckbrief={steckbrief} accounts={steckbriefAccounts} />
+          </BentoCell>
+        )}
+        {/* Close or reopen (ADR-0090): the one change a closed project allows. */}
+        {access.changeStatus && (
+          <BentoCell span={steckbrief ? 'small' : 'wide'}>
+            <ProjectLifecycleCard
+              projectId={id}
+              status={data.status}
+              closedAt={data.closedAt}
+              profile={data.profile}
+              startedOn={steckbrief?.startedOn ?? null}
+              canWriteMemory={access.writeMemory}
+            />
+          </BentoCell>
+        )}
+        {similar}
       </BentoGrid>
     </div>
   )
@@ -125,39 +168,51 @@ function HeroTile({
   const projectPath = `/app/projects/${encodeURIComponent(data.id)}`
   const summary = data.profileDisplay?.summary?.trim()
 
-  const menu = access.manage ? (
-    <ActionMenu
-      mode="dropdown"
-      trigger={
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-muted-foreground size-7"
-          aria-label={t('project.overview.actions')}
-        >
-          <MoreHorizontal className="size-4" aria-hidden />
-        </Button>
-      }
-      entries={[
-        {
-          type: 'item',
-          id: 'rename',
-          label: t('project.overview.rename'),
-          icon: Pencil,
-          onSelect: () => setRenaming(true),
-        },
-        { type: 'separator' },
-        {
-          type: 'item',
-          id: 'delete',
-          label: t('project.overview.delete'),
-          icon: Trash2,
-          variant: 'destructive',
-          onSelect: () => setDeleting(true),
-        },
-      ]}
-    />
-  ) : undefined
+  const entries = [
+    ...(access.manage
+      ? [
+          {
+            type: 'item' as const,
+            id: 'rename',
+            label: t('project.overview.rename'),
+            icon: Pencil,
+            onSelect: () => setRenaming(true),
+          },
+        ]
+      : []),
+    ...(access.manage && access.changeStatus ? [{ type: 'separator' as const }] : []),
+    // Deleting stays open in a closed project: it is still the way to remove it.
+    ...(access.changeStatus
+      ? [
+          {
+            type: 'item' as const,
+            id: 'delete',
+            label: t('project.overview.delete'),
+            icon: Trash2,
+            variant: 'destructive' as const,
+            onSelect: () => setDeleting(true),
+          },
+        ]
+      : []),
+  ]
+
+  const menu =
+    entries.length > 0 ? (
+      <ActionMenu
+        mode="dropdown"
+        trigger={
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground size-7"
+            aria-label={t('project.overview.actions')}
+          >
+            <MoreHorizontal className="size-4" aria-hidden />
+          </Button>
+        }
+        entries={entries}
+      />
+    ) : undefined
 
   return (
     <BentoTile
@@ -169,9 +224,12 @@ function HeroTile({
       data-testid="overview-hero"
     >
       <div className="flex min-w-0 flex-col gap-3">
-        <p className="text-balance text-2xl font-semibold tracking-tight md:text-3xl">
-          {data.name}
-        </p>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <p className="text-balance text-2xl font-semibold tracking-tight md:text-3xl">
+            {data.name}
+          </p>
+          {data.status === 'closed' && <ProjectStatusChip status="closed" size="sm" />}
+        </div>
         <p
           className={
             summary
@@ -216,20 +274,20 @@ function HeroTile({
       </div>
 
       {access.manage && (
-        <>
-          <ProjectRenameDialog
-            projectId={data.id}
-            projectName={data.name}
-            open={renaming}
-            onOpenChange={setRenaming}
-          />
-          <ProjectDeleteDialog
-            projectId={data.id}
-            projectName={data.name}
-            open={deleting}
-            onOpenChange={setDeleting}
-          />
-        </>
+        <ProjectRenameDialog
+          projectId={data.id}
+          projectName={data.name}
+          open={renaming}
+          onOpenChange={setRenaming}
+        />
+      )}
+      {access.changeStatus && (
+        <ProjectDeleteDialog
+          projectId={data.id}
+          projectName={data.name}
+          open={deleting}
+          onOpenChange={setDeleting}
+        />
       )}
     </BentoTile>
   )

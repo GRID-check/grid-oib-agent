@@ -1,15 +1,28 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { render, screen, within } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import type { ProjectOverviewData } from '../../types'
 import type { ProjectUsageView } from '../settings/usage-settings'
 import { ProjectOverview } from './project-overview'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }))
+// The lifecycle card and the Steckbrief have their own specs; here only where
+// they mount, and for whom, is asserted.
+vi.mock('../project-lifecycle-card', () => ({
+  ProjectLifecycleCard: (props: { status: string }) => (
+    <div data-testid="project-lifecycle-card" data-status={props.status} />
+  ),
+}))
+vi.mock('../project-steckbrief', () => ({
+  ProjectSteckbrief: () => <div data-testid="project-steckbrief" />,
+}))
 
 const DATA: ProjectOverviewData = {
   id: 'p1',
   name: 'Alpine Tower',
   collectionName: 'proj_1',
+  status: 'active',
+  closedAt: null,
   createdAt: '2026-07-01T10:00:00Z',
   profileDisplay: { summary: 'Wohnbau GK4 in Wien.' },
   profile: null,
@@ -45,8 +58,20 @@ const ACTIVITY = {
   daily: [{ day: '2026-10-08', questions: 6 }],
 }
 
-const VIEWER = { manage: false, editProfile: false, manageMembers: false }
-const ADMIN = { manage: true, editProfile: true, manageMembers: true }
+const VIEWER = {
+  manage: false,
+  changeStatus: false,
+  writeMemory: false,
+  editProfile: false,
+  manageMembers: false,
+}
+const ADMIN = {
+  manage: true,
+  changeStatus: true,
+  writeMemory: true,
+  editProfile: true,
+  manageMembers: true,
+}
 
 beforeEach(() => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
@@ -154,6 +179,48 @@ describe('ProjectOverview', () => {
       '/app/projects/p1/files?folder=f-vertraege',
     ])
     expect(links[0]).toHaveAccessibleName('Open folder “Honorare”')
+  })
+
+  test('a closed project (ADR-0090): no rename, but the status control and deletion stay with the manager', async () => {
+    const user = userEvent.setup()
+    render(
+      <ProjectOverview
+        data={{ ...DATA, status: 'closed', closedAt: '2026-10-06T10:00:00Z' }}
+        activity={ACTIVITY}
+        usage={null}
+        access={{ ...ADMIN, manage: false, writeMemory: false }}
+      />
+    )
+
+    expect(within(screen.getByTestId('overview-hero')).getByText('Closed')).toBeInTheDocument()
+    expect(screen.getByTestId('project-lifecycle-card')).toHaveAttribute('data-status', 'closed')
+    await user.click(screen.getByRole('button', { name: 'Project actions' }))
+    expect(await screen.findByRole('menuitem', { name: 'Delete project' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Rename' })).not.toBeInTheDocument()
+  })
+
+  test('viewers see no status control, but the Steckbrief and similar projects', () => {
+    render(
+      <ProjectOverview
+        data={DATA}
+        activity={ACTIVITY}
+        usage={null}
+        access={VIEWER}
+        steckbrief={{
+          address: null,
+          startedOn: null,
+          endedOn: null,
+          people: [],
+          canEdit: false,
+          canErase: false,
+        }}
+        similar={<div data-testid="similar-slot" />}
+      />
+    )
+
+    expect(screen.queryByTestId('project-lifecycle-card')).not.toBeInTheDocument()
+    expect(screen.getByTestId('project-steckbrief')).toBeInTheDocument()
+    expect(screen.getByTestId('similar-slot')).toBeInTheDocument()
   })
 
   test('every tile opens its section', () => {

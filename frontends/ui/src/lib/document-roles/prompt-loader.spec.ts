@@ -53,13 +53,16 @@ describe('loadDocumentRolesPromptSection', () => {
 
     expect(getRestrictedFolderIds).toHaveBeenCalledWith('org-1', 'proj-1')
     expect(getHiddenFolderIds).not.toHaveBeenCalled()
-    expect(listProjectDocumentRoles).toHaveBeenCalledWith('proj-1', { hiddenFolderIds: [RESTRICTED] })
+    expect(listProjectDocumentRoles).toHaveBeenCalledWith('proj-1', {
+      hiddenFolderIds: [RESTRICTED],
+      documents: { kind: 'screened-only' },
+    })
   })
 
   it('names no filed document at all when there is no tenant to read the folders in', async () => {
     await loadDocumentRolesPromptSection('proj-1', null)
 
-    expect(listProjectDocumentRoles).toHaveBeenCalledWith('proj-1', { unfiledOnly: true })
+    expect(listProjectDocumentRoles).toHaveBeenCalledWith('proj-1', { unfiledOnly: true, documents: { kind: 'screened-only' } })
   })
 
   it('drops the whole block when folder access cannot be decided', async () => {

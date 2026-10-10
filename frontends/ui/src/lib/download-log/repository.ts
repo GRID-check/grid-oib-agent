@@ -7,6 +7,7 @@
  */
 
 import 'server-only'
+import type { ProjectStatus } from '@/lib/projects/project-status'
 import { and, desc, eq, gte, ilike, lt, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
@@ -42,6 +43,57 @@ export interface AccessLogFilter {
   /** Exclusive upper bound. */
   to?: Date
   kind?: DownloadLogKind
+  /** Only rows the viewer may read the folder of; see {@link ReadableFolders}. */
+  readable?: ReadableFolders
+}
+
+/**
+ * Which rows a viewer may read the folder of, in the terms the database can
+ * apply before the limit (the name filter, `./service`). The same rule as the
+ * service's `folderReadableBy` applies to a page it has read:
+ *
+ * - a row on no project folder is readable;
+ * - in a project where a folder hides something from someone (one with its own
+ *   list, or one in the Papierkorb), a row is readable when its folder is in
+ *   `folderIds`;
+ * - in any other project it is readable, except a row logged under its own list
+ *   whose folder is gone with its project, which only `recordedListReadable`
+ *   opens.
+ */
+export interface ReadableFolders {
+  folderIds: readonly string[]
+  recordedListReadable: boolean
+}
+
+/**
+ * Whether the row's project has a folder that hides something: the predicate of
+ * `projectHasCustomOrBinnedFolders` (`lib/authz/folder-access-repository.ts`),
+ * correlated to the row. Decided here rather than from a list of projects, so a
+ * project the caller did not read counts as hiding, and its rows match only
+ * through `folderIds`: it fails closed.
+ */
+const projectHidesSomething = (): SQL => sql`EXISTS (
+  SELECT 1 FROM project_folders hiding
+  JOIN projects owner ON owner.id = hiding.project_id
+  WHERE hiding.project_id = ${documentAccessLog.projectId}
+    AND owner.organization_id = ${documentAccessLog.organizationId}
+    AND (hiding.access_mode = 'custom' OR (hiding.deleted_at IS NOT NULL AND hiding.purged_at IS NULL))
+)`
+
+function readableCondition(readable: ReadableFolders): SQL {
+  const unfiled = sql`(${documentAccessLog.scope} <> 'project' OR ${documentAccessLog.projectId} IS NULL OR ${documentAccessLog.folderId} IS NULL)`
+  // One text parameter however many folders: a list of parameters would meet
+  // Postgres's limit of 65,535 in a large organization.
+  const inReadableFolder =
+    readable.folderIds.length > 0
+      ? sql`${documentAccessLog.folderId} = ANY(string_to_array(${readable.folderIds.join(',')}, ',')::uuid[])`
+      : sql`false`
+  // The folder row is gone (a purged project leaves none) and the row was logged under its own list.
+  const goneUnderOwnList = sql`(${documentAccessLog.ownList} AND ${projectFolders.path} IS NULL)`
+  const elsewhere = readable.recordedListReadable
+    ? sql`NOT ${projectHidesSomething()}`
+    : sql`(NOT ${projectHidesSomething()} AND NOT ${goneUnderOwnList})`
+  return sql`(${unfiled} OR ${inReadableFolder} OR ${elsewhere})`
 }
 
 /**
@@ -65,6 +117,8 @@ export interface AccessLogRow {
   scope: DownloadLogScope
   projectId: string | null
   projectName: string | null
+  /** The project's status now (ADR-0090); null outside a project or once it is gone. */
+  projectStatus: ProjectStatus | null
   documentId: string
   documentName: string
   versionId: string | null
@@ -86,6 +140,7 @@ function conditions(filter: AccessLogFilter, cursor: AccessLogCursor | null): SQ
   if (filter.from) found.push(gte(documentAccessLog.occurredAt, filter.from))
   if (filter.to) found.push(lt(documentAccessLog.occurredAt, filter.to))
   if (filter.kind) found.push(eq(documentAccessLog.kind, filter.kind))
+  if (filter.readable) found.push(readableCondition(filter.readable))
   if (cursor) {
     found.push(sql`(${documentAccessLog.occurredAt}, ${documentAccessLog.id}) < (${cursor.occurredAt}::timestamptz, ${cursor.id}::uuid)`)
   }
@@ -116,6 +171,7 @@ export async function listAccessLog(
         scope: documentAccessLog.scope,
         projectId: documentAccessLog.projectId,
         projectName: projects.name,
+        projectStatus: projects.status,
         documentId: documentAccessLog.documentId,
         documentName: documentAccessLog.documentName,
         versionId: documentAccessLog.versionId,
@@ -147,6 +203,7 @@ export async function listAccessLog(
     scope: row.scope,
     projectId: row.projectId,
     projectName: row.projectName,
+    projectStatus: row.projectStatus ?? null,
     documentId: row.documentId,
     documentName: row.documentName,
     versionId: row.versionId,

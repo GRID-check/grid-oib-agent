@@ -9,6 +9,7 @@ describe('visibleSettingsSections', () => {
       'memory',
       'usage',
       'documents',
+      'references',
     ])
   })
 
@@ -19,6 +20,7 @@ describe('visibleSettingsSections', () => {
       'overview',
       'memory',
       'documents',
+      'references',
     ])
   })
 })

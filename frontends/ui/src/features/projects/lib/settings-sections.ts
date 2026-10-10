@@ -13,6 +13,9 @@
  *   - **Usage & budget**: what has this project cost, and what stops it?
  *   - **Documents & index**: who brought which files in, can everyone who should
  *     reach them, and is the index behind the answers current?
+ *   - **Similar projects**: which closed projects of the office were most like
+ *     this one, and what did they decide and get told? Reference reading, so it
+ *     is a tile and a section here rather than a rail entry of its own.
  *
  * They were one scrolling Settings page holding all of it beside a placeholder
  * "Insights" card that promised numbers it had none of, and a roster shown to
@@ -37,6 +40,7 @@ export const PROJECT_SETTINGS_SECTION_KEYS = [
   'memory',
   'usage',
   'documents',
+  'references',
 ] as const
 
 export type ProjectSettingsSectionKey = (typeof PROJECT_SETTINGS_SECTION_KEYS)[number]

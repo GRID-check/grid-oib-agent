@@ -234,6 +234,49 @@ describe('SourcePreviewChip', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/documents?'))).toBe(false)
   })
 
+  test('a chip resolving its document stays focused and busy, never disabled, and ignores a second press', async () => {
+    // Hold the presign open so the in-flight state can be looked at.
+    let release: () => void = () => {}
+    const routed = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation((input, init) =>
+      String(input) === '/api/documents/doc-1/preview'
+        ? new Promise((resolve) => {
+            release = () => resolve(jsonResponse({ url: 'https://storage.example/presigned.pdf' }))
+          })
+        : routed(input, init)
+    )
+    try {
+      const user = userEvent.setup()
+      render(
+        <SourcePreviewChip
+          citation={ref({
+            content: '[KB] Brandschutzkonzept.pdf, p.3',
+            fileName: 'Brandschutzkonzept.pdf',
+            collection: 'proj_1',
+            kind: 'projekt',
+            page: 3,
+          })}
+        />
+      )
+      const chip = await screen.findByRole('button', { name: 'Preview source: Brandschutzkonzept' })
+      // The peek is the tooltip: no native `title` racing it.
+      expect(chip).not.toHaveAttribute('title')
+
+      await user.click(chip)
+      expect(chip).not.toBeDisabled()
+      expect(chip).toHaveAttribute('aria-busy', 'true')
+      expect(chip).toHaveFocus()
+      await user.click(chip)
+      const presigns = fetchMock.mock.calls.filter(([url]) => String(url) === '/api/documents/doc-1/preview')
+      expect(presigns).toHaveLength(1)
+
+      release()
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    } finally {
+      fetchMock.mockImplementation(routed)
+    }
+  })
+
   test('an office citation opens its PDF rendition and keeps the original downloadable', async () => {
     const user = userEvent.setup()
     render(
@@ -638,5 +681,43 @@ describe('a document read at several pages', () => {
 
     expect(within(rail).getByText('Fluchtwege sind freizuhalten.')).toBeTruthy()
     expect(within(dialog).queryByText('Cited passage')).toBeNull()
+  })
+})
+
+describe('a source from another project (ADR-0094)', () => {
+  // The chat's own project is 'project-1' (the store mock above).
+  const traufe = {
+    kind: 'projekt' as const,
+    content: '[KB] Detail Traufe.pdf (Wohnbau Graz), p.3\nDie Traufe ist hinterlüftet ausgeführt.',
+    citationKey: 'Detail Traufe.pdf (Wohnbau Graz), p.3',
+    fileName: 'Detail Traufe.pdf',
+  }
+
+  test('its popover says Precedent, where a file of the chat’s own project says Project knowledge', async () => {
+    const user = userEvent.setup()
+    render(
+      <SourcePreviewChip
+        citation={ref({ ...traufe, project: { id: 'project-9', name: 'Wohnbau Graz', status: 'closed' } })}
+      />
+    )
+
+    await user.click(await screen.findByRole('button', { name: /Preview source/ }))
+
+    expect(await screen.findByText('Precedent')).toBeInTheDocument()
+    expect(screen.queryByText('Project knowledge')).toBeNull()
+  })
+
+  test('a file named with the chat’s own project is still its own, and says Project knowledge', async () => {
+    const user = userEvent.setup()
+    render(
+      <SourcePreviewChip
+        citation={ref({ ...traufe, project: { id: 'project-1', name: 'Seestadt D12', status: 'active' } })}
+      />
+    )
+
+    await user.click(await screen.findByRole('button', { name: /Preview source/ }))
+
+    expect(await screen.findByText('Project knowledge')).toBeInTheDocument()
+    expect(screen.queryByText('Precedent')).toBeNull()
   })
 })

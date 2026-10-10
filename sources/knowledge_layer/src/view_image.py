@@ -406,7 +406,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
                 return f"[view_knowledge_image] Invalid image_index {image_index}: indices are 0-based."
             if not collection:
                 return (
-                    "[view_knowledge_image] image_index addresses a raster stored beside a project/Archiv "
+                    "[view_knowledge_image] image_index addresses a raster stored beside a project or Büroablage "
                     "document; pass the hit's collection so it can be located."
                 )
             location = await _resolve_storage_location(collection, file_name, image_index=image_index)
@@ -529,7 +529,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
             return (
                 f"[view_knowledge_image] Could not find the source PDF for '{file_name}'. "
                 "Rendering is possible for base-corpus documents without a collection; "
-                "pass the collection for a project/Archiv document."
+                "pass the collection for a project or Büroablage document."
             )
         location = await _resolve_storage_location(collection, file_name)
         if location is None:
@@ -579,7 +579,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
             "chunk has Content Type image, drawing or chart, or the question is about what a plan, "
             "section, photo or diagram shows. file_name is the name in the hit's `Citation:` line "
             "(not the display title); page_number is its `Page:`. For a base-corpus document pass "
-            "just those two; for a project/Archiv document (an uploaded PDF or image) also pass the "
+            "just those two; for a project or Büroablage document (an uploaded PDF or image) also pass the "
             "hit's `Collection:` so the stored bytes can be fetched. A PDF page is rendered whole, "
             "so a figure arrives with the text around it. When the hit carries an `Image:` line, "
             "pass its image_index (with file_name, page_number and collection) to get that embedded "

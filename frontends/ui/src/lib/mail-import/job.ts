@@ -30,6 +30,7 @@ import { ApiError } from '@/lib/api/errors'
 import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import { isAuthzError } from '@/lib/auth-utils'
 import { requireFolderWrite } from '@/lib/authz/folder-access'
+import { resolveShelfFolderPath } from '@/lib/documents/folder-path'
 import { requireShelfWrite } from '@/lib/documents/shelf-authz'
 import { projectShelf } from '@/lib/documents/shelf'
 import { inboxGroupKey } from '@/lib/inbox/registry'
@@ -80,6 +81,8 @@ interface Failure {
 }
 
 const OPEN: MailImportStatus[] = ['queued', 'importing']
+
+const ARCHIVE_FOLDER_DELETED = 'The import’s folder was deleted (Papierkorb); nothing more is filed into it.'
 
 /**
  * One slice. `session` is the requester's today, or null when they are no
@@ -155,6 +158,9 @@ async function fileUntilBudget(session: AuthorizedSession, initial: MailImport):
     if (error instanceof SliceBudgetSpentError) return false
     // Cancelled, or taken over: nothing more for this slice to do.
     if (error instanceof ImportMovedOnError) return true
+    // A write into a binned folder is refused (GFD01, or "not found" before the
+    // insert); when the archive folder is what went to the bin, no retry helps.
+    if (!(await archiveFolderLive(context.mailImport))) throw new PermanentImportFailure('stopped', ARCHIVE_FOLDER_DELETED)
     throw error
   }
 }
@@ -230,9 +236,16 @@ async function startSlice(
  * lost access. A root that does not exist yet is created at the project root,
  * inheriting the project, and is judged as such; one a concurrent writer made
  * meanwhile is checked again, as `generated.ts` does for its destination.
+ *
+ * A remembered folder someone has since put in the Papierkorb (itself or a
+ * folder above it) ends the import, checked before the write check so the
+ * reason is the bin and not lost access: it is not made again, because the
+ * mails before the cursor are in the bin and a new folder would hold only the
+ * rest, and because deleting the import's folder is a person's word on it.
  */
 async function ensureArchiveFolder(session: AuthorizedSession, row: MailImport): Promise<string> {
   if (row.rootFolderId) {
+    if (!(await archiveFolderLive(row))) throw new PermanentImportFailure('stopped', ARCHIVE_FOLDER_DELETED)
     await requireFolderWrite(session, row.projectId, [row.rootFolderId])
     return row.rootFolderId
   }
@@ -243,6 +256,17 @@ async function ensureArchiveFolder(session: AuthorizedSession, row: MailImport):
   const folder = await createFolderWithFreeName({ session, mailImport: row }, root.id, archiveFolderName(row.filename))
   await repository.updateMailImport(row.organizationId, row.id, ['importing'], { rootFolderId: folder.id })
   return folder.id
+}
+
+/**
+ * Whether the remembered archive folder is still a folder of the project. The
+ * bin marks a deleted folder's whole subtree, so a binned ancestor is seen here
+ * too.
+ */
+async function archiveFolderLive(row: MailImport): Promise<boolean> {
+  if (!row.rootFolderId) return true
+  const path = await resolveShelfFolderPath(projectShelf(row.projectId), row.rootFolderId, row.organizationId)
+  return path !== null
 }
 
 async function recordTotal(context: FilingContext, total: number): Promise<void> {

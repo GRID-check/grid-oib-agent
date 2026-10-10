@@ -14,6 +14,7 @@ import { answersFromProfile } from '@/lib/project-profile/intake-definition'
 import { documentRoleDefinition, recommendedRoles } from '@/lib/project-profile/document-roles'
 import type { DocumentRole } from '@/lib/project-profile/document-roles'
 import { getRestrictedFolderIds } from '@/lib/authz/folder-access'
+import { SCREENED_ONLY } from '@/lib/documents/document-reader'
 import { listProjectDocumentRoles } from './repository'
 import type { DocumentRoleReader } from './repository'
 import { buildDocumentRolesSection } from './prompt-section'
@@ -30,8 +31,9 @@ async function readerFor(
   projectId: string,
   organizationId: string | null | undefined
 ): Promise<DocumentRoleReader> {
-  if (!organizationId) return { unfiledOnly: true }
-  return { hiddenFolderIds: await getRestrictedFolderIds(organizationId, projectId) }
+  // Nor a held file (ADR-0086): its name reaches no model until it is screened.
+  if (!organizationId) return { unfiledOnly: true, documents: SCREENED_ONLY }
+  return { hiddenFolderIds: await getRestrictedFolderIds(organizationId, projectId), documents: SCREENED_ONLY }
 }
 
 export async function loadDocumentRolesPromptSection(

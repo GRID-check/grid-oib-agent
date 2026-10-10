@@ -30,8 +30,11 @@ import { executeRows } from '@/lib/db/execute-rows'
 import { rangeDays, scopeBounds, type QualityScope } from '@/lib/quality/scope'
 import type { FeedbackQuery, RatingsFilters } from './filters'
 import { VOTED_ANSWER_JOIN } from './turn-join'
-import { sqlList, VOTE_PROJECT, voteScope } from './vote-scope'
+import { OUTSIDE_RESTRICTED_USE, sqlList, VOTE_PROJECT, voteScope } from './vote-scope'
 import { isTraceId } from '@/lib/langfuse/config'
+
+/** Re-exported for the readers that already import it from here (`platform-lessons`). */
+export { OUTSIDE_RESTRICTED_USE }
 
 /** Hard cap for the per-conversation hydration list. */
 export const CONVERSATION_FEEDBACK_LIST_LIMIT = 200
@@ -144,6 +147,26 @@ export async function getAnswerTraceId(messageId: string, organizationId: string
   )
   const traceId = rows[0]?.trace_id
   return isTraceId(traceId) ? traceId : null
+}
+
+/**
+ * Whether a stored vote sits on a conversation that drew on a restricted folder
+ * (`OUTSIDE_RESTRICTED_USE` turned around). The Langfuse score of such a vote
+ * carries its number and reason chip, never the voter's words: those may quote
+ * the folder, and Langfuse's readers are platform staff outside its audience.
+ */
+export async function isRestrictedUseVote(feedbackId: string, organizationId: string): Promise<boolean> {
+  const rows = rowsOf(
+    await getDb().execute(sql`
+      select 1
+      from answer_feedback f
+      where f.id = ${feedbackId}
+        and f.organization_id = ${organizationId}
+        and not (${OUTSIDE_RESTRICTED_USE})
+      limit 1
+    `),
+  )
+  return rows.length > 0
 }
 
 /**
@@ -576,6 +599,14 @@ export async function getFeedbackHealth(
  *
  * Cross-tenant like `getFeedbackHealth`, and reachable only through it or
  * through the digest — both of which sit behind `requirePlatformPermission`.
+ *
+ * A content-bearing read, so it leaves out votes on an answer whose
+ * conversation drew on a restricted folder (`voteScope`'s `contentBearing`,
+ * the database's `grid_feedback_restricted_use`, as the export's rows do).
+ * The aggregates above still count them: a count quotes nothing. A vote that
+ * names a restricted chat is not returned at all, so no row carries the title
+ * the staff profiler withholds; otherwise the answer row's conversation is
+ * the authority, the vote's own `conversation_id` the fallback (`voteScope`).
  */
 export async function listFeedbackTurns(
   query: FeedbackQuery,
@@ -611,7 +642,7 @@ export async function listFeedbackTurns(
       c.title      as conversation_title,
       c.tags       as topics,
       m.metadata->>'trace_id' as trace_id
-    ${voteScope(narrowed, { question: true })}
+    ${voteScope(narrowed, { question: true, contentBearing: true })}
     order by f.created_at desc, f.id
     limit ${recentLimit}
   `)

@@ -19,6 +19,12 @@ import { projects } from './projects'
  * must not race it. `project_id` keeps a cascading FK (mirrors
  * `conversations.project_id`) so a purged project takes its feedback along.
  * `organization_id` is denormalized for SQL-level tenancy scoping (ADR-0007).
+ *
+ * Whether the answer drew on a folder with restricted access is NOT a column
+ * here: the database marks the vote's `message_id` (`message_restricted_use`,
+ * migration 0124, a trigger on this table among others) and every cross-tenant
+ * reader asks `grid_feedback_restricted_use` of the vote. Both ids are the
+ * client's, so they can only add to that answer, never lift it.
  */
 
 export const ANSWER_FEEDBACK_VERDICTS = ['up', 'down'] as const

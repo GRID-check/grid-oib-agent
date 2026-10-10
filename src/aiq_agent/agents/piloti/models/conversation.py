@@ -151,6 +151,10 @@ class ConversationState(BaseModel):
     # NOTE: plain types only (str | None) — a new pydantic TYPE would also need
     # registering in the checkpointer serde allowlist (aiq_agent/common/__init__.py).
     org_instructions: str | None = None
+    # The office's reference projects (closed, most like this one), one line
+    # each, from the turn context; rendered as ``<referenzprojekte>`` when
+    # ``project_lookup`` is bound. Plain str, as above.
+    reference_projects: str | None = None
     # Set when this turn commissioned a run instead of answering itself
     # (ADR-0062): the ``task_runs`` row and the message that run narrates itself
     # in, both minted by the BFF before the worker was asked for anything.
@@ -198,6 +202,9 @@ class ConversationState(BaseModel):
     # lifted from Piloti's state and onto ``TurnResult.quote_stamps``. None when
     # the answer quotes nothing.
     quote_stamps: list[dict[str, Any]] | None = None
+    # The thinking level the answering call ran at, lifted from Piloti's state
+    # onto ``TurnResult.reasoning_effort``. None when no answering call ran.
+    reasoning_effort: str | None = None
     # --- Transparency extras (WP-A) -------------------------------------------
     # All optional/additive: absent means "unknown/not applicable". Lifted onto
     # ``RUN_FINISHED``'s ``TurnResult`` (``turn.response.build_result``), same

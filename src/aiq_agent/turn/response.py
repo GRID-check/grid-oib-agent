@@ -26,6 +26,7 @@ from aiq_agent.common.wire_v2 import RunFinishedBody
 from aiq_agent.common.wire_v2 import RunHandoff
 from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.common.wire_v2 import card_key
+from aiq_agent.knowledge.restricted_use import drew_on_other_projects
 from aiq_agent.memory.restriction import RestrictionEvidence
 from aiq_agent.memory.restriction import restricted_digest_notes
 from aiq_agent.memory.restriction import restriction_evidence
@@ -44,6 +45,18 @@ def answer_message_id(conversation_id: str | None, turn_id: str | None) -> str:
     route's primary key (``onConflictDoNothing`` on ``messages.id``) and no-ops.
     """
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"grid:assistant:{conversation_id}:{turn_id or 'default'}"))
+
+
+def turn_answer_message_id(conversation_id: str | None) -> str:
+    """The id of the answer the running turn writes: :func:`answer_message_id` of its NAT context.
+
+    For a caller that must name the answer before it exists: the BFF marks it
+    when restricted content is admitted into the turn (ADR-0093), so a vote on
+    it is judged by the server's record whether or not the answer is persisted.
+    """
+    from aiq_agent.project_context import get_user_message_id_from_context
+
+    return answer_message_id(conversation_id, get_user_message_id_from_context())
 
 
 def answer_text(state: ConversationState) -> str:
@@ -88,6 +101,7 @@ def build_result(state: ConversationState, cards: list[dict[str, Any]], message_
         retrieval_ledger=list(state.retrieval_ledger or []),
         quote_stamps=[QuoteStamp.model_validate(stamp) for stamp in state.quote_stamps or []],
         run=_run_handoff(state),
+        reasoning_effort=state.reasoning_effort,
     )
 
 
@@ -182,6 +196,8 @@ def post_answer_turn_facts(
         emitted_card_types=emitted_card_types(cards),
         answer_confidence=state.answer_confidence,
         remembered_this_turn=remembered_this_turn,
+        # Read here, while the turn is bound: the stages run after it is gone.
+        drew_on_other_projects=drew_on_other_projects(),
         restriction=turn_restriction_evidence(
             state,
             registry_collections=registry_collections,

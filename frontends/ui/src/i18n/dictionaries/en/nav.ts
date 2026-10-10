@@ -23,11 +23,13 @@ export const nav = {
     research: 'Research',
     /** Automation — Tasks and Skills as tabs inside one section. */
     automation: 'Automation',
+    /** Similar closed projects, read for this one (ADR-0094). */
+    referenzen: 'Similar projects',
     skills: 'Skills',
     jobs: 'Jobs',
     /** The tab that leads: work delegated to Piloti, one card per task (ADR-0051). */
     tasks: 'Tasks',
-    archiv: 'Archiv',
+    archiv: 'Office filing',
     settings: 'Overview',
     // The intake wizard, labelled "Setup" in the product (⌘K palette only).
     intake: 'Setup',

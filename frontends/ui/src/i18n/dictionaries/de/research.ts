@@ -16,12 +16,30 @@ export const research: typeof en.research = {
     ariaMessages: 'Chat-Nachrichten',
     loading: 'Unterhaltung wird geladen',
     scrollToLatest: 'Zum neuesten Beitrag springen',
+    // Eine leise Zeile über der Eingabe, statt einer Fehlerkarte im Verlauf:
+    // die Seite verbindet sich von selbst neu, die Lesenden müssen nichts tun.
+    connection: {
+      lost: 'Verbindung unterbrochen · Piloti verbindet sich neu …',
+      restored: 'Wieder verbunden',
+    },
     status: {
       thinking: 'Denkt nach …',
+      // Einmal, höflich, wenn die Antwort vollständig dasteht.
+      answerReady: 'Antwort fertig',
+      // Mit dem Kern der Antwort: dem Ergebnis oder ihrem ersten Satz.
+      answerReadyWith: 'Antwort fertig: {gist}',
+      // Die Lesenden haben die Antwort angehalten.
+      stopped: 'Gestoppt',
+      // Der Zug ist gescheitert; die Fehlerkarte darunter sagt wie.
+      failed: 'Fehlgeschlagen',
+      // Der Zug hat einen Auftrag angelegt: die Arbeit hat erst begonnen.
+      handedOff: 'Auftrag angelegt',
+      // Piloti hat die Frage nicht bearbeitet; das Banner sagt warum.
+      refused: 'Nicht bearbeitet',
     },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
-      'Melden Sie sich an, um den Projekt-Arbeitsbereich freizuschalten: Ihre Unterlagen, das Büroarchiv und den Vorschriftenkorpus.',
+      'Melden Sie sich an, um den Projekt-Arbeitsbereich freizuschalten: Ihre Unterlagen, die Büroablage und den Vorschriftenkorpus.',
     signInSso: 'Mit SSO anmelden',
     welcomeTitle: 'Wie kann Piloti bei Ihrem Projekt helfen?',
   },
@@ -88,7 +106,7 @@ export const research: typeof en.research = {
     /** Wortmarken der Provenienz-Straten — immer mit Icon und Farbe zusammen. */
     strata: {
       law: 'Baurecht',
-      office: 'Büroarchiv',
+      office: 'Büroablage',
       project: 'Projektwissen',
       auto: 'Web',
     },
@@ -97,7 +115,7 @@ export const research: typeof en.research = {
       all: 'Alle Quellen',
       law: 'Baurecht & Richtlinien',
       project: 'Projektunterlagen',
-      office: 'Büroarchiv',
+      office: 'Büroablage',
     },
     /**
      * Die Wissensschicht ist keine umschaltbare Quelle — sie geht bei jedem Zug
@@ -107,7 +125,7 @@ export const research: typeof en.research = {
     knowledge: {
       projectName: 'Projektwissen',
       projectDescription: 'Ihre Projektunterlagen in diesem Projekt.',
-      officeName: 'Büroarchiv',
+      officeName: 'Büroablage',
       officeDescription: 'Freigegebene Unterlagen Ihres Büros.',
     },
   },
@@ -196,6 +214,8 @@ export const research: typeof en.research = {
     signInToStart: 'Melden Sie sich an, um zu beginnen',
     typeResponse: 'Geben Sie Ihre Antwort an Piloti ein...',
     pleaseWait: 'Bitte warten...',
+    typeAhead: 'Nächste Frage schon eingeben …',
+    typeAheadHint: 'Senden ist möglich, sobald die Antwort fertig ist.',
     messageNotSent: 'Nachricht nicht gesendet',
     messageNotSentDesc:
       'Beim Senden Ihrer Nachricht ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
@@ -214,6 +234,7 @@ export const research: typeof en.research = {
     responseInput: 'Antworteingabe',
     chatMessageInput: 'Chat-Nachrichteneingabe',
     stopStreaming: 'Antwort stoppen',
+    stopStreamingTitle: 'Antwort stoppen (Esc)',
     sendWhilePending: 'Noch sind nicht alle Dateien gelesen. Trotzdem senden?',
     heldForUpload: 'Wird gesendet, sobald die Datei gelesen ist.',
     heldForUploadSendNow: 'Jetzt ohne die Datei fragen',

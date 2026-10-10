@@ -3,7 +3,7 @@ import 'server-only'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { can } from '@/lib/authz/decide'
 import { canManageBudgets } from '@/lib/authz/organizations'
-import type { ProjectPermission } from '@/lib/authz/projects'
+import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projects'
 
 /**
  * What this session may do on a project's Settings, one flag per affordance.
@@ -14,8 +14,13 @@ import type { ProjectPermission } from '@/lib/authz/projects'
  * every viewer a member roster whose endpoint answers them 404.
  */
 export interface ProjectSettingsAccess {
-  /** Rename and delete: `project:manage`. */
+  /** Rename: `project:manage`, which a closed project refuses (ADR-0090). */
   manage: boolean
+  /**
+   * Close, reopen and delete: `project:manage` asked even of a closed project,
+   * because those are the changes a closed project still allows.
+   */
+  changeStatus: boolean
   /** Read and change the roster, as `listProjectMembers` gates it. */
   manageMembers: boolean
   /** Open the intake wizard to change the profile: `project:edit` (`PUT /profile`). */
@@ -56,20 +61,37 @@ async function holdsAny(
   return held.some(Boolean)
 }
 
+/** `project:manage` even when the project is closed; a denial is a plain no. */
+async function holdsManageEvenWhenClosed(
+  session: AuthorizedSession,
+  projectId: string
+): Promise<boolean> {
+  try {
+    await requireProjectAccess(session, projectId, 'project:manage', { evenWhenClosed: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
- * Resolve every flag concurrently. The caller has already proved
- * `project:view`; this only decides what the page offers, and every write is
- * checked again by its route.
+ * Resolve every flag concurrently. A closed project needs no rule of its own
+ * here: `can` already refuses its writes and keeps `project:members:manage`.
+ * The caller has already proved `project:view`; this only decides what the
+ * page offers, and every write is checked again by its route.
  */
 export async function resolveProjectSettingsAccess(
   session: AuthorizedSession,
   projectId: string
 ): Promise<ProjectSettingsAccess> {
   const keys = Object.keys(CHECKS) as CheckKey[]
-  const results = await Promise.all(keys.map((key) => holdsAny(session, projectId, CHECKS[key])))
+  const [changeStatus, ...results] = await Promise.all([
+    holdsManageEvenWhenClosed(session, projectId),
+    ...keys.map((key) => holdsAny(session, projectId, CHECKS[key])),
+  ])
   const flags = Object.fromEntries(keys.map((key, index) => [key, results[index]])) as Record<
     CheckKey,
     boolean
   >
-  return { ...flags, manageBudget: flags.manage || canManageBudgets(session) }
+  return { ...flags, changeStatus, manageBudget: flags.manage || canManageBudgets(session) }
 }

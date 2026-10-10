@@ -8,6 +8,8 @@ On small screens (below the `md` breakpoint) the chat is mobile-first: the sessi
 
 Click **New chat** in the chat-history panel (left) or the quiet **New chat** button in the thread header to start a fresh conversation. On an empty thread the chat shows a time-of-day greeting (with your first name when available). Type your message in the composer at the bottom of the screen and press Enter. The first user message sets the conversation title (truncated to 50 characters).
 
+While Piloti answers, the composer stays open, so you can write the next question as you read (the placeholder says *Type your next question …*). Enter does nothing until the answer has settled: the button is **Stop** until then and turns back into **Send** when it is done. Esc stops the answer and keeps whatever you have typed. While a colleague's question is being answered in a shared chat, the composer stays locked.
+
 ## Thread header
 
 The header is two floating pills, split by what they are for.
@@ -43,18 +45,18 @@ The whole header is hidden on an empty chat that has not started yet, apart from
 
 The composer is a white card with the message field on top and a control row below, separated by a hairline:
 
-- **Asking about … bar**: when this turn is about a project file (**Besprechen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Besprechen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
+- **Asking about … bar**: when this turn is about a project file (**Besprechen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Besprechen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroablage.
 - **Datengrundlage chip**: shows how many data sources are currently enabled and opens the existing Data Sources panel.
 - **Scope chip**: shows the current project with a lock icon. Retrieval is always scoped to this project; the popover lists a disabled "All projects" option — cross-project search is not available yet.
 - **Deep Research pill**: an on/off *preference*. Piloti escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.
 - **Attach / file counter / send**: unchanged file-upload and send affordances.
 
-Under the composer a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (base corpus + RIS), *Projektunterlagen* (this project's files, not the Büroarchiv), and *Büroarchiv* (office archive, not project files). They stay available after the first message. A pressed preset also tells retrieval which knowledge shelves to keep; it is not only an external-source toggle. Any manual change in the Data Sources panel takes you off the preset again. Uploading a file into the chat binds the next send to that file — "Fass den Inhalt zusammen" does not walk the rest of the project or the Archiv.
+Under the composer a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (base corpus + RIS), *Projektunterlagen* (this project's files, not the Büroablage), and *Büroablage* (the office's own files, not project files). They stay available after the first message. A pressed preset also tells retrieval which knowledge shelves to keep; it is not only an external-source toggle. Any manual change in the Data Sources panel takes you off the preset again. Uploading a file into the chat binds the next send to that file — "Fass den Inhalt zusammen" does not walk the rest of the project or the Büroablage.
 
 Documents sit on four nested shelves. Asking **which files** sit where is answered from that shelf only:
 
 - **Basiswissen** — always on the request (OIB / law corpus).
-- **Büroarchiv** — on every project in the organization. Not OIB, not this project's files.
+- **Büroablage** — on every project in the organization. Not OIB, not this project's files.
 - **Projektwissen** — on every session of this project.
 - **This chat** — only the current session.
 
@@ -166,7 +168,7 @@ dialog over the thread.
 
 **You choose what the run reads.** The Rechercheplan card before a deep
 research lists the sections and, under „Unterlagen", lets you pick documents
-from the project and the office archive: „Lesen" means read in full whatever
+from the project and the Büroablage: „Lesen" means read in full whatever
 else the research finds, „Ausschließen" means never used, not even when a
 search returns it. The chips under „Rahmen" show which data sources the
 research will search. Once the run goes, „Dokument hinzufügen" on its block
@@ -289,7 +291,7 @@ Note the name collision: "RIS" is both the Austrian Rechtsinformationssystem (a 
 
 ### Source preview (clicking a chip)
 
-When a finished answer cites **exactly one** project or Büroarchiv file, that
+When a finished answer cites **exactly one** project or Büroablage file, that
 file opens beside the chat on its own (the same peek used by "Ask about this
 file"). Law, RIS and web citations never auto-open, and neither do answers
 that cite two or more project files — picking would be a guess. Dismissing
@@ -382,6 +384,64 @@ Open the **Data Sources** panel (right sidebar) to enable or disable knowledge c
 - **Files**: Uploaded files attached to the current session.
 
 Enabled data source IDs are tracked per conversation in `enabledDataSourceIds` and sent with every chat message as `enabledDataSources` metadata.
+
+## Searching other projects
+
+Piloti knows the office's finished projects and looks into them on its own
+when your question calls for it: „Wie haben wir die Fluchttreppe beim letzten
+GK4-Holzbau gelöst?", „Was hat die Behörde bei ähnlichen Projekten verlangt?",
+or a question this project's own documents do not answer. You do not have to
+ask it to search there. At the start of every answer it sees a short list of
+the closed projects most like this one (same Bundesland first, then
+Gebäudeklasse, Bauweise and use), and it can search their documents (by topic,
+optionally by document type such as Detail or Gutachten, by OIB discipline,
+and by the project's period), find a project by name or address, and read a
+project's brief. While it searches, the status line says „in anderen
+Projekten". Piloti also finds what other projects **decided**: the decisions and
+constraints their project memory recorded while they ran („Stiegenhaus in
+Stahlbeton, weil das Gutachten nur so die Abweichung zuließ"). These often
+say why, which a document rarely does. They come first in the answer, cited
+as „Projektgedächtnis · ‹Projekt›". Every source from another project names
+that project on its chip
+(„Detail Traufe · Wohnbau Graz"), and opens the document in that project. Its
+preview labels it „Präzedenzfall" rather than „Projektwissen", with that project's
+status („laufend" or „abgeschlossen") and its Bundesland, and warns when the Land
+is not this project's. Piloti treats such a source as a precedent, not as a
+rule, and says when the regulations may have changed since.
+
+What it may look at is decided by Piloti's server, never by the model, and by
+**everyone who reads the chat**, not just by you:
+
+- in a chat only you can see: every project you may chat in, and inside each,
+  exactly what that project's own search would show you (folders with their
+  own access list only if you may read them);
+- in a chat shared with colleagues: the closed projects, and the running ones
+  every one of them may open; no folder with its own access list;
+- in a chat the whole project can see: the closed projects;
+- never the project this chat belongs to (Piloti searches that one anyway);
+- one search covers up to eight projects; Piloti continues when it needs to.
+
+So everything Piloti shows in a chat is something everyone already in it may
+read.
+
+**Closed projects change nothing about your chat.** The whole office may read a
+closed project, so a chat that drew on one stays as it was: shareable with
+anyone in the office, able to remember, start a Tiefenrecherche or an Auftrag.
+
+**A chat that used a running project, or a restricted folder of any project,
+stays with the people who may open it.** From then on the chat:
+
+- can be shared only with colleagues who may open every such project and read
+  every such folder; it cannot be made visible to the whole project;
+- starts no deep research and no task, changes no project brief, files nothing
+  into the project, and adds nothing to project or office memory.
+
+A notice below the text field, above the row of controls, names the other
+projects that restrict the chat right now and says what that closes: a running
+project, or a project whose folder with its own access list the chat drew on,
+even when that project is closed. If a running project is closed later, the
+chat opens up; if a closed one is reopened, the restriction comes back; the
+notice follows within a turn.
 
 ## Project-scoped chat
 

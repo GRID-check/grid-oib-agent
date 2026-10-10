@@ -23,6 +23,7 @@ scripts need.
 | Emit a card | On chat, put it in the answer envelope's `cards` field (`cards/envelope.py`); Piloti no longer binds `emit_card`. Deep research still pushes through the `emit_card` tool, and a system card is pushed by the tool that did the work. Every path lands in the session `CardRegistry`; address a card from prose as `[[card:N]]` | The frontend resolves N positionally against the same ordered array. A card that bypasses the `CardRegistry` is unaddressable |
 | Add per-turn state | A `ContextVar` registry created/reset per turn, the way `cards/registry.py` and `common/citation_verification.py` do | Module-level state leaks across turns and across tenants. Process-lifetime state is allowed only when it holds no tenant or turn data: a bounded cache keyed by model id or content (the query-embedding LRU and its in-flight dedupe on the retriever in `knowledge_layer/llamaindex/adapter.py`, `common/deferred_tool_loading._DEFERRAL_IGNORED`), a build-time handle (`knowledge/factory._SEARCH_RETRIEVER`), or references that keep running work alive (`agents/piloti/register._WARMING`) |
 | Add a line to the grounding block a tool returns | Put the field on `GroundingHit` and the line in `render_grounding_block` (`common/grounding_block.py`), then read it back in `_entry_from_hit`. Both producers build records; neither writes grammar text (ADR-0061) | The byte-identity fixtures in `tests/aiq_agent/common/test_grounding_block.py`, and then the contract test, where the two readers stop agreeing |
+| Add a tool that answers in the grounding grammar (`render_grounding_block`) | Register its name with the text parser too: `register_source_parser(lambda name: "<tool>" in name, _parse_knowledge_layer)` in `common/citation_verification.py` | Nothing on a live turn, which reads the records. A REPLAYED turn reads the text, falls through to the URL extractor, and its citations vanish. `project_lookup` was written without it, and only a test that replays its result caught it |
 | Build a prompt block from rows | Bound it, and say in the text the model reads that it is bounded | Cost grows with project size on every turn, and the agent answers "which files do I have" confidently and wrongly. See `render_inventory_block` |
 | Change `cards/models.py` | Re-run both generators: `uv run python scripts/generate_card_schema.py`, then `npm run generate:cards` in `frontends/ui` | The `card-schemas` pre-commit hook. Without it the frontend validates the old schema, and it type-checks |
 | Change a builtin skill's `SKILL.md` | Re-run the generator: `node frontends/ui/scripts/sync-platform-skills.mjs` | `sync-platform-skills` pre-commit hook. A stale generated module type-checks perfectly, which is why it has broken the build from behind three times |
@@ -49,8 +50,11 @@ group.
 
 ## Reference
 
-- Adding a tool: [`aiq-add-tool`](../../skills/aiq-add-tool/SKILL.md).
-  Adding a retrieval source: [`aiq-add-data-source`](../../skills/aiq-add-data-source/SKILL.md).
+- Adding a tool or a retrieval source:
+  [`adding-a-tool.md`](../../docs/architecture/adding-a-tool.md).
+- Editing a prompt template, and which model each agent role runs on:
+  [`backend-deep-dive.md`](../../docs/architecture/backend-deep-dive.md#prompts-three-layers-and-where-each-is-authored)
+  and [`llm-providers.md`](../../docs/architecture/llm-providers.md#which-model-each-role-uses).
 - How the backend fits together:
   [`docs/architecture/backend-deep-dive.md`](../../docs/architecture/backend-deep-dive.md).
 - `common/source_kinds.py`, `cards/registry.py` and `stages/runner.py` carry

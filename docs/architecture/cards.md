@@ -134,7 +134,7 @@ catalog omits them entirely).
 
 | `type` | Shows | Emitted by |
 |---|---|---|
-| `document_grid` | project/Büroarchiv files the user asked to see — the same raised `FileCard` the Files grid uses | the `surface_documents` tool |
+| `document_grid` | project/Büroablage files the user asked to see — the same raised `FileCard` the Files grid uses | the `surface_documents` tool |
 | `memory_proposal` **(interactive)** | a finding to be written to org- or project-scoped memory, for the user to confirm | the `remember` tool |
 | `document_draft` | a document written into this conversation's working directory — title, path, `v{n}` and size, with the Files feature's „Von Piloti erstellt" byline. Its „Ins Projekt übernehmen" is drawn **inert**: filing is a later slice, and until it is wired the card reports the draft rather than offering to move it | the working directory's `write_file` / `edit_file` |
 | `task_created` | work Piloti has taken on, as a task row somebody can come back to — title, goal, due date and a link to the run's thread. Informational: the task is already queued when it renders, so there is no Accept | the `create_task` tool |
@@ -577,9 +577,9 @@ sanctioned path, carrying **real** data:
   opens a named file; **`mode=one` + `query`** opens the best match;
   **`mode=many`** only when two or three files of the same kind are
   nearly tied. **`shelf=archiv` / `shelf=project`** keeps the search on
-  one shelf so a Büroarchiv browse cannot pull project files. A question
+  one shelf so a Büroablage browse cannot pull project files. A question
   that only *lists* what is on a shelf ("welche Dateien hast du im
-  Büroarchiv") is answered from the shelf-grouped inventory, not this
+  Büroablage") is answered from the shelf-grouped inventory, not this
   tool. Never invent names. See [ADR-0026](../adr/) for
   source-kind doctrine.
 
@@ -750,7 +750,7 @@ charter counted thirteen distinct sizes in `features/grid-cards/`, ten of them
 arbitrary values, with `text-[12px]` beside `text-xs`.
 
 `grid/card-type-scale` (`eslint-rules/card-type-scale.mjs`) makes that an error
-— **per file**, listed as `CARDS_ON_THE_TYPE_RAMP` in `eslint.config.mjs`. The
+— **per file**, listed in the `grid/card-type-scale` override of `.oxlintrc.json`. The
 charter migrates a card when a sprint touches it rather than in one flag day, so
 a card joins the list when it is clean, and a card already on it cannot regress.
 Adding a new card? Put it on the list from the start.
@@ -870,7 +870,7 @@ without re-plumbing generation or transport.
 4. Add the renderer under `features/grid-cards/` and wire the `GridCards`
    dispatcher (interactive cards get `messageId={messageId} cardKey={key}`).
    Type it with the [`card-*` ramp](#type-sizes-six-classes-and-lint-per-card)
-   and add the file to `CARDS_ON_THE_TYPE_RAMP` in `eslint.config.mjs`.
+   and add the file to the `grid/card-type-scale` override in `.oxlintrc.json`.
 5. Add a fixture to the `/dev/cards` gallery, then capture it and attach the
    capture to the PR (`docs/ux/visual-screenshots.md`).
 6. **Give it a trigger in the doctrine** (`render_card_doctrine` in

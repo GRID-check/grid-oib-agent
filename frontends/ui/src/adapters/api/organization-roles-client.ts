@@ -34,6 +34,8 @@ const RoleFolderUseSchema = z.object({
   folderName: z.string(),
   projectId: z.string(),
   projectName: z.string(),
+  /** Not in the folder tree until a restore: the folder is in the Papierkorb, or its project is pending deletion. */
+  deleted: z.enum(['folder', 'project']).nullable(),
 })
 
 const RoleUsageSchema = z.object({ total: z.number(), folders: z.array(RoleFolderUseSchema) })

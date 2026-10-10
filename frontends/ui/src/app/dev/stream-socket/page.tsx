@@ -11,12 +11,33 @@
  * chat hook → the store → `ChatArea`, the path the product takes, and the
  * probe reports frame bytes next to main-thread time: every frame but the
  * terminal under 4 KB, and a frame count that does not grow with the prompt.
+ * Beside the cost it records what the reader sees move, until 2.5 s after the
+ * settle (`layout-probe.ts`): layout shift split at the settle, the reading
+ * line, the app's own scrolls and long animation frames.
  *
  * The answer is the recorded `oib2` turn, `speed` times its recorded pace.
  * The question is sent by the composer itself once the socket is open
  * (`autosend=0` leaves that to you). Everything measured lands in
  * `window.__streamSocket`; `scripts/measure-stream-socket.mjs` drives it and
  * prints the summary.
+ *
+ * The other lifecycles of a turn, each so it can be seen and measured
+ * (times in ms after the question reached the server):
+ *
+ * - `scenario=` another shape of the turn (`_fixtures/v2-scenarios.ts`):
+ *   `cards-only`, `masthead-first`, `shallow`, `opens-table`, `opens-card`,
+ *   `one-line`, `long`, `two-turns` (the second question 600 ms after the
+ *   first answer settled), `retract-with-card`, `rewrite` (the recording's own
+ *   terminal, the retired whole-answer repair). Default `happy`, whose
+ *   terminal continues the settle as the product's does today.
+ * - `error=preack|steps|prose|finish` ends the turn with a `RUN_ERROR` there.
+ * - `drop=<ms>` closes the socket as a lost network does; the client's ladder
+ *   reconnects and its `attach` gets the frames it missed.
+ * - `reload=<ms>` reloads the page; the server keeps the turn running, and the
+ *   reloaded page's `attach{after_seq: 0}` replays it from the start.
+ * - `switch=<ms>` opens another conversation, and this one again 1.5 s later.
+ * - `toggle=open@<ms>,close@<ms>` clicks the Herleitung's header.
+ * - `stop=<ms>` presses Stop.
  *
  * Development only. The numbers are `next dev` numbers: compare before with
  * after on the same server, never with production.
@@ -29,11 +50,17 @@ import { AppConfigProvider, type AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { ChatArea } from '@/features/layout/components'
 import { InputArea } from '@/features/layout/components/InputArea'
+import { useComposerMetrics } from '@/features/layout/hooks/use-composer-metrics'
+import { ComposerScrim } from '@/features/layout/components/ComposerScrim'
+import { selectThreadPhase } from '@/features/layout/lib/thread-phase'
+import { motion } from '@/components/motion'
 import { useChatStore } from '@/features/chat'
 import { useAnswerRevealStore } from '@/features/chat/stores/answer-reveal-store'
-import type { Conversation } from '@/features/chat/types'
-import { buildTurnScript, type FrameKind } from './turn-script'
-import { installFakeTurnServer } from './fake-turn-server'
+import type { ChatMessage, Conversation } from '@/features/chat/types'
+import { isErrorPhase, isStreamScenario, type ErrorPhase, type StreamScenario } from '../_fixtures/v2-scenarios'
+import { answerMessageId, buildTurnScript, type FrameKind, type TurnScript } from './turn-script'
+import { installFakeTurnServer, type FakeTurnServer, type ResumeTurn } from './fake-turn-server'
+import { AFTER_SETTLE_MS, initialLayoutProbe, observeLayout, type LayoutProbe } from './layout-probe'
 
 const config: AppConfig = {
   authRequired: false,
@@ -45,6 +72,14 @@ const config: AppConfig = {
 const USER = 'default-user'
 const HARNESS_STORAGE_KEY = 'aiq-chat-store:stream-socket'
 const CONVERSATION_ID = 'stream-socket'
+/** The conversation `switch=` opens while the turn runs. */
+const OTHER_CONVERSATION_ID = 'stream-socket-other'
+/** How long `switch=` stays in the other conversation. */
+const SWITCH_AWAY_MS = 1_500
+/** When `two-turns` asks its second question, after the first answer settled. */
+const SECOND_QUESTION_AFTER_SETTLE_MS = 600
+/** Where `reload=` leaves the running turn for the reloaded page (`sessionStorage`). */
+const RESUME_KEY = 'stream-socket:resume'
 
 /**
  * The first card on screen; A2UI and grid cards mark themselves. The recorded
@@ -53,7 +88,27 @@ const CONVERSATION_ID = 'stream-socket'
  */
 const CARD_SELECTOR = '[data-a2ui-root], [data-a2ui-surface]'
 
-interface StreamSocketProbe {
+/** One thing the harness did to the turn, for the probe's timeline. */
+interface HarnessAction {
+  /** Milliseconds after the question was sent. */
+  t: number
+  action: string
+}
+
+interface StreamSocketProbe extends LayoutProbe {
+  scenario: StreamScenario
+  error: ErrorPhase | null
+  /** The latest turn's answer id: the reading line follows it. */
+  answerId: string
+  /** Questions the server received; `two-turns` asks two. */
+  turnsAsked: number
+  /** When the first answer settled, on `two-turns`, before the second question reset `settledAt`. */
+  firstSettledAt: number
+  /** This page load took a turn over from a reload (`reload=`). */
+  resumed: boolean
+  /** What the harness did, in order: drop, attach (with how many frames replayed), switch, toggle, stop, reload. */
+  actions: HarnessAction[]
+  /** Set `AFTER_SETTLE_MS` after the answer settled: the settle's own aftermath is part of the turn. */
   done: boolean
   connected: boolean
   /** `performance.now()` when the user message reached the fake server. */
@@ -80,6 +135,7 @@ interface StreamSocketProbe {
   longTasks: { start: number; ms: number }[]
   /** Summed rAF gaps beyond one 60 Hz frame: a main-thread busy estimate that sees short tasks too. */
   rafBusyMs: number
+  /** Layout shift over the whole turn, the settle's aftermath included; split in `clsBeforeSettle`/`clsAfterSettle`. */
   layoutShift: number
 }
 
@@ -146,7 +202,9 @@ const observe = (probe: StreamSocketProbe): (() => void) => {
       probe.settledAt = performance.now()
     }
   })
+  const stopLayout = observeLayout(probe, probe)
   return () => {
+    stopLayout()
     longTasks.disconnect()
     shifts.disconnect()
     cancelAnimationFrame(raf)
@@ -178,16 +236,176 @@ const sendFromComposer = (question: string): boolean => {
   return true
 }
 
+interface HarnessParams {
+  speed: number
+  autosend: boolean
+  scenario: StreamScenario
+  error: ErrorPhase | null
+  dropAt: number | null
+  reloadAt: number | null
+  switchAt: number | null
+  stopAt: number | null
+  toggles: { open: boolean; at: number }[]
+}
+
+const msParam = (value: string | null): number | null => {
+  const ms = Number(value)
+  return value !== null && Number.isFinite(ms) && ms >= 0 ? ms : null
+}
+
+/** `open@3000,close@9000` → the clicks, in order. */
+const parseToggles = (value: string | null): { open: boolean; at: number }[] =>
+  (value ?? '')
+    .split(',')
+    .map((part) => /^(open|close)@(\d+)$/.exec(part.trim()))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => ({ open: match[1] === 'open', at: Number(match[2]) }))
+
+/**
+ * The turn a `reload=` left behind, taken once per page load: the reloaded
+ * page does not reload again, and a later manual reload starts fresh. Held in
+ * the module because development runs the effect twice (Strict Mode), and the
+ * second run must find what the first took out of storage.
+ */
+let resumeOfThisLoad: (ResumeTurn & { question: string }) | null | undefined
+const takeResume = (): (ResumeTurn & { question: string }) | null => {
+  if (resumeOfThisLoad !== undefined) return resumeOfThisLoad
+  try {
+    const raw = window.sessionStorage.getItem(RESUME_KEY)
+    window.sessionStorage.removeItem(RESUME_KEY)
+    resumeOfThisLoad = raw ? (JSON.parse(raw) as ResumeTurn & { question: string }) : null
+  } catch {
+    resumeOfThisLoad = null
+  }
+  return resumeOfThisLoad
+}
+
+/**
+ * The Herleitung's header of the latest turn: the Collapsible trigger in the
+ * panel's muted box (`ChatThinking`). The product has no hook for it, so this
+ * leans on that structure; `aria-expanded`, since a closed Radix trigger drops
+ * its `aria-controls`. When the structure changes the action reads
+ * `(no header)` in the probe's `actions`.
+ */
+const herleitungTrigger = (): HTMLButtonElement | null =>
+  [...document.querySelectorAll<HTMLButtonElement>('.bg-muted > [data-state] > button[aria-expanded]')].at(-1) ?? null
+
+/** Press the composer's Stop, as a reader would; the store's handler if the button is not there. */
+const pressStop = (): void => {
+  const button = document.querySelector('[data-glyph="stop"]')?.closest('button')
+  if (button) button.click()
+  else useChatStore.getState().stopStreaming?.()
+}
+
+/**
+ * The harness's interruptions of the turn, scheduled from the first question
+ * (`schedule` times from then). Each is written to the probe's `actions`.
+ */
+const scheduleInterruptions = (
+  params: HarnessParams,
+  probe: StreamSocketProbe,
+  server: FakeTurnServer,
+  script: TurnScript,
+  schedule: (ms: number, run: () => void) => void
+): void => {
+  const note = (action: string) => probe.actions.push({ t: Math.round(performance.now() - probe.sentAt), action })
+  if (params.dropAt !== null) {
+    schedule(params.dropAt, () => {
+      note('drop')
+      server.drop()
+    })
+  }
+  if (params.stopAt !== null) {
+    schedule(params.stopAt, () => {
+      note('stop')
+      pressStop()
+    })
+  }
+  for (const toggle of params.toggles) {
+    schedule(toggle.at, () => {
+      const trigger = herleitungTrigger()
+      const isOpen = trigger?.getAttribute('data-state') === 'open'
+      note(`${toggle.open ? 'open' : 'close'}${trigger ? (isOpen === toggle.open ? ' (already)' : '') : ' (no header)'}`)
+      if (trigger && isOpen !== toggle.open) trigger.click()
+    })
+  }
+  if (params.switchAt !== null) {
+    schedule(params.switchAt, () => {
+      note('switch away')
+      useChatStore.getState().selectConversation(OTHER_CONVERSATION_ID)
+    })
+    schedule(params.switchAt + SWITCH_AWAY_MS, () => {
+      note('switch back')
+      useChatStore.getState().selectConversation(CONVERSATION_ID)
+    })
+  }
+  if (params.reloadAt !== null) {
+    schedule(params.reloadAt, () => {
+      const running = server.running()
+      if (!running) return note('reload (no turn running)')
+      note('reload')
+      try {
+        const question = script.turns[running.index]?.question ?? script.question
+        window.sessionStorage.setItem(RESUME_KEY, JSON.stringify({ ...running, question }))
+      } catch {
+        return note('reload (no sessionStorage)')
+      }
+      window.location.reload()
+    })
+  }
+}
+
+/** The thread as a reload finds it: the question, persisted, with no answer yet. */
+const resumedConversation = (resume: ResumeTurn & { question: string }): Conversation => {
+  const question: ChatMessage = {
+    id: resume.turnId,
+    role: 'user',
+    content: resume.question,
+    timestamp: new Date(resume.startedAtEpoch),
+    messageType: 'user',
+    authorUserId: USER,
+  }
+  return { ...openConversation(), messages: [question] }
+}
+
+const readParams = (params: URLSearchParams): HarnessParams => {
+  const scenario = params.get('scenario')
+  const error = params.get('error')
+  return {
+    speed: Number(params.get('speed') ?? '1') || 1,
+    autosend: params.get('autosend') !== '0',
+    scenario: isStreamScenario(scenario) ? scenario : 'happy',
+    error: isErrorPhase(error) ? error : null,
+    dropAt: msParam(params.get('drop')),
+    reloadAt: msParam(params.get('reload')),
+    switchAt: msParam(params.get('switch')),
+    stopAt: msParam(params.get('stop')),
+    toggles: parseToggles(params.get('toggle')),
+  }
+}
+
 export default function StreamSocketPage() {
   if (process.env.NODE_ENV !== 'development') notFound()
-  const params = useSearchParams()
-  const speed = Number(params.get('speed') ?? '1') || 1
-  const autosend = params.get('autosend') !== '0'
+  const search = useSearchParams()
+  // One key for the effect: a change to any parameter is a new harness run.
+  const query = search.toString()
   const [ready, setReady] = useState(false)
+  // The geometry `MainLayout` gives the composer, from the same hook.
+  const isThreadEmpty = useChatStore((state) => selectThreadPhase(state) === 'empty')
+  const { composerRef, columnVars, composerStyle, composerMotion } = useComposerMetrics(isThreadEmpty)
 
   useEffect(() => {
-    const script = buildTurnScript(speed)
+    const params = readParams(new URLSearchParams(query))
+    const script = buildTurnScript(params.speed, { scenario: params.scenario, error: params.error ?? undefined })
+    const resume = takeResume()
     const probe: StreamSocketProbe = {
+      scenario: params.scenario,
+      error: params.error,
+      answerId: answerMessageId(resume?.index ?? 0),
+      turnsAsked: resume ? resume.index + 1 : 0,
+      firstSettledAt: 0,
+      resumed: resume !== null,
+      actions: [],
       done: false,
       connected: false,
       sentAt: 0,
@@ -196,7 +414,7 @@ export default function StreamSocketPage() {
       firstCardAt: 0,
       completeAt: 0,
       settledAt: 0,
-      framesScripted: script.frames.length,
+      framesScripted: script.turns.reduce((sum, turn) => sum + turn.frames.length, 0),
       stepBytes: script.stepBytes,
       maxFrameBytes: script.maxFrameBytes,
       totalBytes: script.totalBytes,
@@ -208,30 +426,71 @@ export default function StreamSocketPage() {
       longTasks: [],
       rafBusyMs: 0,
       layoutShift: 0,
+      ...initialLayoutProbe(),
     }
     window.__streamSocket = probe
     const timers: number[] = []
-    // Done once the answer settled, or 5 s after its terminal frame if it never reports settling.
+    const later = (ms: number, run: () => void) => timers.push(window.setTimeout(run, ms))
+    const allAsked = () => probe.turnsAsked >= script.turns.length
+    // Done `AFTER_SETTLE_MS` after the last answer settled, or 5 s after its
+    // terminal frame if it never reports settling (a failed or stopped turn).
+    // Not AT the settle: the Herleitung collapses and the footer lands in the
+    // frames after it, and a probe that stopped there reported a turn whose
+    // worst shift it never saw.
     const finishWhenSettled = () => {
-      if (probe.settledAt > 0 || (probe.completeAt > 0 && performance.now() - probe.completeAt > 5000)) {
+      const now = performance.now()
+      const settled = probe.settledAt > 0 && now - probe.settledAt > AFTER_SETTLE_MS
+      const ended = probe.completeAt > 0 && now - probe.completeAt > 5000
+      if (allAsked() && (settled || ended)) {
         probe.done = true
         return
       }
-      timers.push(window.setTimeout(finishWhenSettled, 100))
+      later(100, finishWhenSettled)
+    }
+    // The next question of `two-turns`, once the answer before it settled.
+    const askNextWhenSettled = () => {
+      if (allAsked()) return
+      if (probe.settledAt > 0) {
+        const asked = probe.turnsAsked
+        const send = () => {
+          if (probe.turnsAsked !== asked) return
+          sendFromComposer(script.turns[asked].question)
+          // A composer still busy with the first turn ignores Enter: ask again
+          // until the server has the question.
+          later(1_500, send)
+        }
+        later(SECOND_QUESTION_AFTER_SETTLE_MS, send)
+        return
+      }
+      later(100, askNextWhenSettled)
     }
     // Before anything mounts: the socket the chat opens must be the fake one.
-    const uninstallServer = installFakeTurnServer(
+    const server = installFakeTurnServer(
       script,
       {
         onOpen: () => (probe.connected = true),
-        onUserMessage: (at) => {
+        onUserMessage: (at, index) => {
+          probe.turnsAsked = index + 1
+          probe.answerId = answerMessageId(index)
+          if (index > 0) {
+            // A new turn: the settle the split and `done` wait for is its own.
+            probe.firstSettledAt = probe.settledAt
+            probe.settledAt = 0
+            probe.completeAt = 0
+            return
+          }
           probe.sentAt = at
           finishWhenSettled()
+          askNextWhenSettled()
+          scheduleInterruptions(params, probe, server, script, later)
         },
         onFrameHandled: (kind, sentAt, handledAt) => recordFrame(probe, kind, sentAt, handledAt),
         onHeartbeat: () => (probe.heartbeats += 1),
+        onAttach: (afterSeq, frames) =>
+          probe.actions.push({ t: Math.round(performance.now() - probe.sentAt), action: `attach after_seq=${afterSeq} replay=${frames}` }),
       },
-      (lastSentAt) => (probe.lastSentAt = lastSentAt)
+      (lastSentAt) => (probe.lastSentAt = lastSentAt),
+      { resume: resume ?? undefined }
     )
     const restoreFetch = stubApiFetch()
     const stopObserving = observe(probe)
@@ -239,42 +498,64 @@ export default function StreamSocketPage() {
     const previous = useChatStore.getState()
     const persistedAs = useChatStore.persist.getOptions().name
     useChatStore.persist.setOptions({ name: HARNESS_STORAGE_KEY })
-    const conversation = openConversation()
+    const conversation = resume ? resumedConversation(resume) : openConversation()
+    const other: Conversation = { ...openConversation(), id: OTHER_CONVERSATION_ID, title: 'Another conversation' }
     useChatStore.setState({
       currentUserId: USER,
       currentConversation: conversation,
-      conversations: [conversation],
+      conversations: [conversation, other],
       hasHydrated: true,
     })
+    if (resume) {
+      // As a reload finds the thread: its newest question has no answer, so
+      // the store marks the turn resumable and the socket attaches it from seq 0.
+      useChatStore.getState().restoreSessionState(conversation)
+      probe.sentAt = performance.now()
+      finishWhenSettled()
+      askNextWhenSettled()
+    }
     setReady(true)
 
     // Send once the chat's socket is open and the composer is on screen.
     const sendWhenOpen = () => {
       const open = document.querySelector('textarea') !== null && probe.connected
       if (open && sendFromComposer(script.question)) return
-      timers.push(window.setTimeout(sendWhenOpen, 100))
+      later(100, sendWhenOpen)
     }
-    if (autosend) timers.push(window.setTimeout(sendWhenOpen, 500))
+    if (params.autosend && !resume) later(500, sendWhenOpen)
 
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer))
       stopObserving()
       restoreFetch()
-      uninstallServer()
+      server.uninstall()
       useChatStore.setState(previous)
       useChatStore.persist.clearStorage()
       useChatStore.persist.setOptions({ name: persistedAs })
     }
-  }, [speed, autosend])
+  }, [query])
 
   return (
     <I18nProvider initialLocale="de" fixedLocale>
       <AppConfigProvider config={config}>
-        <div className="bg-background flex h-screen flex-col">
+        {/* The product's chat column (`MainLayout`): the composer FLOATS over
+            the thread's foot, with the product's scrims, and publishes its height, which the thread pads
+            for and the jump button and status dock sit above. In flow, below
+            the thread, it measured a layout the product does not have, and
+            everything placed from `--composer-h` floated mid-screen. */}
+        <div className="bg-background relative flex h-screen flex-col overflow-hidden" style={columnVars}>
           {ready && (
             <>
               <ChatArea isAuthenticated />
-              <InputArea isAuthenticated connectionMode="websocket" />
+              <ComposerScrim />
+              <motion.div
+                ref={composerRef}
+                className="absolute inset-x-0 z-10 flex flex-col"
+                style={composerStyle}
+                {...composerMotion}
+              >
+                <InputArea isAuthenticated connectionMode="websocket" />
+              </motion.div>
             </>
           )}
         </div>

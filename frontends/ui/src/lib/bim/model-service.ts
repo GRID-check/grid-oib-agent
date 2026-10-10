@@ -29,7 +29,9 @@ const BIM_WRITE: readonly ProjectPermission[] = ['project:documents:write', 'pro
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
-import { findDocumentInOrg } from '@/lib/documents/repository'
+import { findDocumentForSession, getAccessibleDocument } from '@/lib/documents/access'
+import { internalRead, type DocumentReader } from '@/lib/documents/document-reader'
+import { shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import type { Document } from '@/lib/db/schema'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -98,10 +100,12 @@ async function assertDocumentReadable(
   document: Document,
   notFoundMessage: string
 ): Promise<void> {
+  // A held file's model is its uploader's and its reviewers' only (ADR-0086):
+  // the caller loaded `document` through `findDocumentForSession`.
   switch (document.scope) {
     case 'archiv':
-      // Org-wide by design, and `findDocumentInOrg` has already established that
-      // the row belongs to the caller's organization.
+      // Org-wide by design, and `findDocumentForSession` has already
+      // established that the row belongs to the caller's organization.
       return
     case 'session':
       // As private as the chat it hangs off — the same grant the document's own
@@ -135,10 +139,12 @@ export async function getAccessibleModel(
   modelId: string
 ): Promise<BimModelHeader> {
   assertIfcModelsEnabled(session)
-  const model = await findBimModelById(modelId, session.organizationId)
+  // The header only names the document; the document is what the hold and the
+  // shelf decide about (ADR-0086), and it goes through the session's rule.
+  const model = await findBimModelById(modelId, session.organizationId, internalRead('resolve-document'))
   if (!model) throw new NotFoundError('Model not found')
 
-  const document = await findDocumentInOrg(model.documentId, session.organizationId)
+  const document = await findDocumentForSession(session, model.documentId)
   if (!document) throw new NotFoundError('Model not found')
 
   await assertDocumentReadable(session, document, 'Model not found')
@@ -151,10 +157,23 @@ export async function getModelForDocument(
   documentId: string
 ): Promise<BimModelHeader | null> {
   assertIfcModelsEnabled(session)
-  const document = await findDocumentInOrg(documentId, session.organizationId)
+  const document = await findDocumentForSession(session, documentId)
   if (!document) throw new NotFoundError('Document not found')
   await assertDocumentReadable(session, document, 'Document not found')
-  return findBimModelByDocument(documentId, session.organizationId)
+  return findBimModelByDocument(documentId, session.organizationId, internalRead('reloaded'))
+}
+
+/**
+ * The model list's reader per shelf (ADR-0086). It reads the project's models
+ * and the Büroablage's together, and each shelf has its own reviewers: the
+ * project's admins for one, the Büroablage's curators for the other.
+ */
+async function modelListReader(session: AuthorizedSession, projectId: string): Promise<DocumentReader> {
+  const [project, archiv] = await Promise.all([
+    shelfReaderFor(session, { scope: 'project', projectId }),
+    shelfReaderFor(session, { scope: 'archiv', projectId: null }),
+  ])
+  return { kind: 'shelves', project, archiv }
 }
 
 /**
@@ -173,6 +192,7 @@ export async function listAccessibleModels(
     projectId,
     includeArchiv: true,
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+    reader: await modelListReader(session, projectId),
   })
 }
 
@@ -246,8 +266,11 @@ export async function getModelSource(
   modelId: string
 ): Promise<BimModelSource> {
   const model = await getAccessibleModel(session, modelId)
-  const document = await findDocumentInOrg(model.documentId, session.organizationId)
-  if (!document?.storageKey) throw new NotFoundError('Model file not available')
+  // The bytes leave through the one access decision every other document
+  // hand-over uses, not only the model's own shelf check above: a rule added to
+  // `getAccessibleDocument` reaches the raw IFC too (`download-log/coverage.spec.ts`).
+  const document = await getAccessibleDocument(session, model.documentId, 'read')
+  if (!document.storageKey) throw new NotFoundError('Model file not available')
 
   const expiresIn = presignTtlSeconds()
   const bucket = resolveDocumentBucket(document.storageBucket)
@@ -290,15 +313,18 @@ export async function getModelSource(
  * caller can never end up with an empty scope and silently withdraw nothing.
  */
 async function revisionSiblingIds(
-  organizationId: string,
+  session: AuthorizedSession,
   projectId: string,
   model: { id: string; filename: string }
 ): Promise<string[]> {
   const series = revisionSeriesKey(model.filename)
-  const models = await listBimModels(organizationId, {
+  // The revisions this person may see: a held revision is not theirs to sign
+  // for or withdraw a signature from (ADR-0086).
+  const models = await listBimModels(session.organizationId, {
     projectId,
     includeArchiv: true,
     limit: 200,
+    reader: await modelListReader(session, projectId),
   })
   const ids = models
     .filter((candidate) => revisionSeriesKey(candidate.filename) === series)
@@ -319,7 +345,7 @@ export async function listAccessibleCheckConfirmations(
 ): Promise<BimStoredConfirmation[]> {
   assertIfcModelsEnabled(session)
   await requireProjectAccess(session, projectId, 'project:view')
-  return listBimCheckConfirmations(session.organizationId, projectId)
+  return listBimCheckConfirmations(session.organizationId, projectId, await modelListReader(session, projectId))
 }
 
 /**
@@ -399,6 +425,7 @@ async function resolveModelByName(
       includeArchiv: true,
       limit: 200,
       hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+      reader: await modelListReader(session, projectId),
     })
   ).filter((model) => model.status === 'ready')
   const needle = name.trim().toLowerCase()
@@ -451,7 +478,7 @@ export async function exportAccessibleComplianceBcf(
       },
       { modelId: model.id, organizationId: session.organizationId }
     ),
-    listBimCheckConfirmations(session.organizationId, projectId),
+    listBimCheckConfirmations(session.organizationId, projectId, await modelListReader(session, projectId)),
     findProjectInOrg(projectId, session.organizationId),
   ])
 
@@ -465,7 +492,7 @@ export async function exportAccessibleComplianceBcf(
       confirmedAt: entry.confirmedAt.toISOString(),
     })),
     model.id,
-    await revisionSiblingIds(session.organizationId, projectId, model)
+    await revisionSiblingIds(session, projectId, model)
   )
 
   const root = model.summary?.spatial
@@ -510,6 +537,6 @@ export async function withdrawAccessibleCheck(
     // Across the building's revisions: the panel may well have been showing a
     // confirmation from an earlier one, marked stale, and that is the one the
     // reader is taking back.
-    modelIds: await revisionSiblingIds(session.organizationId, projectId, model),
+    modelIds: await revisionSiblingIds(session, projectId, model),
   })
 }

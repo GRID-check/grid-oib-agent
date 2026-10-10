@@ -24,6 +24,18 @@ because the two ⚠️ rows this runbook used to carry (`org:audit:view`,
 `org:archiv:manage`, both "create this in Staging", both still absent three
 weeks later) were invisible to everything except a human re-reading the file.
 
+**The catalog's wording follows the „Büroablage" rename on the next provisioning.**
+The product renamed the org-wide shelf from „Archiv" to „Büroablage" („Office
+filing" in English) on 6 Oct 2026. `org:archiv:manage` keeps its slug. Its
+label is NOT taken from the dictionary: Organisation → Zugriff
+(`frontends/ui/src/features/organization/components/permission-reference.tsx`) shows the `name` and `description` from
+`frontends/ui/src/lib/authz/catalog.ts`, so it still reads „Manage document Archiv" there until
+the next provisioning changes them. Changing them rewrites the permission's
+name and description in WorkOS, a provisioning step that waits for the
+product owner's go. Change the
+`name` and `description` in `catalog.ts` and run `--apply` together, never one
+without the other: the drift check would fail in between.
+
 **Resource types are the one manual step**: the Node SDK exposes no CRUD for
 them, so create them in the dashboard. The script still catches a missing one —
 a permission cannot be created against a resource type that does not exist, and
@@ -192,7 +204,8 @@ environment-scoped role holds a `platform:*` permission.
 | `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:memory:write` |
 | `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:skills:manage` |
 | `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |
-| `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view`, `platform:settings:view` — every read, no `*:manage`. `platformApiRoute` requires the specific permission per route, which is what makes "read-only" true rather than described. |
+| `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view`, `platform:settings:view`, `platform:observability:view` — every read, no `*:manage`. `platformApiRoute` requires the specific permission per route, which is what makes "read-only" true rather than described. |
+| `platform-observability-analyst` | **GRID Platform org only** | `platform:observability:view` only: opens Langfuse at the edge for business analysts and the Fachbereich, and no platform surface in the app (ADR-0089). The scope must be assigned to the Connect application before the stack that checks it is deployed, or every Langfuse login fails with `invalid_scope` |
 
 The five fine-grained org personas exist to keep ADR-0016's extensibility
 contract honest: each holds a strict subset of Admin and works with no code
@@ -320,6 +333,32 @@ drown the admin trail.
   `intent: 'audit_logs'`); exports (CSV) and SIEM **streaming** (Datadog,
   Splunk, S3, …) are configured via the existing audit-log-streaming widget
   (`widgets:audit-log-streaming:manage` on the Admin role).
+- **What a viewer reads.** `org:audit:view` opens the viewer, and roles that
+  are not organization admins hold it (`org-auditor`, `org-compliance-officer`,
+  any custom role given it). So an event emitted about a document filed, at
+  that moment, under a folder not every project member may read leaves its name
+  out (ADR-0087): for the actions in `DOCUMENT_NAME_ACTIONS`
+  (`lib/audit/document-names.ts`) the emitter drops `filename`, `previousName`
+  and `displayName`, and the screening `terms` (the name-gate words that
+  matched a piece of the name on an override, the office's words the content
+  check found in the text on a quarantine release; the release's `reasons` keep
+  only the kinds), and sets `nameWithheld: true`; the
+  target id still says
+  which document, and someone cleared for the folder opens it in Piloti. Folder
+  events carry the folder id, never its name. A folder rule that cannot be read
+  withholds the name too.
+- **What it does not cover.** The decision is taken once, when the event is
+  emitted, and WorkOS events cannot be changed afterwards. A viewer still reads
+  the name in: events emitted before this release; events emitted while the
+  folder was open (an upload or rename), after which the folder got its own list
+  (`project.folder.access_changed` removes nothing); and the earlier events of a
+  document moved into a restricted folder (a move emits no audit event). If such
+  names must not be read, limit `org:audit:view` to people cleared for those
+  folders. `nameWithheld` is
+  registered on those actions (and `terms` on `document.quarantine_released`);
+  the deploy's schema job reconciles them, and an
+  environment reconciled by hand needs `npm run provision:audit-schemas -- --apply`
+  before this release, or WorkOS rejects the event.
 
 ### 6. Feature Flags (native WorkOS product)
 
@@ -482,6 +521,10 @@ in two places: the prompt tells the model the capability is absent, and the
 conversation graph refuses the escalation even when the model asks anyway. So a
 tenant without deep research is never shown a plan, and one without tasks is
 never told an Auftrag was created.
+
+The same answer carries a closed project (ADR-0090): the turn sends its
+`projectId`, and a closed project answers `deepResearch: false` and
+`tasks: false` whatever the flags say, because both file into the project.
 
 That is what the flags did NOT do before. Each was read at exactly one route —
 `POST /api/jobs/async/submit` for deep research, nothing at all for tasks — so

@@ -65,9 +65,11 @@ import {
   type EngagementState,
 } from './engagement'
 import { sanitizeProvenance } from './message-provenance'
+import { answerMessageId, cutStoppedRow } from './stopped-cut'
 import { sanitizeStages } from './message-stages'
 import { sanitizePromptDetail, sanitizePromptState, type StoredPromptState } from './message-prompt'
 import { maskAnswerText, maskChatText } from '@/lib/upload-screening/service'
+import { restrictingOtherProjects, type RestrictingOtherProject } from './cross-project-use'
 import { lockedConversationIds } from './restricted-use'
 import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
 import {
@@ -83,6 +85,7 @@ import {
   markConversationDeleting,
   mergeMessageMetadata,
   recordConversationErased,
+  reviseMessage,
   updateConversationMetaInOrg,
   updateConversationTitleInOrg,
   upsertConversationRead,
@@ -168,6 +171,13 @@ export interface ConversationWithAccess extends Conversation {
    * answers next because a colleague typed "danke".
    */
   engagementSuggestion: ConversationEngagement | null
+  /**
+   * The other projects this chat's answers drew on that restrict it NOW
+   * (ADR-0094), judged at read time like every door: a project closed since the
+   * answer is not here, a reopened one is, and a closed project's restricted
+   * folder names its project. What the composer's notice lists.
+   */
+  restrictingOtherProjects: RestrictingOtherProject[]
 }
 
 export interface ListConversationsFilter {
@@ -234,10 +244,11 @@ export async function getConversation(
 ): Promise<ConversationWithAccess> {
   const access = await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
 
-  const [conversation, grantCount, readMark] = await Promise.all([
+  const [conversation, grantCount, readMark, restricting] = await Promise.all([
     findConversationInOrg(conversationId, session.organizationId),
     countGrantsForResource('conversation', conversationId),
     findConversationRead(conversationId, session.userId),
+    restrictingOtherProjects(conversationId, session.organizationId),
   ])
   if (!conversation) throw new NotFoundError()
 
@@ -261,6 +272,7 @@ export async function getConversation(
     engagementMode: engagement.mode,
     engagementStored: engagement.stored,
     engagementSuggestion: engagement.suggestion,
+    restrictingOtherProjects: restricting,
   }
 }
 
@@ -790,6 +802,40 @@ export async function updateMessageDetail(
   // Deep-merged per card key: a second client PATCHing the map it knows about
   // must not erase a decision it never saw (see `mergeMessageMetadata`).
   const row = await mergeMessageMetadata(conversationId, messageId, metadata, deepMergeKeys)
+  if (!row) throw new NotFoundError()
+  return row
+}
+
+/**
+ * Cut the asker's own answer to what they had on screen when they pressed
+ * Stop, when the Stop crossed the agent tier's finished answer and the row
+ * holds all of it (`stopped-cut.ts` says when that happens and what the cut
+ * keeps).
+ *
+ * Narrow on purpose, because it rewrites an answer's text: the caller must be
+ * a collaborator on the conversation, the message must be the answer of
+ * `turnId` (the id the agent tier derives from it), and the question that
+ * opened the turn must be the caller's own. Only the person who asked may
+ * stop a turn on the wire (`not_asker`), and the same holds here. The cut
+ * only shortens the stored text, within minutes of its writing, never to
+ * nothing, and leaves a row that holds no more than was on screen alone, so a
+ * retry is harmless.
+ */
+export async function cutStoppedAnswer(
+  session: AuthorizedSession,
+  conversationId: string,
+  messageId: string,
+  input: { turnId: string; shown: string }
+): Promise<Message> {
+  await requireResourceAccess(session, 'conversation', conversationId, 'collaborator')
+  if (answerMessageId(conversationId, input.turnId) !== messageId) throw new NotFoundError()
+  const question = await findMessageInConversation(conversationId, input.turnId)
+  if (!question || question.role !== 'user') throw new NotFoundError()
+  if (question.authorUserId !== session.userId) {
+    throw new ForbiddenError('Only the person who asked can stop this answer.')
+  }
+  const now = Date.now()
+  const row = await reviseMessage(conversationId, messageId, (existing) => cutStoppedRow(existing, input.shown, now))
   if (!row) throw new NotFoundError()
   return row
 }

@@ -30,7 +30,7 @@ const orphans = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/authz/folder-access-repository', () => ({
-  projectHasCustomFolders: vi.fn(async () => false),
+  projectHasCustomOrBinnedFolders: vi.fn(async () => false),
   listProjectFolderTree: vi.fn(async () => [
     { id: 'modelle', parentId: null, accessMode: 'inherit', grants: [] },
     { id: 'plaene', parentId: null, accessMode: 'inherit', grants: [] },

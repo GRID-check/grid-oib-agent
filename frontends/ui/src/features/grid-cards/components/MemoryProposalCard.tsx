@@ -7,6 +7,7 @@ import { useTranslations } from '@/i18n'
 import { useChatStore } from '@/features/chat/store'
 import { useCardDecision } from '../hooks/use-card-decision'
 import { ProposalShell } from './ProposalShell'
+import { StackedLabel } from './StackedLabel'
 
 type MemoryKind = 'decision' | 'constraint' | 'open_question' | 'derived_fact' | 'preference'
 type MemoryConfidence = 'low' | 'medium' | 'high'
@@ -58,9 +59,16 @@ export function MemoryProposalCard({
   })
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // Which button is working: the project save used to say nothing while the
+  // org-wide Yes beside it was the one that announced „Speichern …".
+  const [savingTo, setSavingTo] = useState<'org' | 'project'>('org')
 
   const save = async (url: string, savedDecision: 'savedOrg' | 'savedProject') => {
+    // Ignored while a save is in flight, rather than refused by `disabled`:
+    // see the buttons below.
+    if (isSubmitting) return
     setError(null)
+    setSavingTo(savedDecision === 'savedProject' ? 'project' : 'org')
     setIsSubmitting(true)
     try {
       const res = await fetch(url, {
@@ -86,6 +94,7 @@ export function MemoryProposalCard({
     void save(`/api/projects/${projectId}/memory`, 'savedProject')
   }
   const handleDismiss = () => {
+    if (isSubmitting) return
     decide('dismissed')
     setError(null)
   }
@@ -131,21 +140,57 @@ export function MemoryProposalCard({
           {/* Project action is its own row so its target scope reads distinctly
               from the org-wide Yes/No group. Hidden when there is no project in
               scope. */}
+          {/* BUSY, NOT DISABLED, while a save is in flight. `disabled` on the
+              button the reader just pressed dropped their focus to <body> and
+              dimmed the whole row; `aria-disabled` keeps the focus where it
+              is, the handlers ignore a second press, and the pressed button
+              says what it is doing in a label slot as wide as either label
+              (`StackedLabel`), so nothing beside it moves. */}
           {projectId && (
             <div className="flex items-center">
-              <Button type="button" variant="outline" size="sm" onClick={handleSaveProject} disabled={isSubmitting}>
-                {t('memoryProposal.saveToProject')}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleSaveProject}
+                aria-disabled={isSubmitting || undefined}
+                aria-busy={(isSubmitting && savingTo === 'project') || undefined}
+                className="aria-disabled:cursor-default"
+              >
+                <StackedLabel
+                  busy={isSubmitting && savingTo === 'project'}
+                  idle={t('memoryProposal.saveToProject')}
+                  working={t('memoryProposal.saving')}
+                />
               </Button>
             </div>
           )}
 
           {/* Org-wide prompt with Yes/No grouped together to the right. */}
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <p className="mr-auto text-sm text-muted-foreground">{t('memoryProposal.prompt')}</p>
-            <Button type="button" size="sm" onClick={handleSaveOrg} disabled={isSubmitting}>
-              {isSubmitting ? t('memoryProposal.saving') : t('memoryProposal.yes')}
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSaveOrg}
+              aria-disabled={isSubmitting || undefined}
+              aria-busy={(isSubmitting && savingTo === 'org') || undefined}
+              className="aria-disabled:cursor-default"
+            >
+              <StackedLabel
+                busy={isSubmitting && savingTo === 'org'}
+                idle={t('memoryProposal.yes')}
+                working={t('memoryProposal.saving')}
+              />
             </Button>
-            <Button type="button" variant="outline" size="sm" onClick={handleDismiss} disabled={isSubmitting}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleDismiss}
+              aria-disabled={isSubmitting || undefined}
+              className="aria-disabled:cursor-default aria-disabled:opacity-50"
+            >
               {t('memoryProposal.no')}
             </Button>
           </div>

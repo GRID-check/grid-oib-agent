@@ -3,7 +3,9 @@
 What an office can keep out of Piloti, what it can keep from some of its own
 people, and how an uploader learns what became of an upload. The decisions
 behind this are ADR-0086 (screening and quarantine), ADR-0087 (folder
-access follows WorkOS roles) and ADR-0088 (read and write per role).
+access follows WorkOS roles) and ADR-0088 (read and write per role). Which of
+this is automated, which part is a language model, where a person decides and
+what the audit log records: [Sensitive data and the AI Act](ai-act.md).
 
 ## The sensitive-data list
 
@@ -28,11 +30,22 @@ can be switched off.
    the name terms hold back and why. Those files are never sent. A single file,
    such as a Bauvertrag in a folder called „Verträge", can be released with one
    tick; the release is recorded in the audit log. The server checks the names
-   again, so a browser that skips the dialog is refused the same way.
+   again, so a browser that skips the dialog is refused the same way. Not even
+   the name of a held-back file is sent: Piloti checks which files the folder
+   already holds only for the files that passed, or that you released. The
+   list is read fresh for every upload, so a term saved a moment ago applies
+   to the next one, and read again when you confirm the dialog: a term saved
+   while it was open holds its files back, and their folders are not created.
+   When anything changes between what the dialog showed and what would be
+   sent, nothing is sent; the dialog shows the new preview to confirm. If your
+   office's list cannot be loaded, nothing is uploaded and Piloti says so; try
+   again a moment later. The server refuses an upload the same way while it
+   cannot read the list.
 2. **On Piloti's own server, before any language model sees the file**, its text
    is read locally and checked against the content terms and number checks. A
    match ends there: the file is stored, read by no model, and waits in
-   quarantine.
+   quarantine. If the list cannot be read at that moment, the file is not read
+   at all; it is marked as failed and can be retried.
 3. A file whose text cannot be read locally (a scan, a plan without a text
    layer, a photo) is **checked by name only**. The summary says so, so nobody
    takes „nothing found" for „nothing there".
@@ -100,11 +113,53 @@ applies to an open chat once the page is reloaded.
 matched, never the matched text beyond a masked sample. Organization admins,
 the project's admins and, for the Büroablage, its curators can:
 
+- **Look at it** („Ansehen"), which opens it in the project's Dateien or in the
+  Büroablage, where it is filed. A chat attachment has no such view.
 - **Release** it. Piloti then reads it like any other upload. The release
   applies to exactly these bytes: uploading a changed version screens it again.
 - **Delete** it.
 
-Reviewers get an inbox notice when files wait for them. It names no file.
+Reviewers get an inbox notice when files wait for them. It names no file. The
+audit log records both the quarantine, as Piloti's own decision, and a release,
+with the terms and checks that matched but never the matched text.
+
+**Who sees a quarantined file.** Only the person who uploaded it and the people
+above. For everyone else in the project, or in the Büroablage, it is not there:
+it is missing from the file list, the search, the project overview and the
+model list, and its download, preview and thumbnail answer as if it did not
+exist. Piloti's assistant never reads it. Restoring a folder from the
+Papierkorb, changing a folder's access or re-indexing the project leaves it in
+quarantine; only a release takes it out.
+
+**Before the check has finished**, a new file is held back the same way: you
+see your own upload at once, with its progress, and so do the people above;
+your colleagues see it a few moments later, once the check has passed. The
+same holds when you upload a corrected file over an existing one, or publish a
+new version of a document from a draft: until the new content is checked,
+colleagues do not see the document at all, its earlier version included, and
+a link or a citation to it answers as if it did not exist for those minutes.
+If the corrected file is held back for its content, Piloti stops finding the
+earlier version too, until one of the people above releases or deletes it.
+
+**A file whose reading failed before the check** (an IFC model too large to
+read, for example) stays held back, because nothing has checked it. It waits in
+**Organisation → Quarantäne**, marked „Nicht geprüft", until one of the people
+above releases or deletes it; its uploader can ask for that from the upload
+summary.
+
+**In the Papierkorb**, a deleted folder counts only the files you may see. A
+folder still takes every file filed in it into the Papierkorb, and back out,
+held-back ones included.
+
+**Replacing a quarantined file.** A file cannot be uploaded over one that waits
+in quarantine, not even by its uploader: the held-back version would stay in
+the file's history, where everyone could open it. Delete the quarantined file
+first (or have it released), then upload the corrected one.
+
+**Asking for a release.** The uploader can press **Freigabe anfragen** next to
+the file in the upload summary. The people who may release it get an inbox
+notice that names the file and opens the quarantine. Nothing is released until
+one of them decides.
 
 ## What arrived: the upload summary
 
@@ -112,11 +167,27 @@ When everything an upload brought in has been read, the uploader gets an inbox
 notice. It opens a summary of that upload: what arrived and where it was filed,
 what each file is (its document type and summary), which files the screening
 kept on the computer and for which terms, what is in quarantine, and what
-failed and why. While files are still being read, the summary updates itself.
+failed and why. **Geändert** counts and marks the files that were a new version
+of a document already there; **Geschützt** those filed in a folder with its own
+access list, or below one: the folders the file list marks with a lock. That
+includes a list that lets every member read and limits only who may change the
+files; the lock says which it is. While files are still being read, the
+summary updates itself. A file dropped into a question of the
+project wizard (the Bebauungsplan, say) is an upload like any other: it gets
+the same notice and summary, and the project's upload list shows it.
 
 **Project settings → Uploads** lists every upload into the project, newest
-first, with who uploaded it and what became of its files. Each person opens
-the file-by-file summary of their own uploads only.
+first, with who uploaded it and what became of its files; **Ältere Uploads
+laden** reads further back, to the first one. Each person opens
+the file-by-file summary of their own uploads only. If a folder of the project
+is closed to you, you see of each upload only the files that landed in folders
+you can open, exactly as the file list shows them. Files Piloti found
+unchanged, transfers that failed and files the screening kept back belong to no
+folder, so they are not counted for you, and an upload with nothing in your
+folders is not listed. A folder in the Papierkorb is hidden from everyone, so
+its files are not counted, but it closes nothing to you as long as you could
+open it: the upload's other counts stay. A folder whose files were deleted for
+good when its time in the Papierkorb ran out closes nothing either.
 
 ## Your office's own roles
 
@@ -129,7 +200,10 @@ live in WorkOS, where Piloti's own roles live; you assign them to people on the
 - A role can only carry permissions its editor holds.
 - A role can be deleted once nobody holds it. If folders name it in their
   access list, Piloti shows which folders (organization admins see their
-  names, other role managers how many) and asks you to confirm. After the
+  names, other role managers how many) and asks you to confirm. Folders a
+  restore could bring back count too, marked „im Papierkorb“ or „Projekt
+  gelöscht“: they are not in the folder tree, so fix their list after a
+  restore. After the
   deletion those lists match nobody: only organization admins can read the
   folders until someone sets a valid role, and the project's settings list them
   under **Ordner ohne gültige Rolle**, with a link to each. Renaming a role
@@ -207,10 +281,11 @@ they cannot open. A change of a folder's access shows in Piloti's project
 context (the list of documents with a role, such as the Bebauungsplan) right
 away, and the projects overview counts only the documents you may read.
 
-**Deleting a folder** moves its documents and subfolders into the folder above,
-as before. The folder keeps its access list out of sight, so what Piloti
-recorded from it, in a chat or in its memory, stays visible only to the people
-who could read it.
+**Deleting a folder** puts it in the Papierkorb, with everything in it: see
+[Deleting folders: the Papierkorb](#deleting-folders-the-papierkorb). It keeps
+its access list, so what Piloti recorded from it, in a chat or in its memory,
+stays visible only to the people who could read it, until your organization
+decides otherwise.
 
 **A chat that draws on a folder not everyone may read is shared per person.**
 It can be shared with someone who may read every such folder it drew on, and
@@ -250,17 +325,46 @@ not offer, and refuses with a message saying why:
   folder the chat drew on. Piloti files these into „Berichte", so they stay in
   the chat unless they are moved there by hand.
 
-Whether a chat drew on such a folder is decided against the folders' lists as
-they are now: when a folder is opened to everyone, the chats and notes that
-drew on it are no longer held back by it; when a list is narrowed, they are
-shown to fewer people. The project context can still be changed by hand, in
+The same holds for a file in such a folder, whichever chat it came from:
+**Piloti überarbeiten lassen** is refused with the reason, and Änderungen
+anfordern opens no Auftrag for it, because an Auftrag quotes the file and the
+whole project sees it. The comment stays on the version for its author. An
+Auftrag opened for a file before its folder was restricted, or before the file
+moved into such a folder, is no longer listed to people who may not read the
+folder now, its chat is closed to them, and its notices in their Eingang show
+neither its title nor a link; when the file moves back or they get the role,
+they see it again.
+
+Ratings of answers from such a chat (thumbs down, with what the answer should
+have said) are not shown to the people who run Piloti and are not used for the
+lessons Piloti learns across offices, also after the chat is deleted. This
+covers every answer in the chat, the ones from before it first drew on such a
+folder too, because a rating given afterwards can quote what was read. Piloti
+notes it on the answers and the ratings itself, the moment the folder's content
+enters the answer, so it holds even for an answer that was never saved; what
+the browser sends can only add to it. Once noted it stays: opening the folder
+to everyone later, or deleting the chat, does not bring the ratings back. The
+same holds for the chat of an Auftrag whose file moved into such a folder:
+from that moment its ratings stay hidden from the people who run Piloti, also
+after the file moves back or the chat is deleted, while the people in your
+office see the Auftrag again as described above. Only their number is counted. Lessons learned from such
+ratings before this rule were withdrawn, together with earlier wordings an
+edit had kept and the search data computed from them. The people who run
+Piloti also do not see the title of such a chat in their performance view.
+
+Within your office, whether a chat drew on such a folder is decided against
+the folders' lists as they are now: when a folder is opened to everyone, the
+chats and notes that drew on it are no longer held back by it; when a list is
+narrowed, they are shown to fewer people. What the people who run Piloti may
+see of the ratings stays as described above. The project context can still be changed by hand, in
 the project intake.
 
 **What Piloti remembers from such a chat is restricted too.** Piloti keeps
 notes from it in the project's memory as it does from any chat, but a note that
 draws on a folder not everyone may read is shown, under Projektspeicher, only to
 people who may read that folder now, with a lock that names it, and only their
-chats are given it. Everyone else does not see the note at all. A note meant
+chats are given it. When a language model helped decide that (see
+[the AI Act note](ai-act.md)), the lock says „von KI mitbestimmt". Everyone else does not see the note at all. A note meant
 for the whole organization that draws on such a folder is kept in the project
 instead.
 
@@ -275,3 +379,64 @@ hidden from everyone who may not read that folder, in the model list, the
 viewer and the download, and Piloti's model questions do not reach it; its
 summary may still be found by Piloti's search, so move such a model to an open
 folder.
+
+## Deleting folders: the Papierkorb
+
+**Deleting a folder** (⋯ → Löschen) moves it to the project's **Papierkorb**
+together with its subfolders and their documents. From that moment it is
+absent for everyone, organization admins included: not listed, not searchable,
+not in Piloti's answers, not openable or downloadable from a link. Its
+documents are taken out of Piloti's search index at once.
+
+This is a project's Files. A folder in the **Büroablage** has no Papierkorb:
+deleting it moves its documents and subfolders into the folder above.
+
+You may delete a folder when you may edit it and every folder inside it. If it
+holds a folder you may not read, or may only read, Piloti refuses with „Dieser
+Ordner enthält Inhalte, die Sie nicht löschen dürfen" and deletes nothing; it
+does not say which folder.
+
+**The Papierkorb** (the bin icon in Files) lists the deleted folders you may
+read: who deleted each, when, what it holds and when it will be deleted for
+good. For 14 days (your operator may set up to 23) a folder can be
+**restored**, with its access list, its subfolders and its documents, by anyone
+who could edit it. Its documents are read into the search index again, which
+takes a few minutes for a large folder. If the folder it was in has been
+deleted meanwhile, it comes back at the top of the project, and Piloti says so.
+If a folder with the same name exists there now, rename that one first.
+
+After the 14 days the folder is **deleted for good**: its documents, every
+version and preview are erased. Project admins can do that at once with
+**Endgültig löschen**. What remains is an invisible record of the folder and its
+access list, so Piloti can still decide who may see what it said about it.
+
+**A legal hold** on the folder, on a folder above it, on a document in it, on
+the project, on the person who uploaded a document in it, or on the whole
+organization stops the final deletion. Piloti answers that
+a retention obligation applies and does not say which.
+
+### What happens to chats, answers and notes from a deleted folder
+
+Your organization chooses under **Organisation → Sensible Daten → „Inhalte aus
+gelöschten Ordnern"** (organization admins):
+
+| Choice | Who sees chats, answers and memory notes drawn from the folder |
+|---|---|
+| **Unverändert sichtbar** (default) | Whoever could read the folder, as before |
+| **Für alle im Projekt sichtbar** | Every member of the project |
+| **Nur für Admins** | Organization admins only |
+| **Mit dem Ordner entfernen** | Nobody: the final deletion removes them too. Notes drawn from the folder are deleted, and answers that drew on it are replaced by „Inhalt entfernt: Quelle gelöscht“ |
+
+The choice applies once a folder is deleted for good, and at once to folders
+deleted earlier. Answers, notes and filed reports drawn from such a folder show
+**„Quelle gelöscht am …"**.
+
+### What cannot be taken back
+
+- A folder deleted for good cannot be undone, and neither can content removed with it.
+- A document someone **downloaded, exported or copied** before the deletion is
+  outside Piloti; deleting the folder does not reach it.
+- **Backups** keep deleted data until they rotate out (your contract states how
+  long); a restore from a backup re-applies the deletions before use.
+- Piloti's **conversation memory** for a chat whose answers were removed keeps
+  the original answer until the chat has been idle for 14 days or is deleted.

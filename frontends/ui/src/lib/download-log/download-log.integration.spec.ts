@@ -32,6 +32,8 @@ vi.mock('@/lib/audit/service', () => ({
 vi.mock('@/lib/sharing/directory', () => ({
   resolvePeople: vi.fn(async () => new Map()),
 }))
+// No WorkOS here: clearance falls back to the session's own roles and permissions.
+vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn(async () => null) }))
 
 const url = process.env.GRID_TEST_DATABASE_URL
 const STAMP = Date.now()
@@ -323,7 +325,7 @@ describe.skipIf(!url)('the download log against Postgres', () => {
       for (let i = 0; i < 5; i += 1) await insertRaw({ at: `2026-10-02T10:00:00.00${i}123Z`, name: `Gleich ${i}.pdf` })
       await insertRaw({ at: '2026-10-01T10:00:00Z', name: 'Aelter.pdf' })
 
-      const seen: string[] = []
+      const seen: Array<string | null> = []
       let cursor: string | undefined
       for (let guard = 0; guard < 10; guard += 1) {
         const page = await service.listDownloadLog(
@@ -356,6 +358,45 @@ describe.skipIf(!url)('the download log against Postgres', () => {
       expect(await read({ document: 'werkvertrag' })).toEqual(['Werkvertrag 100x.pdf', 'Werkvertrag 100%.pdf'])
       expect(await read({ from: new Date('2026-09-10T00:00:00Z'), to: new Date('2026-09-30T00:00:00Z') })).toEqual(['Werkvertrag 100x.pdf'])
       expect(await read({ kind: 'pdf' })).toEqual(['Lageplan.pdf'])
+    })
+
+    it('narrows a name filter in the query, so a hit in a folder the viewer may not read takes no slot and no cursor', async () => {
+      await clear()
+      await service.recordDocumentAccess(session(), logged(doc.plain, folder.open, 'project', 'Gehalt alt.pdf'), 'download')
+      await service.recordDocumentAccess(session(), logged(doc.plain, folder.open, 'project', 'Gehalt neu.pdf'), 'download')
+      await service.recordDocumentAccess(session(), logged(doc.child, folder.child, 'project', 'Gehalt geheim.pdf'), 'download')
+      // A project purged since: no folder rows, so no list answers for it now.
+      await inTenant(() =>
+        db.execute(sql`
+          INSERT INTO document_access_log
+            (organization_id, user_id, kind, scope, project_id, folder_id, document_id, document_name, own_list)
+          VALUES (${ORG}, ${USER}, 'download', 'project', ${randomUUID()}::uuid, ${randomUUID()}::uuid,
+                  ${randomUUID()}::uuid, 'Gehalt gelöscht.pdf', true)
+        `)
+      )
+      const pages = async (viewer: ReturnType<typeof session>) => {
+        const seen: Array<Array<string | null>> = []
+        let cursor: string | undefined
+        for (let guard = 0; guard < 10; guard += 1) {
+          const page = await service.listDownloadLog(viewer, { document: 'gehalt', limit: 1, cursor }, new Request('http://x'))
+          seen.push(page.entries.map((entry) => entry.documentName))
+          if (!page.nextCursor) break
+          cursor = page.nextCursor
+        }
+        return seen
+      }
+
+      // Not on the Verträge list: every page is full, and only what they may read is found.
+      expect(await pages(session({ permissions: ['org:downloads:view'] }))).toEqual([['Gehalt neu.pdf'], ['Gehalt alt.pdf']])
+      // On the list: the subfolder's hit too, but not the purged project's, which only an admin reads.
+      expect(await pages(session({ role: 'org-geschaeftsfuehrung', permissions: ['org:downloads:view'] }))).toEqual([
+        ['Gehalt geheim.pdf'],
+        ['Gehalt neu.pdf'],
+        ['Gehalt alt.pdf'],
+      ])
+      expect(
+        await pages(session({ role: 'admin', permissions: ['org:downloads:view', 'org:projects:administer'] }))
+      ).toEqual([['Gehalt gelöscht.pdf'], ['Gehalt geheim.pdf'], ['Gehalt neu.pdf'], ['Gehalt alt.pdf']])
     })
 
     it('bounds a page, whatever was asked', async () => {

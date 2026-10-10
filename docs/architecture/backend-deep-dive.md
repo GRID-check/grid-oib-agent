@@ -562,10 +562,13 @@ tree renders recursively). The prior "can't nest" symptom was **UX only** — th
 was no per-folder affordance. **Fix**: `folder-tree-pane.tsx` now shows an "add
 subfolder" `+` on each folder row and makes root creation explicit.
 
-`folder-service.ts` carries the full set: `createProjectFolder`,
-`updateProjectFolder` (rename and/or move) and `deleteProjectFolder`, behind
-`POST`/`PATCH`/`DELETE` on `/api/projects/{id}/folders[/{folderId}]`. Two
-invariants are load-bearing:
+`folder-service.ts` carries `createProjectFolder`, `updateProjectFolder`
+(rename and/or move) and `deleteProjectFolder`, which is the Papierkorb's
+`moveFolderToBin` in `folder-bin.ts` (ADR-0088). They sit behind
+`POST`/`PATCH`/`DELETE` on `/api/projects/{id}/folders[/{folderId}]`; the
+Archiv's folders (`/api/archiv/folders`, ADR-0078) share the shelf core in
+`lib/documents/shelf-folders.ts`, delete included. Two invariants are
+load-bearing:
 
 - **`path` is materialised**, so a rename or a move has to rewrite every
   descendant row. `rewriteDescendantPaths` does it as one prefix-replace
@@ -575,12 +578,16 @@ invariants are load-bearing:
   folder's own subtree is rejected up front — with a materialised path a cycle
   is invisible until something walks it.
 - **`documents.folder_id` is `ON DELETE CASCADE`** (see the deletion pipeline),
-  so deleting a folder row would take its documents with it. `deleteProjectFolder`
-  re-files the documents *and* re-parents the child folders into the deleted
-  folder's own parent **inside the transaction, before the delete**, and returns
-  `{ documentsMoved, foldersMoved }` so the surface can say where the files
-  went. `folder-service.mutations.spec.ts` pins that ordering — deleting a label
-  must never delete the work filed under it.
+  so a folder row is never deleted with anything in it. A project folder's
+  delete marks it and its subfolders `deleted_at` (the Papierkorb), purges their
+  documents' chunks and keeps every row; the purge after
+  `FOLDER_PURGE_GRACE_DAYS` erases the documents one by one and keeps the
+  folders as tombstones with their grants. Migration 0115's triggers refuse
+  filing anything into a deleted folder, and its CHECK refuses a deleted Archiv
+  folder. `folder-bin.integration.spec.ts` pins it against Postgres. An Archiv
+  folder has no bin: `deleteShelfFolder` re-files its documents and child
+  folders into its parent inside the transaction, then removes the row
+  (`shelf-folders.spec.ts`, `shelf-folders.integration.spec.ts`).
 
 #### Folders on the Python side (ADR-0049)
 
@@ -708,11 +715,11 @@ this.
 `piloti/conversation_register.py`, aggregated across the collections in the
 request's header-based scope (or the base + session collection fallback when
 no scope header is present). Identity is `(collection, file_name)` — the same
-filename on the Büroarchiv and in a project is two documents (ADR-0047). The
+filename on the Büroablage and in a project is two documents (ADR-0047). The
 cap (`GRID_AVAILABLE_DOCUMENTS_MAX`) keeps user-shelf files (archiv / project
 / session) first so the OIB corpus cannot evict them; a previous
 sort-then-slice let ~40 OIB filenames eat the window and made "welche Dateien
-hast du im Büroarchiv" answer from Basiswissen. The prompt block is grouped
+hast du in der Büroablage" answer from Basiswissen. The prompt block is grouped
 by shelf (`aiq_agent.knowledge.inventory.render_inventory_block`) and empty
 in-scope shelves render as empty rather than being omitted. The same list is
 then shared by Piloti, clarifier, and deep-research paths for that turn
@@ -1006,17 +1013,17 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
    `_thumb.jpg`) and generates a presigned **PUT** URL for it.
 2. The PUT URL is passed to the backend's `/v1/ingest` as
    `thumbnail_upload_url`.
-3. The ingest job draws the thumbnail right after it downloads its input and
-   before any extraction: page 0 of a PDF, or the image itself, via
-   `pypdfium2`/PIL → 400px JPEG. For a Word or presentation file, `.xls` or
-   `.ods`, that input is the PDF rendition from `extraction_ref`
+3. The ingest job draws the thumbnail once the file's upload screen has
+   passed, never before (ADR-0086): page 0 of a PDF after its text screen, or
+   an image itself once it passes on its name, via `pypdfium2`/PIL → 400px
+   JPEG. A quarantined file gets none. For a Word or presentation file,
+   `.xls` or `.ods`, the PDF is the rendition from `extraction_ref`
    (ADR-0071), so the thumbnail comes from the same file the job extracts.
-4. The route itself no longer has the bytes: the job downloads them, so there
-   is no quick render from the original. It draws a thumbnail only for an
-   office original the job cannot rasterise, which in practice means
-   `.xlsx`/`.xlsm`: `preview_ref` present and `extraction_ref` absent. Then a
-   FastAPI background task, run once the 202 is out, downloads the rendition
-   into a temp `.pdf`, renders page 0 at 200px and deletes the file.
+4. The route draws nothing. An office original the job cannot rasterise
+   (in practice `.xlsx`/`.xlsm`: `preview_ref` present and `extraction_ref`
+   absent) gets its rendition as a second deferred download
+   (`preview_paths`), which the job fetches and renders only after the
+   workbook's extracted text passed the screen, then deletes.
 5. Either way the JPEG is PUT to SeaweedFS via the presigned URL. The full
    contract is in [`python-endpoints.md`](../api/python-endpoints.md).
 
@@ -1024,7 +1031,8 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
 - `GET /api/documents/{id}/thumbnail` → `getDocumentThumbnail()` presigns a
   browser-facing GET URL for `_thumb.jpg`. Returns `{ url: string | null }`;
   `null` means no thumbnail exists (a type with none, an office original whose
-  conversion failed, or a render that failed).
+  conversion failed, or a render that failed) or the file is held, its
+  screening not passed (ADR-0086), whoever asks.
 
 **Frontend:**
 - `ThumbnailWithFallback` (file-browser-pane.tsx) and
@@ -1464,7 +1472,7 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
 - **Display tagging** — `lane_for_hit` / `citation_verification.source_lane`
   map a retrieval or citation hit to a stratum + lane label (Bundesrecht /
   Landesrecht / Verordnung via catalog rank; OIB lanes via filename class;
-  Projektwissen / Büroarchiv / Web via collection origin) for the research
+  Projektwissen / Büroablage / Web via collection origin) for the research
   fan-out UI. Deterministic tagging only — no chunk-metadata dependency.
 
 ## 6c. IFC/BIM models — the building as queryable data (ADR-0045, 2026-08-08)
@@ -1900,6 +1908,18 @@ fallback is in the trace METADATA instead, as `prompt_name` and
 `prompt_version`. Env vars:
 [`environment-variables.md`](../deployment/environment-variables.md)
 §Prompt management.
+
+**Editing a template.** Each agent keeps its Jinja2 templates in
+`src/aiq_agent/agents/<agent>/prompts/`; `load_prompt` reads one and
+`render_prompt_template` renders it (`common/prompt_utils.py`). The `.j2` file
+is the authority on the variables it uses, so keep every one the agent passes,
+and keep standing instructions above per-call content so the provider's prompt
+cache keeps hitting. Keep a template task-agnostic: which sources a question
+needs is decided at run time by the data source registry and
+`source_router.j2`, not by names written into the prompt. Editing an existing
+template needs no code change; a new one is used only once the agent's Python
+loads and renders it. Which model each role runs on is config:
+[llm-providers.md](llm-providers.md#which-model-each-role-uses).
 
 ### Project memory (implemented)
 

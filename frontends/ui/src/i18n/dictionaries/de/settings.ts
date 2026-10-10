@@ -28,6 +28,7 @@ export const settings: typeof en.settings = {
       memory: 'Gedächtnis',
       usage: 'Nutzung & Budget',
       documents: 'Dokumente & Index',
+      references: 'Ähnliche Projekte',
     },
     foldersWithoutRole: {
       title: 'Ordner ohne gültige Rolle',
@@ -53,6 +54,11 @@ export const settings: typeof en.settings = {
         questions: '{count, plural, one {# Frage} other {# Fragen}}',
         peopleLabel: 'Fragende Personen',
         empty: 'In den letzten 30 Tagen keine Fragen. Fragen Sie Piloti etwas zu diesem Projekt, um loszulegen.',
+      },
+      similar: {
+        label: 'Ähnliche Projekte',
+        open: '{count, plural, one {Ähnliches Projekt öffnen} other {Alle # ähnlichen Projekte}}',
+        empty: 'Noch kein abgeschlossenes Projekt des Büros ist diesem ähnlich. Sie erscheinen hier, sobald Projekte abgeschlossen werden.',
       },
       usage: {
         label: 'Verbrauch diesen Monat',

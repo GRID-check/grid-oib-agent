@@ -26,6 +26,7 @@ export const settings = {
       memory: 'Memory',
       usage: 'Usage & budget',
       documents: 'Documents & index',
+      references: 'Similar projects',
     },
     foldersWithoutRole: {
       title: 'Folders without a valid role',
@@ -51,6 +52,11 @@ export const settings = {
         questions: '{count, plural, one {# question} other {# questions}}',
         peopleLabel: 'People asking',
         empty: 'No questions in the last 30 days. Ask Piloti something about this project to get it going.',
+      },
+      similar: {
+        label: 'Similar projects',
+        open: '{count, plural, one {Open the similar project} other {All # similar projects}}',
+        empty: 'No closed project of the office is like this one yet. They appear here once projects are closed.',
       },
       usage: {
         label: 'Used this month',

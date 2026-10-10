@@ -74,7 +74,14 @@ const ResolvedExcerptSource: FC<{ citation: CitationRef; verified: boolean }> = 
           !openable ? undefined : verified ? (
             <OpenPassageButton onOpen={() => setOpen(true)} />
           ) : (
-            <CitationOpenButton tint={citation.document.tint} onOpen={() => setOpen(true)} />
+            // Alone on its row in the margin, so the overhang has nothing to
+            // overlap: it keeps the margin's height on a phone, the way the
+            // verified-quote button beside it does.
+            <CitationOpenButton
+              tint={citation.document.tint}
+              onOpen={() => setOpen(true)}
+              className="touch-target pointer-coarse:min-h-0"
+            />
           )
         }
       />

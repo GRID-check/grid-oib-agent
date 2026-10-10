@@ -2,7 +2,6 @@
 
 import asyncio
 import hashlib
-import io
 import ipaddress
 import logging
 import os
@@ -16,11 +15,9 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter
-from fastapi import BackgroundTasks
 from fastapi import Depends
 from fastapi import Header
 from fastapi import HTTPException
-from PIL import Image
 
 from aiq_agent.knowledge.base import BaseIngestor
 
@@ -52,7 +49,6 @@ def add_ingest_routes(router: APIRouter):
     )
     async def ingest_from_url(
         request: IngestRequest,
-        background_tasks: BackgroundTasks,
         ingestor: BaseIngestor = Depends(_require_ingestor),
         x_grid_organization_id: str | None = Header(default=None),
     ) -> dict:
@@ -93,7 +89,6 @@ def add_ingest_routes(router: APIRouter):
                 logger.info("Dispatch joined the live ingestion job %s", existing)
                 return {"job_id": existing, "status": "pending", "document_id": request.document_id}
             job_id = await _submit(ingestor, request, _job_config(request, x_grid_organization_id, dispatch_key))
-        _schedule_preview_thumbnail(background_tasks, request)
         return {"job_id": job_id, "status": "pending", "document_id": request.document_id}
 
 
@@ -194,15 +189,22 @@ def _job_config(request: IngestRequest, organization_id: str | None, dispatch_ke
         # entry above stays the original's name, the identity every chunk
         # carries.
         config["extraction_paths"] = [DeferredObjectDownload(request.extraction_ref, suffix=".pdf")]
+    elif request.preview_ref and request.thumbnail_upload_url:
+        # An office original indexed from its own bytes (a spreadsheet) has a
+        # thumbnail only through its rendition. The job downloads it and draws
+        # it once the file's screening has passed (ADR-0086); drawn here, in a
+        # background task, it was a derivative of a file nobody had screened.
+        # A file read from its rendition draws from that one download instead.
+        config["preview_paths"] = [DeferredObjectDownload(request.preview_ref, suffix=".pdf")]
     return config
 
 
 def _assert_request_urls(request: IngestRequest) -> None:
     """Every URL this request names passes both SSRF gates, before anything is requested.
 
-    Nothing is fetched inside the request: ``file_ref`` and ``extraction_ref``
-    are downloaded by the job, ``preview_ref`` by a background task, and
-    ``thumbnail_upload_url`` feeds a PUT from both. So this gate is the only
+    Nothing is fetched inside the request: ``file_ref``, ``extraction_ref`` and
+    ``preview_ref`` are downloaded by the job, and ``thumbnail_upload_url``
+    feeds the job's PUT. So this gate is the only
     one those URLs meet, and an unvalidated URL on any of those paths is an
     arbitrary-destination server-side request forgery. Fail-closed for all of them: a request naming a non-object-store
     URL is malformed, not decorative.
@@ -343,22 +345,6 @@ class DeferredObjectDownload:
 #: Per phase (connect, each read), not for the whole body: a large original
 #: streams for as long as bytes keep arriving.
 _DOWNLOAD_TIMEOUT_SECONDS = 60.0
-
-
-def _schedule_preview_thumbnail(background_tasks: BackgroundTasks, request: IngestRequest) -> None:
-    """Draw the card thumbnail of an office original from ``preview_ref``, after the response.
-
-    Everything else is drawn by the job, from the first bytes it has: a PDF or
-    an image from itself, a Word or presentation file from the rendition it
-    downloads for extraction (``extraction_ref``), so that PDF is not fetched
-    twice. What is left is an office original indexed from its own bytes (a
-    spreadsheet): the job cannot rasterise it, and its rendition is only ever
-    the ``preview_ref`` the BFF sends for office originals. Fail-open: the
-    thumbnail is decorative.
-    """
-    if not request.thumbnail_upload_url or not request.preview_ref or request.extraction_ref:
-        return
-    background_tasks.add_task(_generate_and_upload_thumbnail, request.thumbnail_upload_url, request.preview_ref)
 
 
 def _provenance_config(request: IngestRequest) -> dict[str, str]:
@@ -530,88 +516,3 @@ def _extract_filename(url: str) -> str:
     if not filename or filename == "/":
         return "document"
     return filename
-
-
-def _generate_and_upload_thumbnail(thumbnail_url: str, preview_ref: str) -> bool:
-    """Render a 200px JPEG of the PDF rendition and PUT it to the presigned URL.
-
-    Fail-open on any error (thumbnails are decorative). Returns ``True`` when
-    one was uploaded.
-    """
-    try:
-        thumbnail_bytes = _render_rendition_thumbnail(preview_ref)
-        if not thumbnail_bytes:
-            return False
-        resp = httpx.put(thumbnail_url, content=thumbnail_bytes)
-        resp.raise_for_status()
-        logger.info("Preview thumbnail uploaded (%d bytes)", len(thumbnail_bytes))
-        return True
-    except Exception as thumb_error:
-        # The class only: the traceback carries the presigned upload URL (or
-        # the rendition's GET URL).
-        logger.warning("Preview thumbnail generation failed (swallowed): %s", type(thumb_error).__name__)
-    return False
-
-
-def _render_rendition_thumbnail(preview_ref: str) -> bytes | None:
-    """Download the PDF rendition to a temp file, render its first page, delete it.
-
-    ``preview_ref`` passed the object-store gates in the handler. No redirects,
-    for the reason ``DeferredObjectDownload`` gives. The URL is never logged;
-    an ``HTTPStatusError`` here propagates to the caller, which logs only its
-    class name.
-    """
-    response = httpx.get(preview_ref, follow_redirects=False, timeout=30.0)
-    response.raise_for_status()
-    fd, pdf_path = tempfile.mkstemp(suffix=".pdf")
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(response.content)
-        return _render_pdf_thumbnail(pdf_path)
-    finally:
-        os.unlink(pdf_path)
-
-
-def _render_pdf_thumbnail(pdf_path: str) -> bytes | None:
-    """First page of a PDF as a 200px (longest side) JPEG; ``None`` for an empty PDF.
-
-    This runs on a background task while the ingest pool's workers may be inside
-    PDFium, which is not thread-safe: the PDFium work holds the process-wide
-    lock the ingestor uses (``knowledge_layer.llamaindex.pdfium_lock``), and the
-    JPEG is encoded after releasing it.
-    """
-    img = _render_first_page(pdf_path)
-    return _jpeg_bytes(img) if img is not None else None
-
-
-def _render_first_page(pdf_path: str) -> Image.Image | None:
-    import pypdfium2 as pdfium
-    from knowledge_layer.llamaindex.pdfium_lock import pdfium_lock
-
-    with pdfium_lock():
-        doc = pdfium.PdfDocument(pdf_path)
-        try:
-            return _render_page_zero(doc)
-        finally:
-            doc.close()
-
-
-def _render_page_zero(doc) -> Image.Image | None:
-    """Page 1 scaled to 200px on its longest side. The caller holds the PDFium lock."""
-    from knowledge_layer.llamaindex.pdfium_lock import detached_pil
-
-    if len(doc) == 0:
-        return None
-    page = doc[0]
-    try:
-        width_pt, height_pt = page.get_size()
-        scale = 200.0 / (max(width_pt, height_pt) or 1.0)
-        return detached_pil(page.render(scale=scale)).convert("RGB")
-    finally:
-        page.close()
-
-
-def _jpeg_bytes(img: Image.Image) -> bytes:
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=80)
-    return buf.getvalue()

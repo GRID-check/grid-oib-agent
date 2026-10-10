@@ -34,8 +34,10 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
 | `conversation-restricted-folders.ts` | `conversation_restricted_folders` |
+| `conversation-source-projects.ts` | `conversation_source_projects` |
 | `document-access-log.ts` | `document_access_log` (the download log) |
-| `project-memory.ts` | `project_memory` (documented in [`project-memory-design.md`](../architecture/project-memory-design.md); the restricted-memory column below) |
+| `document-quarantine-decisions.ts` | `document_quarantine_decisions` (the content gate's decisions owed to the audit trail) |
+| `project-memory.ts` | `project_memory` (documented in [`project-memory-design.md`](../architecture/project-memory-design.md); the restricted-memory column below; `evidence` (0127, `jsonb`, CHECK array or NULL): the file names and pages a source-grounded decision was read from, set by the closing extraction) |
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
@@ -68,9 +70,46 @@ export const projects = pgTable('projects', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID of creator |
 | `collection_name` | `text` | NOT NULL | Milvus collection name for this project's knowledge base |
 | `workos_resource_id` | `text` | UNIQUE | Optional WorkOS FGA resource ID |
+| `status` | `text` | NOT NULL, default `active`, CHECK `IN ('active','closed')` | ADR-0090, migration 0116. A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it |
+| `closed_at` | `timestamptz` | set exactly when `status = 'closed'` | When it was closed; cleared on reopen |
+| `closed_by` | `text` | set exactly when `status = 'closed'` | WorkOS user id of whoever closed it |
+| `started_on` | `date` | first of a month, CHECK | Steckbrief Beginn (ADR-0091, migration 0117) |
+| `ended_on` | `date` | first of a month, not before `started_on` | Steckbrief Abschluss; closing fills it with the month of the close when unset |
+| `deleted_at` | `timestamptz` | | Soft delete (ADR-0011) |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
-**Indexes:** `projects_org_deleted_created_idx` on `(organization_id, deleted_at, created_at)` — tenant list queries (migration `0014`).
+**Indexes:** `projects_org_deleted_created_idx` on `(organization_id, deleted_at, created_at)` — tenant list queries (migration `0014`). `projects_org_status_idx` on `(organization_id, status) WHERE deleted_at IS NULL` (migration 0116).
+
+**Constraints (0115):** `projects_status_check`, and `projects_closed_state_check`: closed exactly when `closed_at` and `closed_by` are both set.
+
+**The closed-project guard (0116).** `grid_refuse_insert_into_closed_project()` runs `BEFORE INSERT` on `documents`, `project_folders`, `document_versions` and `project_memory`, and raises SQLSTATE `GPC01` when the row names a closed project. It reads the project row `FOR SHARE`, so a close and an insert serialize. Updates are not refused. The down migration refuses while any project is closed.
+
+---
+
+## project_people (migration 0117, ADR-0091)
+
+Everyone who worked on a project, with or without a Piloti account: the Steckbrief's people.
+Personal data of people who mostly never gave it, so: name, function, company, months, an
+optional account link, and nothing else. Never read into the agent's prompt
+(`people-stay-out-of-the-prompt.spec.ts`).
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK | |
+| `organization_id` | `text` | NOT NULL | RLS `organization_id = grid_current_org()` |
+| `project_id` | `uuid` | NOT NULL, FK `(project_id, organization_id)` → `projects(id, organization_id)` ON DELETE CASCADE | |
+| `name` | `text` | NOT NULL, 1–200 characters after trimming | |
+| `function` | `text` | ≤ 200 | Funktion: Projektleitung, Statik, Bauherr … |
+| `company` | `text` | ≤ 200 | Firma |
+| `started_on`, `ended_on` | `date` | first of a month; end not before start | von–bis |
+| `user_id` | `text` | | WorkOS user id of their Piloti account, when linked; checked to be an organization member on write |
+| `created_by` | `text` | NOT NULL | |
+| `created_at`, `updated_at` | `timestamptz` | NOT NULL | |
+
+Deleted outright, never soft-deleted: the delete is the erasure. The 0115 trigger
+(`project_people_closed_project_guard`) refuses a new row in a closed project; a delete is
+always possible. Index `project_people_project_idx` on `(organization_id, project_id, name)`.
+The down migration drops the table and its rows.
 
 ---
 
@@ -247,6 +286,7 @@ export const documents = pgTable('documents', {
 | `error_message` | `text` | | Error details if status is `error` |
 | `metadata` | `jsonb` | | Flexible metadata |
 | `screening_outcome` | `text` | CHECK `NULL` or `clean`/`partial`/`unchecked`/`quarantined`/`released` | **Migration `0109`, ADR-0086**: what the local content screening found before the first model call. `NULL` = not screened (a row older than the column, or one replaced since: a replacement resets it). `partial` = some pages had no text layer and were checked by name only; `unchecked` = no text could be read locally at all; `quarantined` = a term or detector matched and nothing went to a model. Written by reconciliation from the ingest job's `file_details[].screening`. |
+| `screened_hash` | `text` | | **Migration `0123`, ADR-0086**: the `content_hash` of the bytes `screening_outcome` judged (or, with screening off, the completed read covered). Recorded by the dispatch beside its job id (`metadata.ingestContentHash`), written by reconciliation with the verdict and by a release. A person's upload passes the hold only while it equals `content_hash`, so bytes swapped in after a verdict are held until their own screen. Backfilled to `content_hash` for every person's upload; NULL for Piloti's documents, which are never held. |
 | `screening_released_hash` / `screening_released_by` / `screening_released_at` | `text` / `text` / `timestamptz` | all three or none (CHECK) | **Migration `0109`**: a reviewer released a quarantined document. The release names the BYTES (`content_hash` at the time), so a replacement under the same id is screened again instead of riding the old release. |
 | `upload_batch_id` | `uuid` | partial index | **Migration `0110`**: the upload gesture this row arrived in (`upload_batches.id`). Recorded only when the batch is the uploader's own, open one for this shelf; anything else is ignored rather than refused. No FK: a batch is history, and pruning it must not touch documents. |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
@@ -657,12 +697,16 @@ export const projectFolders = pgTable('project_folders', {
 | `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs and the backend mirror |
 | `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0111`, ADR-0088**: `inherit` takes the parent's access (a root folder the project's); `custom` has its own list in `project_folder_grants`. The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
 | `access_changed_by` / `access_changed_at` | `text` / `timestamptz` | set whenever `access_mode = 'custom'` (`project_folders_access_custom_check`) | Who set the list, and when. |
-| `deleted_at` / `deleted_by` | `timestamptz` / `text` | | **Migration `0111`**: a deleted project folder is a TOMBSTONE (an Archiv folder's delete removes its row). The row keeps its `access_mode` and grants so the access rule still answers for content recorded from it (a conversation's source folders, restricted memory); every listing, the tree, placement and every read path filter `deleted_at IS NULL`. |
+| `deleted_at` / `deleted_by` | `timestamptz` / `text` | project folders only (`project_folders_bin_state_check`, 0115) | **Migration `0111`**: a deleted PROJECT folder keeps its row (an Archiv folder's delete removes it). It keeps its `access_mode` and grants so the access rule still answers for content recorded from it (a conversation's source folders, restricted memory); every listing, the tree, placement and every read path skip it, and since `0115` what is filed in it is hidden from everyone. |
+| `bin_root_id` | `uuid` | CHECK only with `deleted_at` (`project_folders_bin_state_check`) | **Migration `0115`, the Papierkorb**: the folder a person deleted, on every folder that went to the bin with it (itself included); what a restore puts back together. `NULL` for a living folder and a tombstone older than 0115. |
+| `purged_at` | `timestamptz` | CHECK only with `deleted_at` | **Migration `0115`**: the purge has run; the row is a permanent tombstone with its grants, and content derived from it follows the organization's „Inhalte aus gelöschten Ordnern" setting. `deleted_at` set and `purged_at` `NULL` is a folder in the bin. 0115 backfilled every older tombstone as purged (its contents had been moved out). |
 | `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 **Indexes and constraints:**
 - `idx_project_folders_project_id`, `idx_project_folders_parent_id`
 - `project_folders_id_project_id_key` — UNIQUE on (`id`, `project_id`). Redundant on its own (`id` is the PK) and required anyway: a composite FK can only reference a uniquely-constrained column set (migration `0030`).
+- `project_folders_bin_idx` — on `project_id`, **PARTIAL** (`WHERE deleted_at IS NOT NULL AND purged_at IS NULL`): the probe for a folder in the bin on document reads, and the Papierkorb listing (migration `0115`)
+- `project_folders_deleted_parent_guard` and `documents_deleted_folder_guard` — `BEFORE INSERT OR UPDATE OF parent_id` / `folder_id` triggers (`grid_refuse_write_into_deleted_folder`, migration `0115`): filing a document or a folder into a deleted folder raises SQLSTATE `GFD01` (the BFF answers 404). They take the project's bin lock (`grid_folder_bin_lock_key`) shared; moving a folder to or from the bin takes it exclusive, so the check and the insert cannot be split by a deletion.
 - `project_folders_custom_access_idx` — on `project_id`, **PARTIAL** (`WHERE access_mode = 'custom'`): "does this project have any own list" is one probe, the fast path for nearly every project (migration `0111`)
 - `project_folders_access_list` — a DEFERRED constraint trigger: at commit a `custom` folder has 1–20 grants (`grid_folder_access_list_check`, error `check_violation`, constraint name `project_folder_grants_custom_list`). A CHECK cannot count rows of another table; deferred so a list can be replaced (delete, insert) in one transaction. "Nobody" is not a setting.
 - `project_folders_id_organization_id_scope_key` — UNIQUE on (`id`, `organization_id`, `scope`), the target of the two shelf keys below (migration `0102`).
@@ -752,12 +796,84 @@ conversation and a narrowed one confines it to fewer people.
 | `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0110) keeps answering, and an unknown id is treated as unreadable |
 | `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
 
-`deleteConversationInOrg` deletes the rows with the conversation.
+`deleteConversationInOrg` deletes the rows with the conversation. The admission
+that writes a row marks the answer its turn is writing, the first row marks
+every message the conversation holds and every vote naming it, and from then on
+every message written into the conversation is marked too, in
+`message_restricted_use` (below); the marks stay when the chat goes.
+`listRecordedSourceFolders` also returns the current folder of each document a
+revision task written into the conversation revises (ADR-0093), so the thread is
+judged like a chat that drew on that folder; nothing of that is stored here.
 Repository: `lib/conversations/restricted-use-repository.ts`; proven against
 Postgres in `restricted-use.integration.spec.ts`; its CHECK and down in
 `scripts/rls-test-db.sh`. `listRecentMessagesWithCardDecisions` also reads it:
 a conversation with a row here keeps its card decisions out of the
 project-wide `PROPOSAL_DECISIONS` block.
+
+A cross-project lookup (ADR-0094) may record a folder of ANOTHER project here;
+it is judged in the tree of the project it belongs to (through
+`projectsOfFolders`, in `lib/conversations/restricted-use.ts`), so the
+conversation's creator keeps reading it.
+
+---
+
+## conversation_source_projects (migration 0125, ADR-0094)
+
+Another project whose content a chat drew on through a cross-project lookup:
+written by the BFF BEFORE a lookup answers (`recordCrossProjectHandOut`, called
+by `POST /api/internal/cross-project/*`), under the same per-conversation lock
+as `conversation_restricted_folders` and every widening of the audience, with
+the check that the audience is the one the lookup searched as. A restricted
+folder of that project is recorded beside it, in
+`conversation_restricted_folders`; this row covers what every member of the
+project reads, the root included. Judged at read time through
+`listRestrictingSourceProjects`, which leaves out a project that is CLOSED now
+(every office member reads it, ADR-0090): for the rest, only a person who may
+open every such project may read the conversation, it cannot be made visible to
+the project, nothing leaves it into what a whole project reads, and nothing is
+remembered from it. A reopened project restricts again.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `organization_id` | `text` | NOT NULL, PK | RLS: `organization_id = grid_current_org()` |
+| `conversation_id` | `text` | NOT NULL, PK | No FK: the first turn of a new chat runs before its row exists |
+| `project_id` | `uuid` | NOT NULL, PK | No FK: a deleted project must not open what was drawn from it; a project nobody opens any more locks the chat |
+| `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
+
+`deleteConversationInOrg` deletes the rows with the conversation, and
+`listRecentMessagesWithCardDecisions` leaves a conversation with a restricting
+row out of `PROPOSAL_DECISIONS`. The down migration turns each
+conversation's rows into one nil-folder row in `conversation_restricted_folders`,
+which the older build reads as a folder nobody may read.
+Repository: `lib/conversations/restricted-use-repository.ts`; proven in
+`cross-project-use.integration.spec.ts` and `scripts/rls-test-db.sh`.
+
+---
+
+## permit_records / permit_requirements (migration 0126, ADR-0095)
+
+Permitting memory (`docs/design/permitting-memory.md`): what a Bescheid or
+Nachforderung demanded, read once at ingest by the platform summary model and
+written only through `POST /api/internal/permit-records`, replaced per
+document. Both tables are secured on `organization_id` and cascade with their
+document and project. Columns are listed in the design doc; the ones that
+carry access:
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `permit_records.document_id` | `uuid` | NOT NULL, UNIQUE, FK → `documents` on delete cascade | one record per document |
+| `permit_records.collection_name` | `text` | NOT NULL | the collection the document sat in when it was read |
+| `restricted_folder_ids` (both tables) | `uuid[]` | NULL, canonical, 1..20 when set | the document's restricting folders when it was read |
+| `permit_requirements.embedding` / `embedding_model` | `real[]` / `text` | NULL | ranked only against the current model's vectors |
+
+The stored restriction is a snapshot of where the document was read, and no
+reader consults it for access. The search (`searchPermitRequirements`) joins
+the document, judges its LIVE `folder_id` against the folder tree and the
+reader's clearance (`lib/permits/live-access.ts`), records that live
+restriction at hand-out, and serves nothing whose document is held by the
+upload screen (`SCREENED_ONLY`, ADR-0086), archived or in the Papierkorb.
+Proven in `src/lib/permits/repository.integration.spec.ts` under
+`scripts/rls-test-db.sh`.
 
 ---
 
@@ -805,6 +921,54 @@ re-apply in `scripts/rls-test-db.sh`.
 
 ---
 
+## document_quarantine_decisions (migration 0119, ADR-0086)
+
+The content gate's quarantine decisions, kept until the audit trail has them
+(AI Act), and no longer. One row per ingest job that quarantined a document, inserted by
+`setDocumentReconciledStatus` (`lib/documents/repository.ts`) in the
+transaction whose guarded status write records the quarantine, so a decision
+cannot exist without its row. `lib/upload-screening/quarantine-audit.ts` sends
+each to the trail as `document.quarantined` and sets `audited_at`: the read
+that moved the row at once, the upload sweep (`POST
+/api/internal/upload-batches/sweep`) whatever is still owed after a minute and
+within a week. The WorkOS idempotency key is the row's id and the event is
+built from the row alone, with `decided_at` as its time, so a repeated send is
+one event. A deployment with the audit log off sends and marks nothing.
+
+**Personal data** (the file's name, the uploader, the matched terms), kept for
+one purpose. Retention: the same sweep, as the platform role, deletes a
+decision once `audited_at` is set and any decision older than seven days, the
+window after which nothing sends it (`pruneSpentQuarantines`, at most 500 a
+tick), whether the audit log is on or off and whether the document still
+exists. The audit trail holds the event under its own retention.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK, `gen_random_uuid()` | The event's idempotency key, `document.quarantined:<id>` |
+| `organization_id` | `text` | NOT NULL | RLS: `organization_id = grid_current_org()` |
+| `document_id` | `uuid` | NOT NULL | No FK: a reviewer may delete the file before the decision reaches the trail. The retention, not the document, ends the row |
+| `job_id` | `text` | UNIQUE with `document_id` (`document_quarantine_decisions_dispatch_key`) | The ingest job whose gate decided: one dispatch, one decision. NULL only when the row carried no job (the backend's file list said quarantined). A row that carries a job takes a failure only from that job, never from the file list, whose failed entry under the name may be an earlier dispatch's (`attributableFailure`, `lib/documents/reconcile-status.ts`) |
+| `decided_at` | `timestamptz` | NOT NULL, `now()` | The event's `occurredAt` |
+| `scope` | `text` | NOT NULL, CHECK `project`/`archiv`/`session` | |
+| `project_id` | `uuid` | | CHECK `(scope = 'project') = (project_id IS NOT NULL)` |
+| `folder_id` | `uuid` | | The folder the document was filed in when quarantined; NULL at a shelf's root. No FK. The event's `filedIn`: under a folder not every project member may read, the name is withheld (`nameWithheld`, ADR-0087) |
+| `filename` | `text` | NOT NULL, CHECK 1–500 characters | The name at the time |
+| `reasons` | `text` | NOT NULL, default `''` | Kinds and terms (`term:Lohnzettel,iban`), never a masked sample or text |
+| `checked` | `text` | NOT NULL, default `''` | `full` or `partial` |
+| `uploaded_by` | `text` | NOT NULL | The document's `created_by` |
+| `audited_at` | `timestamptz` | | NULL while owed |
+
+Indexes: the dispatch key, and `document_quarantine_decisions_due_idx
+(decided_at) WHERE audited_at IS NULL` for the sweep. A trigger
+(`grid_document_quarantine_decisions_guard`) refuses every UPDATE but
+`audited_at` going from NULL to a time, once, and every DELETE except by the
+platform role, which is the retention sweep. Proven against Postgres, the
+retention included, in `lib/upload-batches/upload-batches.integration.spec.ts`; constraints, guard,
+down and re-apply in `scripts/rls-test-db.sh`. The down drops the decisions
+not yet audited.
+
+---
+
 ## project_memory.restricted_folder_ids (migration 0113, ADR-0087, ADR-0088)
 
 The table itself is described in
@@ -814,6 +978,7 @@ is the column 0112 adds.
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `restricted_folder_ids` | `uuid[]` | NULL, or CHECK 1–20 entries, none NULL, `scope = 'project'` (`project_memory_restricted_folders_check`) | The source folders the note depends on; `NULL` = open. Stored sorted and de-duplicated (`canonicalRestriction`). Served and shown only to a session that may read ALL of them now (`memoryVisibleTo` with `readableFolderIdsFor`, tombstones included); a folder since opened to every member opens the note |
+| `restriction_judge` | `text` | NULL, or CHECK `drawn` / `none` / `failed` AND `restricted_folder_ids IS NOT NULL` (`project_memory_restriction_judge_check`, migration 0118) | The memory judge's verdict when a language model helped decide who may read this restricted note (AI Act); the Projektspeicher's lock says so. Set on insert only. Never on an open note, which readers see who may not know a restricted folder exists: the marker would tell them the chat could list one. Every verdict, open ones included, is in the audit trail as `project.memory.restriction_judged`. Rows before 0118 stay NULL |
 
 Index: `uniq_project_memory_project_content_active` keys on
 `(project_id, coalesce(restricted_folder_ids, '{}'), normalized content)`, so an
@@ -821,6 +986,8 @@ open and a restricted note with the same text can both be live; consolidation
 never crosses a restriction. The 0112 down DELETES restricted notes rather than
 opening them. Proven against Postgres in `memory-restricted.integration.spec.ts`;
 the index, the CHECK and the down in `scripts/rls-test-db.sh`.
+The 0117 down drops `restriction_judge` and its CHECK; the verdicts stay in the
+audit trail.
 
 ---
 
@@ -1237,7 +1404,80 @@ declares it. `grid_tenant_isolation` is untouched.
 
 ---
 
-## answer_feedback (migration 0020)
+## message_restricted_use (migration 0124)
+
+A message id whose conversation drew on a folder with restricted access
+(ADR-0093). Written by the SERVER, from one rule,
+`grid_conversation_restricted_use(organization, conversation)`: the
+conversation has a `conversation_restricted_folders` row, or it is the thread
+of a revision task whose document sits in another project than the task, or in
+a folder of a project that has any custom-access or binned folder (a superset
+of `folder-access.ts`'s restricted folders, for views that hold no clearance),
+or a mark names it (marks are sticky: once a conversation answered yes and was
+marked, it keeps answering yes).
+
+- At admission, the BFF marks the id of the answer the turn writes
+  (`answerMessageId`, `answer_message_id(conversation, turn)` on the agent's
+  side) in the transaction that records the folder, and at turn start when the
+  conversation already answers yes (`markAnswerRestrictedUse`,
+  `lib/conversations/restricted-use-repository.ts`). Before the model reads
+  anything, and whether or not the answer is ever persisted.
+
+- `messages_mark_restricted_use` (`AFTER INSERT OR UPDATE OF content` on
+  `messages`): a message written while its conversation answers yes. The
+  record is written when the BFF admits restricted content into a turn, before
+  the answer is persisted; a run's report, written into its message after the
+  run, is marked by the update.
+- `conversation_restricted_folders_mark_messages` (`AFTER INSERT` on
+  `conversation_restricted_folders`): every message the conversation already
+  holds, and the `message_id` of every vote naming it.
+- `answer_feedback_mark_restricted_use` (`AFTER INSERT OR UPDATE` on
+  `answer_feedback`): the vote's `message_id`, when the voted message's
+  conversation or the one the vote names answers yes: a reason added by the
+  client's ids, never the only one for an answer the server admitted content
+  into.
+- `task_runs_mark_revision_thread` (`AFTER INSERT OR UPDATE OF conversation_id,
+  plan, kind, project_id` on `task_runs`), `documents_mark_revision_threads`
+  (`AFTER UPDATE OF folder_id, project_id` on `documents`) and
+  `project_folders_mark_revision_threads` (`AFTER INSERT OR UPDATE OF
+  access_mode, deleted_at, project_id` on `project_folders`): a revision thread
+  the change makes answer yes has every message it holds and every vote naming
+  it marked (`grid_mark_conversation_messages`), so it stays hidden after the
+  document moves back, the folder opens or the thread is deleted.
+
+`grid_feedback_restricted_use(organization, message_id, conversation_id)` asks
+the same of a vote at read time: marked, or either conversation answers yes.
+`grid_uuid_or_null(text)` casts a text id for an index lookup.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `organization_id` | `text` | NOT NULL, PK | RLS: `organization_id = grid_current_org()` |
+| `message_id` | `text` | NOT NULL, PK | `messages.id` as text, the form `answer_feedback.message_id` holds it in. No FK: the mark outlives the chat |
+| `conversation_id` | `text` | NOT NULL | The conversation that answered yes when the mark was written, never a client's claim alone; `''` when unknown (marks read back from 0120's column). The rule asks it, which is what makes marks sticky. Index `message_restricted_use_conversation_idx` (`organization_id`, `conversation_id`) |
+| `marked_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+
+The runtime role `grid_app_rw` may insert and select, and may neither update nor
+delete: no tenant-path bug can lift a mark. Every cross-tenant reader of answer
+feedback asks `grid_feedback_restricted_use` of the vote
+(`OUTSIDE_RESTRICTED_USE`), and the staff profiler withholds the title of a
+conversation the rule answers yes for. 0123 backfilled every message of such a
+conversation, the message id of every vote the rule answers yes for and of
+every vote 0120 had marked, dropped 0120's column and trigger, and withdrew the
+reports and lessons derived from marked messages, with the vectors of the
+withdrawn lessons (below). Proven in
+`lib/feedback/restricted-feedback.integration.spec.ts`; the backfill, the
+withdrawal and the down in `scripts/rls-test-db.sh`.
+
+0123 also adds `idx_task_runs_revision_conversation` on `task_runs`
+(`organization_id`, `conversation_id`) `WHERE kind = 'revision'`, the lookup
+behind judging a revision task's thread by its document's current folder, and
+`idx_task_runs_revision_subject` (`organization_id`,
+`grid_uuid_or_null(plan->'subject'->>'documentId')`) `WHERE kind = 'revision'`,
+the lookup by document the revision-thread triggers make.
+
+---
+
+## answer_feedback (migrations 0020, 0121, 0124)
 
 Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
 `answer-feedback`). One row per (user, assistant answer).
@@ -1246,8 +1486,10 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   `project_id` (nullable, **cascade FK** to `projects` so a purged project
   takes its feedback along), `conversation_id` (nullable plain text — no FK,
   the vote must not race the async conversation insert), `message_id` (the
-  **client-side** assistant message identifier; shallow chat turns are not
-  persisted as `messages` rows, so no FK), `user_id`, `verdict`
+  answer's id, `answer_message_id(conversation, turn)`, which the agent mints
+  and persists the answer under; the persist is fail-soft and a turn that hands
+  off, is refused or loses its conversation writes no `messages` row, so no
+  FK), `user_id`, `verdict`
   (`up`/`down`), `reason` (nullable, fixed keys
   `inaccurate`/`too_slow`/`wrong_source`/`other`; down-votes only),
   `comment` (nullable free-text on a down-vote; migration 0052),
@@ -1260,6 +1502,15 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   which is the default, so those votes are excluded from the comparison rather
   than counted as treated),
   `created_at`/`updated_at`.
+- Whether the answer drew on a folder with restricted access is not a column:
+  every cross-tenant reader (`OUTSIDE_RESTRICTED_USE`) asks
+  `grid_feedback_restricted_use` of the vote, and the trigger
+  `answer_feedback_mark_restricted_use` marks the vote's `message_id` in
+  `message_restricted_use` when the answer is yes. The `message_id` and
+  `conversation_id` are the client's: they can only add to that answer, and
+  the question, the title and the topics a staff view shows are read through
+  the voted message's own conversation. Migration 0121's `restricted_source`
+  column and its trigger were folded into marks and dropped by 0123.
 - Voting model (the simplest honest one): **re-vote = upsert** on the unique
   `(user_id, message_id)` index (`answer_feedback_user_message_uidx`);
   **toggle-off = delete** — no "retracted" tombstone state.
@@ -1396,7 +1647,7 @@ omits it to collapse.
 | `id` | `uuid` | PK, `defaultRandom()` | |
 | `organization_id` | `text` | NOT NULL | A user in two orgs has two inboxes; counts never mix |
 | `recipient_user_id` | `text` | NOT NULL | WorkOS user this is FOR |
-| `type` | `text` | NOT NULL | The item kind. **The list lives in `INBOX_ITEM_TYPES` (`frontends/ui/src/lib/db/schema/inbox.ts`) and is exhaustive over two registries by construction**, so it is not restated here — this row said four types long after there were eight. Today: the four collaboration ones, `storage.quota_warning`, `document.assigned_to_you`, `job.completed` / `job.failed`, `document.review_requested` (ADR-0054, actionable), and `upload.completed` / `document.quarantined` (ADR-0086). |
+| `type` | `text` | NOT NULL | The item kind. **The list lives in `INBOX_ITEM_TYPES` (`frontends/ui/src/lib/db/schema/inbox.ts`) and is exhaustive over two registries by construction**, so it is not restated here — this row said four types long after there were eight. Today: the four collaboration ones, `storage.quota_warning`, `document.assigned_to_you`, `job.completed` / `job.failed`, `document.review_requested` (ADR-0054, actionable), and `upload.completed` / `document.quarantined` / `document.release_requested` (ADR-0086; the last is the uploader asking for a release, one row per file and reviewer). |
 | `resource_type` / `resource_id` | `text` | NOT NULL | What it points AT — resolved through the sharing registry |
 | `anchor_id` | `text` | | Exact spot inside the resource (a message id), for a deep link |
 | `actor_user_id` | `text` | | Who caused it; NULL for system items |
@@ -1557,7 +1808,7 @@ project-ownership `EXISTS`.
 
 ---
 
-## platform_lessons / platform_lesson_reports / platform_lesson_events (migrations 0068, 0069, 0070)
+## platform_lessons / platform_lesson_reports / platform_lesson_events (migrations 0068, 0069, 0070, 0120)
 
 The fleet-wide lesson register distilled from answer feedback
 (`docs/architecture/platform-failure-learning.md`). **Global — no
@@ -1582,6 +1833,17 @@ reaches every tenant) and the anonymization boundary.
   carries **no FK** — a user retracting their vote must not erase the
   provenance of a lesson already distilled from it. `org_hash` is sha256 of
   the WorkOS org id: enough to count distinct organizations, nothing more.
+- Migration 0120 changes rows only. It withdraws what a sweep took from a vote
+  on a conversation with a `conversation_restricted_folders` row before the
+  sweep stopped reading those (`OUTSIDE_RESTRICTED_USE`): such a report keeps
+  its row without its `canonical_summary`, and a lesson CREATED from one gets
+  a withdrawal note as its `content` and, if it was live, is retired
+  (`retired_reason = 'restricted_source'`, one `retired` event). Its down
+  migration cannot bring the text back. Migration 0124 does the same for every
+  report whose vote's message is marked (`message_restricted_use`), whatever
+  conversation the vote named, clears `embedding`, `embedding_model` and
+  `embedded_at` of every withdrawn lesson, 0119's included, and removes
+  `previousContent` from their events (`previousContentWithdrawn: true`).
 - `platform_lesson_events`: append-only trail of every transition, whether the
   actor was the pipeline (`system:distiller`) or a platform owner. 0070 adds
   the action `flagged_ineffective`: the sweep's per-lesson effectiveness

@@ -22,6 +22,7 @@ import {
 } from '@/lib/runs/run-ledger'
 import type { RunLedger, RunStep } from '@/lib/runs/run-ledger-types'
 import { RunBlock } from './RunBlock'
+import { CurrentProjectProvider } from '@/features/projects/lib/current-project'
 
 const T0 = new Date('2026-09-16T08:00:00.000Z')
 const at = (s: number): Date => new Date(T0.getTime() + s * 1000)
@@ -373,7 +374,7 @@ describe('RunBlock — the line and the affordances', () => {
     expect(screen.getByTestId('run-review')).toHaveAttribute('data-decision', 'rejected')
   })
 
-  it('failed: the reason is in the line, what was done by then is in the body, Retry only when offered', () => {
+  it('failed: the reason is in the line, what was done by then beneath it, Retry only when offered', () => {
     const onRetry = vi.fn()
     const { unmount } = render(
       <RunBlock ledger={failed()} title={TITLE} defaultOpen onRetry={onRetry} />
@@ -428,6 +429,19 @@ describe('RunBlock — the line and the affordances', () => {
     expect(screen.getByTestId('run-completed-before')).toHaveTextContent('Done so far: Planning')
   })
 
+  it('failed and folded: what was done by then stays under the stand', () => {
+    // The body folds once a run has landed; the closing rows used to fold with
+    // it, leaving the verdict without its reason.
+    render(<RunBlock ledger={failed()} title={TITLE} />)
+    expect(screen.queryByTestId('run-body')).not.toBeInTheDocument()
+    expect(screen.getByTestId('run-completed-before')).toHaveTextContent('Done so far: Planning')
+  })
+
+  it('has no entrance of its own: the thread row owns it', () => {
+    render(<RunBlock ledger={failed()} title={TITLE} />)
+    expect(screen.getByTestId('run-block').className).not.toMatch(/animate-in/)
+  })
+
   it('interrupted: says the report was written from what was there', () => {
     render(
       <RunBlock ledger={setRunStatus(finished('doc-1'), 'unterbrochen', at(100))} title={TITLE} />
@@ -474,6 +488,16 @@ describe('RunBlock — stopping a run', () => {
 
     render(<RunBlock ledger={researching()} title={TITLE} onContinue={onContinue} />)
     expect(screen.queryByTestId('run-action-continue')).not.toBeInTheDocument()
+  })
+
+  it('in a closed project says there is no new research where „Bericht fortschreiben" would be (ADR-0090)', () => {
+    render(
+      <CurrentProjectProvider value={{ id: 'p1', name: 'Seestadt', status: 'closed' as const, closedAt: '2026-10-01T00:00:00Z', readsBecauseClosed: false }}>
+        <RunBlock ledger={finished('doc-9')} title={TITLE} onContinue={vi.fn()} />
+      </CurrentProjectProvider>
+    )
+    expect(screen.queryByTestId('run-action-continue')).not.toBeInTheDocument()
+    expect(screen.getByTestId('run-action-continue-closed')).toHaveTextContent('Closed project: no new research')
   })
 
   it('shows no stop at all when no caller offers one', () => {

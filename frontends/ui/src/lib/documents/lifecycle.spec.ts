@@ -106,7 +106,16 @@ vi.mock('./version-content', () => ({
 vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
 // The restricted-folder refusal (ADR-0087) is decided in `restricted-egress.ts`
 // and pinned in its own spec; here only the join is under test.
-vi.mock('@/lib/conversations/restricted-egress', () => ({ requireMayFileFrom: vi.fn() }))
+vi.mock('@/lib/conversations/restricted-egress', async () => {
+  const { ConversationConfinedError } = await import('@/lib/api/errors')
+  return {
+    AGENT_REFUSAL_LOCALE: 'de',
+    requireMayFileFrom: vi.fn(),
+    folderRestrictsReading: vi.fn(),
+    confinementRefusal: (action: 'revision', locale: string) =>
+      new ConversationConfinedError(action, `refused (${locale})`),
+  }
+})
 vi.mock('@/lib/projects/repository', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/projects/repository')>()),
   findProjectInOrg: vi.fn(),
@@ -125,11 +134,12 @@ import { dispatchDocument } from './service'
 import { resolvePeople } from '@/lib/sharing/directory'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { ConflictError } from '@/lib/api/errors'
+import { ConflictError, ConversationConfinedError } from '@/lib/api/errors'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import { listReviewCandidates, resolveReviewers } from './reviewers'
 import { delegateTask } from '@/lib/tasks/delegation'
+import { folderRestrictsReading } from '@/lib/conversations/restricted-egress'
 import {
   compareAndSwapVersionState,
   findDocumentVersion,
@@ -141,7 +151,7 @@ import {
   listDocumentVersions,
   promoteVersionToPublished,
 } from './version-repository'
-import { renderVersionBytes, writeVersionContent } from './version-content'
+import { readVersionTextForTask, renderVersionBytes, writeVersionContent } from './version-content'
 import { DocumentDeletedError, OpenVersionExistsError } from './unique-conflicts'
 import {
   createDocumentVersion,
@@ -465,6 +475,41 @@ describe('transitionDocumentVersion — guards', () => {
   })
 })
 
+/**
+ * A held document (ADR-0086) opens no review round. The round's inbox row names
+ * the file and carries the Auftragssatz to each reviewer, who need not be its
+ * uploader or one of the people who review its quarantine. Its uploader can
+ * reach the version workflow (the hold lets them see their own file), so the
+ * submit is refused before the swap, while the version is still a draft.
+ */
+describe('transitionDocumentVersion — a held document', () => {
+  it.each([
+    ['still being screened', { status: 'processing', screeningOutcome: null }],
+    ['quarantined', { status: 'quarantined', screeningOutcome: 'quarantined' as const }],
+    ['bytes swapped after its verdict', { contentHash: 'sha256:new', screenedHash: 'sha256:old', screeningOutcome: 'clean' as const }],
+  ])('refuses to submit one %s, and tells nobody', async (_label, held) => {
+    vi.mocked(getAccessibleDocument).mockResolvedValue({ ...document, ...held })
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'in_review' }))
+
+    await expect(
+      transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', { reviewerUserIds: ['user_a'] }),
+    ).rejects.toMatchObject({ status: 409, details: { op: 'submit', reason: 'held' } })
+    expect(compareAndSwapVersionState).not.toHaveBeenCalled()
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('submits it once its screening has passed', async () => {
+    vi.mocked(getAccessibleDocument).mockResolvedValue({ ...document, screeningOutcome: 'clean' })
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'in_review' }))
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', { reviewerUserIds: ['user_a'] })
+
+    expect(emitInboxItems).toHaveBeenCalled()
+  })
+})
+
 describe('transitionDocumentVersion — effects', () => {
   it('submit opens an actionable item for each named reviewer, anchored on the version', async () => {
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
@@ -768,17 +813,42 @@ describe('transitionDocumentVersion — effects', () => {
     expect(compareAndSwapVersionState).not.toHaveBeenCalled()
   })
 
-  it('dispatches nothing on publish for a document a PERSON wrote', async () => {
+  it('dispatches nothing on publish for bytes of a PERSON\'s document the gate already judged', async () => {
+    // A draft forked and published unedited: the same bytes the verdict on
+    // record is about (migration 0123). Sending them again would screen and
+    // index what is already screened and indexed.
+    vi.mocked(getAccessibleDocument).mockResolvedValue(
+      makeDocument({ id: 'doc_1', projectId: 'proj_1', contentHash: 'sha256:abc', screeningOutcome: 'clean' }),
+    )
     const published = version({ state: 'published' })
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'approved' }))
     vi.mocked(promoteVersionToPublished).mockResolvedValue({ version: published, superseded: [] })
 
     await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'publish')
 
-    // A human upload's bytes are dispatched by whatever stored them, on all
-    // three shelves. Dispatching again from here would double-ingest every
-    // re-upload — one job for the object and one for the version row.
     expect(dispatchDocument).not.toHaveBeenCalled()
+  })
+
+  it('screens and indexes the new bytes of a PERSON\'s document published from a draft', async () => {
+    // The item's bytes are swapped by the promote; nothing else dispatches
+    // them, and the verdict on record is about the bytes they replaced. Before
+    // 0122 they were served to every member under that `clean`, unscreened.
+    vi.mocked(getAccessibleDocument).mockResolvedValue(
+      makeDocument({ id: 'doc_1', projectId: 'proj_1', contentHash: 'sha256:before', screeningOutcome: 'clean' }),
+    )
+    const published = version({ state: 'published', contentHash: 'sha256:edited' })
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'approved', contentHash: 'sha256:edited' }))
+    vi.mocked(promoteVersionToPublished).mockResolvedValue({ version: published, superseded: [] })
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'publish')
+
+    expect(dispatchDocument).toHaveBeenCalledTimes(1)
+    const [input] = vi.mocked(dispatchDocument).mock.calls[0]
+    expect(input).toMatchObject({ documentId: 'doc_1', storageKey: published.storageKey, collectionName: 'proj_abc' })
+    // A person's document carries no provenance and names no version: the
+    // dispatch is an upload's.
+    expect(input.provenance ?? null).toBeNull()
+    expect(input.versionId ?? null).toBeNull()
   })
 })
 
@@ -1296,6 +1366,7 @@ describe('request_changes and the revision task', () => {
 
   beforeEach(() => {
     vi.mocked(delegateTask).mockResolvedValue({ id: 'task-1' } as never)
+    vi.mocked(folderRestrictsReading).mockResolvedValue(false)
   })
 
   it('opens no task when the version came out of a live conversation', async () => {
@@ -1323,6 +1394,27 @@ describe('request_changes and the revision task', () => {
     })
   })
 
+  // The run hands the text to a model and the task is listed to the whole
+  // project: a held document opens none (ADR-0086).
+  it('opens no task for a document whose screening has not passed', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const held = { ...document, status: 'quarantined', screeningOutcome: 'quarantined' as const }
+    vi.mocked(getAccessibleDocument).mockResolvedValue(held)
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ originConversationId: null }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue({
+      ...version({ originConversationId: null }),
+      state: 'changes_requested',
+      reviewComment: 'Die Fluchtweglänge stimmt nicht',
+    })
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'request_changes', {
+      comment: 'Die Fluchtweglänge stimmt nicht',
+    })
+
+    expect(delegateTask).not.toHaveBeenCalled()
+    expect(readVersionTextForTask).not.toHaveBeenCalled()
+  })
+
   it('opens one for a conversation-born version when the reviewer asked outright', async () => {
     // „Piloti überarbeiten lassen": the reviewer has said they do not want to
     // wait for somebody to type the next message.
@@ -1343,6 +1435,59 @@ describe('request_changes and the revision task', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'document.version.changes_requested' }),
     )
+  })
+
+  /**
+   * A task's goal, plan (the draft's text) and filed filename are listed to
+   * every project member, and tasks carry no folder audience (ADR-0087). A
+   * draft in a folder some member may not read is never quoted into one.
+   */
+  describe('a draft in a folder some project member may not read', () => {
+    const restricted = makeDocument({ id: 'doc_1', projectId: 'proj_1', folderId: 'folder_hr' })
+
+    beforeEach(() => {
+      vi.mocked(folderRestrictsReading).mockResolvedValue(true)
+    })
+
+    it('refuses „Piloti überarbeiten lassen" with the reason, before the decision is recorded', async () => {
+      vi.mocked(getAccessibleDocument).mockResolvedValue(restricted)
+      vi.mocked(findDocumentVersion).mockResolvedValue(version({ originConversationId: null }))
+
+      const refused = transitionDocumentVersion(session, 'doc_1', 'ver_1', 'request_changes', {
+        comment: 'Die Gehaltstabelle stimmt nicht',
+        delegateRevision: true,
+        locale: 'en',
+      })
+
+      await expect(refused).rejects.toBeInstanceOf(ConversationConfinedError)
+      await expect(refused).rejects.toMatchObject({ action: 'revision', message: 'refused (en)' })
+      expect(folderRestrictsReading).toHaveBeenCalledWith('org_1', 'proj_1', 'folder_hr')
+      // Nothing moved: the reviewer can still ask for the changes without Piloti.
+      expect(compareAndSwapVersionState).not.toHaveBeenCalled()
+      expect(delegateTask).not.toHaveBeenCalled()
+    })
+
+    it('opens no task for a version nobody typed, and still records the decision', async () => {
+      vi.mocked(getAccessibleDocument).mockResolvedValue(restricted)
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+      const refused = await refuse(version({ originConversationId: null, createdBy: 'user_author' }))
+
+      expect(refused.state).toBe('changes_requested')
+      expect(delegateTask).not.toHaveBeenCalled()
+      expect(recordAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'document.version.changes_requested' }),
+      )
+    })
+
+    it('opens no task when the folder tree cannot be read', async () => {
+      vi.mocked(folderRestrictsReading).mockRejectedValue(new Error('database is down'))
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+      await refuse(version({ originConversationId: null }))
+
+      expect(delegateTask).not.toHaveBeenCalled()
+    })
   })
 
   it('is the only transition that carries the effect', () => {

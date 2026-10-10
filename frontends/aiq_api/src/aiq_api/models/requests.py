@@ -173,6 +173,16 @@ class DocumentSearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=1000, description="Natural-language search query")
     top_k: int = Field(40, ge=1, le=100, description="Max chunks to retrieve before document-centric aggregation")
     top_k_files: int = Field(20, ge=1, le=100, description="Max documents to return after aggregation")
+    snippet_max_chars: int = Field(
+        300,
+        ge=100,
+        le=1500,
+        description=(
+            "Max characters kept from each document's best-matching chunk. 300 for a hit list a person scans; "
+            "the cross-project lookups (ADR-0094) ask for more, because their snippet is the evidence the agent "
+            "answers from and cites: it cannot open another project's document further."
+        ),
+    )
 
 
 class DocumentSearchHit(BaseModel):
@@ -180,7 +190,7 @@ class DocumentSearchHit(BaseModel):
 
     file_name: str = Field(..., description="Original filename of the matched document")
     score: float = Field(..., description="Similarity score (0.0 to 1.0) of the file's best-matching chunk")
-    snippet: str = Field(..., description="Snippet (~300 chars) from the file's best-matching chunk")
+    snippet: str = Field(..., description="Snippet (300 chars unless asked for more) of the best-matching chunk")
     page_number: int | None = Field(None, description="Page number of the best-matching chunk (None if N/A)")
     collection: str = Field(..., description="Collection the document belongs to")
 
@@ -215,6 +225,52 @@ class GenerateSummaryResponse(BaseModel):
             "None on success"
         ),
     )
+
+
+class CleanupDocumentFacts(BaseModel):
+    """What the index already holds about one document, and nothing more (ADR-0092).
+
+    No document content: the name, where it is filed, its type and tags, the
+    summary ingestion already wrote, and its editorial state.
+    Any other field is refused, so document text cannot ride along.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., max_length=64)
+    filename: str = Field(..., max_length=500)
+    folder_path: str | None = Field(default=None, max_length=1000)
+    content_type: str | None = Field(default=None, max_length=200)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    summary: str | None = Field(default=None, max_length=600)
+    version_state: str | None = Field(default=None, max_length=40)
+    authored_by: str | None = Field(default=None, max_length=40)
+    uploaded_at: str | None = Field(default=None, max_length=40)
+
+
+class CleanupProposalRequest(BaseModel):
+    """Request body for the „Ausmisten" proposal at a project's close."""
+
+    documents: list[CleanupDocumentFacts] = Field(..., max_length=2000)
+    locale: str = Field(default="de", description="UI locale; the reasons are written in it")
+
+
+class CleanupCandidate(BaseModel):
+    """One document the model proposes to remove, and why."""
+
+    id: str
+    category: str = Field(
+        ..., description="working_copy | superseded | duplicate | temporary | unpublished_draft | other"
+    )
+    reason: str
+
+
+class CleanupProposalResponse(BaseModel):
+    """The model's proposal. Empty with ``error`` set when it could not be made."""
+
+    candidates: list[CleanupCandidate] = Field(default_factory=list)
+    model: str | None = None
+    error: str | None = None
 
 
 class ConversationTitleMessage(BaseModel):

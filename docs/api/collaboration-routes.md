@@ -63,7 +63,7 @@ Returns `ResourceSharingState` (`lib/sharing/types.ts`):
 | Field | Meaning |
 |---|---|
 | `visibility` | `private` \| `project` \| `organization` |
-| `allowedVisibilities` | What this type permits — drives the UI's options. Conversations expose only `private`/`project` in phase 1 (see ADR-0032 follow-ups) |
+| `allowedVisibilities` | What this type permits — drives the UI's options. Conversations expose only `private`/`project` in phase 1 (see ADR-0032 follow-ups). Documents expose only `project`: `private` on a document is refused, because no read path enforces it (per-document access comes separately). A document that already says `private` reads as before and can be set back to `project` |
 | `myRole` | The caller's effective role, or `null` |
 | `canManage` | Whether the caller may change sharing (`owner`) |
 | `canEscalate` | Project admin who may take ownership of a resource they were not party to |
@@ -73,7 +73,8 @@ Returns `ResourceSharingState` (`lib/sharing/types.ts`):
 ### `PATCH /api/sharing/{resourceType}/{resourceId}`
 
 Body `{ visibility }`. Requires `owner`. Rejects a visibility the registry does
-not permit for the type (`400`, `details.allowed`). A no-op save is a no-op: no
+not permit for the type (`400`, `details.allowed`), which includes `private` on a
+document. A no-op save is a no-op: no
 audit event, no events published. Widening a conversation whose answers drew on
 a restricted folder is refused with `409`, `details.reason = 'restricted-content'`
 (ADR-0087); narrowing back to `private` is always allowed.
@@ -286,6 +287,11 @@ For every distinct target on the page — resolved **once per resource**, not on
 per item — access is re-derived; anything unreachable, or already marked inert,
 comes back with `href: null` and `excerpt: null`. Such rows are **redacted, not
 dropped**: a redacted row explains itself, a vanished one looks like a bug.
+A run's row (`job.completed`, `job.failed`, `job.waiting`) targets its project,
+and is also judged by the run it names: a revision task whose document now sits
+in a folder the reader may not read is redacted like a revoked target
+(`unreadableRunIds`, `lib/tasks/subject-access.ts`, ADR-0093), as the task list
+and the run view withhold it.
 
 `InboxItemView` carries `type`, `state` (`unread`/`read`/`resolved`/`archived`/
 `inert`), `actionable`, `count`, `actorName`, `actorUserId`, `subject`,

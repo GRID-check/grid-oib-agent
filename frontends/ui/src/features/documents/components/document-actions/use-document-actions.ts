@@ -4,7 +4,7 @@
  * What can be DONE to a document, in one place.
  *
  * Every surface that shows a document — the file grid's preview, the explorer
- * list, the Büroarchiv, the model viewport — needs the same three operations,
+ * list, the Büroablage, the model viewport — needs the same three operations,
  * and before this each of them either re-implemented one or simply did not
  * offer it. The viewport had none at all: a model could be uploaded and looked
  * at, and then only deleted by finding it again in a different view.

@@ -20,6 +20,7 @@ vi.mock('@/lib/skills/service', () => ({ resolveSkillSnapshot: vi.fn() }))
 // What the conversation recorded it drew on (ADR-0087): the real refusal runs against it.
 vi.mock('@/lib/conversations/restricted-use', () => ({
   recordedRestrictedFolders: vi.fn(async () => []),
+  recordedSourceProjects: vi.fn(async () => []),
 }))
 // The project's folders and the documents a plan names: the real Unterlagen refusal runs against them.
 vi.mock('@/lib/authz/folder-access-repository', () => ({ listProjectFolderTree: vi.fn(async () => []) }))
@@ -666,9 +667,10 @@ describe('a run’s Unterlagen never name a document from a restricted folder (A
     expect(error).toBeInstanceOf(ConversationConfinedError)
     expect((error as ConversationConfinedError).action).toBe('planDocument')
     expect((error as ConversationConfinedError).message).toContain('Ordner mit eingeschränktem Zugriff')
-    // Restricted folders and archived rows included: the lookup is not the reader's listing.
+    // Restricted folders, archived and held rows included: the lookup is not the reader's listing.
     expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith(PROJECT, 'org_1', ['Abmahnung_Meier_2026.pdf'], {
       includeArchived: true,
+      reader: { kind: 'internal', why: 'identity' },
     })
     expect(repository.insertRun).not.toHaveBeenCalled()
     expect(submitAgentRun).not.toHaveBeenCalled()
@@ -700,6 +702,7 @@ describe('a run’s Unterlagen never name a document from a restricted folder (A
     })
     expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith(PROJECT, 'org_1', ['Einreichplan.pdf'], {
       includeArchived: true,
+      reader: { kind: 'internal', why: 'identity' },
     })
     expect(submitAgentRun).toHaveBeenCalled()
   })

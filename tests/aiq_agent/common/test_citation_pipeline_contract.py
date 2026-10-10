@@ -207,7 +207,7 @@ class TestProducerParserContract:
         """The user-visible consequence of a shift: chip colour and authority badge."""
         projekt, oib, archiv = roundtrip(self.PROJEKT, self.OIB, self.ARCHIV)
         assert source_lane(projekt) == ("projekt", "Projektwissen")
-        assert source_lane(archiv) == ("buero", "Büroarchiv")
+        assert source_lane(archiv) == ("buero", "Büroablage")
         assert source_lane(oib) == ("baurecht_oib", "OIB-Richtlinie")
 
     def test_all_hits_classified(self):
@@ -426,7 +426,7 @@ class TestGoldenPathToWire:
         assert (projekt["file_name"], projekt["page"]) == ("einreichplan_og.pdf", 4)
 
     def test_a_retrieved_but_uncited_source_never_becomes_a_chip(self):
-        """Chips claim the answer USED a source; the Büroarchiv detail was only found."""
+        """Chips claim the answer USED a source; the Büroablage detail was only found."""
         _, _, _, wire = run_golden_path()
         assert "detail_attika.pdf" not in {source["file_name"] for source in wire}
 

@@ -34,7 +34,7 @@ interface ArchivWorkspaceProps {
 }
 
 /**
- * Gold Büroarchiv identity mark (spec §4, `--source-office`): icon + label
+ * Gold Büroablage identity mark (spec §4, `--source-office`): icon + label
  * together so color is never the only carrier (a11y).
  */
 const OFFICE_TINT = sourceTint('office')
@@ -118,7 +118,7 @@ export function ArchivWorkspace({
     <FileWorkspace
       shelf={shelf}
       renderHeader={(controls, { count }) => (
-        // Identity row — the gold Büroarchiv mark, the name of the store, and
+        // Identity row — the gold Büroablage mark, the name of the store, and
         // how much is in it. The count sits with the title: it is a property of
         // the Archiv, and the one number a reader wants before they filter.
         <div className="flex min-h-[4rem] flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b px-4 py-3.5">

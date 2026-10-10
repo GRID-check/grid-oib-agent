@@ -60,6 +60,14 @@ class TestBuildResult:
             research_truncated=True,
             answer_meta={"kind": "ruling", "verdict": "40 m"},
             retrieval_ledger=ledger,
+            reasoning_effort="high",
+        )
+        assert result.reasoning_effort == "high"
+        assert (
+            to_frame(stamp(finished(result), conversation_id="c", turn_id="t", seq=0, ts=0))["result"][
+                "reasoning_effort"
+            ]
+            == "high"
         )
         assert result.routing_decision == "shallow"
         assert result.answer_confidence == "low"
@@ -112,6 +120,14 @@ class TestAnswerMessageId:
         assert answer_message_id("conv", "turn") == expected
         assert answer_message_id("conv", None) == str(uuid.uuid5(uuid.NAMESPACE_URL, "grid:assistant:conv:default"))
 
+    def test_the_running_turn_names_its_answer_before_it_exists(self, monkeypatch):
+        """ADR-0093: the BFF marks this id at admission; it must be the id the answer is streamed under."""
+        from aiq_agent import project_context
+        from aiq_agent.turn.response import turn_answer_message_id
+
+        monkeypatch.setattr(project_context, "get_user_message_id_from_context", lambda: "turn")
+        assert turn_answer_message_id("conv") == answer_message_id("conv", "turn")
+
 
 class TestPostAnswerTurnFacts:
     """The crossing from finished graph state to a stage's inputs.
@@ -138,6 +154,19 @@ class TestPostAnswerTurnFacts:
 
     def test_truncation_crosses(self):
         assert self._facts(_state(research_truncated=True)).research_truncated is True
+
+    def test_a_conversation_that_drew_on_another_project_crosses(self):
+        """Read while the turn is bound, because reflection runs after it is gone (ADR-0094)."""
+        from aiq_agent.knowledge.restricted_use import CrossProjectTurn
+        from aiq_agent.knowledge.restricted_use import bind_cross_project_turn
+        from aiq_agent.knowledge.restricted_use import reset_cross_project_turn
+
+        assert self._facts(_state()).drew_on_other_projects is False
+        token = bind_cross_project_turn(CrossProjectTurn(drew_on_others=True))
+        try:
+            assert self._facts(_state()).drew_on_other_projects is True
+        finally:
+            reset_cross_project_turn(token)
         assert self._facts(_state()).research_truncated is False
 
     def test_routing_decision_crosses(self):

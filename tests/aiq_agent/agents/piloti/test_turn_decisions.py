@@ -36,6 +36,14 @@ def _facts(question: str, **kwargs) -> TurnFacts:
 
 
 class TestWhatIsAsked:
+    def test_other_projects_are_a_corpus_only_when_the_office_has_reference_projects(self):
+        """A corpus nothing searches must not be offered: picking it would prefetch nothing."""
+        without = questions_for(_facts("Wie haben wir die Traufe gelöst?"))
+        with_catalog = questions_for(_facts("Wie haben wir die Traufe gelöst?", reference_projects=3))
+
+        assert "referenz" not in without["corpus"]["criteria"]
+        assert "referenz" in with_catalog["corpus"]["criteria"]
+
     def test_one_question_per_family_and_per_card_beside_the_fixed_ones(self):
         questions = questions_for(_facts("Wie lang darf der Fluchtweg sein?"))
         assert set(questions) == {
@@ -84,6 +92,84 @@ class TestWhatIsAsked:
             "OIB-Richtlinie 4: parts 4",
         ]
         assert state["corpus"] == {**state["corpus"], "project_files": 3, "archive_files": 7}
+
+
+class TestTheReferenceProjects:
+    """ADR-0094: the office's other projects as a corpus, and a precedent question beside it."""
+
+    def test_the_precedent_question_is_asked_only_when_the_office_has_reference_projects(self):
+        assert "precedent" not in questions_for(_facts("Wie haben wir die Traufe gelöst?"))
+        questions = questions_for(_facts("Wie haben wir die Traufe gelöst?", reference_projects=6))
+        assert questions["precedent"]["type"] == "noul"
+        assert _facts("q", reference_projects=6).state()["corpus"]["reference_projects"] == 6
+
+    def test_earlier_projects_are_the_reference_corpus_not_the_archive(self):
+        options = questions_for(_facts("q", reference_projects=2))["corpus"]["criteria"]
+        assert "earlier" in options["referenz"] and "earlier" not in options["buero"]
+
+    def _decided(self, corpus: str, precedent: float | None, evidence: float = 0.9) -> TurnDecisions:
+        return TurnDecisions(decided=True, needs_evidence=evidence, corpus=corpus, corpus_p=0.8, precedent=precedent)
+
+    def test_a_precedent_beside_a_law_question_adds_the_closed_projects_search(self):
+        calls = prefetch_calls(self._decided("baurecht", 0.8), "Brauchen wir ein Gutachten?", reference_projects=4)
+        assert calls[0] == {"name": "knowledge_search", "args": {"query": "Brauchen wir ein Gutachten?"}}
+        assert calls[-1] == {
+            "name": "project_lookup",
+            "args": {
+                "action": "search",
+                "query": "Brauchen wir ein Gutachten?",
+                "scope": "closed",
+                "open_folders_only": True,
+            },
+        }
+
+    def test_the_reference_corpus_alone_prefetches_only_the_closed_projects_search(self):
+        calls = prefetch_calls(
+            self._decided("referenz", None), "Wie haben wir die Traufe gelöst?", reference_projects=4
+        )
+        assert calls == [
+            {
+                "name": "project_lookup",
+                "args": {
+                    "action": "search",
+                    "query": "Wie haben wir die Traufe gelöst?",
+                    "scope": "closed",
+                    "open_folders_only": True,
+                },
+            }
+        ]
+
+    def test_nothing_is_prefetched_from_projects_the_catalog_does_not_have_or_without_evidence(self):
+        assert prefetch_calls(self._decided("referenz", 0.9), "q", reference_projects=0) == []
+        assert prefetch_calls(self._decided("referenz", 0.9, evidence=0.2), "q", reference_projects=4) == []
+        low = prefetch_calls(self._decided("baurecht", 0.4), "q", reference_projects=4)
+        assert all(call["name"] != "project_lookup" for call in low)
+
+    def test_the_automatic_search_never_reaches_a_running_project(self):
+        """A decision may only add: a running project's content would narrow who may read the chat."""
+        for corpus, precedent in (("referenz", None), ("baurecht", 0.95), ("projekt", 0.95)):
+            calls = prefetch_calls(self._decided(corpus, precedent), "Wie war das?", reference_projects=3)
+            assert [call["args"]["scope"] for call in calls if call["name"] == "project_lookup"] == ["closed"]
+
+    def test_the_automatic_search_never_reaches_a_restricted_folder(self):
+        """A solo chat's lookup also reaches cleared restricted folders; recording one narrows the chat unasked."""
+        for corpus, precedent in (("referenz", None), ("baurecht", 0.95)):
+            calls = prefetch_calls(self._decided(corpus, precedent), "Wie war das?", reference_projects=3)
+            lookups = [call["args"] for call in calls if call["name"] == "project_lookup"]
+            assert lookups and all(args.get("open_folders_only") is True for args in lookups)
+
+    async def test_the_precedent_answer_is_read_back(self):
+        decision = Decision(
+            answers={
+                "needs_evidence": {"type": "noul", "noul": 0.9},
+                "corpus": {"type": "choice", "choice": "baurecht", "probabilities": {"baurecht": 0.7}},
+                "precedent": {"type": "noul", "noul": 0.82},
+            },
+            latency_ms=300,
+        )
+        with patch("aiq_agent.common.decisions.decide", new_callable=AsyncMock, return_value=decision):
+            decided = await decide_turn(_facts("Gutachten nötig?", reference_projects=3))
+        assert decided.precedent == 0.82 and decided.wants_reference
 
 
 class TestWhatTheAnswersBecome:

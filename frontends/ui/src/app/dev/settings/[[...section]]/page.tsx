@@ -10,6 +10,7 @@
  *   /dev/settings/memory     Memory
  *   /dev/settings/usage      Usage & budget (`?blocked=project` shows the exhausted state)
  *   /dev/settings/documents  Documents & index
+ *   /dev/settings/references Similar projects
  *
  * `?as=viewer` renders what a project viewer gets: no project menu, a read-only
  * memory, no reindex, and no Members or Usage section or tile at all.
@@ -21,7 +22,7 @@ import type { JSX } from 'react'
 import { use } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { SectionNav } from '@/components/shell/section-nav'
-import { Brain, FileStack, Gauge, LayoutDashboard, Users } from 'lucide-react'
+import { Brain, FileStack, Gauge, GitCompareArrows, LayoutDashboard, Users } from 'lucide-react'
 import { DocumentsSettings } from '@/features/projects/components/settings/documents-settings'
 import { ProjectOverview } from '@/features/projects/components/overview/project-overview'
 import { MembersSettings } from '@/features/projects/components/settings/members-settings'
@@ -37,6 +38,10 @@ import {
 import { getApplicableStandards } from '@/lib/oib/applicable-standards'
 import type { ProjectProfile } from '@/lib/project-profile/types'
 import { FIXTURE_PROJECT_ID, FIXTURE_USER_ID, HISTORY } from '../../_fixtures/upload-batches'
+import { SIMILAR_PROJECTS as SIMILAR } from '../../_fixtures/similar-projects'
+import { SimilarProjects } from '@/features/references/components/similar-projects'
+import { SimilarProjectsTile } from '@/features/projects/components/overview/similar-projects-tile'
+import type { SteckbriefView } from '@/lib/projects/steckbrief-types'
 
 const PROJECT_ID = FIXTURE_PROJECT_ID
 
@@ -111,8 +116,29 @@ const FOLDERS_WITHOUT_ROLE = [
   { id: 'f-personal', name: 'Personal' },
 ]
 
+const STECKBRIEF: SteckbriefView = {
+  address: 'Mariahilfer Straße 88, 1070 Wien',
+  startedOn: '2026-03',
+  endedOn: null,
+  people: [
+    {
+      id: 'person-1',
+      name: 'DI Maria Huber',
+      function: 'Statik',
+      company: 'Huber ZT GmbH',
+      startedOn: '2026-03',
+      endedOn: null,
+      account: null,
+    },
+  ],
+  canEdit: false,
+  canErase: false,
+}
+
 const OVERVIEW_DATA = {
   ...PROFILE_DATA,
+  status: 'active' as const,
+  closedAt: null,
   name: 'Wohnbau Mariahilf',
   collectionName: 'proj_demo',
   createdAt: '2026-03-01T09:00:00Z',
@@ -209,6 +235,7 @@ const ICONS = {
   memory: Brain,
   usage: Gauge,
   documents: FileStack,
+  references: GitCompareArrows,
 } as const
 
 const LABELS: Record<ProjectSettingsSectionKey, string> = {
@@ -217,6 +244,7 @@ const LABELS: Record<ProjectSettingsSectionKey, string> = {
   memory: 'Memory',
   usage: 'Usage & budget',
   documents: 'Documents & index',
+  references: 'Similar projects',
 }
 
 export default function SettingsDevPage({
@@ -262,7 +290,15 @@ export default function SettingsDevPage({
               // ADR-0088: folders whose roles were deleted since; each links to the folder.
               foldersWithoutRole={admin ? FOLDERS_WITHOUT_ROLE : []}
               usage={admin ? usage(search.get('blocked')) : null}
-              access={{ manage: admin, editProfile: admin, manageMembers: admin }}
+              access={{
+                manage: admin,
+                changeStatus: admin,
+                writeMemory: admin,
+                editProfile: admin,
+                manageMembers: admin,
+              }}
+              steckbrief={STECKBRIEF}
+              similar={<SimilarProjectsTile projects={SIMILAR} href="/dev/settings/references" />}
             />
           )}
           {current === 'members' && (
@@ -276,6 +312,7 @@ export default function SettingsDevPage({
               canEditLimit={admin}
             />
           )}
+          {current === 'references' && <SimilarProjects projects={SIMILAR} />}
           {current === 'documents' && (
             <DocumentsSettings
               projectId={PROJECT_ID}

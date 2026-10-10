@@ -1,0 +1,16 @@
+---
+security:
+  - >
+    Ratings in a chat that used a folder with restricted access now stay away
+    from Piloti staff and the lessons learned across offices for every answer
+    in it, also unsaved ones and after the chat is deleted, whatever the
+    browser sends. Ratings and lessons from before are withdrawn, with a
+    lesson's earlier wordings and its search data.
+  - >
+    An Auftrag to revise a file is shown, opened, notified in the Eingang and
+    its chat read only by people who may read the folder the file is in now,
+    also when it was opened before the folder was restricted.
+  - >
+    The performance view for the people who run Piloti no longer shows or
+    searches the titles of chats that used a folder with restricted access,
+    or of an Auftrag's chat whose file sits in a restricted folder.

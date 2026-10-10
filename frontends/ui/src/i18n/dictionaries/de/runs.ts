@@ -66,6 +66,8 @@ export const runs: typeof en.runs = {
     cancel: 'Abbrechen',
     writeNow: 'Jetzt schreiben',
     continue: 'Bericht fortschreiben',
+    /** Statt „Bericht fortschreiben“ in einem abgeschlossenen Projekt (ADR-0090): ein Lauf legt dort ab. */
+    continueClosed: 'Abgeschlossenes Projekt: keine neue Recherche',
   },
   unterlagen: {
     receiptLabel: 'Für diesen Auftrag benannte Unterlagen',
@@ -96,7 +98,7 @@ export const runs: typeof en.runs = {
     restrictedReason:
       'Liegt in einem Ordner mit eingeschränktem Zugriff. Unterlagen und Bericht einer Recherche sind für alle im Projekt sichtbar, deshalb lässt sie sich nicht hinzufügen.',
     done: 'Fertig',
-    shelf: { project: 'Projekt', archiv: 'Büroarchiv', session: 'Dieser Chat', base: 'Regelwerke' },
+    shelf: { project: 'Projekt', archiv: 'Büroablage', session: 'Dieser Chat', base: 'Regelwerke' },
   },
   cancel: {
     confirmTitle: 'Auftrag abbrechen?',

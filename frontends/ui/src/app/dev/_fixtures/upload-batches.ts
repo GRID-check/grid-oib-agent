@@ -15,7 +15,10 @@ export const FIXTURE_COLLEAGUE_ID = 'user_01JCOLLEAGUE'
 
 /**
  * A folder upload into a project with one file still being read: every
- * outcome, every note, two folders and the root. Open, so the summary polls.
+ * outcome, every note, two folders and the root. „Gutachten" has its own
+ * access list, so both files there are protected, and the Brandschutzkonzept
+ * was there already: this upload is a new version of it. Open, so the summary
+ * polls.
  */
 export const MIXED_SUMMARY: UploadSummary = {
   id: '0f0e4c1e-6d7a-4b8e-9a51-3c2d1e0f9a10',
@@ -47,6 +50,8 @@ export const MIXED_SUMMARY: UploadSummary = {
         'Einreichplan Erdgeschoss im Maßstab 1:100 mit Raumbezeichnungen, Flächenangaben und Fluchtwegen. Zeigt den barrierefreien Zugang an der Lindengasse, das Stiegenhaus mit Aufzug und die Lage der Fahrradabstellräume im Hof.',
       tags: ['Grundriss', 'Nutzungssicherheit/Barrierefreiheit'],
       pageCount: 1,
+      replaced: false,
+      restricted: false,
     },
     {
       id: 'doc-schnitt-aa',
@@ -61,6 +66,8 @@ export const MIXED_SUMMARY: UploadSummary = {
       summary: 'Gebäudeschnitt A-A durch Stiegenhaus und Innenhof mit Geschoßhöhen und Traufhöhe.',
       tags: ['Schnitt', 'Brandschutz'],
       pageCount: 2,
+      replaced: false,
+      restricted: false,
     },
     {
       id: 'doc-brandschutz',
@@ -75,6 +82,8 @@ export const MIXED_SUMMARY: UploadSummary = {
       summary: null,
       tags: [],
       pageCount: null,
+      replaced: true,
+      restricted: true,
     },
     {
       id: 'doc-honorar',
@@ -95,6 +104,8 @@ export const MIXED_SUMMARY: UploadSummary = {
       summary: null,
       tags: [],
       pageCount: 4,
+      replaced: false,
+      restricted: true,
     },
     {
       id: 'doc-scan',
@@ -109,6 +120,8 @@ export const MIXED_SUMMARY: UploadSummary = {
       summary: null,
       tags: [],
       pageCount: 12,
+      replaced: false,
+      restricted: false,
     },
     {
       id: 'doc-foto',
@@ -123,6 +136,8 @@ export const MIXED_SUMMARY: UploadSummary = {
       summary: 'Foto der Nordfassade im Bestand mit Gesimsen und Fensterachsen.',
       tags: ['Foto'],
       pageCount: null,
+      replaced: false,
+      restricted: false,
     },
   ],
 }

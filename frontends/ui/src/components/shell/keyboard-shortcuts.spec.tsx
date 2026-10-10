@@ -114,7 +114,7 @@ describe('KeyboardShortcuts', () => {
 
     await screen.findByText('Keyboard shortcuts')
     // Rows are derived from the shared IA, so they carry the rail's own labels.
-    for (const label of ['All projects', 'Organization', 'Ask Piloti', 'Files', 'Archiv', 'Overview']) {
+    for (const label of ['All projects', 'Organization', 'Ask Piloti', 'Files', 'Office filing', 'Overview']) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
     // Flag-gated sections stay out until their flag is on.

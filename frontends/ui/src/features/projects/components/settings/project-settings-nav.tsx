@@ -1,7 +1,15 @@
 'use client'
 
 import type { JSX } from 'react'
-import { Brain, FileStack, Gauge, LayoutDashboard, Users, type LucideIcon } from 'lucide-react'
+import {
+  Brain,
+  FileStack,
+  Gauge,
+  GitCompareArrows,
+  LayoutDashboard,
+  Users,
+  type LucideIcon,
+} from 'lucide-react'
 import { SectionNav } from '@/components/shell/section-nav'
 import { useTranslations } from '@/i18n'
 import {
@@ -16,6 +24,7 @@ const ICONS: Record<ProjectSettingsSectionKey, LucideIcon> = {
   memory: Brain,
   usage: Gauge,
   documents: FileStack,
+  references: GitCompareArrows,
 }
 
 /**

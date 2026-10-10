@@ -32,7 +32,10 @@ interface Stub {
   assignable: AssignablePermission[] | null
   status?: { POST?: number; PATCH?: number; DELETE?: number }
   /** What `GET …/usage` answers: the folders that name the role (ADR-0088). */
-  usage?: { total: number; folders: Array<{ folderId: string; folderName: string; projectId: string; projectName: string }> }
+  usage?: {
+    total: number
+    folders: Array<{ folderId: string; folderName: string; projectId: string; projectName: string; deleted: 'folder' | 'project' | null }>
+  }
   /** The reason the DELETE refusal carries. */
   reason?: string
 }
@@ -76,7 +79,7 @@ describe('CustomRolesSection', () => {
     const own = await screen.findByTestId('custom-roles-own')
     const gf = within(own).getByTestId('role-row-org-geschaeftsfuehrung')
     expect(gf).toHaveTextContent('Geschäftsführung')
-    expect(gf).toHaveTextContent('Manage the Archiv')
+    expect(gf).toHaveTextContent('Manage Office filing')
     expect(gf).toHaveTextContent('Manage AI models')
 
     const platform = screen.getByTestId('custom-roles-environment')
@@ -105,7 +108,7 @@ describe('CustomRolesSection', () => {
     expect(within(dialog).getByText(/do not hold this permission yourself/)).toBeInTheDocument()
 
     fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Projektleitung' } })
-    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Manage the Archiv' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Manage Office filing' }))
     fireEvent.click(within(dialog).getByTestId('custom-role-save'))
 
     await waitFor(() => expect(toast.success).toHaveBeenCalled())
@@ -171,8 +174,8 @@ describe('CustomRolesSection', () => {
 
   describe('a role that folders name (ADR-0088)', () => {
     const FOLDERS = [
-      { folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd' },
-      { folderId: 'f2', folderName: 'Verträge', projectId: 'p2', projectName: 'Halle 3' },
+      { folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd', deleted: null },
+      { folderId: 'f2', folderName: 'Verträge', projectId: 'p2', projectName: 'Halle 3', deleted: null },
     ]
 
     it('names the folders in the confirmation, holds the button until they are known, and deletes only with the confirmation', async () => {
@@ -193,6 +196,34 @@ describe('CustomRolesSection', () => {
       fireEvent.click(confirm)
       await waitFor(() => expect(toast.success).toHaveBeenCalled())
       expect(calls('DELETE')[0][0]).toBe('/api/organization/roles/org-geschaeftsfuehrung?confirmFolders=1')
+    })
+
+    it('marks a folder in the bin and a folder of a deleted project, which the folder tree does not show', async () => {
+      const folders = [
+        { folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd', deleted: null },
+        { folderId: 'f2', folderName: 'Altakten', projectId: 'p1', projectName: 'Schule Süd', deleted: 'folder' as const },
+        { folderId: 'f3', folderName: 'Verträge', projectId: 'p2', projectName: 'Halle 3', deleted: 'project' as const },
+      ]
+      stubApi({ roles: [ADMIN, GF], assignable: ASSIGNABLE, usage: { total: 3, folders } })
+      render(<CustomRolesSection />)
+      fireEvent.click(await screen.findByTestId('custom-role-delete-org-geschaeftsfuehrung'))
+
+      const notice = await screen.findByTestId('role-usage')
+      const lines = within(notice).getAllByTestId('role-usage-folder')
+      expect(within(lines[0]).queryByTestId('role-usage-folder-deleted')).toBeNull()
+      expect(within(lines[1]).getByTestId('role-usage-folder-deleted')).toHaveTextContent('in the bin')
+      expect(within(lines[2]).getByTestId('role-usage-folder-deleted')).toHaveTextContent('project deleted')
+      expect(within(notice).getByTestId('role-usage-deleted-note')).toHaveTextContent('comes back with this list')
+    })
+
+    it('adds no restore note when every folder that names the role is living', async () => {
+      stubApi({ roles: [ADMIN, GF], assignable: ASSIGNABLE, usage: { total: 2, folders: FOLDERS } })
+      render(<CustomRolesSection />)
+      fireEvent.click(await screen.findByTestId('custom-role-delete-org-geschaeftsfuehrung'))
+
+      const notice = await screen.findByTestId('role-usage')
+      expect(within(notice).queryByTestId('role-usage-deleted-note')).toBeNull()
+      expect(within(notice).queryAllByTestId('role-usage-folder-deleted')).toHaveLength(0)
     })
 
     it('tells a role manager who may not read the folders how many, and not which', async () => {

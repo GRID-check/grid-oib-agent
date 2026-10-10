@@ -24,6 +24,7 @@ from pydantic import Field
 
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
+from aiq_agent.common import LLMRole
 from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import format_user_facing_tool_error
 from aiq_agent.common import get_all_tool_refs
@@ -40,6 +41,7 @@ from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
 from aiq_agent.common.openrouter import PLATFORM_FIXED
 from aiq_agent.common.openrouter import pin_chat_model
+from aiq_agent.common.reasoning_settings import effort_of
 from aiq_agent.common.request_llm_context import read_request_llm_context
 from aiq_agent.common.tool_validation import format_no_sources_message
 from aiq_agent.project_context import get_organization_id_from_context
@@ -344,7 +346,13 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
         card_types=[
             entry for entry in card_index_entries(exclude=CHAT_ONLY_CARD_TYPES) if entry[0] not in ENVELOPE_SHAPE_TYPES
         ],
+        reference_projects=reference_project_count(state.reference_projects),
     )
+
+
+def reference_project_count(catalog: str | None) -> int:
+    """How many reference projects the turn's catalog lists: one line each, each naming its id."""
+    return sum(1 for line in (catalog or "").splitlines() if line.startswith("- ") and " (id " in line)
 
 
 async def _decide_turn(facts: TurnFacts | None) -> TurnDecisions:
@@ -548,6 +556,8 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     result = await _run_agent(deployment, state, turn)
     if isinstance(result, str):
         return _reply(state, result)
+    # Read off the model the turn ran on, so it is the resolved level, not the asked one.
+    result.reasoning_effort = effort_of(llm_provider.get(LLMRole.RESEARCHER))
     if runtime is not None:
         _report_skills(result, runtime)
     return result
@@ -563,6 +573,7 @@ def _turn_prefetch(decisions: TurnDecisions, facts: TurnFacts | None, state: Res
             facts.question,
             focus_file_name=state.focus_file_name,
             previous_message=facts.previous_message,
+            reference_projects=facts.reference_projects,
         )
     )
 

@@ -405,7 +405,13 @@ its menu) and one live tile per section, each with its headline number and a
 link into the section. The briefing and the applicable OIB-Richtlinien were a
 section and two tiles in the first cut and were taken out again: they did not
 answer a question a person opens the hub with. The briefing is edited in the
-intake wizard, linked from the hero. Behind a tab strip, each section answers one question
+intake wizard, linked from the hero.
+
+The Steckbrief (ADR-0091) and the close/reopen card (ADR-0090) sit in the grid
+as cells. Similar projects (ADR-0094) arrived as a rail entry of its own and
+moved in here (2026-10-10): it is reference reading about this project, not a
+place to work, so it is a tile with the three most alike and a hub section with
+every one; `/referenzen` redirects to that section. Behind a tab strip, each section answers one question
 and is its own route under `/app/projects/[id]/settings`:
 
 | Section | Question | Gate |
@@ -415,6 +421,7 @@ and is its own route under `/app/projects/[id]/settings`:
 | Memory | What has Piloti learned here? | view; controls `project:memory:write` |
 | Usage & budget | What has it cost, what stops it? Replaces Insights | `project:manage` or org budget admin |
 | Documents & index | Who brought which files in, can everyone reach them, is the index current? | view; reindex `project:documents:write` |
+| Similar projects | Which closed projects were most like this one, and what did they decide and get told? (ADR-0094) | view; each reference filtered by the reader's own access |
 
 Gates come from `lib/projects/settings-access.ts` (permissions through
 `decide.ts`), and a section a reader cannot use is absent from the tabs and the

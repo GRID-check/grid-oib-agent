@@ -43,6 +43,7 @@ import { useChatStore } from '../store'
 import { isAwaitingServerMessages, markAwaitingServerMessages } from './chat-storage'
 import { isConversationOnServer } from '../lib/conversation-on-server'
 import type { ChatMessage, Conversation } from '../types'
+import { readThreadPosition, rememberThreadPosition } from '@/features/layout/lib/thread-positions'
 
 let uniqueCounter = 0
 const uniqueId = (prefix: string) => `${prefix}_${++uniqueCounter}`
@@ -198,6 +199,73 @@ describe('selectConversation message repopulation', () => {
     ])
     expect(isAwaitingServerMessages(conv.id)).toBe(false)
   })
+
+  it('names the opening thread as pending until its history lands, in the same set as the messages', async () => {
+    // The awaiting set is not reactive: the thread showed the greeting while
+    // a server-only conversation's messages were on their way.
+    const conv = makeConversation({ messages: [] })
+    useChatStore.setState({ conversations: [conv] })
+    markAwaitingServerMessages(conv.id)
+    let resolveFetch: (rows: unknown[]) => void = () => {}
+    mockConversationsClient.listMessages.mockReturnValue(new Promise((resolve) => (resolveFetch = resolve)))
+    const seen: Array<{ pending: string | null; count: number }> = []
+    const unsubscribe = useChatStore.subscribe((state) =>
+      seen.push({ pending: state.pendingMessagesFor, count: state.currentConversation?.messages.length ?? 0 })
+    )
+
+    useChatStore.getState().selectConversation(conv.id)
+    expect(useChatStore.getState().pendingMessagesFor).toBe(conv.id)
+
+    resolveFetch([serverRow(conv.id, 'm1', 'user', 'earlier question')])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    unsubscribe()
+
+    expect(useChatStore.getState().pendingMessagesFor).toBeNull()
+    // Never a state with the messages AND the thread still loading.
+    expect(seen.some((s) => s.pending === conv.id && s.count > 0)).toBe(false)
+  })
+
+  it('a thread reopened while its history is still on its way shows it loading, not the greeting', async () => {
+    // A, B, back to A before A's fetch landed: `selectConversation` clears the
+    // pending thread, and the fetch already in flight returned at its dedupe
+    // without naming A again, so A read as empty until its history arrived.
+    const a = makeConversation({ messages: [] })
+    const b = makeConversation({ messages: [{ id: 'b1', role: 'user', content: 'b', timestamp: new Date(), messageType: 'user' }] })
+    useChatStore.setState({ conversations: [a, b] })
+    markAwaitingServerMessages(a.id)
+    let resolveFetch: (rows: unknown[]) => void = () => {}
+    mockConversationsClient.listMessages.mockReturnValue(new Promise((resolve) => (resolveFetch = resolve)))
+
+    useChatStore.getState().selectConversation(a.id)
+    useChatStore.getState().selectConversation(b.id)
+    expect(useChatStore.getState().pendingMessagesFor).toBeNull()
+    useChatStore.getState().selectConversation(a.id)
+
+    expect(useChatStore.getState().pendingMessagesFor).toBe(a.id)
+    // The fetch starts after the client loads: waited for, not timed. One
+    // fetch: the reopen joins the one in flight.
+    await vi.waitFor(() => expect(mockConversationsClient.listMessages).toHaveBeenCalled())
+    expect(mockConversationsClient.listMessages).toHaveBeenCalledTimes(1)
+
+    resolveFetch([serverRow(a.id, 'm1', 'user', 'earlier question')])
+    await vi.waitFor(() => expect(useChatStore.getState().currentConversation?.messages).toHaveLength(1))
+    expect(useChatStore.getState().pendingMessagesFor).toBeNull()
+  })
+
+  it('a failed fetch stops naming the thread as pending', async () => {
+    const conv = makeConversation({ messages: [] })
+    useChatStore.setState({ conversations: [conv] })
+    markAwaitingServerMessages(conv.id)
+    mockConversationsClient.listMessages.mockRejectedValue(new Error('offline'))
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    useChatStore.getState().selectConversation(conv.id)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(useChatStore.getState().pendingMessagesFor).toBeNull()
+  })
 })
 
 describe('server row lifecycle sync', () => {
@@ -211,6 +279,21 @@ describe('server row lifecycle sync', () => {
       expect(mockConversationsClient.delete).toHaveBeenCalledWith(conv.id)
     })
     expect(useChatStore.getState().conversations).toHaveLength(0)
+  })
+
+  it('forgets where the reader was in a deleted thread', () => {
+    const conv = makeConversation()
+    const other = makeConversation()
+    useChatStore.setState({ conversations: [conv, other] })
+    rememberThreadPosition(conv.id, { atEnd: false, messageId: 'm1', offsetTop: 40 })
+    rememberThreadPosition(other.id, { atEnd: true })
+
+    useChatStore.getState().deleteConversation(conv.id)
+    expect(readThreadPosition(conv.id)).toBeUndefined()
+    expect(readThreadPosition(other.id)).toEqual({ atEnd: true })
+
+    useChatStore.getState().deleteAllConversations()
+    expect(readThreadPosition(other.id)).toBeUndefined()
   })
 
   it('deletes all in-scope server rows on delete-all, sparing other projects', async () => {

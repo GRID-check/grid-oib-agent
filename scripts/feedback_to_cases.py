@@ -22,6 +22,10 @@ trust. A draft therefore carries the claim as
 `draft.expected_answer` and leaves `family`, `punkt` and `expect` for the
 reviewer to fill from the corpus.
 
+The export already leaves out every vote on an answer the server marked as
+drawing on a folder with restricted access (ADR-0087, ADR-0093), so no such
+question or expectation reaches a draft.
+
 Only a down-vote with a question and an `expected_answer` becomes a case. The
 organisation and conversation ids, the message id and the answer text are never
 written: a case lives in a public fixture and the answer was shown to one

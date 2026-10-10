@@ -37,6 +37,9 @@ vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
   peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
   lockedConversationIds: vi.fn(async () => new Set<string>()),
 }))
+// Which other projects restrict a chat now is `cross-project-use.spec.ts`'s
+// subject; the GET only has to carry it, and to ask only after the access check.
+vi.mock('@/lib/conversations/cross-project-use', () => ({ restrictingOtherProjects: vi.fn(async () => []) }))
 // No legal hold in play here; the gate is `compliance/holds`, the predicate SQL.
 vi.mock('@/lib/compliance/repository', () => ({
   isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
@@ -81,11 +84,17 @@ vi.mock('@/lib/conversations/repository', () => ({
 }))
 
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { deleteConversationInOrg, findConversationTenancy } from '@/lib/conversations/repository'
-import { deleteAllGrantsForResource, findGrantForSubject } from '@/lib/sharing/repository'
+import { restrictingOtherProjects } from '@/lib/conversations/cross-project-use'
+import {
+  deleteConversationInOrg,
+  findConversationInOrg,
+  findConversationRead,
+  findConversationTenancy,
+} from '@/lib/conversations/repository'
+import { countGrantsForResource, deleteAllGrantsForResource, findGrantForSubject } from '@/lib/sharing/repository'
 import { deleteRequestsForResource } from '@/lib/mentions/repository'
 import { deleteItemsForResource } from '@/lib/inbox/repository'
-import { DELETE } from './route'
+import { DELETE, GET } from './route'
 
 const PROJECT_ID = '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
 
@@ -196,5 +205,53 @@ describe('DELETE /api/conversations/[id]', () => {
     expect(forbidden.status).toBe(absent.status)
     expect(await forbidden.text()).toBe(await absent.text())
     expect(deleteConversationInOrg).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /api/conversations/[id]: the other projects that restrict the chat (ADR-0094)', () => {
+  const GRAZ = { id: '22222222-0000-4000-8000-000000000002', name: 'Wohnbau Graz' }
+  const get = () =>
+    GET(new Request('https://grid.example/api/conversations/conv_1'), { params: Promise.resolve({ id: 'conv_1' }) })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' } as never)
+    vi.mocked(findGrantForSubject).mockResolvedValue(null)
+    vi.mocked(countGrantsForResource).mockResolvedValue(0)
+    vi.mocked(findConversationRead).mockResolvedValue(null)
+    vi.mocked(findConversationTenancy).mockResolvedValue({
+      organizationId: 'org_1',
+      projectId: PROJECT_ID,
+      visibility: 'private',
+      createdBy: 'user_1',
+      deletedAt: null,
+    })
+    vi.mocked(findConversationInOrg).mockResolvedValue({ id: 'conv_1', organizationId: 'org_1', engagement: null } as never)
+    vi.mocked(restrictingOtherProjects).mockResolvedValue([])
+  })
+
+  it('answers the current restricting projects, asked of this conversation in the caller organization', async () => {
+    vi.mocked(restrictingOtherProjects).mockResolvedValue([GRAZ, { id: 'gone', name: null }])
+
+    const res = await get()
+
+    expect(res.status).toBe(200)
+    expect((await res.json()).restrictingOtherProjects).toEqual([GRAZ, { id: 'gone', name: null }])
+    expect(restrictingOtherProjects).toHaveBeenCalledWith('conv_1', 'org_1')
+  })
+
+  it('answers 404 and reads no record for a private conversation of somebody else', async () => {
+    vi.mocked(findConversationTenancy).mockResolvedValue({
+      organizationId: 'org_1',
+      projectId: PROJECT_ID,
+      visibility: 'private',
+      createdBy: 'user_2',
+      deletedAt: null,
+    })
+
+    const res = await get()
+
+    expect(res.status).toBe(404)
+    expect(restrictingOtherProjects).not.toHaveBeenCalled()
   })
 })

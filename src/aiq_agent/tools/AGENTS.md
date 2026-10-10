@@ -101,6 +101,22 @@ Three consequences worth knowing before adding a fifth operation:
   project-scoped route rather than shipping ahead of it. Inventing a route on this side would put the
   write back behind the door the whole module exists to keep shut.
 
+## Content from another project is recorded by the BFF before it arrives
+
+`project_lookup` (`cross_project/`, ADR-0094) reads OTHER projects, from any
+chat, as the conversation's whole audience. It is the one tool here whose
+answers come from outside the turn's signed scope, so the usual admission (a
+tool reports what it read, the tools node asks the BFF) is not what keeps it
+safe: the BFF decides the reach, and records every project and restricted
+folder an answer draws on, under the conversation's lock, BEFORE it returns the
+answer. The tool then notes exactly those collections on the turn
+(`note_cross_project_hand_out`), which is what `admit_tool_results` lets
+through, and says whether they narrow the chat's readers (`restricting`: a
+running project or a restricted folder; a closed project's open folder does
+not), which is what shuts the turn's doors. A second tool that reads another
+project must go through the same routes; one that admitted foreign content on
+its own say-so would let the agent decide access.
+
 ## Obligations
 
 | When you | You must | What fails you |

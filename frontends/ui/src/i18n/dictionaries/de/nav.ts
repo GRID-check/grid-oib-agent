@@ -19,11 +19,13 @@ export const nav: typeof en.nav = {
     research: 'Recherche',
     /** Automatisierung — Tasks und Skills als Tabs in einem Bereich. */
     automation: 'Automatisierung',
+    // Ähnliche abgeschlossene Projekte, für dieses gelesen (ADR-0094).
+    referenzen: 'Ähnliche Projekte',
     skills: 'Skills',
     jobs: 'Jobs',
     // Der führende Tab: an Piloti übergebene Arbeit, eine Karte je Task (ADR-0051).
     tasks: 'Tasks',
-    archiv: 'Archiv',
+    archiv: 'Büroablage',
     settings: 'Übersicht',
     // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).
     intake: 'Einrichtung',

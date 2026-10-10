@@ -16,7 +16,11 @@
  * no anchor, and the question is NULL — an honest gap the UI already renders,
  * rather than a confident wrong pairing. The conversation comes from the
  * persisted answer, not from `answer_feedback.conversation_id`, which is
- * whatever text the client sent with its vote.
+ * whatever text the client sent with its vote, and both rows must be in the
+ * vote's organization: a message id is the client's text too, and a vote must
+ * not pull another tenant's answer into a cross-tenant reader (ADR-0093).
+ * A reader that wants the conversation (title, topics) joins it through
+ * `m.conversation_id` in `f.organization_id`, for the same reason.
  *
  * **The answer must belong to the voter's organization.** `message_id` is what
  * the client sent, and nothing at vote time can see (let alone refuse) another

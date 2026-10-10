@@ -336,7 +336,7 @@ MAX_REASON_CHARS = 160
 
 #: ``status.documents.<shelf>`` — which shelf of the reader's own files is
 #: being read. The shelf is in the KEY rather than in ``values`` because German
-#: needs the dative ("aus dem Büroarchiv") and English needs no article at all:
+#: needs the dative ("aus der Büroablage") and English needs no article at all:
 #: a shelf name cannot be interpolated into one shared template.
 KEY_DOCUMENTS_PREFIX = "status.documents."
 
@@ -568,6 +568,9 @@ _SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
     # Unterlagen“, not the knowledge corpus.
     ("list_files", "documents"),
     ("ifc_", "ifc"),
+    # The office's OTHER projects (ADR-0094): the line
+    # says „in anderen Projekten“, so the reader sees the chat leave its project.
+    ("project_lookup", "otherProjects"),
 )
 
 #: Non-retrieval tools that still deserve a line, because the user asked for

@@ -243,7 +243,7 @@ export const ROLE_USED_BY_FOLDERS_REASON = 'role-used-by-folders'
 
 /** What deleting a custom role would leave behind: the folders whose own list names it. */
 export interface CustomRoleUsage {
-  /** How many living folders of living projects name the role. */
+  /** How many folders name the role, counting those a restore can bring back (Papierkorb, project pending deletion). */
   total: number
   /**
    * Which, with their projects (the first fifty, by project and folder name). Only

@@ -25,6 +25,15 @@ export interface ConversationTitleResult {
 export type ListedConversation = Conversation & { contentLocked?: boolean }
 
 /**
+ * An other project that restricts a conversation now (ADR-0094), as the server
+ * judges it; `name` is null for a project that is deleted or gone.
+ */
+export interface RestrictingOtherProject {
+  id: string
+  name: string | null
+}
+
+/**
  * The server refused a read or write because the reader may no longer read what
  * the conversation drew on (403 `RESOURCE_RIGHTS_LOST`). Not "not found" and
  * not "forbidden": the chat is theirs and stays in their list, without content.
@@ -61,6 +70,28 @@ export const conversationsClient = {
     await throwIfRightsLost(res)
     if (!res.ok) throw new Error('Conversation not found')
     return res.json()
+  },
+
+  /**
+   * The other projects that restrict this conversation NOW (ADR-0094): the
+   * server's current record, judged at read time, never what an answer's
+   * citations said when it was written. `null` when it cannot be read (no
+   * access, a failed request), so a caller keeps what it showed. Never throws.
+   */
+  async restrictingOtherProjects(id: string): Promise<RestrictingOtherProject[] | null> {
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`, { cache: 'no-store' })
+      if (!res.ok) return null
+      const body = (await res.json()) as { restrictingOtherProjects?: unknown }
+      if (!Array.isArray(body.restrictingOtherProjects)) return []
+      return body.restrictingOtherProjects.flatMap((entry: unknown) => {
+        const project = entry as { id?: unknown; name?: unknown } | null
+        if (typeof project?.id !== 'string') return []
+        return [{ id: project.id, name: typeof project.name === 'string' ? project.name : null }]
+      })
+    } catch {
+      return null
+    }
   },
 
   /**
@@ -287,6 +318,29 @@ export const conversationsClient = {
       },
     )
     if (!res.ok) throw new Error('Failed to update message prompt state')
+    return res.json()
+  },
+
+  /**
+   * Cut the asker's stopped answer to what was on screen (`shown`), when the
+   * Stop reached the server after it had stored the whole answer. The server
+   * cuts its own stored text by the stop rule and never writes text it does
+   * not hold; a row already stored as stopped is left alone.
+   */
+  async cutStoppedAnswer(
+    conversationId: string,
+    messageId: string,
+    body: { turnId: string; shown: string },
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/stopped`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to cut the stopped answer')
     return res.json()
   },
 }

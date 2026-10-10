@@ -54,6 +54,15 @@ const state = vi.hoisted(() => ({
   written: [] as string[][],
   members: new Map<string, FolderClearance>(),
   tree: [] as AccessFolder[],
+  /** Another project's folder tree, by project id (ADR-0094); every other project reads `tree`. */
+  trees: new Map<string, AccessFolder[]>(),
+  /** Which project a folder of another project belongs to. */
+  folderOwners: new Map<string, string>(),
+  /** The other projects a conversation drew on, and per listed conversation. */
+  projects: [] as string[],
+  projectsFor: new Map<string, string[]>(),
+  /** Who may open which project: `${userId}:${projectId}`. */
+  opens: new Set<string>(),
   tx: { tx: true },
 }))
 
@@ -72,12 +81,35 @@ vi.mock('./restricted-use-repository', () => ({
     state.recorded = [...new Set([...state.recorded, ...folders])]
   }),
   readConversationAudience: vi.fn(async () => (state.audiences.length > 1 ? state.audiences.shift()! : state.audiences[0])),
+  listRestrictingSourceProjects: vi.fn(async () => [...state.projects]),
+  listRestrictingSourceProjectsFor: vi.fn(
+    async (_executor: unknown, _org: string, ids: readonly string[]) =>
+      new Map(ids.filter((id) => state.projectsFor.has(id)).map((id) => [id, [...(state.projectsFor.get(id) ?? [])]]))
+  ),
+  projectsOfFolders: vi.fn(
+    async (_executor: unknown, _org: string, ids: readonly string[]) =>
+      new Map(ids.filter((id) => state.folderOwners.has(id)).map((id) => [id, state.folderOwners.get(id)!]))
+  ),
+}))
+vi.mock('@/lib/authz/project-membership', () => ({
+  userHoldsProjectPermission: vi.fn(async (_session: unknown, projectId: string, userId: string) =>
+    state.opens.has(`${userId}:${projectId}`)
+  ),
+}))
+vi.mock('@/lib/authz/projects', () => ({
+  requireProjectAccess: vi.fn(async (who: { userId: string }, projectId: string) => {
+    if (!state.opens.has(`${who.userId}:${projectId}`)) throw new Error('Not found')
+    return { role: 'project-viewer' }
+  }),
 }))
 vi.mock('@/lib/authz/folder-access-repository', () => ({
-  listProjectFolderTree: vi.fn(async () => state.tree),
-  projectHasCustomFolders: vi.fn(async () => state.tree.some((folder) => folder.accessMode === 'custom')),
+  listProjectFolderTree: vi.fn(async (_org: string, projectId: string) => state.trees.get(projectId) ?? state.tree),
+  projectHasCustomOrBinnedFolders: vi.fn(async () => state.tree.some((folder) => folder.accessMode === 'custom')),
 }))
-vi.mock('@/lib/projects/repository', () => ({ findProjectCollectionName: vi.fn(async () => COLLECTION) }))
+vi.mock('@/lib/projects/repository', () => ({
+  findProjectCollectionName: vi.fn(async () => COLLECTION),
+  findProjectTenancy: vi.fn(async () => ({ organizationId: 'org_1', deletedAt: null, status: 'active' })),
+}))
 vi.mock('@/lib/sharing/directory', () => ({
   loadOrganizationDirectory: vi.fn(async () => new Map([['user_ina', { userId: 'user_ina', email: null, name: 'Ina', profilePictureUrl: null }]])),
 }))
@@ -139,6 +171,11 @@ beforeEach(() => {
   state.recordedFor = new Map()
   state.written = []
   state.tree = TREE
+  state.trees = new Map()
+  state.folderOwners = new Map()
+  state.projects = []
+  state.projectsFor = new Map()
+  state.opens = new Set()
   state.members = new Map([
     [OWNER, GF],
     ['user_vertraege', { roles: ['org-vertraege'], seesEverything: false }],
@@ -461,5 +498,133 @@ describe('lockedConversationIds: which of a list the session may no longer read 
     await lockedConversationIds(asNobody, list)
 
     expect(vi.mocked(listProjectFolderTree)).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a chat that drew on another project (ADR-0094)', () => {
+  const OTHER = 'project_2'
+  /** „Honorare" in the other project: Geschäftsführung only. */
+  const HONORARE_ID = 'aaaa0000-0000-4000-8000-0000000000aa'
+  /** An open folder of the other project. */
+  const PLAENE_ID = 'aaaa0000-0000-4000-8000-0000000000bb'
+  const OTHER_TREE: AccessFolder[] = [
+    { id: HONORARE_ID, parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'read' }] },
+    { id: PLAENE_ID, parentId: null, accessMode: 'inherit', grants: [] },
+  ]
+  const toIna = { kind: 'person', userId: 'user_ina', self: false } as const
+
+  beforeEach(() => {
+    state.trees = new Map([[OTHER, OTHER_TREE]])
+    state.folderOwners = new Map([
+      [HONORARE_ID, OTHER],
+      [PLAENE_ID, OTHER],
+    ])
+    state.projects = [OTHER]
+    state.members.set('user_ina', GF)
+  })
+
+  it('judges a folder of the other project in that project’s tree, so its creator still reads the chat', async () => {
+    state.recorded = [HONORARE_ID]
+    state.opens = new Set([`${OWNER}:${OTHER}`, `user_vertraege:${OTHER}`])
+
+    const readers = await peopleWhoMayRead(ORG, CONV, [OWNER, 'user_vertraege'])
+
+    expect([...readers]).toEqual([OWNER])
+  })
+
+  it('judges it in that tree for a chat outside every project too', async () => {
+    state.recorded = [HONORARE_ID]
+    state.audiences = [{ ...audience(), projectId: null }]
+    state.opens = new Set([`${OWNER}:${OTHER}`])
+
+    expect([...(await peopleWhoMayRead(ORG, CONV, [OWNER]))]).toEqual([OWNER])
+    expect(await recordedRestrictedFolders(CONV, ORG)).toEqual([HONORARE_ID])
+  })
+
+  it('lets only people who may open every recorded project read it, whatever their folder roles', async () => {
+    state.opens = new Set([`${OWNER}:${OTHER}`])
+
+    const readers = await peopleWhoMayRead(ORG, CONV, [OWNER, 'user_vertraege'], new Map([[OWNER, GF]]))
+
+    expect([...readers]).toEqual([OWNER])
+  })
+
+  it('drops an open folder of the other project from the record: the project record covers it', async () => {
+    state.recorded = [PLAENE_ID]
+
+    expect(await recordedRestrictedFolders(CONV, ORG)).toEqual([])
+  })
+
+  it('locks the chat in a list for a session that may not open the other project, and only for it', async () => {
+    state.projectsFor = new Map([['c_foreign', [OTHER]]])
+    state.opens = new Set([`${OWNER}:${OTHER}`])
+    const list = [{ id: 'c_foreign', projectId: PROJECT }]
+    const asNobody = { ...session, userId: 'user_nobody', role: 'member', roles: ['member'] } as AuthorizedSession
+
+    expect([...(await lockedConversationIds(asNobody, list))]).toEqual(['c_foreign'])
+    expect((await lockedConversationIds(session, list)).size).toBe(0)
+  })
+
+  it('refuses a share to a person who may not open the other project, naming the person and never the project', async () => {
+    const write = vi.fn(async () => 'written')
+
+    const refusal = await widenConversationAudience(session, CONV, toIna, write).then(
+      () => null,
+      (error: { details?: Record<string, unknown> }) => error.details
+    )
+
+    expect(refusal).toEqual({ reason: 'cross-project-content', person: 'Ina' })
+    expect(write).not.toHaveBeenCalled()
+    await expect(assertMayWidenConversation(session, CONV, toIna)).rejects.toMatchObject({
+      details: { reason: 'cross-project-content' },
+    })
+  })
+
+  it('lets in a person who may open every recorded project and read every recorded folder', async () => {
+    state.recorded = [HONORARE_ID]
+    state.opens = new Set([`user_ina:${OTHER}`])
+    const write = vi.fn(async () => 'written')
+
+    await expect(widenConversationAudience(session, CONV, toIna, write)).resolves.toBe('written')
+  })
+
+  it('refuses the project-wide visibility, and an escalating admin who may not open the project', async () => {
+    state.opens = new Set([`user_ina:${OTHER}`])
+
+    await expect(assertMayWidenConversation(session, CONV, { kind: 'visibility' })).rejects.toMatchObject({
+      details: { reason: 'cross-project-content-project' },
+    })
+    await expect(
+      assertMayWidenConversation(session, CONV, { kind: 'person', userId: OWNER, self: true })
+    ).rejects.toMatchObject({ details: { reason: 'cross-project-content-self' } })
+  })
+
+  it('refuses a project recorded after the pre-check, under the lock', async () => {
+    state.projects = []
+    state.opens = new Set()
+    const write = vi.fn(async () => 'written')
+    const { listRestrictingSourceProjects } = await import('./restricted-use-repository')
+    vi.mocked(listRestrictingSourceProjects)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([OTHER])
+
+    await expect(widenConversationAudience(session, CONV, toIna, write)).rejects.toMatchObject({
+      details: { reason: 'cross-project-content' },
+    })
+    expect(write).not.toHaveBeenCalled()
+  })
+})
+
+describe('the cost of asking who may open the recorded projects (ADR-0094)', () => {
+  it('stops asking about a person at their first project they may not open', async () => {
+    state.projects = ['project_a', 'project_b', 'project_c']
+    state.opens = new Set([`${OWNER}:project_a`, `${OWNER}:project_b`, `${OWNER}:project_c`])
+    const { userHoldsProjectPermission } = await import('@/lib/authz/project-membership')
+
+    const readers = await peopleWhoMayRead(ORG, CONV, [OWNER, 'user_outsider'])
+
+    expect([...readers]).toEqual([OWNER])
+    const asked = vi.mocked(userHoldsProjectPermission).mock.calls.filter((call) => call[2] === 'user_outsider')
+    expect(asked).toHaveLength(1)
   })
 })

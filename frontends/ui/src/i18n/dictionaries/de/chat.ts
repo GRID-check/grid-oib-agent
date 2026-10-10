@@ -11,6 +11,8 @@ export const chat: typeof en.chat = {
     faster: 'Schneller',
     smarter: 'Intelligenter',
     help: 'Wie lange Piloti nachdenkt, bevor es antwortet. Mehr Aufwand hilft bei verzwickten Fragen, kostet aber Zeit und Tokens. Gilt für diesen Chat.',
+    maximumWarning:
+      'Selten klüger als Hoch. Piloti denkt viel länger, kostet weit mehr Tokens und verrennt sich eher.',
     levels: {
       minimal: 'Minimal',
       low: 'Niedrig',
@@ -48,8 +50,10 @@ export const chat: typeof en.chat = {
     // knowledge-base copy of a legal text reads as project material.
     kinds: {
       baurecht: 'Baurecht & Richtlinien',
-      buero: 'Büroarchiv',
+      buero: 'Büroablage',
       projekt: 'Projektwissen',
+      // Eine Quelle aus einem anderen Projekt, die als Vorbild dient (ADR-0094); gleiche Farbe wie „Projektwissen“.
+      praezedenz: 'Präzedenzfall',
       web: 'Webquelle',
     },
     origins: {
@@ -58,7 +62,7 @@ export const chat: typeof en.chat = {
       web: 'Webquelle',
     },
   },
-  // Dokumentraster: echte Projekt-/Büroarchiv-Dateien, die der Assistent als
+  // Dokumentraster: echte Projekt-/Büroablage-Dateien, die der Assistent als
   // anklickbare Vorschaukarten anzeigt (`document_grid`-Karte / `surface_documents`).
   documentGrid: {
     countOne: '1 Dokument',
@@ -69,10 +73,10 @@ export const chat: typeof en.chat = {
       buero: 'Büro',
     },
     // Eine referenzierte Datei, die sich nicht mehr auf eine Dokumentzeile
-    // auflösen lässt — eine ehrliche, handlungsfähige Karte (im Archiv / in den
+    // auflösen lässt — eine ehrliche, handlungsfähige Karte (in der Büroablage / in den
     // Projektdateien öffnen) statt einer stummen toten Kachel.
     unresolvedHint: 'Der Assistent hat diese Datei referenziert.',
-    openInArchive: 'Im Archiv öffnen',
+    openInArchive: 'In der Büroablage öffnen',
     openInFiles: 'In den Projektdateien öffnen',
     // Der Auflösungs-Abruf ist fehlgeschlagen — eine Wiederholaktion statt einer
     // dauerhaft toten Kachel.
@@ -99,13 +103,14 @@ export const chat: typeof en.chat = {
     // Wenn die Antwort den Namen anders geschrieben hat als die Datei heißt.
     writtenAs: 'Im Text: {name}',
     // Regal, aus dem die Datei stammt — dieselbe Unterscheidung wie bei den
-    // Quellen: geteiltes Projektwissen, büroweites Archiv, private Beilage.
+    // Quellen: geteiltes Projektwissen, die Büroablage, private Beilage.
     shelf: {
       projekt: 'Projektdateien',
-      buero: 'Büroarchiv',
+      buero: 'Büroablage',
       session: 'Beilage in diesem Chat',
     },
-    notIndexed: 'Abgelegt, nicht gelesen. Sie können die Datei öffnen, aber Piloti zitiert sie nicht.',
+    notIndexed:
+      'Abgelegt, nicht gelesen. Sie können die Datei öffnen, aber Piloti zitiert sie nicht.',
     failed: 'Lesen fehlgeschlagen. Piloti kann diese Datei nicht zitieren.',
   },
   composer: {
@@ -127,7 +132,8 @@ export const chat: typeof en.chat = {
   // Spracheingabe im Eingabefeld (features/dictation).
   dictation: {
     start: 'Diktieren',
-    startHint: 'Sprechen Sie, Piloti schreibt es in Ihre Nachricht. Stoppt nach {seconds} Sekunden.',
+    startHint:
+      'Sprechen Sie, Piloti schreibt es in Ihre Nachricht. Stoppt nach {seconds} Sekunden.',
     stop: 'Beenden und einfügen',
     recording: 'Aufnahme, {elapsed}',
     transcribing: 'Wird verschriftlicht …',
@@ -153,11 +159,11 @@ export const chat: typeof en.chat = {
   sourceTabs: {
     law: 'Baurecht',
     project: 'Projektwissen',
-    office: 'Büroarchiv',
+    office: 'Büroablage',
     auto: 'Web',
     model: 'Modellmessung',
     shelves: {
-      archiv: 'Büroarchiv',
+      archiv: 'Büroablage',
       project: 'Projektwissen',
       session: 'Private Sitzung',
       base: 'Basiswissen',
@@ -169,7 +175,7 @@ export const chat: typeof en.chat = {
     presets: {
       law: 'Baurecht & Richtlinien',
       project: 'Projektunterlagen',
-      office: 'Büroarchiv',
+      office: 'Büroablage',
     },
   },
   greeting: {
@@ -218,6 +224,8 @@ export const chat: typeof en.chat = {
     // Ein offener Befund lässt sich als eigener Auftrag klären; der Lauf
     // erscheint als Block in diesem Verlauf.
     clarify: 'Klären',
+    /** Unter der Matrix in einem abgeschlossenen Projekt, wo „Klären“ stünde (ADR-0090). */
+    clarifyClosed: 'Abgeschlossenes Projekt: keine neue Recherche zu offenen Befunden.',
     commissioned: 'Auftrag angelegt',
     // Gegenüber dem vorigen Bericht zum selben Thema.
     change: {
@@ -239,6 +247,9 @@ export const chat: typeof en.chat = {
     sourceNumber: 'Quelle {number}',
     page: 'S. {page}',
     pages: 'S. {pages}',
+    // Die Meldezeile einer Präzedenz aus einem anderen Projekt: Projekt, Status, dann das Bundesland.
+    precedentProject: '{name} · {status}',
+    projectStatus: { active: 'laufend', closed: 'abgeschlossen' },
     // Quellen jenseits der acht Chips falten sich hinter denselben Auslöser wie
     // die gelesenen Quellen: die Zahl zuerst, jeder Name beim Aufklappen.
     more: '+{count} weitere',
@@ -689,13 +700,22 @@ export const chat: typeof en.chat = {
     responseApproved: 'Recherche gestartet',
     responseShallow: 'Kurze Antwort angefordert',
     responseCancelled: 'Recherche abgebrochen',
+    // An answered plan folds to one line; the plan as approved is behind it.
+    planRecord: 'Plan freigegeben · {count, plural, one {# Abschnitt} other {# Abschnitte}}',
+    showPlan: 'Plan anzeigen',
+    hidePlan: 'Plan ausblenden',
   },
   // Die einzelne Aufklappung in der Antwortfußzeile für alles hinter der
   // Quellenzeile und den Kopieraktionen (Konfidenz, Merknotiz, Skills,
   // Prüfhinweise, Bewertung, Zeitstempel).
+  // Under an answer the reader stopped, where the writing ended.
+  answerStoppedMarker: 'Gestoppt',
   answerDetails: {
     trigger: 'Antwortdetails',
     triggerAria: 'Details zu dieser Antwort anzeigen',
+    // The trigger when the details hold a warning (cut-off, salvaged run,
+    // stripped citations, low confidence): the dot beside it says so visually.
+    triggerAriaAttention: 'Details zu dieser Antwort anzeigen, mit Hinweisen zur Antwort',
     // How long the turn took, question sent to answer final.
     duration: 'Antwort nach {duration}',
     // What the answer cost in the organization's unit: the credits billed for
@@ -767,20 +787,21 @@ export const chat: typeof en.chat = {
         web: 'im Web',
         documents: 'in Ihren Unterlagen',
         ifc: 'im Gebäudemodell',
+        otherProjects: 'in anderen Projekten',
       },
       // Verbindet zwei Korpora in einer Zeile. Grammatik, also auch hier.
       corpusJoin: ' und ',
       status: {
         // Welche der eigenen Unterlagen gerade gesichtet werden. Ein
         // Schlüssel pro Ebene statt einer Vorlage mit Platzhalter: Deutsch
-        // braucht den Dativ („aus dem Büroarchiv“), Englisch gar keinen
+        // braucht den Dativ („aus der Büroablage“), Englisch gar keinen
         // Artikel, also lässt sich der Name nicht in EINEN Satz einsetzen.
         // Jede Zeile nennt den Namen, den die Lesenden im Produkt sehen —
-        // Büroarchiv, Projekt, Unterhaltung. Für mehrere Ebenen zugleich gibt
+        // Büroablage, Projekt, Unterhaltung. Für mehrere Ebenen zugleich gibt
         // es keinen: der Sammelbegriff dafür ist unser Wort, nicht ihres, also
         // sagt `several` schlicht, WAS gelesen wird.
         documents: {
-          archiv: 'Unterlagen aus dem Büroarchiv werden gesichtet …',
+          archiv: 'Unterlagen aus der Büroablage werden gesichtet …',
           project: 'Unterlagen aus dem Projekt werden gesichtet …',
           session: 'Unterlagen aus dieser Unterhaltung werden gesichtet …',
           several: 'Ihre Unterlagen werden gesichtet …',
@@ -904,8 +925,20 @@ export const chat: typeof en.chat = {
     // Zug, der nur unterbrochen AUSSIEHT, nicht sofort den „verloren“-Hinweis
     // zeigt, bevor bestätigt ist, dass die Antwort wirklich fehlt.
     recovering: 'Antwort wird geholt',
-    recoveringNotice: 'Piloti arbeitet weiter — die Antwort erscheint hier, sobald sie fertig ist …',
+    recoveringNotice:
+      'Piloti arbeitet weiter — die Antwort erscheint hier, sobald sie fertig ist …',
     done: 'Fertig',
+    // Die Lesenden haben die Antwort angehalten: kein grünes Häkchen, kein
+    // „Fertig“ — so steht es auch an einem abgebrochenen Lauf.
+    stopped: 'Gestoppt',
+    // Der Zug hat einen Auftrag angelegt: die Arbeit hat erst begonnen, im
+    // Laufblock darunter. Kein grünes Häkchen, kein „Fertig“.
+    // Der Zug ist gescheitert; die Fehlerkarte darunter sagt wie.
+    failed: 'Fehlgeschlagen',
+    handedOff: 'Auftrag angelegt',
+    // Piloti hat die Frage nicht bearbeitet (abgelehnt oder nicht angenommen):
+    // das Banner darunter sagt warum. Neutral, kein „Fertig“.
+    refused: 'Nicht bearbeitet',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
     // Die Kopfzeile der Herleitung. Keine Schrittzahl: gezählt wurden rohe
@@ -1057,7 +1090,6 @@ export const chat: typeof en.chat = {
         },
       },
       branchesTab: 'Folgewege',
-      branchesSub: 'Wählen Sie eine Option — das Ergebnis wird für Ihre Wahl zusammengestellt.',
     },
   },
   error: {
@@ -1111,6 +1143,10 @@ export const chat: typeof en.chat = {
       message:
         'Ihre vorherige Anfrage wurde nicht abgeschlossen. Bitte senden Sie Ihre Nachricht erneut.',
     },
+    noResponse: {
+      title: 'Keine Rückmeldung',
+      message: 'Piloti hat auf Ihre Frage nicht reagiert, auch nicht auf einen zweiten Versuch. Senden Sie sie erneut.',
+    },
     zdrRefused: {
       title: 'Modell unter Zero Data Retention nicht verfügbar',
       message:
@@ -1129,6 +1165,7 @@ export const chat: typeof en.chat = {
     // (WP-A `job_admission_rejected`). Warnung, nicht Fehler: erneut senden hilft.
     researchQueueFull: {
       title: 'Recherche ausgelastet',
+      full: 'Die Recherche-Warteschlange ist gerade voll.',
       message:
         'Die Recherche-Warteschlange ist gerade voll. Bitte senden Sie Ihre Anfrage in einem Moment erneut.',
       retryHint:
@@ -1244,12 +1281,19 @@ export const chat: typeof en.chat = {
    * Sensible Daten im Chat (ADR-0086): was der Composer vor dem Senden meldet.
    * Die Platzhalter selbst sind Fachdaten und kommen aus `content-screen.ts`.
    */
+  /** The notice once a chat's answers drew on another project (ADR-0094). */
+  otherProjects: {
+    title: 'Dieser Chat stützt sich auf andere Projekte: {projects}.',
+    gone: 'ein Projekt, das es nicht mehr gibt',
+    body: 'Er lässt sich nur mit Personen teilen, die diese Projekte öffnen dürfen. Aus ihm geht nichts ins Projektgedächtnis, in Aufträge, in eine Tiefenrecherche oder in die Projektablage.',
+  },
   screening: {
     title: 'Enthält {items} (Sensible Daten).',
     body: 'Piloti sendet sie nicht an das Antwortmodell.',
     preview: 'Das Modell sieht: „{text}“',
     iban: '{count, plural, one {eine IBAN} other {# IBANs}}',
-    at_svnr: '{count, plural, one {eine Sozialversicherungsnummer} other {# Sozialversicherungsnummern}}',
+    at_svnr:
+      '{count, plural, one {eine Sozialversicherungsnummer} other {# Sozialversicherungsnummern}}',
     credit_card: '{count, plural, one {eine Kartennummer} other {# Kartennummern}}',
     term: 'den Begriff „{term}“',
     withSample: '{item} {sample}',

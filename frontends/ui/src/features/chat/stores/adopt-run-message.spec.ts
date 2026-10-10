@@ -81,4 +81,19 @@ describe('adoptRunMessage', () => {
     ])
     expect(messageIds('s_B')).toEqual(['s_B-q', 'msg-run'])
   })
+
+  it('replaces the provisional run message in its row, keeping its place', () => {
+    const provisional: ChatMessage = { ...runMessage, runTitle: 'provisional' }
+    const after: ChatMessage = { id: 'later', role: 'user', content: 'next', timestamp: new Date(), messageType: 'user' }
+    const b = useChatStore.getState().conversations.find((c) => c.id === 's_B')!
+    const seeded = { ...b, messages: [...b.messages, provisional, after] }
+    useChatStore.setState({ conversations: [conversation('s_A'), seeded], currentConversation: seeded })
+
+    const stored: ChatMessage = { ...runMessage, runTitle: 'stored' }
+    useChatStore.getState().adoptRunMessage('s_B', stored)
+
+    const messages = useChatStore.getState().currentConversation!.messages
+    expect(messages.map((m) => m.id)).toEqual(['s_B-q', 'msg-run', 'later'])
+    expect(messages[1]).toBe(stored)
+  })
 })
