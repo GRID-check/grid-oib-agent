@@ -3,7 +3,7 @@ export const projects = {
   list: {
     heading: 'Projects',
     description:
-      'Every building project in one workspace — documents, members, and chat, grounded in the files, Office filing, and building law.',
+      'Every building project in one workspace: documents, members, tasks, research and chat, with Office filing and building law at hand.',
     loading: 'Loading projects…',
     searchPlaceholder: 'Search projects…',
     searchAria: 'Search projects by name',
@@ -30,7 +30,7 @@ export const projects = {
     empty: {
       title: 'Start your first project',
       description:
-        'Piloti is the workspace in which a planning office runs a building project. Create a project to bring its documents, members, and chat together — then ask Piloti about the work, grounded in the files, Office filing, and Austrian building law.',
+        'Piloti is the workspace in which a planning office runs a building project. Create a project to bring its documents, members, and chat together. Piloti works in it and cites every source.',
       action: 'Create your first project',
     },
     filter: {
@@ -250,7 +250,7 @@ export const projects = {
     nameTooLong: 'Project name must be at most 255 characters.',
     createError: "We couldn't create this project just now. Please try again in a moment.",
     nameLabel: 'Project name',
-    namePlaceholder: 'OIB fire safety review',
+    namePlaceholder: 'e.g. Fire safety review, Building 3',
     templateLabel: 'Start from a template',
     templates: {
       neubauWohnbau: { label: 'New residential build', name: 'New residential build' },
@@ -333,7 +333,7 @@ export const projects = {
     tryAgain: 'Try again',
     emptyTitle: 'No research runs yet',
     emptyDescription:
-      'Deep research runs appear here once you ask Piloti an involved question in Chat — it works the OIB/RIS sources and returns a cited report you can revisit.',
+      'Deep research runs appear here once you ask Piloti an involved question in Chat. It works through the project’s files, Office filing and building law, and returns a cited report you can revisit.',
     emptyAction: 'Start a run in Chat',
     viewReport: 'View report',
     viewProgress: 'View progress',
@@ -363,7 +363,7 @@ export const projects = {
     eyebrowCreate: 'Project setup',
     titleFallback: 'Tell Piloti about this project',
     subtitle:
-      'About 2 minutes. Piloti uses this brief to ground every answer — and to show which OIB Richtlinien apply to this building.',
+      'About 2 minutes. Piloti uses this brief to work on this building, and to show which OIB Richtlinien apply.',
     moduleNav: 'Modules',
     moduleNavAria: 'Wizard modules',
     schnellstart: 'Quick start',
@@ -592,7 +592,7 @@ export const projects = {
       viewAll: 'View all',
       emptyTitle: 'No files yet',
       emptyDescription:
-        'Upload building documents — plans, reports, the Bauordnung excerpts — so Piloti can cite your project when it answers.',
+        'Upload building documents — drawings, reports, the Bauordnung excerpts — so Piloti can cite your project when it answers.',
       emptyAction: 'Upload files',
     },
   },

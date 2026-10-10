@@ -102,6 +102,8 @@ const PREVIEW_FIXTURE: FileItem = {
   chunkCount: 12,
   contentTypes: ['drawing', 'text'],
   tags: ['Grundriss', 'Brandschutz'],
+  topics: null,
+  capture: null,
 }
 
 // Install the fetch shim at module scope (before any component effect fires) so

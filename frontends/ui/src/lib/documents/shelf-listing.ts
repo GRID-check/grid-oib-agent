@@ -13,6 +13,8 @@ import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { listAssignmentsWithoutAccessCheck, type AssignedPerson } from '@/lib/assignments/service'
 import { encodeDocumentListCursor } from './list-cursor'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
+import type { FassungFacts } from './fassung'
+import { loadFassungFacts } from './fassung-facts'
 import type { DocumentListPage, DocumentListRow } from './repository'
 import { keepReadable, type ListingReader, type ShelfReader } from './document-reader'
 
@@ -29,6 +31,12 @@ import { keepReadable, type ListingReader, type ShelfReader } from './document-r
 export type ListedDocument = Omit<DocumentListRow, 'metadata' | 'createdBy' | 'screeningOutcome' | 'screenedHash'> &
   DocumentMetadata & {
     assignees: AssignedPerson[]
+    /**
+     * Which documents this one replaces or is replaced by (CONTEXT.md,
+     * „Fassung"), resolved for THIS reader: a document they may not open is
+     * not in it, name and all (`fassung-facts.ts`).
+     */
+    fassung?: FassungFacts | null
     /**
      * When a folder this report was drawn from was purged (ADR-0088): the
      * purge marks a filed report it finds (`metadata.sourceDeleted`), and the
@@ -63,9 +71,11 @@ export async function toListedDocuments(
   // by the same rule, after the verdict (ADR-0086).
   const reconciled = keepReadable(await reconcileDocumentStatuses(rows, session.organizationId), reader)
 
+  const fassung = await loadFassungFacts(session, reconciled, reader)
   const listed = reconciled.map(({ metadata, createdBy: _createdBy, screeningOutcome: _screening, screenedHash: _screened, ...row }) => ({
     ...row,
     sourceDeletedAt: sourceDeletedAtOf(metadata),
+    fassung: fassung.get(row.id) ?? null,
   }))
 
   if (!isCollaborationEnabled(session) || listed.length === 0) {

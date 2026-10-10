@@ -47,7 +47,8 @@ describe('PATCH /api/documents/[id]/tags', () => {
     expect(updateDocumentTags).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'user-1' }),
       'doc-1',
-      ['Grundriss', 'Brandschutz']
+      ['Grundriss', 'Brandschutz'],
+      undefined
     )
   })
 
@@ -57,13 +58,37 @@ describe('PATCH /api/documents/[id]/tags', () => {
     const response = await call('doc-1', { tags: [] })
 
     expect(response.status).toBe(200)
-    expect(updateDocumentTags).toHaveBeenCalledWith(expect.anything(), 'doc-1', [])
+    expect(updateDocumentTags).toHaveBeenCalledWith(expect.anything(), 'doc-1', [], undefined)
   })
 
   it('rejects a body with too many tags (zod) without calling the service', async () => {
     const response = await call('doc-1', { tags: ['a', 'b', 'c', 'd', 'e', 'f'] })
 
     expect(response.status).toBe(400)
+    expect(updateDocumentTags).not.toHaveBeenCalled()
+  })
+
+  it('forwards topics to the service when the body carries them', async () => {
+    vi.mocked(updateDocumentTags).mockResolvedValue({
+      id: 'doc-1',
+      tags: ['Grundriss'],
+      topics: ['Fluchtweg', 'Rauchabzug'],
+    })
+
+    const response = await call('doc-1', { tags: ['Grundriss'], topics: ['Fluchtweg', 'Rauchabzug'] })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ id: 'doc-1', tags: ['Grundriss'], topics: ['Fluchtweg', 'Rauchabzug'] })
+    expect(updateDocumentTags).toHaveBeenCalledWith(expect.anything(), 'doc-1', ['Grundriss'], [
+      'Fluchtweg',
+      'Rauchabzug',
+    ])
+  })
+
+  it('rejects topics that are too many or not 1-40 characters (zod) without calling the service', async () => {
+    expect((await call('doc-1', { tags: [], topics: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] })).status).toBe(400)
+    expect((await call('doc-1', { tags: [], topics: [''] })).status).toBe(400)
+    expect((await call('doc-1', { tags: [], topics: ['x'.repeat(41)] })).status).toBe(400)
     expect(updateDocumentTags).not.toHaveBeenCalled()
   })
 

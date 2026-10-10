@@ -45,7 +45,7 @@ import {
   NotFoundError,
   UpstreamError,
 } from '@/lib/api/errors'
-import { ALLOWED_TAGS } from './tag-vocabulary'
+import { ALLOWED_TAGS, MAX_TOPICS, MAX_TOPIC_LENGTH } from './tag-vocabulary'
 import { documentStatusFacts } from './document-status'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
@@ -70,6 +70,7 @@ import type { Document, DocumentAuthor } from '@/lib/db/schema'
 import { onDocumentsSettled } from '@/lib/upload-batches/settle'
 import { reconcileDocumentStatuses, describeBackendIngestState, extractIngestJobId } from './reconcile-status'
 import { toListedDocuments, toListedPage, type ListedDocument } from './shelf-listing'
+import { loadFassungFacts } from './fassung-facts'
 import { projectShelf } from './shelf'
 import { uploadToShelf, type UploadDocumentResult } from './shelf-upload'
 import { resolveDocumentFolderPath } from './folder-path'
@@ -2053,12 +2054,16 @@ export async function redispatchStuckDocument(
  * vocabulary. Tags are also validated here against the mirrored `ALLOWED_TAGS`
  * so an obviously-bad request fails fast (400) without a backend round-trip;
  * an empty list clears the tags. A missing summary row surfaces as 404.
+ *
+ * `topics` is the model's keyword list, which a person may correct. It is
+ * forwarded only when given, so a tag-only edit leaves the topics alone.
  */
 export async function updateDocumentTags(
   session: AuthorizedSession,
   documentId: string,
-  tags: string[]
-): Promise<{ id: string; tags: string[] }> {
+  tags: string[],
+  topics?: string[]
+): Promise<{ id: string; tags: string[]; topics?: string[] }> {
   const doc = await getAccessibleDocument(session, documentId, 'write')
 
   const offending = tags.filter((tag) => !ALLOWED_TAGS.has(tag))
@@ -2066,6 +2071,9 @@ export async function updateDocumentTags(
     throw new BadRequestError('Tags outside the controlled vocabulary are not allowed', {
       invalidTags: offending,
     })
+  }
+  if (topics && (topics.length > MAX_TOPICS || topics.some((t) => t.length < 1 || t.length > MAX_TOPIC_LENGTH))) {
+    throw new BadRequestError(`Topics must be at most ${MAX_TOPICS} keywords of 1 to ${MAX_TOPIC_LENGTH} characters`)
   }
 
   // The same gate as the read paths, on a WRITE. There is no backend summary row
@@ -2081,7 +2089,7 @@ export async function updateDocumentTags(
     res = await fetch(collectionFileUrl(getBackendUrl(), ref, '/tags'), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tags }),
+      body: JSON.stringify(topics === undefined ? { tags } : { tags, topics }),
       signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
     })
   } catch {
@@ -2097,7 +2105,12 @@ export async function updateDocumentTags(
   if (!res.ok) throw new UpstreamError('The document service rejected the tag update')
 
   const body = await res.json().catch(() => ({}))
-  return { id: doc.id, tags: Array.isArray(body.tags) ? body.tags : tags }
+  const answer: { id: string; tags: string[]; topics?: string[] } = {
+    id: doc.id,
+    tags: Array.isArray(body.tags) ? body.tags : tags,
+  }
+  if (topics !== undefined) answer.topics = Array.isArray(body.topics) ? body.topics : topics
+  return answer
 }
 
 /**
@@ -2877,6 +2890,8 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     findOpenVersion(reconciled.id, session.organizationId),
     listDocumentVersionSummaries([reconciled.id], session.organizationId),
   ])
+  const fassung =
+    (await loadFassungFacts(session, [reconciled], await shelfReaderFor(session, reconciled))).get(reconciled.id) ?? null
 
   return {
     id: reconciled.id,
@@ -2904,6 +2919,10 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     chunkCount: reconciled.chunkCount,
     contentTypes: reconciled.contentTypes,
     tags: reconciled.tags,
+    topics: reconciled.topics,
+    capture: reconciled.capture,
+    // Resolved for THIS reader: a document they may not open is not in it.
+    fassung,
     // The place in the ingest queue, null once the job is claimed or settled.
     queueAhead: reconciled.queueAhead ?? null,
     // Whose hand wrote the bytes. Added because this payload is how the CHAT

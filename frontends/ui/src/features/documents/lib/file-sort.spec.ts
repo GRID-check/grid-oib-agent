@@ -17,6 +17,8 @@ const doc = (overrides: Partial<FileItem> = {}): FileItem => ({
   chunkCount: null,
   contentTypes: null,
   tags: null,
+  topics: null,
+  capture: null,
   ...overrides,
 })
 

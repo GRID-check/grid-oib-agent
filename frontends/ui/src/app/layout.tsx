@@ -96,7 +96,7 @@ export const metadata: Metadata = {
     template: `%s — ${PRODUCT_NAME}`,
   },
   description:
-    'Workspace for planning offices. Chat with Piloti about the project; answers are grounded in its files, Office filing, and Austrian building regulations.',
+    'Workspace for planning offices: projects, files, the building model, tasks and research, with Office filing and building law at hand. Every answer cites its source.',
   // Icons come from the file conventions beside this layout (favicon.ico,
   // icon.svg, apple-icon.png) and manifest.ts; all are rendered from
   // shared/brand/piloti-mark.svg. The app is behind sign-in: see robots.ts.

@@ -24,6 +24,7 @@
 import { documentStatusFacts } from '@/lib/documents/document-status'
 import { DISCIPLINE_TAGS, DOCUMENT_TYPE_TAGS, documentTypeOf } from '@/lib/documents/tag-vocabulary'
 import type { FileItem, FolderItem } from '../file-types'
+import { findRevisionSeries, type RevisionSeries } from './revision-series'
 
 /**
  * Where a document stands with Piloti, in the five answers a reader acts on.
@@ -259,9 +260,37 @@ export interface FolderBrief {
    * it rather than to its ancestor. Worst first, at most {@link MAX_HOTSPOTS}.
    */
   hotspots: FolderLocation[]
+  /** The topics Piloti recognised in readable documents (`FileItem.topics`), most frequent first. */
+  topics: CountedLabel[]
+  /** The readable photos with a capture time, and the span they were taken in — null when there are none. */
+  photos: PhotoSpan | null
+  /**
+   * Documents in more than one Fassung, each with the one that looks current
+   * (`revision-series.ts`) — a suggestion, never a decision. Over every document
+   * of the subtree a person may see, readable or not.
+   */
+  revisionSeries: RevisionSeries<FileItem>[]
+  /**
+   * Documents a person confirmed are replaced by a newer Fassung
+   * (`FileItem.fassung.supersededBy`), whatever their names — the link the
+   * name grammar cannot see.
+   */
+  confirmedOlder: FileItem[]
+}
+
+export interface PhotoSpan {
+  /** Photos with a camera timestamp. */
+  count: number
+  /** ISO day of the earliest and the latest capture. */
+  from: string
+  to: string
+  /** How many of them carry a position. */
+  located: number
 }
 
 export const MAX_HOTSPOTS = 4
+/** Topics the brief names before it stops; the filter offers the rest. */
+export const MAX_BRIEF_TOPICS = 12
 
 /** The catch-all type: true, and says nothing about the folder, so it never leads. */
 const CATCH_ALL_TYPE = 'Sonstiges'
@@ -317,6 +346,9 @@ export function buildFolderBrief(
   const types = new Map<string, number>()
   const disciplines = new Map<string, number>()
   const contents = new Map<string, number>()
+  const topics = new Map<string, number>()
+  const captured: string[] = []
+  let located = 0
   const attention: FolderBrief['attention'] = { failed: [], held: [], unplaced: [] }
   const reading: FileItem[] = []
   const typeSet = new Set<string>(DOCUMENT_TYPE_TAGS)
@@ -337,7 +369,16 @@ export function buildFolderBrief(
     for (const content of new Set(file.contentTypes ?? [])) {
       contents.set(content, (contents.get(content) ?? 0) + 1)
     }
+    for (const topic of new Set(file.topics ?? [])) {
+      topics.set(topic, (topics.get(topic) ?? 0) + 1)
+    }
+    const capturedAt = file.capture?.capturedAt
+    if (capturedAt) {
+      captured.push(capturedAt.slice(0, 10))
+      if (file.capture?.latitude !== undefined && file.capture?.longitude !== undefined) located += 1
+    }
   }
+  captured.sort()
 
   return {
     tally,
@@ -348,7 +389,21 @@ export function buildFolderBrief(
     attention,
     reading,
     hotspots: findHotspots(files, folders, folderId),
+    topics: countLabels(topics, []).slice(0, MAX_BRIEF_TOPICS),
+    photos:
+      captured.length > 0
+        ? { count: captured.length, from: captured[0], to: captured[captured.length - 1], located }
+        : null,
+    // A held file's NAME is not shown to everyone (ADR-0086); it never reaches
+    // the listing of a reader who may not see it, so every row here may be named.
+    revisionSeries: findRevisionSeries(subtree),
+    confirmedOlder: subtree.filter((file) => file.fassung?.supersededBy),
   }
+}
+
+/** Whether a person already confirmed every older Fassung of a name series as replaced by its current one. */
+export function isSeriesConfirmed(series: RevisionSeries<FileItem>): boolean {
+  return series.older.every((member) => member.item.fassung?.supersededBy?.id === series.current.item.id)
 }
 
 /**
@@ -405,18 +460,42 @@ function trailBetween(byId: Map<string, FolderItem>, folder: FolderItem, stopAt:
 export type BriefSelection =
   | { kind: 'state'; state: ReadState }
   | { kind: 'tag'; tag: string }
+  | { kind: 'topic'; topic: string }
   | { kind: 'unplaced' }
+  | { kind: 'photos' }
+  | { kind: 'olderRevisions' }
+
+/**
+ * The documents of the brief's subtree a selection opens — the same set the
+ * brief counted for it, so a chip that says „Attika 4" opens four documents.
+ */
+export function selectInBrief(brief: FolderBrief, selection: BriefSelection): FileItem[] {
+  if (selection.kind === 'olderRevisions') {
+    const older = new Set(brief.revisionSeries.flatMap((series) => series.older.map((member) => member.item.id)))
+    for (const file of brief.confirmedOlder) older.add(file.id)
+    return brief.files.filter((file) => older.has(file.id))
+  }
+  return brief.files.filter((file) => matchesBriefSelection(file, selection))
+}
 
 export function matchesBriefSelection(file: FileItem, selection: BriefSelection): boolean {
+  const readable = readStateOf(file.status) === 'readable'
   switch (selection.kind) {
     case 'state':
       return readStateOf(file.status) === selection.state
     case 'tag':
       // Tags are only ever counted on readable documents, so the slice a tag
       // chip opens has to be the same set the chip counted.
-      return readStateOf(file.status) === 'readable' && (file.tags ?? []).includes(selection.tag)
+      return readable && (file.tags ?? []).includes(selection.tag)
+    case 'topic':
+      return readable && (file.topics ?? []).includes(selection.topic)
+    case 'photos':
+      return readable && Boolean(file.capture?.capturedAt)
     case 'unplaced':
       return isUnplaced(file)
+    case 'olderRevisions':
+      // Needs the series, which one file cannot know: see `selectInBrief`.
+      return false
   }
 }
 

@@ -147,7 +147,10 @@ export interface TagOption {
 export function tagOptions(files: readonly FileItem[], locale: string): TagOption[] {
   const counts = new Map<string, TagOption>()
   for (const file of files) {
-    for (const tag of file.tags ?? []) {
+    // Topics sit beside the controlled tags in the one „Kategorie" filter: to a
+    // person both are words Piloti put on the file, and two menus for them would
+    // ask the reader to know which list a word came from.
+    for (const tag of new Set([...(file.tags ?? []), ...(file.topics ?? [])])) {
       const key = tag.toLowerCase()
       const entry = counts.get(key)
       if (entry) entry.count += 1
@@ -235,7 +238,10 @@ export function applyFileFilters<T extends FileItem>(
     }
     // A row whose version state is unknown (a listing that did not read it) is
     // not „ausstehend": the honest answer to a question nobody asked is no.
-    if (filters.tags.length > 0 && !file.tags?.some((tag) => filters.tags.includes(tag.toLowerCase()))) {
+    if (
+      filters.tags.length > 0 &&
+      ![...(file.tags ?? []), ...(file.topics ?? [])].some((tag) => filters.tags.includes(tag.toLowerCase()))
+    ) {
       return false
     }
     if (filters.reviewPendingOnly && file.versionState !== 'in_review') return false

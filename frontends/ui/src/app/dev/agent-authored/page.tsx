@@ -79,6 +79,8 @@ function makeFile(id: string, filename: string, summary: string, extra: Partial<
     chunkCount: 48,
     contentTypes: ['text', 'table'],
     tags: null,
+    topics: null,
+    capture: null,
     assignees: [],
     authoredBy: 'user',
     ...extra,

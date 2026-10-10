@@ -1,4 +1,6 @@
 import type { DocumentAuthor } from '@/lib/db/schema'
+import type { FassungFacts } from '@/lib/documents/fassung'
+import type { PhotoCapture } from '@/lib/documents/photo-capture'
 import type { FolderGrantItem } from '@/adapters/api/folder-access-client'
 import type {
   DocumentLifecycle,
@@ -73,6 +75,18 @@ export interface FileItem {
   contentTypes: string[] | null
   /** Controlled ingestion-generated tags (document type + OIB discipline). */
   tags: string[] | null
+  /** Model-recognised keywords beside the controlled tags. A person may correct them. */
+  topics: string[] | null
+  /** EXIF facts of a photo. Coordinates are shown to people with access, never sent to a model. */
+  capture: PhotoCapture | null
+  /**
+   * Which documents this one replaces or is replaced by, Piloti's suggestion
+   * and what changed (CONTEXT.md, „Fassung"). Every reference is a document the
+   * reader may open; one they may not is not in it (`fassung-facts.ts`).
+   * Optional so a listing that did not read it says nothing; `null` is "read,
+   * and there is nothing".
+   */
+  fassung?: FassungFacts | null
   /**
    * How many of this office's uploads wait ahead of this one in the ingest
    * queue, or null when it is not waiting there (`DocumentMetadata.queueAhead`).

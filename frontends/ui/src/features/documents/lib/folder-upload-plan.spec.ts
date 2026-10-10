@@ -35,6 +35,8 @@ function doc(overrides: Partial<FileItem> & Pick<FileItem, 'id' | 'filename'>): 
     chunkCount: null,
     contentTypes: null,
     tags: null,
+    topics: null,
+    capture: null,
     assignees: [],
     authoredBy: 'user',
     ...overrides,

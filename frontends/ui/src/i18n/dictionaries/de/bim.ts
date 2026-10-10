@@ -201,7 +201,7 @@ export const bim: typeof en.bim = {
       save: 'Bestätigung speichern',
       cancel: 'Abbrechen',
       noteLabel: 'Warum das geklärt ist',
-      notePlaceholder: 'z. B. anhand des Plans geprüft, mit dem Brandschutzplaner abgestimmt …',
+      notePlaceholder: 'z. B. anhand der Zeichnung geprüft, mit dem Brandschutzplaner abgestimmt …',
     },
     card: {
       export: 'Offene Punkte als BCF',

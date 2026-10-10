@@ -75,6 +75,8 @@ function doc(filename: string, extra: Partial<FileItem> = {}): FileItem {
     chunkCount: null,
     contentTypes: null,
     tags: null,
+    topics: null,
+    capture: null,
     assignees: [],
     authoredBy: 'user',
     ...extra,

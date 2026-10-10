@@ -55,6 +55,8 @@ const FIXTURE: FileItem = {
   chunkCount: 6,
   contentTypes: ['text'],
   tags: ['Einreichplanung'],
+  topics: null,
+  capture: null,
 }
 
 /**

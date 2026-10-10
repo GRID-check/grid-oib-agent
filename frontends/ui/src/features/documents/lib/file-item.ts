@@ -33,6 +33,8 @@ type OptionalWireField =
   | 'chunkCount'
   | 'contentTypes'
   | 'tags'
+  | 'topics'
+  | 'capture'
   | 'queueAhead'
   | 'originPath'
   | 'contentHash'
@@ -61,6 +63,9 @@ export function toFileItem(row: DocumentWireRow): FileItem {
     chunkCount: row.chunkCount ?? null,
     contentTypes: row.contentTypes ?? null,
     tags: row.tags ?? null,
+    topics: row.topics ?? null,
+    capture: row.capture ?? null,
+    fassung: row.fassung ?? null,
     queueAhead: row.queueAhead ?? null,
     assignees: row.assignees ?? EMPTY_ASSIGNEES,
     authoredBy: row.authoredBy ?? 'user',
@@ -97,6 +102,8 @@ const TRAILING_METADATA: ReadonlySet<keyof FileItem> = new Set<keyof FileItem>([
   'chunkCount',
   'contentTypes',
   'tags',
+  'topics',
+  'capture',
 ])
 
 function sameValue(a: unknown, b: unknown): boolean {

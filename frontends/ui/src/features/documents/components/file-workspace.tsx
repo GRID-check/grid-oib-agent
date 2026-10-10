@@ -30,7 +30,7 @@ import { useViewPreference } from '../hooks/use-view-preference'
 import { useBriefCollapsed } from '../hooks/use-brief-collapsed'
 import { useBulkReingest } from '../hooks/use-bulk-reingest'
 import { useMissingDocuments } from '../hooks/use-missing-documents'
-import { buildFolderBrief, matchesBriefSelection, type BriefSelection } from '../lib/folder-knowledge'
+import { buildFolderBrief, selectInBrief, type BriefSelection } from '../lib/folder-knowledge'
 import type { DocumentWireRow } from '../lib/file-item'
 import {
   NO_FILE_FILTERS,
@@ -53,6 +53,9 @@ import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { FileFilterMenu } from './file-filter-menu'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { FolderBrief } from './folder-brief'
+import { requestFassungLink } from '../lib/fassung-request'
+import type { RevisionSeries } from '../lib/revision-series'
+import type { FassungFacts } from '@/lib/documents/fassung'
 import { FileSearchField } from './file-search-bar'
 import { FolderAccessDialog } from './folder-access-dialog'
 import { FolderUploadDialog } from './folder-upload-dialog'
@@ -190,7 +193,7 @@ export function FileWorkspace({
       // dead-end failure UI clears and the badge flips to "Processing".
       onReingested: (id, status) => patchFile(id, { status, errorMessage: null }),
       // The pane is reused across files and re-seeds from the tags on switch.
-      onTagsUpdated: (id, tags) => patchFile(id, { tags }),
+      onTagsUpdated: (id, tags, topics) => patchFile(id, topics === undefined ? { tags } : { tags, topics }),
       // A Freigabe decision moved the document's state; the panel has just
       // re-read the version list, so both numbers are the server's own.
       onLifecycleChanged: (id, summary: { versionState: DocumentVersionState; versionCount: number }) =>
@@ -285,6 +288,7 @@ export function FileWorkspace({
     selectedFolderId,
     onOpenFolder: selectFolder,
     onReingested: handlers.onReingested,
+    onPatched: patchFile,
     mayReadAgain: canManage && writableHere,
   })
   const filterEmptyNotice = useFilterEmptyNotice({
@@ -584,6 +588,7 @@ function useFolderBriefSurface({
   selectedFolderId,
   onOpenFolder,
   onReingested,
+  onPatched,
   mayReadAgain,
 }: {
   shelf: FileShelf
@@ -592,6 +597,7 @@ function useFolderBriefSurface({
   selectedFolderId: string | null
   onOpenFolder: (id: string | null) => void
   onReingested: (id: string, status: string) => void
+  onPatched: (id: string, patch: Partial<FileItem>) => void
   mayReadAgain: boolean
 }) {
   const t = useTranslations('files')
@@ -615,13 +621,43 @@ function useFolderBriefSurface({
     if (result.failed > 0) toast.error(t('brief.readAgainPartial', { count: result.failed }))
   }, [brief.attention.failed, bulk, t])
 
+  /*
+   * One link per older Fassung, each durable when its request returns: a
+   * failure halfway leaves the confirmed ones confirmed, and says how many.
+   * Patched, not refetched, like the preview's own decisions.
+   */
+  const confirmSeries = useCallback(
+    async (series: RevisionSeries<FileItem>) => {
+      const head = series.current.item
+      let linked = 0
+      let latest: FassungFacts | null = null
+      for (const member of series.older) {
+        try {
+          // The route answers both documents as this reader sees them.
+          const answer = await requestFassungLink(head.id, member.item.id, true)
+          latest = answer.newer
+          onPatched(member.item.id, { fassung: answer.older })
+          linked += 1
+        } catch {
+          toast.error(t('brief.revisionsConfirmError'))
+          break
+        }
+      }
+      if (latest) onPatched(head.id, { fassung: latest })
+      if (linked > 0) toast.success(t('brief.revisionsConfirmDone', { count: linked }))
+    },
+    [onPatched, t]
+  )
+
   const sliceLabel = (current: BriefSelection): string => {
     const what =
       current.kind === 'tag'
         ? current.tag
-        : current.kind === 'unplaced'
-          ? t('brief.slice.unplaced')
-          : t(`brief.slice.${current.state}`)
+        : current.kind === 'topic'
+          ? current.topic
+          : current.kind === 'state'
+            ? t(`brief.slice.${current.state}`)
+            : t(`brief.slice.${current.kind}`)
     const where = folderName ? t('brief.sliceScopeFolder', { name: folderName }) : t('brief.sliceScopeRoot')
     return `${what} · ${where}`
   }
@@ -639,11 +675,12 @@ function useFolderBriefSurface({
         collapsed={collapsed}
         onCollapsedChange={setCollapsed}
         missing={missing}
+        onConfirmSeries={mayReadAgain ? confirmSeries : undefined}
       />
     ),
     slice: active
       ? {
-          files: brief.files.filter((file) => matchesBriefSelection(file, active)),
+          files: selectInBrief(brief, active),
           label: sliceLabel(active),
           onClear: () => setSelection(null),
         }

@@ -903,7 +903,7 @@ export const chat: typeof en.chat = {
       skill: 'Skill: {name}',
       model: 'Gebäudemodell',
       measure: 'Messung',
-      drawing: 'Plan',
+      drawing: 'Zeichnung',
       documents: 'Dateien',
       note: 'Notiz',
       card: 'Karte',

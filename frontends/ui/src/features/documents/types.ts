@@ -144,6 +144,8 @@ export function trackedFileToFileItem(file: TrackedFile): FileItem {
     chunkCount: null,
     contentTypes: null,
     tags: null,
+    topics: null,
+    capture: null,
   }
 }
 

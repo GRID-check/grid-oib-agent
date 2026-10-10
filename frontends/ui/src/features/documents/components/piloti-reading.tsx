@@ -8,6 +8,9 @@ import { useLocale, useTranslations } from '@/i18n'
 import { DISCIPLINE_TAGS, DOCUMENT_TYPE_TAGS } from '@/lib/documents/tag-vocabulary'
 import type { FileItem } from '../file-types'
 import { DocumentTagsEditor } from './document-tags-editor'
+import { DocumentTopicsEditor } from './document-topics-editor'
+import type { PhotoCapture } from '@/lib/documents/photo-capture'
+import { MapPin } from 'lucide-react'
 
 const TYPE_SET = new Set<string>(DOCUMENT_TYPE_TAGS)
 const DISCIPLINE_SET = new Set<string>(DISCIPLINE_TAGS)
@@ -38,7 +41,7 @@ export function PilotiReading({
 }: {
   file: FileItem
   canManage: boolean
-  onTagsUpdated?: (fileId: string, tags: string[]) => void
+  onTagsUpdated?: (fileId: string, tags: string[], topics?: string[]) => void
 }): JSX.Element {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -55,7 +58,13 @@ export function PilotiReading({
   const incomingKey = (file.tags ?? []).join('\u0000')
   useEffect(() => setSaved(null), [file.id, incomingKey])
 
+  /** The same for topics, saved beside the tags. */
+  const [savedTopics, setSavedTopics] = useState<string[] | null>(null)
+  const incomingTopicsKey = (file.topics ?? []).join('\u0000')
+  useEffect(() => setSavedTopics(null), [file.id, incomingTopicsKey])
+
   const tags = saved ?? file.tags ?? []
+  const topics = savedTopics ?? file.topics ?? []
   const types = tags.filter((tag) => TYPE_SET.has(tag))
   const disciplines = tags.filter((tag) => DISCIPLINE_SET.has(tag))
   const facts = readingFacts(file, locale, t)
@@ -63,6 +72,7 @@ export function PilotiReading({
   return (
     <div className="flex flex-col gap-2.5" data-testid="piloti-reading">
       {facts && <p className="text-muted-foreground text-xs">{facts}</p>}
+      {file.capture && <CaptureLine capture={file.capture} />}
 
       {correcting ? (
         <div className="flex flex-col gap-2 rounded-md border border-dashed p-2.5" data-testid="piloti-reading-editor">
@@ -74,6 +84,15 @@ export function PilotiReading({
               onTagsUpdated?.(id, next)
             }}
           />
+          <DocumentTopicsEditor
+            fileId={file.id}
+            tags={tags}
+            initialTopics={topics}
+            onSaved={(id, next) => {
+              setSavedTopics(next)
+              onTagsUpdated?.(id, tags, next)
+            }}
+          />
           <p className="text-muted-foreground text-xs leading-relaxed">{t('preview.reading.correctionKept')}</p>
           <Button type="button" size="sm" variant="outline" className="h-7 self-start" onClick={() => setCorrecting(false)}>
             {t('preview.reading.done')}
@@ -82,7 +101,7 @@ export function PilotiReading({
       ) : (
         <div className="flex flex-col gap-1.5">
           <p className="text-muted-foreground text-xs">
-            {types.length + disciplines.length > 0 ? t('preview.reading.classifiedAs') : t('preview.reading.noType')}
+            {types.length + disciplines.length + topics.length > 0 ? t('preview.reading.classifiedAs') : t('preview.reading.noType')}
           </p>
           <div className="flex flex-wrap items-center gap-1.5">
             {types.map((tag) => (
@@ -95,6 +114,11 @@ export function PilotiReading({
                 {tag}
               </Chip>
             ))}
+            {topics.map((topic) => (
+              <Chip key={topic} variant="muted" size="sm" data-testid="piloti-reading-topic">
+                {topic}
+              </Chip>
+            ))}
             {canManage && (
               <Button
                 type="button"
@@ -104,7 +128,7 @@ export function PilotiReading({
                 onClick={() => setCorrecting(true)}
                 data-testid="piloti-reading-correct"
               >
-                {types.length + disciplines.length > 0 ? t('preview.reading.correct') : t('preview.reading.assign')}
+                {types.length + disciplines.length + topics.length > 0 ? t('preview.reading.correct') : t('preview.reading.assign')}
               </Button>
             )}
           </div>
@@ -127,4 +151,56 @@ function readingFacts(file: FileItem, locale: string, t: ReturnType<typeof useTr
     parts.push(kinds.map((content) => t(`preview.contentTypeNames.${content}`)).join(', '))
   }
   return parts.length > 0 ? parts.join(' · ') : null
+}
+
+/**
+ * When, and with what, a photo was taken — from the camera, not the upload —
+ * and a link to where, for the people who may open the file. The position is
+ * shown here and nowhere a model reads it (`photo_facts.py`).
+ */
+function CaptureLine({ capture }: { capture: PhotoCapture }) {
+  const t = useTranslations('files')
+  const { locale } = useLocale()
+  const when = capture.capturedAt ? formatCapturedAt(capture.capturedAt, locale) : null
+  const located = capture.latitude !== undefined && capture.longitude !== undefined
+  if (!when && !capture.camera && !located) return null
+  return (
+    <p className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 text-xs" data-testid="piloti-reading-capture">
+      {when && <span>{t('preview.reading.capturedAt', { when })}</span>}
+      {capture.camera && (
+        <>
+          {when && <span aria-hidden>·</span>}
+          <span>{capture.camera}</span>
+        </>
+      )}
+      {located && (
+        <>
+          {(when || capture.camera) && <span aria-hidden>·</span>}
+          <a
+            href={`https://www.openstreetmap.org/?mlat=${capture.latitude}&mlon=${capture.longitude}#map=18/${capture.latitude}/${capture.longitude}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-foreground inline-flex items-center gap-0.5 underline-offset-2 hover:underline"
+          >
+            <MapPin className="size-3" aria-hidden />
+            {t('preview.reading.location')}
+          </a>
+        </>
+      )}
+    </p>
+  )
+}
+
+/**
+ * The camera's local time as it wrote it. EXIF time has no zone unless the
+ * camera added an offset, so the clock is shown as read rather than converted
+ * through the reader's zone — a photo taken at 10:32 on site says 10:32.
+ */
+function formatCapturedAt(iso: string, locale: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso)
+  if (!match) return iso
+  const [, year, month, day, hour, minute] = match
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+  const dayLabel = date.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
+  return `${dayLabel}, ${hour}:${minute}`
 }

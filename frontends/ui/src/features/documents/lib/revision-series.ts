@@ -1,24 +1,28 @@
 /**
- * Planstände: which plans exist in several revisions, and which revision is
- * current — read from the names offices give their plans.
+ * Revision series: which documents exist in several Fassungen, and which one
+ * is current — read from the names offices give their files.
  *
  * feld72 (Jour fixe, 2026-10-09) asked for "eine Logik wie bei Planfred": read
- * index and date, treat only the newest Planstand as the basis, the older ones
+ * index and date, treat only the newest Fassung as the basis, the older ones
  * only on request — and only ever as a SUGGESTION a person confirms. Offices
  * name every revision explicitly and never overwrite one, so the names carry
  * it: `EG_Grundriss_Index_C_2026-08-14.pdf`, `A-101_C_Grundriss EG.pdf`,
  * `260814_Schnitt_AA_idx-B.pdf`. This module reads that, and nothing here
  * changes, hides or re-files a document: it says which one looks current.
  *
+ * Naming: a name says nothing about WHAT a file is, so nothing here calls a
+ * file a plan (CONTEXT.md, „Fassung"). A Grundriss is a Grundriss because a
+ * tag says so, never because its name carries an index.
+ *
  * The SAME grammar runs for the agent in Python
- * (`sources/knowledge_layer/src/plan_series.py`), and both are held to one set
- * of cases (`tests/fixtures/plan_series_cases.json`), so the folder brief and
- * the agent's `list_files` cannot disagree about which Planstand is current.
+ * (`sources/knowledge_layer/src/revision_series.py`), and both are held to one set
+ * of cases (`tests/fixtures/revision_series_cases.json`), so the folder brief and
+ * the agent's `list_files` cannot disagree about which Fassung is current.
  *
  * Pure: no React, no I/O.
  */
 
-export interface PlanIndex {
+export interface RevisionIndex {
   kind: 'letter' | 'number'
   /** `C`, `12` — as it should be shown (letters upper-cased, numbers without leading zeros). */
   value: string
@@ -26,10 +30,10 @@ export interface PlanIndex {
   rank: number
 }
 
-export interface PlanName {
-  /** What revisions of one plan share: the name without its index, its date and its extension. */
+export interface RevisionName {
+  /** What the Fassungen of one document share: the name without its index, its date and its extension. */
   key: string
-  index: PlanIndex | null
+  index: RevisionIndex | null
   /** ISO `YYYY-MM-DD`. */
   date: string | null
 }
@@ -40,8 +44,8 @@ const KEYWORD_INDEX = new RegExp(
   `(^|${SEP})(?:index|idx|ind|rev|revision|ver|version|v)\\.?${SEP}?([a-z]|\\d{1,3})(?=$|${SEP})`,
   'i'
 )
-/** A bare letter right after a leading plan number, before more name: `A-101_C_Grundriss`. Case-sensitive. */
-const PLAN_NUMBER_LETTER = /^([A-Za-z]{1,3}[-_ ]?\d{2,4})[ _.-]([A-Z])(?=[ _.-]\S)/
+/** A bare letter right after a leading sheet number, before more name: `A-101_C_Grundriss`. Case-sensitive. */
+const SHEET_NUMBER_LETTER = /^([A-Za-z]{1,3}[-_ ]?\d{2,4})[ _.-]([A-Z])(?=[ _.-]\S)/
 /** `2026-08-14`, `2026_08_14`, `20260814`, optionally after `Stand`. */
 const ISO_DATE = new RegExp(
   `(^|${SEP})(?:stand${SEP}*)?(20\\d{2})[-_.]?(0[1-9]|1[0-2])[-_.]?(0[1-9]|[12]\\d|3[01])(?=$|${SEP})`,
@@ -58,7 +62,7 @@ function splitExtension(filename: string): { stem: string; extension: string } {
   return match ? { stem: match[1], extension: match[2].toLowerCase() } : { stem: filename.trim(), extension: '' }
 }
 
-function indexOf(raw: string): PlanIndex {
+function indexOf(raw: string): RevisionIndex {
   if (/^\d+$/.test(raw)) {
     const number = Number.parseInt(raw, 10)
     return { kind: 'number', value: String(number), rank: number }
@@ -79,12 +83,12 @@ function seriesKey(stem: string): string {
 }
 
 /**
- * What a plan name says about its revision, or null when it names neither an
- * index nor a date — a document, not a Planstand.
+ * What a file name says about its revision, or null when it names neither an
+ * index nor a date — then it is not part of a series.
  */
-export function parsePlanName(filename: string): PlanName | null {
+export function parseRevisionName(filename: string): RevisionName | null {
   let { stem } = splitExtension(filename)
-  let index: PlanIndex | null = null
+  let index: RevisionIndex | null = null
   let date: string | null = null
 
   const cut = (match: RegExpExecArray, keepLead: boolean) => {
@@ -110,7 +114,7 @@ export function parsePlanName(filename: string): PlanName | null {
   if ((match = KEYWORD_INDEX.exec(stem))) {
     index = indexOf(match[2])
     cut(match, true)
-  } else if ((match = PLAN_NUMBER_LETTER.exec(stem))) {
+  } else if ((match = SHEET_NUMBER_LETTER.exec(stem))) {
     index = indexOf(match[2])
     stem = match[1] + ' ' + stem.slice(match[0].length)
   }
@@ -120,18 +124,18 @@ export function parsePlanName(filename: string): PlanName | null {
   return key ? { key, index, date } : null
 }
 
-export interface PlanSeriesMember<T> {
+export interface RevisionSeriesMember<T> {
   item: T
-  plan: PlanName
+  revision: RevisionName
 }
 
-export interface PlanSeries<T> {
-  /** The series key plus the format, so a PDF and a DWG of one Planstand are not versions of each other. */
+export interface RevisionSeries<T> {
+  /** The series key plus the format, so a PDF and a DWG of one Fassung are not versions of each other. */
   key: string
   /** The revision that looks current: Piloti's suggestion, never a decision. */
-  current: PlanSeriesMember<T>
+  current: RevisionSeriesMember<T>
   /** The others, newest first. */
-  older: PlanSeriesMember<T>[]
+  older: RevisionSeriesMember<T>[]
 }
 
 /**
@@ -145,13 +149,13 @@ export interface PlanSeries<T> {
  * then the date, then arrival — an office that numbers its revisions means the
  * number. Otherwise the date decides, then the index, then arrival.
  */
-function newestFirst<T extends { createdAt?: string | null }>(members: PlanSeriesMember<T>[]): PlanSeriesMember<T>[] {
-  const kinds = new Set(members.map((member) => member.plan.index?.kind ?? 'none'))
+function newestFirst<T extends { createdAt?: string | null }>(members: RevisionSeriesMember<T>[]): RevisionSeriesMember<T>[] {
+  const kinds = new Set(members.map((member) => member.revision.index?.kind ?? 'none'))
   const indexLeads = kinds.size === 1 && !kinds.has('none')
-  const tuple = (member: PlanSeriesMember<T>): [number, string, number, string] => [
-    indexLeads ? (member.plan.index?.rank ?? 0) : 0,
-    member.plan.date ?? '',
-    member.plan.index?.rank ?? 0,
+  const tuple = (member: RevisionSeriesMember<T>): [number, string, number, string] => [
+    indexLeads ? (member.revision.index?.rank ?? 0) : 0,
+    member.revision.date ?? '',
+    member.revision.index?.rank ?? 0,
     member.item.createdAt ?? '',
   ]
   return [...members].sort((a, b) => {
@@ -164,33 +168,33 @@ function newestFirst<T extends { createdAt?: string | null }>(members: PlanSerie
   })
 }
 
-function signature(plan: PlanName): string {
-  return `${plan.index?.kind ?? ''}:${plan.index?.value ?? ''}:${plan.date ?? ''}`
+function signature(revision: RevisionName): string {
+  return `${revision.index?.kind ?? ''}:${revision.index?.value ?? ''}:${revision.date ?? ''}`
 }
 
 /**
- * The plans that exist in more than one revision, each with its current one.
+ * The documents that exist in more than one Fassung, each with its current one.
  *
- * A series needs at least two DIFFERENT revisions: one Planstand uploaded twice
+ * A series needs at least two DIFFERENT revisions: one Fassung uploaded twice
  * is a duplicate, which the upload already handles, not a version history.
  * Grouped over the whole set handed in (callers pass one shelf's documents),
- * because an older Planstand is often moved into an `alt/` folder.
+ * because an older Fassung is often moved into an `alt/` folder.
  */
-export function findPlanSeries<T extends { filename: string; createdAt?: string | null }>(
+export function findRevisionSeries<T extends { filename: string; createdAt?: string | null }>(
   items: readonly T[]
-): PlanSeries<T>[] {
-  const groups = new Map<string, PlanSeriesMember<T>[]>()
+): RevisionSeries<T>[] {
+  const groups = new Map<string, RevisionSeriesMember<T>[]>()
   for (const item of items) {
-    const plan = parsePlanName(item.filename)
-    if (!plan) continue
-    const key = `${plan.key}.${splitExtension(item.filename).extension}`
+    const revision = parseRevisionName(item.filename)
+    if (!revision) continue
+    const key = `${revision.key}.${splitExtension(item.filename).extension}`
     const bucket = groups.get(key)
-    if (bucket) bucket.push({ item, plan })
-    else groups.set(key, [{ item, plan }])
+    if (bucket) bucket.push({ item, revision })
+    else groups.set(key, [{ item, revision }])
   }
-  const series: PlanSeries<T>[] = []
+  const series: RevisionSeries<T>[] = []
   for (const [key, members] of groups) {
-    if (new Set(members.map((member) => signature(member.plan))).size < 2) continue
+    if (new Set(members.map((member) => signature(member.revision))).size < 2) continue
     const ordered = newestFirst(members)
     series.push({ key, current: ordered[0], older: ordered.slice(1) })
   }
@@ -199,11 +203,11 @@ export function findPlanSeries<T extends { filename: string; createdAt?: string 
 }
 
 /** How a revision reads to a person: „Index C · 14.08.2026", „v3", „Stand 02.09.2026". */
-export function planRevisionLabel(plan: PlanName): string {
+export function revisionLabel(revision: RevisionName): string {
   const parts: string[] = []
-  if (plan.index) parts.push(plan.index.kind === 'letter' ? `Index ${plan.index.value}` : `v${plan.index.value}`)
-  if (plan.date) {
-    const [year, month, day] = plan.date.split('-')
+  if (revision.index) parts.push(revision.index.kind === 'letter' ? `Index ${revision.index.value}` : `v${revision.index.value}`)
+  if (revision.date) {
+    const [year, month, day] = revision.date.split('-')
     parts.push(`${day}.${month}.${year}`)
   }
   return parts.join(' · ')

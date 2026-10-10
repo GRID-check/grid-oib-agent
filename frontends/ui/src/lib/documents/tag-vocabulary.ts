@@ -51,6 +51,10 @@ export const ALLOWED_TAGS: ReadonlySet<string> = new Set<string>([...DOCUMENT_TY
 /** Hard cap on tags stored per document (mirrors the backend `MAX_TAGS`). */
 export const MAX_TAGS = 5
 
+/** Bounds on the model's topic keywords the BFF accepts on an edit. The backend normalises them. */
+export const MAX_TOPICS = 6
+export const MAX_TOPIC_LENGTH = 40
+
 /** Grouped for the editor UI (Dokumenttyp / Fachbereich sections). */
 export const TAG_GROUPS = [
   { id: 'documentType', tags: DOCUMENT_TYPE_TAGS },

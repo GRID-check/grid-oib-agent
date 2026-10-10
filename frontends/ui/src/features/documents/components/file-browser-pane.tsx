@@ -207,7 +207,7 @@ export function FileBrowserPane({
   const orderedFiles = useMemo(() => sortFiles(files, sort, locale), [files, sort, locale])
   const orderedSlice = useMemo(() => (slice ? sortFiles(slice.files, sort, locale) : []), [slice, sort, locale])
 
-  // Client-side filter: name, plus AI tags and summary when the backend
+  // Client-side filter: name, plus AI tags, topics and summary when the backend
   // generated them. A typed query escapes the current folder (the query is the
   // context), so it runs over the corpus, not the level.
   const filteredFiles = useMemo(() => {
@@ -221,7 +221,8 @@ export function FileBrowserPane({
           documentDisplayName(f).toLowerCase().includes(q) ||
           f.filename.toLowerCase().includes(q) ||
           (f.summary ?? '').toLowerCase().includes(q) ||
-          (f.tags ?? []).some((tag) => tag.toLowerCase().includes(q))
+          (f.tags ?? []).some((tag) => tag.toLowerCase().includes(q)) ||
+          (f.topics ?? []).some((topic) => topic.toLowerCase().includes(q))
       ),
       sort,
       locale

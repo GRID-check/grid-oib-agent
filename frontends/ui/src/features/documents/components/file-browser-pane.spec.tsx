@@ -25,6 +25,8 @@ const files: FileItem[] = [
     chunkCount: null,
     contentTypes: null,
     tags: null,
+    topics: null,
+    capture: null,
   },
   {
     id: 'f2',
@@ -41,6 +43,8 @@ const files: FileItem[] = [
     chunkCount: null,
     contentTypes: null,
     tags: null,
+    topics: null,
+    capture: null,
   },
 ]
 

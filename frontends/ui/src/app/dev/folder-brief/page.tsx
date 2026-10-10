@@ -7,15 +7,18 @@ import type { MissingDocument } from '@/lib/document-roles/prompt-loader'
  * on folder tiles — the real `FolderBrief` and `FolderCard`, over the
  * „Wohnbau Seestadt Nord" corpus in `fixtures.ts`.
  *
- * Six sections, one per state the brief has to show: the project root, a
+ * Seven sections, one per state the brief has to show: the project root, a
  * nested folder with failures, the collapsed header, a folder where everything
- * is read (no „Needs you"), the office shelf's root, and the folder tiles with
- * their subtree read state. `?section=a|b|c|d|e|f` shows just one of them, for
- * captures; the default shows all six.
+ * is read (no „Needs you"), the office shelf's root, the folder tiles with
+ * their subtree read state, and Fassungen — the brief's series with a working
+ * „Bestätigen" beside the preview's Fassungen panel in its three states.
+ * `?section=a|b|c|d|e|f|g` shows just one of them, for captures; the default
+ * shows all seven.
  *
  * "Alle erneut lesen" is faked here: it steps a progress object to completion
  * on a timer and changes no document, so the button's busy state can be seen
- * without a backend.
+ * without a backend. „Bestätigen" is faked the same way: it links the series in
+ * local state only. The panel's own buttons call the real route and fail here.
  *
  * Not linked from anywhere and 404s outside development.
  */
@@ -25,11 +28,15 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FolderBrief } from '@/features/documents/components/folder-brief'
 import { FolderCard } from '@/features/documents/components/folder-navigation'
+import { FassungPanel } from '@/features/documents/components/fassung-panel'
 import { buildFolderBrief, subtreeTallies } from '@/features/documents/lib/folder-knowledge'
+import type { FileItem } from '@/features/documents/file-types'
+import type { RevisionSeries } from '@/features/documents/lib/revision-series'
+import { EMPTY_FASSUNG } from '@/lib/documents/fassung'
 import type { BulkReingestProgress } from '@/features/documents/hooks/use-bulk-reingest'
 import { FILES, FOLDERS, PROJECT_NAME } from './fixtures'
 
-const SECTIONS = ['a', 'b', 'c', 'd', 'e', 'f'] as const
+const SECTIONS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'] as const
 type SectionId = (typeof SECTIONS)[number]
 
 const ROOT_BRIEF = buildFolderBrief(FILES, FOLDERS, null)
@@ -140,6 +147,94 @@ function FolderTiles(): JSX.Element {
   )
 }
 
+const byId = (id: string): FileItem => FILES.find((file) => file.id === id)!
+
+/** A differently named upload Piloti read and took for a newer Fassung of Index C. */
+const SUGGESTED: FileItem = {
+  ...byId('d-03-02'),
+  id: 'd-03-new',
+  filename: 'Erdgeschoss_Einreichung_final.pdf',
+  createdAt: '2026-09-30T10:00:00Z',
+  summary: 'Grundriss Erdgeschoß zur Einreichung mit Fluchtwegen, Brandabschnitten, Stellplatzzufahrt und geändertem Müllraum.',
+  fassung: {
+    ...EMPTY_FASSUNG,
+    suggestion: {
+      of: { id: 'd-03-02', filename: 'EG_Grundriss_Index_C_2026-08-14.pdf' },
+      confidence: 0.86,
+      reason: 'Gleiches Geschoß und gleicher Inhalt; zusätzlich ein geänderter Müllraum.',
+      basis: 'content',
+    },
+  },
+}
+
+/** Index C after a person confirmed it replaces Index B. */
+const CONFIRMED: FileItem = {
+  ...byId('d-03-02'),
+  fassung: {
+    ...EMPTY_FASSUNG,
+    supersedes: [{ id: 'd-03-alt-1', filename: 'EG_Grundriss_Index_B_2026-07-02.pdf' }],
+    changeSummary: {
+      text: '- Stellplatzzufahrt neu an der Nordseite\n- Brandabschnitt zwischen Stiege A und Tiefgarage verschoben\n- Index und Datum aktualisiert',
+      basis: { id: 'd-03-alt-1', filename: 'EG_Grundriss_Index_B_2026-07-02.pdf' },
+    },
+  },
+}
+
+/** Index B, replaced. */
+const SUPERSEDED: FileItem = {
+  ...byId('d-03-alt-1'),
+  fassung: { ...EMPTY_FASSUNG, supersededBy: { id: 'd-03-02', filename: 'EG_Grundriss_Index_C_2026-08-14.pdf' } },
+}
+
+/** The 03_Einreichung brief with a „Bestätigen" that links a series in local state. */
+function LiveFassungBrief(): JSX.Element {
+  const [files, setFiles] = useState<FileItem[]>(FILES)
+  const brief = buildFolderBrief(files, FOLDERS, 'f-03')
+  const confirm = async (series: RevisionSeries<FileItem>): Promise<void> => {
+    const head = series.current.item
+    const older = new Set(series.older.map((member) => member.item.id))
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    setFiles((current) =>
+      current.map((file) =>
+        older.has(file.id)
+          ? { ...file, fassung: { ...EMPTY_FASSUNG, supersededBy: { id: head.id, filename: head.filename } } }
+          : file
+      )
+    )
+  }
+  return (
+    <FolderBrief
+      brief={brief}
+      folderName="03_Einreichung"
+      shelfKind="project"
+      onSelect={noop}
+      onOpenFolder={noop}
+      collapsed={false}
+      onCollapsedChange={noop}
+      onConfirmSeries={confirm}
+    />
+  )
+}
+
+function FassungPanels(): JSX.Element {
+  return (
+    <div className="grid gap-4 sm:grid-cols-3">
+      {[
+        { label: 'Vorschlag (anderer Name)', file: SUGGESTED },
+        { label: 'Bestätigt, mit Änderungen', file: CONFIRMED },
+        { label: 'Ersetzt', file: SUPERSEDED },
+      ].map(({ label, file }) => (
+        <div key={file.id} className="bg-card flex flex-col gap-2 rounded-lg border p-4">
+          <p className="text-muted-foreground text-xs">
+            {label} · {file.filename}
+          </p>
+          <FassungPanel file={file} canManage />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function FolderBriefPreview(): JSX.Element {
   const requested = useSearchParams()?.get('section')
   const only = SECTIONS.find((id) => id === requested) ?? null
@@ -223,6 +318,13 @@ function FolderBriefPreview(): JSX.Element {
         {shows('f') && (
           <Section id="f" title="Folder tiles">
             <FolderTiles />
+          </Section>
+        )}
+
+        {shows('g') && (
+          <Section id="g" title="Fassungen">
+            <LiveFassungBrief />
+            <FassungPanels />
           </Section>
         )}
       </div>

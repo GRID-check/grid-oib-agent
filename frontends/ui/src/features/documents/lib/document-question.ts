@@ -6,6 +6,7 @@
  */
 
 import type { DocumentAuthor } from '@/lib/db/schema'
+import type { PhotoCapture } from '@/lib/documents/photo-capture'
 
 export function documentAskQuestion(name: string, kind: 'open' | 'keyPoints' | 'oib' = 'open'): string {
   switch (kind) {
@@ -66,6 +67,8 @@ export function fileItemFromStatus(body: {
   chunkCount?: number | null
   contentTypes?: string[] | null
   tags?: string[] | null
+  topics?: string[] | null
+  capture?: PhotoCapture | null
   /**
    * Provenance, when the payload carries it. Optional because this mapper also
    * serves a status body written before the column existed, and absent means
@@ -93,6 +96,8 @@ export function fileItemFromStatus(body: {
   chunkCount: number | null
   contentTypes: string[] | null
   tags: string[] | null
+  topics: string[] | null
+  capture: PhotoCapture | null
   authoredBy?: DocumentAuthor
   versionCount: number | null
 } {
@@ -114,6 +119,8 @@ export function fileItemFromStatus(body: {
     chunkCount: body.chunkCount ?? null,
     contentTypes: body.contentTypes ?? null,
     tags: body.tags ?? null,
+    topics: body.topics ?? null,
+    capture: body.capture ?? null,
     versionCount: body.versionCount ?? null,
     // Omitted rather than `null` when unknown: `FileItem.authoredBy` is
     // OPTIONAL and its absence already means "a person uploaded it", so writing

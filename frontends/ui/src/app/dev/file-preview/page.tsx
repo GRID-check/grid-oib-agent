@@ -80,6 +80,8 @@ const FIXTURE: FileItem = {
     'Nutzungssicherheit/Barrierefreiheit',
     'Schallschutz',
   ],
+  topics: null,
+  capture: null,
   // Somebody is on the hook for this document. `Unvergeben` is the other state
   // and the generated fixture below keeps it, so one run photographs both.
   assignees: [
@@ -129,6 +131,8 @@ const GENERATED_FIXTURE: FileItem = {
   chunkCount: 0,
   contentTypes: [],
   tags: [],
+  topics: null,
+  capture: null,
 }
 
 /**
@@ -154,6 +158,8 @@ const TEXT_FIXTURES: Record<'markdown' | 'csv' | 'text', FileItem> = {
     chunkCount: 4,
     contentTypes: ['text'],
     tags: ['Checkliste'],
+    topics: null,
+    capture: null,
   },
   csv: {
     id: 'dev-doc-csv',
@@ -170,6 +176,8 @@ const TEXT_FIXTURES: Record<'markdown' | 'csv' | 'text', FileItem> = {
     chunkCount: 2,
     contentTypes: ['text', 'table'],
     tags: [],
+    topics: null,
+    capture: null,
   },
   text: {
     id: 'dev-doc-txt',
@@ -186,6 +194,8 @@ const TEXT_FIXTURES: Record<'markdown' | 'csv' | 'text', FileItem> = {
     chunkCount: 1,
     contentTypes: ['text'],
     tags: [],
+    topics: null,
+    capture: null,
   },
 }
 
@@ -213,6 +223,8 @@ const officeFixture = (variant: OfficeVariant): FileItem => ({
   chunkCount: 12,
   contentTypes: ['text', 'table'],
   tags: [],
+  topics: null,
+  capture: null,
 })
 
 /**

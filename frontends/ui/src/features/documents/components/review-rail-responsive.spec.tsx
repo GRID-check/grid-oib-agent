@@ -44,6 +44,8 @@ const file = {
   chunkCount: null,
   contentTypes: null,
   tags: ['Grundriss'],
+  topics: null,
+  capture: null,
 }
 
 const listing: DocumentVersionListResponse = {

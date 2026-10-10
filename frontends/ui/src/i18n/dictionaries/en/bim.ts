@@ -214,7 +214,7 @@ export const bim = {
       save: 'Save confirmation',
       cancel: 'Cancel',
       noteLabel: 'Why this is settled',
-      notePlaceholder: 'e.g. checked against the plan, agreed with the fire-safety consultant …',
+      notePlaceholder: 'e.g. checked against the drawing, agreed with the fire-safety consultant …',
     },
     card: {
       export: 'Open items as BCF',
@@ -446,7 +446,7 @@ export const bim = {
     xrayNeedsTarget: 'See through — select an element or open a highlighted answer first',
     view: {
       iso: 'Free',
-      top: 'Plan',
+      top: 'Top',
       north: 'North',
       south: 'South',
       east: 'East',

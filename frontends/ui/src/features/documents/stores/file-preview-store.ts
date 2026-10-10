@@ -116,7 +116,7 @@ export interface FilePreviewContext {
   onRenamed?: (fileId: string, displayName: string | null) => void
   onDeleted?: (fileId: string) => void
   onReingested?: (fileId: string, status: string) => void
-  onTagsUpdated?: (fileId: string, tags: string[]) => void
+  onTagsUpdated?: (fileId: string, tags: string[], topics?: string[]) => void
   /**
    * A decision was taken in the pane's Freigabe section, so the listing behind
    * it can move the badge without re-reading the whole corpus — the same shape

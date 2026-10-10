@@ -1,6 +1,7 @@
 'use client'
 
 import type { JSX } from 'react'
+import { useState } from 'react'
 import { ChevronDown, CornerDownRight, RotateCcw, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -11,13 +12,18 @@ import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { BulkReingestProgress } from '../hooks/use-bulk-reingest'
 import { FolderReadState } from './folder-read-state'
+import { revisionLabel, type RevisionSeries } from '../lib/revision-series'
+import type { FileItem } from '../file-types'
+import { documentDisplayName } from '@/lib/documents/display-name'
 import type { MissingDocument } from '@/lib/document-roles/prompt-loader'
 import {
+  isSeriesConfirmed,
   readShare,
   type BriefSelection,
   type FolderBrief as FolderBriefData,
   type FolderLocation,
   type KnowledgeTally,
+  type PhotoSpan,
   type ReadState,
 } from '../lib/folder-knowledge'
 
@@ -57,6 +63,12 @@ export interface FolderBriefProps {
    * null when unknown, so an unread list is never presented as "nothing missing".
    */
   missing?: readonly MissingDocument[] | null
+  /**
+   * Confirm a name series: its current Fassung replaces every older one. Absent
+   * when the reader may not write here — the link changes what Piloti answers
+   * from for everybody.
+   */
+  onConfirmSeries?: (series: RevisionSeries<FileItem>) => Promise<void>
 }
 
 /**
@@ -94,6 +106,7 @@ export function FolderBrief({
   collapsed,
   onCollapsedChange,
   missing,
+  onConfirmSeries,
 }: FolderBriefProps): JSX.Element | null {
   const t = useTranslations('files')
   const { tally } = brief
@@ -159,6 +172,12 @@ export function FolderBrief({
             onReadAgain={onReadAgain}
             readAgainProgress={readAgainProgress}
           />
+          <RevisionSeriesSection
+            series={brief.revisionSeries}
+            confirmedElsewhere={confirmedOutsideSeries(brief)}
+            onSelect={onSelect}
+            onConfirm={onConfirmSeries}
+          />
           {folderName === null && missing && missing.length > 0 && <MissingSection missing={missing} />}
           <HotspotSection hotspots={brief.hotspots} onOpenFolder={onOpenFolder} />
         </div>
@@ -216,7 +235,8 @@ function ReadStateLegend({ tally, onSelect }: { tally: KnowledgeTally; onSelect:
 /** What Piloti took the documents to be: type and discipline chips, and the kinds of content in them. */
 function AboutSection({ brief, onSelect }: { brief: FolderBriefData; onSelect: (s: BriefSelection) => void }) {
   const t = useTranslations('files')
-  const { documentTypes, disciplines, contents, tally } = brief
+  const { documentTypes, disciplines, contents, tally, topics, photos } = brief
+  const { locale } = useLocale()
   if (tally.readable === 0) return null
   const contentNames = contents.map(({ label }) => t(`preview.contentTypeNames.${label}`))
   return (
@@ -236,8 +256,38 @@ function AboutSection({ brief, onSelect }: { brief: FolderBriefData; onSelect: (
           ))}
         </div>
       )}
+      {topics.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <p className="text-muted-foreground text-xs">{t('brief.topicsTitle')}</p>
+          <div className="flex flex-wrap gap-1.5" data-testid="folder-brief-topics">
+            {topics.map(({ label, count }) => (
+              <Chip key={label} asChild interactive variant="muted" size="sm">
+                <button
+                  type="button"
+                  onClick={() => onSelect({ kind: 'topic', topic: label })}
+                  title={t('brief.showTag', { tag: label })}
+                  data-testid={`folder-brief-topic-${label}`}
+                >
+                  {label}
+                  <ChipCount>{count}</ChipCount>
+                </button>
+              </Chip>
+            ))}
+          </div>
+        </div>
+      )}
       {contentNames.length > 0 && (
         <p className="text-muted-foreground text-xs">{t('brief.contains', { list: contentNames.join(' · ') })}</p>
+      )}
+      {photos && (
+        <button
+          type="button"
+          onClick={() => onSelect({ kind: 'photos' })}
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring touch-target self-start rounded-sm text-left text-xs underline-offset-2 transition-colors duration-quick ease-out hover:underline focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
+          data-testid="folder-brief-photos"
+        >
+          {photoLine(photos, locale, t)}
+        </button>
       )}
     </section>
   )
@@ -453,4 +503,125 @@ function MissingSection({ missing }: { missing: readonly MissingDocument[] }) {
       <p className="text-muted-foreground text-xs leading-relaxed">{t('brief.missingHint')}</p>
     </section>
   )
+}
+
+/** „12 Fotos, aufgenommen 3.–20. Sept. 2026" — the span the camera clocks say, not the upload dates. */
+function photoLine(photos: PhotoSpan, locale: string, t: Translate): string {
+  const day = (iso: string) =>
+    new Date(`${iso}T12:00:00Z`).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  const span = photos.from === photos.to ? day(photos.from) : `${day(photos.from)} – ${day(photos.to)}`
+  return t('brief.photos', { count: photos.count, span })
+}
+
+/** Series the brief names before it counts the rest. */
+const MAX_SERIES_SHOWN = 5
+
+/**
+ * „Mehrere Fassungen" — documents whose names say they exist in several
+ * revisions, and the one Piloti takes to be current, read from index and date
+ * (`revision-series.ts`). Nothing is hidden, moved or archived until a person
+ * confirms, which is the condition feld72 put on it („nur als Vorschlag mit
+ * Rückfrage"). Confirming links each older Fassung to the current one
+ * (`fassung-request.ts`): it stays readable, and Piloti answers from the
+ * newer. The agent's `list_files` marks the same files the same way.
+ *
+ * Links a person made across DIFFERENT names (from the preview's suggestion)
+ * have no series here; they are counted in one line so the slice still opens
+ * every older Fassung.
+ */
+function RevisionSeriesSection({
+  series,
+  confirmedElsewhere,
+  onSelect,
+  onConfirm,
+}: {
+  series: readonly RevisionSeries<FileItem>[]
+  confirmedElsewhere: number
+  onSelect: (selection: BriefSelection) => void
+  onConfirm?: (series: RevisionSeries<FileItem>) => Promise<void>
+}) {
+  const t = useTranslations('files')
+  const [confirming, setConfirming] = useState<string | null>(null)
+  if (series.length === 0 && confirmedElsewhere === 0) return null
+  const olderCount = series.reduce((sum, entry) => sum + entry.older.length, 0) + confirmedElsewhere
+  const shown = series.slice(0, MAX_SERIES_SHOWN)
+  const confirm = async (entry: RevisionSeries<FileItem>) => {
+    if (!onConfirm) return
+    setConfirming(entry.key)
+    try {
+      await onConfirm(entry)
+    } finally {
+      setConfirming(null)
+    }
+  }
+  return (
+    <section className="flex flex-col gap-2 px-4 py-3" aria-labelledby="folder-brief-revisions" data-testid="folder-brief-revisions">
+      <h3 id="folder-brief-revisions" className="text-muted-foreground text-xs font-medium">
+        {t('brief.revisionsTitle')}
+      </h3>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <p className="text-foreground min-w-0 flex-1 basis-60 text-[13px] leading-snug">
+          {series.length > 0
+            ? t('brief.revisionsLead', { count: series.length })
+            : t('brief.revisionsConfirmedOnly', { count: confirmedElsewhere })}
+        </p>
+        <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => onSelect({ kind: 'olderRevisions' })}>
+          {t('brief.revisionsShowOlder', { count: olderCount })}
+        </Button>
+      </div>
+      {shown.length > 0 && (
+        <ul className="flex flex-col gap-1.5">
+          {shown.map((entry) => {
+            const confirmed = isSeriesConfirmed(entry)
+            return (
+              <li key={entry.key} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-testid="folder-brief-series">
+                <span className="text-foreground min-w-0 truncate font-medium" title={entry.current.item.filename}>
+                  {documentDisplayName(entry.current.item)}
+                </span>
+                <span className="text-muted-foreground">
+                  {t('brief.revisionsCurrent', { revision: revisionLabel(entry.current.revision) })}
+                  {' · '}
+                  {t('brief.revisionsOlder', {
+                    list: entry.older.map((member) => revisionLabel(member.revision) || member.item.filename).join(', '),
+                  })}
+                </span>
+                {confirmed ? (
+                  <span className="text-success text-xs" data-testid="folder-brief-series-confirmed">
+                    {t('brief.revisionsConfirmed')}
+                  </span>
+                ) : (
+                  onConfirm && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs"
+                      disabled={confirming !== null}
+                      onClick={() => void confirm(entry)}
+                      data-testid="folder-brief-series-confirm"
+                    >
+                      {t('brief.revisionsConfirm')}
+                    </Button>
+                  )
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {series.length > shown.length && (
+        <p className="text-muted-foreground text-xs">{t('brief.missingMore', { count: series.length - shown.length })}</p>
+      )}
+      {series.length > 0 && confirmedElsewhere > 0 && (
+        <p className="text-muted-foreground text-xs">{t('brief.revisionsConfirmedOnly', { count: confirmedElsewhere })}</p>
+      )}
+      <p className="text-muted-foreground text-xs leading-relaxed">{t('brief.revisionsHint')}</p>
+    </section>
+  )
+}
+
+/** Confirmed older Fassungen that no name series already lists. */
+function confirmedOutsideSeries(brief: FolderBriefData): number {
+  const inSeries = new Set(brief.revisionSeries.flatMap((entry) => entry.older.map((member) => member.item.id)))
+  return brief.confirmedOlder.filter((file) => !inSeries.has(file.id)).length
 }

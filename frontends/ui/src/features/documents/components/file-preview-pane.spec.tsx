@@ -81,6 +81,8 @@ describe('FilePreviewPane', () => {
     chunkCount: null,
     contentTypes: null,
     tags: null,
+    topics: null,
+    capture: null,
   }
 
   afterEach(() => {
@@ -1467,6 +1469,8 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
     chunkCount: null,
     contentTypes: null,
     tags: null,
+    topics: null,
+    capture: null,
     authoredBy: 'agent' as const,
   }
 
@@ -1559,6 +1563,8 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
       chunkCount: null,
       contentTypes: null,
       tags: null,
+      topics: null,
+      capture: null,
     })
 
     /**

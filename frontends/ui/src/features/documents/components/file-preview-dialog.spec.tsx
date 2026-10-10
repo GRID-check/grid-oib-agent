@@ -40,6 +40,8 @@ const FILE = {
   chunkCount: null,
   contentTypes: null,
   tags: null,
+  topics: null,
+  capture: null,
 }
 
 /**

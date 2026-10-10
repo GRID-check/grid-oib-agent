@@ -128,6 +128,8 @@ const FILE: FileItem = {
   chunkCount: null,
   contentTypes: null,
   tags: null,
+  topics: null,
+  capture: null,
 }
 
 const reset = (): void => {

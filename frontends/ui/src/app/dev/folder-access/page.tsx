@@ -132,6 +132,8 @@ const file = (id: string, filename: string, folderId: string | null, summary: st
   chunkCount: 30,
   contentTypes: ['text'],
   tags: null,
+  topics: null,
+  capture: null,
 })
 
 const FILES: FileItem[] = [

@@ -11,7 +11,7 @@ export interface PreviewHandlers {
   onRenamed: (fileId: string, displayName: string | null) => void
   onDeleted: (fileId: string) => void
   onReingested: (fileId: string, status: string) => void
-  onTagsUpdated: (fileId: string, tags: string[]) => void
+  onTagsUpdated: (fileId: string, tags: string[], topics?: string[]) => void
   onLifecycleChanged: NonNullable<FilePreviewContext['onLifecycleChanged']>
 }
 

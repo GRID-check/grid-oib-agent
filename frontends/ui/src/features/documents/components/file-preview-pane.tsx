@@ -60,6 +60,7 @@ import {
 } from './document-status'
 import { DrawingStructuredDetails } from './drawing-structured-details'
 import { PilotiReading } from './piloti-reading'
+import { FassungPanel } from './fassung-panel'
 import { IngestFailureNotice } from './ingest-failure-notice'
 import { hasStructuredDetail, type DrawingStructured } from '@/lib/documents/drawing-structured'
 import { AssignmentFaces } from './assignment-faces'
@@ -99,7 +100,7 @@ interface FilePreviewPaneProps {
    * workspace's file state (and thus `initialTags` on reselect) stays fresh —
    * otherwise switching away and back reverts to the pre-edit tags.
    */
-  onTagsUpdated?: (fileId: string, tags: string[]) => void
+  onTagsUpdated?: (fileId: string, tags: string[], topics?: string[]) => void
   /**
    * Whether the "Indexed by GRID" metadata panel (AI summary, key-value props,
    * editable tags) renders (WorkOS `files-metadata-panel` flag, FB-8). Defaults
@@ -1195,6 +1196,9 @@ export function FilePreviewPane({
                         correct it — see `piloti-reading.tsx` for why this is no
                         longer an always-open tag form. */}
                     <PilotiReading file={file} canManage={canManage} onTagsUpdated={onTagsUpdated} />
+                    {/* Where it stands among its Fassungen, and Piloti's
+                        suggestion when it thinks this one replaces another. */}
+                    <FassungPanel file={file} canManage={canManage} />
                   </>
                 ) : (
                   <p className="text-muted-foreground text-xs leading-relaxed">

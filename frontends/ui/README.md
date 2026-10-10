@@ -1,6 +1,6 @@
-# Grid UI
+# Piloti UI
 
-Grid is a project-centered operating system for architects working with OIB building regulations. The UI is organized around projects: each project owns its files, folders, context, collaborators, and Grid assistant conversations.
+Piloti is the workspace for architects and planning offices. The UI is organized around projects: each project owns its files, folders, context, collaborators, and Piloti assistant conversations. Building law (OIB, RIS) is one of the things the assistant knows.
 
 Chat is an important project feature, but it is not the product frame. The primary workspace is the project overview and file library, with the assistant available wherever project context and documents need to be interpreted.
 
@@ -8,7 +8,7 @@ Built with Next.js, React, TypeScript, TailwindCSS, and NVIDIA KUI Foundations.
 
 ## Overview
 
-The Grid UI provides an accessible, feature-rich frontend for the AI-Q backend. It features:
+The Piloti UI provides an accessible, feature-rich frontend for the AI-Q backend. It features:
 
 - **Next.js** with App Router and Turbopack
 - **React** with TypeScript (strict mode)

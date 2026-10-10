@@ -23,6 +23,8 @@ const row = (id: string, status: string): FileItem => ({
   chunkCount: null,
   contentTypes: null,
   tags: null,
+  topics: null,
+  capture: null,
 })
 
 const json = (body: unknown, status = 200) =>

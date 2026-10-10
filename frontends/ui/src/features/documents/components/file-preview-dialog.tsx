@@ -18,7 +18,7 @@ interface FilePreviewDialogProps {
   /** Which corpus this document belongs to — decides the file operations' route. */
   scope?: DocumentScope
   onReingested?: (fileId: string, status: string) => void
-  onTagsUpdated?: (fileId: string, tags: string[]) => void
+  onTagsUpdated?: (fileId: string, tags: string[], topics?: string[]) => void
   /** The document was renamed in the pane's header menu. */
   onRenamed?: (fileId: string, displayName: string | null) => void
   /** The document was deleted in the pane's header menu. */

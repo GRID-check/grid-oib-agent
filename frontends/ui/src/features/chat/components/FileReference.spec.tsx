@@ -28,6 +28,8 @@ const file = (overrides: Partial<FileItem> = {}): FileItem => ({
   chunkCount: 12,
   contentTypes: null,
   tags: null,
+  topics: null,
+  capture: null,
   ...overrides,
 })
 

@@ -39,7 +39,7 @@ export const research = {
     },
     loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
-      'Sign in to unlock the project workspace: your files, Office filing, and the building-regulation corpus.',
+      'Sign in to open the project workspace: its files, Office filing, tasks and research.',
     signInSso: 'Sign in with SSO',
     welcomeTitle: 'How can Piloti help with your project?',
   },

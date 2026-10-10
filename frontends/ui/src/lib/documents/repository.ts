@@ -430,6 +430,59 @@ export function findProjectDocumentsByFilenames(
   return findDocumentsByFilenames(projectShelf(projectId), organizationId, filenames, options)
 }
 
+/** A document a Fassung link may point to, as the resolution needs it. */
+export interface FassungCounterpartRow {
+  id: string
+  filename: string
+  projectId: string | null
+  folderId: string | null
+}
+
+/**
+ * The documents of ONE collection named `filenames` that `reader` may see, for
+ * resolving a Fassung link's file names to documents (`fassung-facts.ts`).
+ *
+ * The link is stored by file name in the backend's index, which knows nothing
+ * of who may read what, so this is where a name becomes a document or stays a
+ * string nobody sees: held rows (`documentVisibleTo`, ADR-0086) and archived
+ * ones are not found. The folder rule (ADR-0087) is the caller's, from the
+ * project it reads each row's `projectId` for; a row's folder is returned for
+ * exactly that. Person-uploaded rows only: a machine-authored row owns no
+ * chunks of its own, so no link of the index can name it. Bounded by its input.
+ */
+export async function findFassungCounterparts(
+  organizationId: string,
+  collectionName: string,
+  filenames: readonly string[],
+  reader: DocumentReader,
+): Promise<FassungCounterpartRow[]> {
+  const variants = [...new Set(filenames.slice(0, FILENAME_LOOKUP_MAX_NAMES).flatMap(documentNameVariants))]
+  if (variants.length === 0) return []
+  const db = getDb()
+  return withTenant({ organizationId }, () =>
+    db
+      .select({
+        id: documents.id,
+        filename: documents.filename,
+        projectId: documents.projectId,
+        folderId: documents.folderId,
+      })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.collectionName, collectionName),
+          inArray(documents.filename, variants),
+          eq(documents.authoredBy, 'user'),
+          eq(documents.lifecycle, 'active'),
+          documentVisibleTo(reader),
+        ),
+      )
+      .orderBy(asc(documents.id))
+      .limit(DOCUMENT_LIST_LIMIT),
+  )
+}
+
 /** One row of a name probe (`name-probe-types.ts` is its wire shape). */
 export interface DocumentNameMatchRow {
   id: string

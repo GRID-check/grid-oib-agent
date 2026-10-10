@@ -205,7 +205,7 @@ describe('ModelStage — what is on screen', () => {
     }
     // The six view directions used to be six buttons in the bar, which is what
     // pushed the controls anyone uses off the end of the row.
-    expect(screen.queryByRole('button', { name: 'Plan' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Top' })).not.toBeInTheDocument()
   })
 
   it('gives the camera button and the restore button different names', () => {

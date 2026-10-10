@@ -58,7 +58,7 @@ export default function ProjectChromePreviewPage(): JSX.Element {
       <Group label="Work">
         <Chrome
           title="Files"
-          subtitle="Documents that ground Piloti’s answers in this project."
+          subtitle="The project’s files: documents, drawings and reports, read by Piloti and cited where it uses them."
           action={<Button type="button">Upload</Button>}
         />
         <Chrome

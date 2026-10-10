@@ -4,7 +4,7 @@ import type { en } from '../en'
 export const knowledge: typeof en.knowledge = {
   title: 'Wissensbasis',
   subtitle:
-    'Alle Dokumente, auf die sich der Assistent stützen kann — die gemeinsamen OIB-Richtlinien plus die in diesem Projekt hochgeladenen Dateien. Nichts anderes wird verwendet.',
+    'Die Dokumente, mit denen Piloti in diesem Projekt arbeitet: die gemeinsamen OIB-Richtlinien und die hochgeladenen Dateien des Projekts.',
   summary: {
     documents: 'Dokumente',
     indexed: 'Indexiert',

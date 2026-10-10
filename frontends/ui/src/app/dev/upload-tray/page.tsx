@@ -100,6 +100,8 @@ const doc = (
   chunkCount: 48,
   contentTypes: ['text'],
   tags: null,
+  topics: null,
+  capture: null,
   ...overrides,
 })
 

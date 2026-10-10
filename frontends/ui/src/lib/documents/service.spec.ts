@@ -136,6 +136,8 @@ vi.mock('@/lib/jobs-queue/repository', () => ({
   findOpenJobId: vi.fn().mockResolvedValue(null),
 }))
 
+// Which documents a Fassung link names, resolved for the reader, is `fassung-facts.spec.ts`'s subject.
+vi.mock('./fassung-facts', () => ({ loadFassungFacts: vi.fn(async () => new Map()) }))
 vi.mock('./reconcile-status', async (importOriginal) => ({
   // Reading the job id off a row is pure; the reconciler itself is mocked.
   extractIngestJobId: (await importOriginal<typeof import('./reconcile-status')>()).extractIngestJobId,
@@ -160,6 +162,7 @@ vi.mock('@/lib/compliance/repository', () => ({
 }))
 
 import { findProjectInOrg } from '@/lib/projects/repository'
+import { loadFassungFacts } from './fassung-facts'
 import { onDocumentsSettled } from '@/lib/upload-batches/settle'
 import { isCoveredByActiveHold } from '@/lib/compliance/repository'
 import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
@@ -2109,6 +2112,15 @@ describe('getDocumentStatus', () => {
     })
   })
 
+  it('carries the Fassung facts resolved for the reader, and null when there are none', async () => {
+    await expect(getDocumentStatus(session, 'doc-1')).resolves.toHaveProperty('fassung', null)
+
+    const facts = { supersededBy: { id: 'doc-2', filename: 'b.pdf' }, supersedes: [], suggestion: null, changeSummary: null }
+    vi.mocked(loadFassungFacts).mockResolvedValueOnce(new Map([[projectDoc.id, facts]]))
+
+    await expect(getDocumentStatus(session, 'doc-1')).resolves.toHaveProperty('fassung', facts)
+  })
+
   it('carries the shelf for a document that is not on the project shelf', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue({
       ...projectDoc,
@@ -2333,6 +2345,51 @@ describe('the authorship gate on the (collection, filename) join', () => {
       expect(String(documentCalls()[0]?.[0])).toBe(
         `http://backend:8000/v1/collections/proj_abc/documents/${collidingName}/tags`
       )
+    })
+
+    it('forwards topics in the PATCH body only when given, and returns what the backend answered', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ tags: ['Gutachten'], topics: ['Fluchtweg'] }),
+      })
+
+      await expect(updateDocumentTags(session, 'doc-1', ['Gutachten'], ['Fluchtweg'])).resolves.toEqual({
+        id: 'doc-1',
+        tags: ['Gutachten'],
+        topics: ['Fluchtweg'],
+      })
+      const init = documentCalls()[0]?.[1] as RequestInit
+      expect(JSON.parse(String(init.body))).toEqual({ tags: ['Gutachten'], topics: ['Fluchtweg'] })
+    })
+
+    it('leaves topics out of the PATCH body and the answer when the edit does not carry them', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ tags: ['Gutachten'] }),
+      })
+
+      const result = await updateDocumentTags(session, 'doc-1', ['Gutachten'])
+
+      expect(result).not.toHaveProperty('topics')
+      const init = documentCalls()[0]?.[1] as RequestInit
+      expect(JSON.parse(String(init.body))).toEqual({ tags: ['Gutachten'] })
+    })
+
+    it('rejects too many topics, or an empty or overlong one, before calling the backend', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(humanDoc)
+
+      await expect(
+        updateDocumentTags(session, 'doc-1', [], ['a', 'b', 'c', 'd', 'e', 'f', 'g'])
+      ).rejects.toBeInstanceOf(BadRequestError)
+      await expect(updateDocumentTags(session, 'doc-1', [], [''])).rejects.toBeInstanceOf(BadRequestError)
+      await expect(updateDocumentTags(session, 'doc-1', [], ['x'.repeat(41)])).rejects.toBeInstanceOf(
+        BadRequestError
+      )
+      expect(documentCalls()).toHaveLength(0)
     })
   })
 

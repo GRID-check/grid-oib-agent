@@ -20,8 +20,11 @@ import {
   extractIngestJobId,
   clearCollectionFilesCache,
   describeBackendIngestState,
+  readFassungNames,
+  refreshCollectionFiles,
   type ReconcilableDocument,
 } from './reconcile-status'
+import { collectionFileRef } from './collection-file-ref'
 
 /**
  * The guarded status write, in its transaction. `moved: false` is the write
@@ -389,6 +392,132 @@ describe('reconcileDocumentStatuses metadata enrichment', () => {
     const [result] = await reconcileDocumentStatuses([makeRow({ status: 'completed' })], 'org-1')
 
     expect(result.tags).toBeUndefined()
+  })
+
+  it('merges topics and the photo capture, mapped to camelCase', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([
+        {
+          file_id: 'f-1',
+          file_name: 'plan.pdf',
+          status: 'success',
+          topics: ['Brandschutzkonzept', 'Fluchtweg'],
+          capture: { captured_at: '2026-03-14T09:21:00', latitude: 47.07, longitude: 15.44, camera: 'Canon EOS R6' },
+        },
+      ])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ status: 'completed' })], 'org-1')
+
+    expect(result.topics).toEqual(['Brandschutzkonzept', 'Fluchtweg'])
+    expect(result.capture).toEqual({
+      capturedAt: '2026-03-14T09:21:00',
+      latitude: 47.07,
+      longitude: 15.44,
+      camera: 'Canon EOS R6',
+    })
+  })
+
+  it('drops junk topics and an unusable capture, keeping what is valid', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([
+        {
+          file_id: 'f-1',
+          file_name: 'plan.pdf',
+          status: 'success',
+          topics: ['Fluchtweg', '', 7, null, 'Rauchabzug'],
+          capture: { latitude: 47.07, camera: 42 },
+        },
+      ])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ status: 'completed' })], 'org-1')
+
+    expect(result.topics).toEqual(['Fluchtweg', 'Rauchabzug'])
+    expect(result.capture).toBeUndefined()
+  })
+
+  it('omits topics and capture when the backend provides none or only empty ones', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([
+        { file_id: 'f-1', file_name: 'plan.pdf', status: 'success', chunk_count: 5, topics: [], capture: null },
+      ])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ status: 'completed' })], 'org-1')
+
+    expect(result.topics).toBeUndefined()
+    expect(result.capture).toBeUndefined()
+  })
+
+  it('reads the Fassung links by file name and keeps them out of the row metadata', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([
+        {
+          file_id: 'f-1',
+          file_name: 'plan.pdf',
+          status: 'success',
+          superseded_by: 'plan_B.pdf',
+          supersedes: ['plan_0.pdf'],
+          revision_suggestion: { of: 'plan_0.pdf', confidence: 2, reason: 'Index', basis: 'name' },
+          change_summary: 'Wand entfällt.',
+          change_basis: 'plan_0.pdf',
+        },
+      ])
+    )
+    const row = makeRow({ status: 'completed' })
+
+    const [result] = await reconcileDocumentStatuses([row], 'org-1')
+
+    // A file name is a fact about a document the reader may not see: it never
+    // rides on the row metadata other callers spread onto the wire.
+    expect(JSON.stringify(result)).not.toContain('plan_B.pdf')
+    expect(JSON.stringify(result)).not.toContain('plan_0.pdf')
+    const ref = collectionFileRef(row)
+    if (!ref) throw new Error('a human row has a ref')
+    expect(await readFassungNames(ref)).toEqual({
+      supersededBy: 'plan_B.pdf',
+      supersedes: ['plan_0.pdf'],
+      suggestion: { of: 'plan_0.pdf', confidence: 1, reason: 'Index', basis: 'name' },
+      change: { text: 'Wand entfällt.', basis: 'plan_0.pdf' },
+    })
+  })
+
+  it('answers no Fassung names for a file the listing does not know, a name it lists twice, or a file with none', async () => {
+    mockFetch.mockResolvedValue(
+      collectionResponse([
+        { file_name: 'plan.pdf', status: 'success', superseded_by: 'a.pdf' },
+        { file_name: 'plan.pdf', status: 'success', superseded_by: 'b.pdf' },
+        { file_name: 'leer.pdf', status: 'success' },
+      ])
+    )
+    const ref = (filename: string) => {
+      const found = collectionFileRef(makeRow({ filename }))
+      if (!found) throw new Error('a human row has a ref')
+      return found
+    }
+
+    expect(await readFassungNames(ref('plan.pdf'))).toBeNull()
+    expect(await readFassungNames(ref('leer.pdf'))).toBeNull()
+    expect(await readFassungNames(ref('fehlt.pdf'))).toBeNull()
+  })
+
+  it('refreshes the cached listing, so the read after a write sees it', async () => {
+    mockFetch.mockResolvedValueOnce(collectionResponse([{ file_name: 'plan.pdf', status: 'success' }]))
+    const ref = collectionFileRef(makeRow())
+    if (!ref) throw new Error('a human row has a ref')
+    expect(await readFassungNames(ref)).toBeNull()
+
+    mockFetch.mockResolvedValueOnce(
+      collectionResponse([{ file_name: 'plan.pdf', status: 'success', superseded_by: 'plan_B.pdf' }])
+    )
+    await refreshCollectionFiles('proj_abc')
+
+    expect((await readFassungNames(ref))?.supersededBy).toBe('plan_B.pdf')
   })
 
   it('omits fields the backend did not provide', async () => {

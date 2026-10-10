@@ -55,6 +55,8 @@ function toSemanticHit(d: Record<string, unknown>): SemanticHit {
     chunkCount: (d.chunkCount as number | null) ?? null,
     contentTypes: (d.contentTypes as string[] | null) ?? null,
     tags: (d.tags as string[] | null) ?? null,
+    topics: null,
+    capture: null,
     snippet: (d.snippet as string | null) ?? '',
     page: (d.page as number | null) ?? null,
     score: typeof d.score === 'number' ? d.score : 0,

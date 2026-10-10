@@ -583,6 +583,15 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       nameWithheld: 'boolean',
     },
   },
+  // A person confirmed, or took back, that one document replaces another
+  // (CONTEXT.md, „Fassung"). Ids only, no file name: both documents are named
+  // by their target and `olderDocumentId`, so the event needs no `filedIn` and a
+  // restricted folder's names never reach the trail (ADR-0087). Archiv documents
+  // use it too; `collectionName` says which shelf.
+  'document.fassung_changed': {
+    targets: [{ type: 'document' }],
+    metadata: { olderDocumentId: 'string', linked: 'boolean', collectionName: 'string' },
+  },
   'archiv.document.uploaded': {
     targets: [{ type: 'document' }],
     metadata: { filename: 'string', fileSize: 'number', collectionName: 'string' },

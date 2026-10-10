@@ -85,6 +85,8 @@ vi.mock('@/lib/documents/service', () => ({
 vi.mock('@/lib/documents/reconcile-status', () => ({
   reconcileDocumentStatuses: vi.fn(),
 }))
+// Which documents a Fassung link names, resolved for the reader, is `fassung-facts.spec.ts`'s subject.
+vi.mock('@/lib/documents/fassung-facts', () => ({ loadFassungFacts: vi.fn(async () => new Map()) }))
 
 // The admitting insert, not the repository's — see the note in
 // `documents/service.spec.ts`. The Archiv shares the tenant's bytes, so it goes

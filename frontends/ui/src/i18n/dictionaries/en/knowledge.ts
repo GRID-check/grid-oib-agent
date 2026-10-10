@@ -2,7 +2,7 @@
 export const knowledge = {
   title: 'Knowledge base',
   subtitle:
-    'Every document the assistant can ground its answers in — the shared OIB Richtlinien plus the files uploaded to this project. Nothing else is used.',
+    'The documents Piloti works from in this project: the shared OIB Richtlinien and the files uploaded to it.',
   summary: {
     documents: 'Documents',
     indexed: 'Indexed',

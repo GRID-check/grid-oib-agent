@@ -390,9 +390,9 @@ export function FilePreviewHost({
             if (fileId === file.id) patchFile({ status })
             context.onReingested?.(fileId, status)
           }}
-          onTagsUpdated={(fileId, tags) => {
-            if (fileId === file.id) patchFile({ tags })
-            context.onTagsUpdated?.(fileId, tags)
+          onTagsUpdated={(fileId, tags, topics) => {
+            if (fileId === file.id) patchFile(topics === undefined ? { tags } : { tags, topics })
+            context.onTagsUpdated?.(fileId, tags, topics)
           }}
           onAssigneesChanged={(assignees) => patchFile({ assignees })}
           onLifecycleChanged={(fileId, summary) => {

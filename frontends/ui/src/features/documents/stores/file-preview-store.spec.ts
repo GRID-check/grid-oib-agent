@@ -25,6 +25,8 @@ const FILE: FileItem = {
   chunkCount: null,
   contentTypes: null,
   tags: null,
+  topics: null,
+  capture: null,
 }
 
 describe('file-preview-store', () => {

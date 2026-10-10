@@ -55,6 +55,8 @@ function makeFile(
     chunkCount: 48,
     contentTypes: ['text', 'table'],
     tags,
+    topics: null,
+    capture: null,
     ...extra,
   }
 }

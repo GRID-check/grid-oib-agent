@@ -39,7 +39,7 @@ export const research: typeof en.research = {
     },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
-      'Melden Sie sich an, um den Projekt-Arbeitsbereich freizuschalten: Ihre Unterlagen, die Büroablage und den Vorschriftenkorpus.',
+      'Melden Sie sich an, um den Projekt-Arbeitsbereich zu öffnen: Unterlagen, Büroablage, Aufgaben und Recherche.',
     signInSso: 'Mit SSO anmelden',
     welcomeTitle: 'Wie kann Piloti bei Ihrem Projekt helfen?',
   },

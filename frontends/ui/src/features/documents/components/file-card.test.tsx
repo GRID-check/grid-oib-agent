@@ -29,6 +29,8 @@ function file(id: string, filename: string, contentType: string | null): FileIte
     chunkCount: null,
     contentTypes: null,
     tags: null,
+    topics: null,
+    capture: null,
   }
 }
 

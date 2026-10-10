@@ -96,6 +96,8 @@ const FILE: FileItem = {
   chunkCount: 48,
   contentTypes: ['text', 'drawing'],
   tags: ['Brandschutz'],
+  topics: null,
+  capture: null,
 }
 
 const CONTEXT = { projectId: 'proj-1', projectName: 'Seestadt Baufeld', scope: 'files' } as const

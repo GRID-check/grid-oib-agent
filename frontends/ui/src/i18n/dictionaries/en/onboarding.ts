@@ -62,11 +62,11 @@ export const onboarding = {
       },
       createProjectJoined: {
         title: 'Your projects',
-        body: 'Projects appear here as colleagues add you to them. You can also start one yourself: a project holds one building, its documents, the people on it, and a chat that answers from OIB guidelines and Austrian building law.',
+        body: 'Projects appear here as colleagues add you to them. You can also start one yourself: a project holds one building, its documents, the people on it, its tasks and research, and a chat in which Piloti works and cites every source.',
       },
       createProject: {
         title: 'Start with a project',
-        body: 'A project holds one building: its plans and documents, the people working on it, and a chat that answers from OIB guidelines and Austrian building law, with every source cited. A short setup asks about the building, then we show you around inside.',
+        body: 'A project holds one building: its documents, the people working on it, its tasks and research, and a chat in which Piloti works, citing every source from building law and your own files. A short setup asks about the building, then we show you around inside.',
       },
       archiv: {
         title: 'Office filing',
@@ -100,11 +100,11 @@ export const onboarding = {
       },
       projectChat: {
         title: 'Ask Piloti',
-        body: 'Ask about this building in plain language: fire compartments, escape routes, accessibility, energy. Answers draw on building law, OIB guidelines and your own documents.',
+        body: 'Talk to Piloti about this building in plain language, or hand it a task. It works from your files, Office filing and building law, and cites each source.',
       },
       projectFiles: {
         title: 'Files: this project’s documents',
-        body: 'Upload plans, reports and correspondence for this building. Once a file has been read, Piloti can quote it, but only inside this project.',
+        body: 'Upload drawings, reports and correspondence for this building. Once a file has been read, Piloti can quote it, but only inside this project.',
       },
       projectArchiv: {
         title: 'Office filing: your office’s documents',
@@ -114,7 +114,7 @@ export const onboarding = {
         title: 'Files or Office filing?',
         body: 'Ask who the document belongs to.',
         filesTerm: 'Files — this building',
-        filesDetail: 'Its plans, reports, correspondence. Cited only in this project.',
+        filesDetail: 'Its drawings, reports, correspondence. Cited only in this project.',
         archivTerm: 'Office filing — the office',
         archivDetail: 'Standard details, specifications, templates, earlier submissions worth reusing. Cited in every project.',
       },

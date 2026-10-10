@@ -26,6 +26,8 @@ const FILE: FileItem = {
   chunkCount: 48,
   contentTypes: ['text', 'drawing'],
   tags: ['Brandschutz'],
+  topics: null,
+  capture: null,
 }
 
 export default function FileChatDockPreviewPage(): JSX.Element {

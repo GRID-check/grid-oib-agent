@@ -35,7 +35,7 @@ export const nav: typeof en.nav = {
     org: 'Organisation',
   },
   sectionSubtitles: {
-    files: 'Dokumente, auf die sich Piloti in diesem Projekt stützt.',
+    files: 'Die Dateien dieses Projekts: Unterlagen, Zeichnungen und Berichte, die Piloti liest und zitiert, wo es sie nutzt.',
     automation:
       'Was Piloti erledigt hat, während Sie weg waren, was als Nächstes ansteht — und die Skills, mit denen es arbeitet.',
     knowledge: 'Was die Wissensbasis derzeit enthält.',

@@ -57,6 +57,8 @@ describe('askAboutFile', () => {
         chunkCount: null,
         contentTypes: null,
         tags: null,
+        topics: null,
+        capture: null,
       },
       navigate: vi.fn(),
     })
@@ -87,6 +89,8 @@ describe('askAboutFile', () => {
         chunkCount: 1,
         contentTypes: null,
         tags: null,
+        topics: null,
+        capture: null,
       },
       navigate,
     })

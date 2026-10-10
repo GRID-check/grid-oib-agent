@@ -94,6 +94,8 @@ function fileItemFromModel(
     chunkCount: null,
     contentTypes: null,
     tags: null,
+    topics: null,
+    capture: null,
     assignees,
   }
 }

@@ -5,7 +5,7 @@ export const projects: typeof en.projects = {
   list: {
     heading: 'Projekte',
     description:
-      'Jedes Bauprojekt in einem Arbeitsbereich — Dokumente, Mitglieder und Chat, fundiert in den Dateien, der Büroablage und dem Baurecht.',
+      'Jedes Bauprojekt in einem Arbeitsbereich: Dokumente, Mitglieder, Aufgaben, Recherche und Chat, mit Büroablage und Baurecht zur Hand.',
     loading: 'Projekte werden geladen…',
     searchPlaceholder: 'Projekte durchsuchen…',
     searchAria: 'Projekte nach Namen durchsuchen',
@@ -27,7 +27,7 @@ export const projects: typeof en.projects = {
     empty: {
       title: 'Starten Sie Ihr erstes Projekt',
       description:
-        'Piloti ist der Arbeitsbereich, in dem ein Planungsbüro ein Bauprojekt führt. Legen Sie ein Projekt an, um Dateien, Mitglieder und Chat zusammenzubringen — und sprechen Sie mit Piloti über die Arbeit, fundiert in den Dateien, der Büroablage und dem österreichischen Baurecht.',
+        'Piloti ist der Arbeitsbereich, in dem ein Planungsbüro ein Bauprojekt führt. Legen Sie ein Projekt an, um Dateien, Mitglieder und Chat zusammenzubringen. Piloti arbeitet darin und zitiert jede Quelle.',
       action: 'Erstellen Sie Ihr erstes Projekt',
     },
     filter: {
@@ -248,7 +248,7 @@ export const projects: typeof en.projects = {
     createError:
       'Wir konnten dieses Projekt gerade nicht erstellen. Bitte versuchen Sie es in einem Moment erneut.',
     nameLabel: 'Projektname',
-    namePlaceholder: 'OIB-Brandschutzprüfung',
+    namePlaceholder: 'z. B. Brandschutzprüfung, Gebäude 3',
     templateLabel: 'Mit einer Vorlage beginnen',
     templates: {
       neubauWohnbau: { label: 'Neubau Wohnbau', name: 'Neubau Wohnbau' },
@@ -330,7 +330,7 @@ export const projects: typeof en.projects = {
     tryAgain: 'Erneut versuchen',
     emptyTitle: 'Noch keine Rechercheläufe',
     emptyDescription:
-      'Tiefe Rechercheläufe erscheinen hier, sobald Sie Piloti im Chat eine komplexe Frage stellen — es durchsucht die OIB/RIS-Quellen und liefert einen belegten Bericht, den Sie erneut aufrufen können.',
+      'Tiefe Rechercheläufe erscheinen hier, sobald Sie Piloti im Chat eine komplexe Frage stellen. Es arbeitet Dateien, Büroablage und Baurecht durch und liefert einen belegten Bericht, den Sie erneut aufrufen können.',
     emptyAction: 'Einen Lauf im Chat starten',
     viewReport: 'Bericht ansehen',
     viewProgress: 'Fortschritt ansehen',
@@ -362,7 +362,7 @@ export const projects: typeof en.projects = {
     eyebrowCreate: 'Projekteinrichtung',
     titleFallback: 'Erzählen Sie Piloti von diesem Projekt',
     subtitle:
-      'Etwa 2 Minuten. Piloti nutzt dieses Briefing, um jede Antwort zu fundieren — und um zu zeigen, welche OIB-Richtlinien auf dieses Gebäude zutreffen.',
+      'Etwa 2 Minuten. Piloti nutzt dieses Briefing, um die Arbeit an diesem Gebäude zu fundieren und zu zeigen, welche OIB-Richtlinien gelten.',
     moduleNav: 'Module',
     moduleNavAria: 'Wizard-Module',
     schnellstart: 'Schnellstart',
@@ -598,7 +598,7 @@ export const projects: typeof en.projects = {
       viewAll: 'Alle ansehen',
       emptyTitle: 'Noch keine Dateien',
       emptyDescription:
-        'Laden Sie Baudokumente hoch — Pläne, Berichte, Auszüge der Bauordnung — damit Piloti Ihr Projekt in seinen Antworten zitieren kann.',
+        'Laden Sie Baudokumente hoch — Zeichnungen, Berichte, Auszüge der Bauordnung — damit Piloti Ihr Projekt in seinen Antworten zitieren kann.',
       emptyAction: 'Dateien hochladen',
     },
   },

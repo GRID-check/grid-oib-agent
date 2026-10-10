@@ -5,7 +5,9 @@
  * Every status the brief sorts is present once or more: mostly completed, three
  * in flight, one pending, four failed (two in `Pläne`, two in `Details`), one
  * held by the content screen, one agent report at rest, and five photos of the
- * site that Piloti read but could not place in a document type.
+ * site that Piloti read but could not place in a document type (three carry
+ * what the camera wrote). Two earlier Fassungen sit in `03_Einreichung/alt`,
+ * named with their index, so the brief has revision series to name.
  *
  * Tags come ONLY from `lib/documents/tag-vocabulary.ts`. Unknown values are null,
  * not guesses: a document still being read has no tags yet, a failed one's are
@@ -14,6 +16,7 @@
 
 import type { FileItem, FolderItem } from '@/features/documents/file-types'
 import type { DocumentAuthor } from '@/lib/documents/document-authors'
+import type { PhotoCapture } from '@/lib/documents/photo-capture'
 import type { DocumentTypeTag, DisciplineTag } from '@/lib/documents/tag-vocabulary'
 
 type ContentType = 'text' | 'table' | 'image' | 'chart' | 'drawing'
@@ -33,6 +36,10 @@ interface DocSpec {
   summary?: string | null
   errorMessage?: string | null
   authoredBy?: DocumentAuthor
+  /** Piloti's open keywords beside the tags. */
+  topics?: readonly string[] | null
+  /** What the camera wrote, for a photo. */
+  capture?: PhotoCapture | null
 }
 
 const PDF = 'application/pdf'
@@ -56,6 +63,8 @@ function doc(spec: DocSpec): FileItem {
     chunkCount: spec.chunkCount ?? null,
     contentTypes: spec.contentTypes ? [...spec.contentTypes] : null,
     tags: spec.tags ? [...spec.tags] : null,
+    topics: spec.topics ? [...spec.topics] : null,
+    capture: spec.capture ?? null,
     authoredBy: spec.authoredBy ?? 'user',
   }
 }
@@ -69,6 +78,7 @@ export const FOLDERS: FolderItem[] = [
   { id: 'f-03', parentId: null, name: '03_Einreichung', path: '03_Einreichung' },
   { id: 'f-03-plaene', parentId: 'f-03', name: 'Pläne', path: '03_Einreichung/Pläne' },
   { id: 'f-03-gutachten', parentId: 'f-03', name: 'Gutachten', path: '03_Einreichung/Gutachten' },
+  { id: 'f-03-alt', parentId: 'f-03', name: 'alt', path: '03_Einreichung/alt' },
   { id: 'f-03-bescheide', parentId: 'f-03', name: 'Bescheide', path: '03_Einreichung/Bescheide' },
   { id: 'f-04', parentId: null, name: '04_Ausführung', path: '04_Ausführung' },
   { id: 'f-04-details', parentId: 'f-04', name: 'Details', path: '04_Ausführung/Details' },
@@ -164,18 +174,21 @@ export const FILES: FileItem[] = [
     status: 'completed', createdAt: '2026-08-14T15:30:00Z', fileSize: 3_200_000,
     pageCount: 1, chunkCount: 12, contentTypes: ['drawing', 'text'], tags: ['Grundriss', 'Brandschutz'],
     summary: 'Grundriss Erdgeschoß Index C mit Fluchtwegen, Brandabschnitten und Stellplatzzufahrt.',
+    topics: ['Fluchtweg', 'Brandabschnitt', 'Stellplatzzufahrt'],
   }),
   doc({
     id: 'd-03-03', filename: 'Regelgeschoss_Grundriss_Index_B.pdf', folderId: 'f-03-plaene',
     status: 'completed', createdAt: '2026-08-14T15:45:00Z', fileSize: 2_900_000,
     pageCount: 1, chunkCount: 11, contentTypes: ['drawing'], tags: ['Grundriss'],
     summary: 'Regelgeschoß mit acht Wohnungen, Erschließungskern und Wohnungstrennwänden.',
+    topics: ['Wohnungstrennwand', 'Erschließungskern'],
   }),
   doc({
     id: 'd-03-04', filename: 'Schnitt_B-B_Index_B.pdf', folderId: 'f-03-plaene',
     status: 'completed', createdAt: '2026-08-14T16:00:00Z', fileSize: 1_400_000,
     pageCount: 1, chunkCount: 6, contentTypes: ['drawing'], tags: ['Schnitt'],
     summary: 'Gebäudeschnitt B-B durch das Stiegenhaus mit Lichtkuppel und Rauchabzug.',
+    topics: ['Rauchabzug', 'Stiegenhaus'],
   }),
   doc({
     id: 'd-03-05', filename: 'Ansicht_Ost_Index_B.pdf', folderId: 'f-03-plaene',
@@ -200,12 +213,28 @@ export const FILES: FileItem[] = [
     summary: 'Tiefgaragenplan mit 38 Stellplätzen, Rampe und Brandabschnittsgrenzen.',
   }),
 
+  // 03_Einreichung/alt: the earlier Fassungen an office keeps, named with their index.
+  doc({
+    id: 'd-03-alt-1', filename: 'EG_Grundriss_Index_B_2026-07-02.pdf', folderId: 'f-03-alt',
+    status: 'completed', createdAt: '2026-07-02T09:10:00Z', fileSize: 3_050_000,
+    pageCount: 1, chunkCount: 12, contentTypes: ['drawing', 'text'], tags: ['Grundriss', 'Brandschutz'],
+    summary: 'Grundriss Erdgeschoß Index B mit Fluchtwegen und Brandabschnitten, noch ohne Stellplatzzufahrt.',
+    topics: ['Fluchtweg', 'Brandabschnitt'],
+  }),
+  doc({
+    id: 'd-03-alt-2', filename: 'Schnitt_B-B_Index_A.pdf', folderId: 'f-03-alt',
+    status: 'completed', createdAt: '2026-06-18T11:30:00Z', fileSize: 1_350_000,
+    pageCount: 1, chunkCount: 6, contentTypes: ['drawing'], tags: ['Schnitt'],
+    summary: 'Gebäudeschnitt B-B durch das Stiegenhaus, Rauchabzug noch als Fenster.',
+  }),
+
   // 03_Einreichung/Gutachten: one in flight.
   doc({
     id: 'd-03-09', filename: 'Brandschutzkonzept_v3.pdf', folderId: 'f-03-gutachten',
     status: 'completed', createdAt: '2026-09-02T11:00:00Z', fileSize: 9_700_000,
     pageCount: 84, chunkCount: 262, contentTypes: ['text', 'table', 'drawing'], tags: ['Gutachten', 'Brandschutz'],
     summary: 'Brandschutzkonzept für den Wohnbau Nord (GK 4) mit Fluchtweg-, Abschnitts- und Rauchfreihaltungsnachweis.',
+    topics: ['Fluchtweg', 'Rauchabzug', 'Brandabschnitt'],
   }),
   doc({
     id: 'd-03-10', filename: 'Schallschutzgutachten_Seestadt.pdf', folderId: 'f-03-gutachten',
@@ -278,6 +307,7 @@ export const FILES: FileItem[] = [
     status: 'completed', createdAt: '2026-09-11T10:40:00Z', fileSize: 1_500_000,
     pageCount: 2, chunkCount: 8, contentTypes: ['drawing', 'text'], tags: ['Detail', 'Brandschutz'],
     summary: 'Wandaufbau der Tiefgaragenwand mit Brandwand-Anschluss und Oberflächenschutz.',
+    topics: ['Brandwand', 'Tiefgarage'],
   }),
 
   // 04_Ausführung/Fotos Baustelle: read, but no document type. The unplaced five.
@@ -286,18 +316,21 @@ export const FILES: FileItem[] = [
     status: 'completed', createdAt: '2026-08-27T07:50:00Z', fileSize: 3_400_000,
     chunkCount: 1, contentTypes: ['image'], tags: [],
     summary: 'Foto der Baustelle: Bewehrung der Bodenplatte im Bereich der Stiege A.',
+    capture: { capturedAt: '2026-08-27T07:48:12', camera: 'Apple iPhone 15 Pro', latitude: 48.2262, longitude: 16.5066 },
   }),
   doc({
     id: 'd-04-08', filename: 'IMG_4044.jpg', folderId: 'f-04-fotos', contentType: JPEG,
     status: 'completed', createdAt: '2026-08-27T08:05:00Z', fileSize: 3_100_000,
     chunkCount: 1, contentTypes: ['image'], tags: [],
     summary: 'Foto der Baustelle: Schalung der Decke über dem 1. Obergeschoß.',
+    capture: { capturedAt: '2026-08-27T08:03:40', camera: 'Apple iPhone 15 Pro', latitude: 48.2263, longitude: 16.5069 },
   }),
   doc({
     id: 'd-04-09', filename: 'IMG_4057.jpg', folderId: 'f-04-fotos', contentType: JPEG,
     status: 'completed', createdAt: '2026-09-03T09:15:00Z', fileSize: 3_600_000,
     chunkCount: 1, contentTypes: ['image'], tags: [],
     summary: 'Foto der Baustelle: Rohbau des Regelgeschoßes, Blick nach Osten.',
+    capture: { capturedAt: '2026-09-03T09:12:05', camera: 'Apple iPhone 15 Pro' },
   }),
   doc({
     id: 'd-04-10', filename: 'IMG_4069.jpg', folderId: 'f-04-fotos', contentType: JPEG,
