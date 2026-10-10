@@ -425,6 +425,10 @@
               "de": "Geplante Rechercheberichte werden in Organisationen, in denen Funktionen individuell aktiviert werden, wieder im Projekt abgelegt; bisher wurden sie zurückgehalten."
             },
             {
+              "en": "Piloti can open a draft it wrote earlier in the conversation again. Asking it to shorten or rework part of an Aktenvermerk used to end with Piloti saying it could not read the document and asking you to paste the text.",
+              "de": "Piloti kann einen Entwurf, den es zuvor im Gespräch erstellt hat, erneut öffnen. Bisher sagt Piloti oft, dass es das Dokument nicht lesen kann, und bittet Sie, den Text einzufügen, wenn Sie es bitten, einen Teil eines Aktenvermerks zu kürzen oder zu überarbeiten."
+            },
+            {
               "en": "Opening a project's settings without permission to manage members no longer shows an error, and buttons you are not allowed to use are no longer shown.",
               "de": "Wenn Sie die Projekteinstellungen ohne Berechtigung zur Verwaltung von Mitgliedern öffnen, wird kein Fehler mehr angezeigt. Schaltflächen, die Sie nicht verwenden dürfen, werden nicht mehr angezeigt."
             },

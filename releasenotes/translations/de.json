@@ -1652,6 +1652,10 @@
     "de": "Piloti kann jetzt ein Dokument verfassen, statt es zu beschreiben. Bitten Sie um einen Aktenvermerk, ein Protokoll, eine Checkliste, eine Flächenaufstellung oder einen Konzeptentwurf. Der fertige Text wird in einen Arbeitsordner für diese Unterhaltung geschrieben; neben der Antwort erscheint eine Karte, die benennt, was verfasst wurde."
   },
   {
+    "en": "Piloti can open a draft it wrote earlier in the conversation again. Asking it to shorten or rework part of an Aktenvermerk used to end with Piloti saying it could not read the document and asking you to paste the text.",
+    "de": "Piloti kann einen Entwurf, den es zuvor im Gespräch erstellt hat, erneut öffnen. Bisher sagt Piloti oft, dass es das Dokument nicht lesen kann, und bittet Sie, den Text einzufügen, wenn Sie es bitten, einen Teil eines Aktenvermerks zu kürzen oder zu überarbeiten."
+  },
+  {
     "en": "Piloti does not read its own reports back, so an answer never cites a Piloti report as if it were a document you supplied. To use a report in later answers, upload it yourself once you have checked it.",
     "de": "Piloti liest seine eigenen Berichte nicht wieder ein, damit eine Antwort nie einen Piloti-Bericht zitiert, als wäre er ein Dokument von Ihnen. Soll ein Bericht in spätere Antworten einfließen, laden Sie ihn nach Ihrer Prüfung selbst hoch."
   },
