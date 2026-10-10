@@ -133,7 +133,7 @@ colleague with no explanation reads as a bug.
 For a conversation each candidate who could otherwise be invited (reachable, not
 yet in the room) also carries `lacksFolderAccess`: `true` when they may not read
 every restricted folder the conversation drew on now (ADR-0088): they hold no
-folder role on it and are not an organization admin (ADR-0096). The UI shows
+folder role on it and are not an organization admin (ADR-0097). The UI shows
 them disabled with „Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat
 stammt“ and never names the folder. At most 200 people are evaluated, a bounded
 number at a time, each against their folder roles (cached for
@@ -293,7 +293,7 @@ dropped**: a redacted row explains itself, a vanished one looks like a bug.
 A run's row (`job.completed`, `job.failed`, `job.waiting`) targets its project,
 and is also judged by the run it names: a revision task whose document now sits
 in a folder the reader may not read is redacted like a revoked target
-(`unreadableRunIds`, `lib/tasks/subject-access.ts`, ADR-0092), as the task list
+(`unreadableRunIds`, `lib/tasks/subject-access.ts`, ADR-0093), as the task list
 and the run view withhold it.
 
 `InboxItemView` carries `type`, `state` (`unread`/`read`/`resolved`/`archived`/

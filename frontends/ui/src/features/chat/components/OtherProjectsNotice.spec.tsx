@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { render, screen } from '@/test-utils'
 import { OtherProjectsNotice } from './OtherProjectsNotice'
 
-describe('OtherProjectsNotice (ADR-0093)', () => {
+describe('OtherProjectsNotice (ADR-0094)', () => {
   it('names every project it is given and says what that closes: the list is the server’s, not filtered here', () => {
     render(
       <OtherProjectsNotice

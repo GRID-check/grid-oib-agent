@@ -103,7 +103,7 @@ const ownList = (id: string, everyoneReads: boolean, extra: Partial<AccessFolder
   everyoneReads,
   ...extra,
 })
-/** The folders whose list holds the Geschäftsführung, as WorkOS would report their folder roles (ADR-0096). */
+/** The folders whose list holds the Geschäftsführung, as WorkOS would report their folder roles (ADR-0097). */
 const gfFolders = new Set<string>()
 /** A folder only the Geschäftsführung may open: hidden from the member who reads these specs. */
 const gfOnly = (id: string, extra: Partial<AccessFolder> = {}): AccessFolder => {

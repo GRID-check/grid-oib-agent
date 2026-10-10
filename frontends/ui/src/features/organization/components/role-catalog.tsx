@@ -60,7 +60,7 @@ export const ACCESS_TIER_ORDER: readonly PermissionTier[] = [
   // and skill permission was silently dropped from this reference — the one
   // screen whose whole job is to show an administrator what exists.
   'skill',
-  // Folders with their own access list (ADR-0096): a role on one folder.
+  // Folders with their own access list (ADR-0097): a role on one folder.
   'folder',
   'platform',
 ]

@@ -8,7 +8,7 @@
  * because they are the same for every organization and change only with the
  * catalog. Assigning a role to a person stays on the People tab (WorkOS's own
  * widget), and the copy says so, together with where a single folder's access
- * is set instead: on the folder, person by person (ADR-0096).
+ * is set instead: on the folder, person by person (ADR-0097).
  *
  * Who may edit is read from the listing itself: `assignable` is present only
  * for `org:members:manage`, and it says which permissions this editor may put

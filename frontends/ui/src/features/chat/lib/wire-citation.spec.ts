@@ -175,7 +175,7 @@ describe('citationsFromWireList', () => {
   })
 })
 
-describe('projectFromWire (ADR-0093)', () => {
+describe('projectFromWire (ADR-0094)', () => {
   test('carries the Land the agent stated, verbatim, warning included', () => {
     const landNote = 'Steiermark — nicht das Bundesland dieses Projekts: dort gilt eine andere Bauordnung'
 

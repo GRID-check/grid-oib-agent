@@ -11,7 +11,7 @@
  *
  * Who holds which folder role in WorkOS is the one thing faked
  * (`clearanceOfMember` for a member, `heldFolderLevels` for a session,
- * ADR-0096); the folder tree, the conversation, its grants and the record are
+ * ADR-0097); the folder tree, the conversation, its grants and the record are
  * real rows.
  * What it proves:
  *   - a chat of a cleared member that never admits restricted content records
@@ -26,7 +26,7 @@
  *   - the answer a turn writes is marked by its id at admission, and at the
  *     start of a later turn, so a vote on it stays out of every cross-tenant
  *     reader with no persisted answer and whatever conversation it names
- *     (ADR-0092).
+ *     (ADR-0093).
  */
 
 import { randomUUID } from 'node:crypto'

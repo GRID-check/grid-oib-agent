@@ -23,7 +23,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `messages.ts` | `messages` |
 | `documents.ts` | `documents` |
 | `project-folders.ts` | `project_folders` |
-| `project-folder-grants.ts` | `project_folder_grants` (deprecated by ADR-0096, read only by the conversion script) |
+| `project-folder-grants.ts` | `project_folder_grants` (deprecated by ADR-0097, read only by the conversion script) |
 | `user-preferences.ts` | `user_preferences` |
 | `answer-feedback.ts` | `answer_feedback` |
 | `platform-lessons.ts` | `platform_lessons`, `platform_lesson_reports`, `platform_lesson_events` |
@@ -70,10 +70,10 @@ export const projects = pgTable('projects', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID of creator |
 | `collection_name` | `text` | NOT NULL | Milvus collection name for this project's knowledge base |
 | `workos_resource_id` | `text` | UNIQUE | Optional WorkOS FGA resource ID |
-| `status` | `text` | NOT NULL, default `active`, CHECK `IN ('active','closed')` | ADR-0089, migration 0116. A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it |
+| `status` | `text` | NOT NULL, default `active`, CHECK `IN ('active','closed')` | ADR-0090, migration 0116. A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it |
 | `closed_at` | `timestamptz` | set exactly when `status = 'closed'` | When it was closed; cleared on reopen |
 | `closed_by` | `text` | set exactly when `status = 'closed'` | WorkOS user id of whoever closed it |
-| `started_on` | `date` | first of a month, CHECK | Steckbrief Beginn (ADR-0090, migration 0117) |
+| `started_on` | `date` | first of a month, CHECK | Steckbrief Beginn (ADR-0091, migration 0117) |
 | `ended_on` | `date` | first of a month, not before `started_on` | Steckbrief Abschluss; closing fills it with the month of the close when unset |
 | `deleted_at` | `timestamptz` | | Soft delete (ADR-0011) |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
@@ -86,7 +86,7 @@ export const projects = pgTable('projects', {
 
 ---
 
-## project_people (migration 0117, ADR-0090)
+## project_people (migration 0117, ADR-0091)
 
 Everyone who worked on a project, with or without a Piloti account: the Steckbrief's people.
 Personal data of people who mostly never gave it, so: name, function, company, months, an
@@ -695,8 +695,8 @@ export const projectFolders = pgTable('project_folders', {
 | `parent_id` | `uuid` | | `NULL` for a folder at the root of its shelf |
 | `name` | `varchar(255)` | NOT NULL | |
 | `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs and the backend mirror |
-| `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0111`, ADR-0088**: `inherit` takes the parent's access (a root folder the project's); `custom` has its own list. **Since `0128` (ADR-0096)** the people on that list are not stored here: the folder is a WorkOS `folder` resource and each of them holds a folder role on it (`folder-reader`, `folder-editor`; `lib/authz/folder-roles.ts`). The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
-| `everyone_reads` | `boolean` | NOT NULL, default `false` | **Migration `0128`, ADR-0096**: on a `custom` folder, every project member reads it and the folder roles decide only who may write (what the reserved `*` entry of `project_folder_grants` was). Ignored while `inherit`. A `custom` folder without it is one not every member may read, and only such a folder gets its own retrieval collection. `setFolderAccess` refuses a list that names nobody and does not have it. |
+| `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0111`, ADR-0088**: `inherit` takes the parent's access (a root folder the project's); `custom` has its own list. **Since `0128` (ADR-0097)** the people on that list are not stored here: the folder is a WorkOS `folder` resource and each of them holds a folder role on it (`folder-reader`, `folder-editor`; `lib/authz/folder-roles.ts`). The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
+| `everyone_reads` | `boolean` | NOT NULL, default `false` | **Migration `0128`, ADR-0097**: on a `custom` folder, every project member reads it and the folder roles decide only who may write (what the reserved `*` entry of `project_folder_grants` was). Ignored while `inherit`. A `custom` folder without it is one not every member may read, and only such a folder gets its own retrieval collection. `setFolderAccess` refuses a list that names nobody and does not have it. |
 | `access_changed_by` / `access_changed_at` | `text` / `timestamptz` | set whenever `access_mode = 'custom'` (`project_folders_access_custom_check`) | Who set the list, and when. |
 | `deleted_at` / `deleted_by` | `timestamptz` / `text` | project folders only (`project_folders_bin_state_check`, 0115) | **Migration `0111`**: a deleted PROJECT folder keeps its row (an Archiv folder's delete removes it). It keeps its `access_mode`, `everyone_reads` and its WorkOS folder resource so the access rule still answers for content recorded from it (a conversation's source folders, restricted memory); every listing, the tree, placement and every read path skip it, and since `0115` what is filed in it is hidden from everyone. |
 | `bin_root_id` | `uuid` | CHECK only with `deleted_at` (`project_folders_bin_state_check`) | **Migration `0115`, the Papierkorb**: the folder a person deleted, on every folder that went to the bin with it (itself included); what a restore puts back together. `NULL` for a living folder and a tombstone older than 0115. |
@@ -719,14 +719,14 @@ export const projectFolders = pgTable('project_folders', {
 
 **Why a row has to state its tenant (ADR-0078).** Before the Archiv had folders, "same project" implied "same organization". An Archiv folder has no project, so the tenant is a column and `documents` references the folder through it: see `documents_folder_id_organization_id_scope_fkey`.
 
-### project_folder_grants (migration 0111, ADR-0088; deprecated by ADR-0096)
+### project_folder_grants (migration 0111, ADR-0088; deprecated by ADR-0097)
 
 One role's access to a folder with its own list, as ADR-0088 had it. **Nothing
 in the app reads or writes it since migration `0128`.** Its one reader is the
 conversion script `frontends/ui/scripts/migrate-folder-grants-to-workos.ts`
 (`bun run migrate:folder-grants`), which turns each role entry into folder roles
 of the people who hold that role
-([the rollout](../deployment/workos-provisioning.md#rolling-out-folder-roles-adr-0096)).
+([the rollout](../deployment/workos-provisioning.md#rolling-out-folder-roles-adr-0097)).
 `0128` itself carried the `*` entries over: one that read became
 `project_folders.everyone_reads`, one that wrote turned the folder back to
 `inherit`. A later migration drops the table once the script has run in every
@@ -817,7 +817,7 @@ every message the conversation holds and every vote naming it, and from then on
 every message written into the conversation is marked too, in
 `message_restricted_use` (below); the marks stay when the chat goes.
 `listRecordedSourceFolders` also returns the current folder of each document a
-revision task written into the conversation revises (ADR-0092), so the thread is
+revision task written into the conversation revises (ADR-0093), so the thread is
 judged like a chat that drew on that folder; nothing of that is stored here.
 Repository: `lib/conversations/restricted-use-repository.ts`; proven against
 Postgres in `restricted-use.integration.spec.ts`; its CHECK and down in
@@ -825,14 +825,14 @@ Postgres in `restricted-use.integration.spec.ts`; its CHECK and down in
 a conversation with a row here keeps its card decisions out of the
 project-wide `PROPOSAL_DECISIONS` block.
 
-A cross-project lookup (ADR-0093) may record a folder of ANOTHER project here;
+A cross-project lookup (ADR-0094) may record a folder of ANOTHER project here;
 it is judged in the tree of the project it belongs to (through
 `projectsOfFolders`, in `lib/conversations/restricted-use.ts`), so the
 conversation's creator keeps reading it.
 
 ---
 
-## conversation_source_projects (migration 0125, ADR-0093)
+## conversation_source_projects (migration 0125, ADR-0094)
 
 Another project whose content a chat drew on through a cross-project lookup:
 written by the BFF BEFORE a lookup answers (`recordCrossProjectHandOut`, called
@@ -843,7 +843,7 @@ folder of that project is recorded beside it, in
 `conversation_restricted_folders`; this row covers what every member of the
 project reads, the root included. Judged at read time through
 `listRestrictingSourceProjects`, which leaves out a project that is CLOSED now
-(every office member reads it, ADR-0089): for the rest, only a person who may
+(every office member reads it, ADR-0090): for the rest, only a person who may
 open every such project may read the conversation, it cannot be made visible to
 the project, nothing leaves it into what a whole project reads, and nothing is
 remembered from it. A reopened project restricts again.
@@ -865,7 +865,7 @@ Repository: `lib/conversations/restricted-use-repository.ts`; proven in
 
 ---
 
-## permit_records / permit_requirements (migration 0126, ADR-0094)
+## permit_records / permit_requirements (migration 0126, ADR-0095)
 
 Permitting memory (`docs/design/permitting-memory.md`): what a Bescheid or
 Nachforderung demanded, read once at ingest by the platform summary model and
@@ -1422,7 +1422,7 @@ declares it. `grid_tenant_isolation` is untouched.
 ## message_restricted_use (migration 0124)
 
 A message id whose conversation drew on a folder with restricted access
-(ADR-0092). Written by the SERVER, from one rule,
+(ADR-0093). Written by the SERVER, from one rule,
 `grid_conversation_restricted_use(organization, conversation)`: the
 conversation has a `conversation_restricted_folders` row, or it is the thread
 of a revision task whose document sits in another project than the task, or in

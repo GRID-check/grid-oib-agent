@@ -368,7 +368,7 @@ describe('the admin view', () => {
     it('decides each row by the clearance in its own project: a closed one clears an outsider as a member with no folder role', async () => {
       const CLOSED = '77777777-7777-4777-8777-777777777777'
       // A folder role on Verträge. In the closed project the viewer reads only
-      // because it is closed, so it clears no list there (ADR-0089).
+      // because it is closed, so it clears no list there (ADR-0090).
       clearanceOf.mockImplementation(async (_session: AuthorizedSession, projectId: string) =>
         projectId === CLOSED ? { levels: {}, seesEverything: false } : { levels: { [FOLDER]: 'write' }, seesEverything: false }
       )

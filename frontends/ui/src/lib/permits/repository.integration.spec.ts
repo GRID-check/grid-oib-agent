@@ -148,7 +148,7 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
   async function customFolder(projectId: string, name: string): Promise<string> {
     return first(
       await inOrg(ORG, () =>
-        // Its own list; who is on it is WorkOS's (ADR-0096).
+        // Its own list; who is on it is WorkOS's (ADR-0097).
         db.execute<{ id: string }>(sql`
           insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
           values (${ORG}, ${projectId}::uuid, ${name}, ${name}, 'custom', ${USER}, now())

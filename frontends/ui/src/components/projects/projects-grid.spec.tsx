@@ -148,7 +148,7 @@ describe('ProjectsGrid', () => {
     expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument()
   })
 
-  describe('the status filter (ADR-0089)', () => {
+  describe('the status filter (ADR-0090)', () => {
     const closed = (id: string, name: string): Project =>
       createProject({ id, name, status: 'closed', closedAt: new Date('2026-09-01T00:00:00Z'), closedBy: 'u' })
 

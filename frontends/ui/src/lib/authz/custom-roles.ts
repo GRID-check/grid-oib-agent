@@ -7,7 +7,7 @@
  * sessions, the membership API, the `UsersManagement` widget that assigns
  * roles — so an office that builds „Geschäftsführung" here assigns it on the
  * People tab like any other role. A folder's own access list names people, not
- * roles (ADR-0096), so no folder depends on a role.
+ * roles (ADR-0097), so no folder depends on a role.
  *
  * Who may: `org:members:manage` (the User Admin persona and Admin). And only
  * with permissions they hold themselves: a role is a bundle of permissions, so

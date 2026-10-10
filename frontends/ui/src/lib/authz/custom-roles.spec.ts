@@ -300,7 +300,7 @@ describe('deleteCustomRole', () => {
     })
   })
 
-  it('asks about no folder: a folder’s list names people, never a role (ADR-0096)', async () => {
+  it('asks about no folder: a folder’s list names people, never a role (ADR-0097)', async () => {
     await expect(deleteCustomRole(userAdmin(), 'org-geschaeftsfuehrung', request())).resolves.toBeUndefined()
     expect(recordAuditEvent.mock.calls[0][0]).not.toHaveProperty('metadata.folders')
   })

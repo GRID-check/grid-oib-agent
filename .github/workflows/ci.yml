@@ -1,11 +1,30 @@
 name: CI
 
-# One consolidated pipeline for the monorepo. A path filter runs only the
-# backend and/or frontend jobs a change actually touches; the `ci-ok` gate at
-# the end is the single required status check for branch protection (it passes
-# when every needed job succeeded or was skipped). Private repo -> PRs run
-# directly (no copy-pr-bot). A push whose tree a green pull_request run already
-# tested skips every job and passes (`changes`, ci/reuse_green_run.py).
+# The one pipeline, with two jobs to do:
+#
+#   pull_request  The merge gate. Prove the change, applied to its base, keeps
+#                 every check a change of its shape can break. `CI OK` is the
+#                 single required status check.
+#   push          The release gate, on develop and release/**. Prove the merged
+#                 result, build the images for exactly that tree, and tag them
+#                 for the commit only once every check has passed. Deploy
+#                 (deploy.yml) follows a green push run and nothing else, so a
+#                 commit with `sha-<commit>` images is a commit CI passed.
+#
+# Three rules decide how much runs, and each exists because its absence cost
+# something measurable. docs/contributing/ci.md has the numbers.
+#
+#   1. Run what the change can break. `changes` diffs a pull request against its
+#      base, and a push against the LAST COMMIT CI PASSED on that branch
+#      (ci/last_green.py), never against the previous push. A red commit's tier
+#      therefore keeps running until something makes it green.
+#   2. Never test the same thing twice. A push whose tree a green pull request
+#      run already tested, on top of a green parent, skips every check
+#      (ci/reuse_green_run.py). An image whose inputs GHCR already has is
+#      re-tagged, not rebuilt (ci/image_inputs.py).
+#   3. Spend runner slots like they are scarce, because they are. Runs queue for
+#      a free runner, so a job that saves thirty seconds of work but costs a
+#      slot makes everyone slower. Work that shares a toolchain shares a job.
 on:
   push:
     branches: [develop, "release/**"]
@@ -16,338 +35,403 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write # coverage sticky comments (same-repo PRs)
 
 concurrency:
-  # A push gets a group of its own. GitHub drops a pending run when a newer run
-  # joins its group, and that newer run's diff covers only its own push, so the
-  # dropped push's checks would never run. A PR keeps one group: its newer push
-  # may cancel the older run, because every PR run diffs the whole PR (`changes`).
-  group: ${{ github.event_name == 'push' && format('ci-push-{0}', github.sha) || format('ci-{0}', github.ref) }}
+  # One group per pull request and one per branch.
+  #
+  # A pull request's newer push cancels its older run: every run diffs the
+  # whole PR, so the newer one owes everything the older one did.
+  #
+  # A branch's runs are never cancelled mid-flight, and a run that is still
+  # QUEUED is replaced by a newer push (GitHub keeps one pending run per group).
+  # That is what makes a merge train cheap: nine quick merges cost the run in
+  # progress plus one more, not nine. It is safe only because a push diffs
+  # against the last green commit (rule 1), so the run that survives covers
+  # every commit that was dropped. Deploy reads a dropped run as superseded.
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Image references must be lowercase, and nothing lowercases this one for us.
+  REGISTRY: ghcr.io/grid-check
 
 jobs:
   changes:
-    name: Detect changes
+    name: Plan
     runs-on: ubuntu-latest
+    # Every job has a timeout of a few times its measured run. GitHub's
+    # default is 360 minutes, and a hung job holds one of the capped runner
+    # slots for all of them while every queued run waits behind it.
+    timeout-minutes: 10
     permissions:
       contents: read
-      actions: read # find the pull request run's green marker (ci/reuse_green_run.py)
+      actions: read # the last green run, and a pull request run's green marker
+      packages: read # whether GHCR already has an image with these inputs
     outputs:
       # 'true' when this push's tree already passed in full on its pull request.
-      # The filter then does not run, every tier reads 'false', every job below
-      # skips, and CI OK passes: the run still concludes `success` for deploy.yml.
+      # The filter then does not run, every tier reads 'false', every check
+      # skips. Images are still planned: a pull request builds, never pushes.
       reused: ${{ steps.reuse.outputs.hit || 'false' }}
       backend: ${{ steps.filter.outputs.backend || 'false' }}
       frontend: ${{ steps.filter.outputs.frontend || 'false' }}
       web: ${{ steps.filter.outputs.web || 'false' }}
       infra: ${{ steps.filter.outputs.infra || 'false' }}
       packages: ${{ steps.filter.outputs.packages || 'false' }}
+      sast: ${{ steps.filter.outputs.sast || 'false' }}
+      # The images this run builds (a matrix), and all three with their hashes.
+      build: ${{ steps.images.outputs.build }}
+      images: ${{ steps.images.outputs.images }}
+      # Third-party image pins this change adds or moves, for trivy.
+      pins: ${{ steps.pins.outputs.pins || '[]' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
           # synchronize checks out the PR head. The default PR checkout is a
           # merge commit, which would mix develop into the diff.
           ref: ${{ github.event.action == 'synchronize' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
+
+      # Push only. Not continue-on-error on purpose: the script falls back to
+      # the root commit (everything runs) on any lookup failure, so a failure
+      # of the step itself is a broken checkout, and it should say so loudly
+      # rather than leave the filter without a base.
+      - name: Last commit CI passed on this branch
+        id: green
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 ci/last_green.py
+
       # A squash merge onto a base that has not moved lands exactly the tree the
-      # PR's last run tested, so on push this looks for that run's green marker
-      # (uploaded by CI OK below) and skips the re-run on a hit. Only a completed,
-      # successful pull_request run of this same, unmodified workflow from this
-      # repository counts. A miss or any error runs everything, as does a failure
-      # of this step (continue-on-error leaves `hit` unset).
+      # PR's last run tested. That result counts only on top of a green parent:
+      # a PR run that skipped the backend because it did not touch it proves
+      # nothing about a backend that was already red on develop. A miss, or a
+      # failure of this step, runs everything.
       - name: Reuse the pull request's green result for this tree
         id: reuse
-        if: github.event_name == 'push'
+        if: steps.green.outputs.parent-is-green == 'true'
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 ci/reuse_green_run.py ci-green
-      - uses: dorny/paths-filter@v4
+
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         if: steps.reuse.outputs.hit != 'true'
         with:
-          # One definition, read by this workflow and by Docker Build. What each
-          # family means, and why the image scopes are separate: .github/filters.yml
+          # What each tier means and why it is wide: .github/filters.yml
           filters: .github/filters.yml
-          # Empty token → git diff, so `base` is honoured on pull_request.
-          # pull_request: the whole PR against its base, on every push. Diffing
-          # only the last push skipped any tier an earlier, cancelled run owed,
-          # and a skipped tier counts as passed. security.yml and docker-build.yml
-          # carry the same expression.
-          # push: this push vs event.before.
+          # Empty token -> git diff, so `base` is honoured on pull_request too.
           token: ''
-          base: ${{ github.event.pull_request.base.sha || github.event.before }}
+          base: ${{ github.event.pull_request.base.sha || steps.green.outputs.sha }}
 
-  backend-lint:
-    name: Backend lint
-    needs: changes
-    if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-python-env
-      - uses: ./.github/actions/setup-task
-      # Defined in the root Taskfile so `task be:lint` locally runs exactly this.
-      - run: task be:lint
+      # A pull request builds an image when it changes what goes into it. A push
+      # builds one when GHCR has no image with these inputs yet, whatever the
+      # diff, so a dropped run, a failed build or a new week costs a rebuild and
+      # never a missing image.
+      - name: Images this run must build
+        id: images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            python3 ci/image_inputs.py plan --base "$BASE"
+          else
+            python3 ci/image_inputs.py plan --registry "$GITHUB_REPOSITORY_OWNER"
+          fi
 
-  # Deliberately NOT behind a paths filter. `pre-commit run --all-files` scans
-  # the WHOLE repo, so gating it on the backend filter meant a PR touching only
-  # deploy/** or frontends/ui/** could land drift on develop that stayed
-  # invisible until some later, unrelated backend PR tripped over it. Running it
-  # on every PR means whoever introduces the drift is the one who sees it.
-  #
-  # It does wait for `changes`, for one answer only: a push whose tree already
-  # passed on its pull request skips this too.
-  repo-lint:
-    name: Repo lint (pre-commit, all files)
+      - name: Image pins this change adds
+        id: pins
+        if: steps.reuse.outputs.hit != 'true'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || steps.green.outputs.sha }}
+        run: python3 ci/pinned_images.py new "$BASE"
+
+      # A skipped job reads as passed, so the run page says what was decided
+      # and why: the diff base, reuse, tiers, images, pins.
+      - name: Summary
+        if: always()
+        continue-on-error: true
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || steps.green.outputs.sha }}
+          BASE_REASON: ${{ steps.green.outputs.reason }}
+          REUSED: ${{ steps.reuse.outputs.hit }}
+          TIERS: ${{ toJSON(steps.filter.outputs) }}
+          BUILD: ${{ steps.images.outputs.build }}
+          IMAGES: ${{ steps.images.outputs.images }}
+          PINS: ${{ steps.pins.outputs.pins }}
+        run: python3 ci/plan_summary.py >> "$GITHUB_STEP_SUMMARY"
+
+  # Whole-repo checks, deliberately behind no path filter: they lint every file,
+  # so gating them on a tier would let a deploy/-only PR land drift that stays
+  # invisible until an unrelated PR trips over it. Whoever introduces the drift
+  # is the one who sees it. One job, because every step needs the same Python
+  # environment and none is slow enough to be worth a runner slot of its own.
+  repo:
+    name: Repo checks (lint, release notes, secrets)
     needs: changes
     if: needs.changes.outputs.reused != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read # the no-release-note label, read when the job runs
     steps:
-      # No persisted checkout token: this job executes repository-defined
-      # pre-commit hooks, so the job's git config must not hand them a
-      # credential they never need (hook repos clone over anonymous https).
-      - uses: actions/checkout@v7
+      # No persisted checkout token: this job runs repository-defined pre-commit
+      # hooks, which never need a credential (hook repos clone anonymously).
+      # Full history: reno walks each note back to its commit, the release-note
+      # rule diffs against the merge base, and gitleaks reads every commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: ./.github/actions/setup-python-env
-      # pre-commit builds an isolated env per hook repo on every run — four
-      # virtualenvs plus a node env — and they only change when a `rev:` in
-      # .pre-commit-config.yaml does. Measured locally: ~25s of env building
-      # collapses to ~0.3s warm, against a 113 MB dir that compresses to ~37 MB.
-      #
-      # `env.pythonLocation` is in the key because the cached envs are bound to
-      # an exact interpreter: pre-commit health-checks pyvenv.cfg against the
-      # live python and rebuilds on mismatch, and setup-python floats the patch
-      # version — without it the runner would periodically restore 37 MB and
-      # immediately discard it. That variable is exported by actions/setup-python
-      # inside setup-python-env, so this step MUST come after it, and after
-      # checkout so hashFiles can see the config.
-      #
-      # The whole directory is cached, not just the repo dirs: db.db is the
-      # url+rev -> dir index, and restoring one without the other desynchronises
-      # them.
-      - uses: actions/cache@v6
+      # pre-commit builds an isolated env per hook repo, and they only change
+      # when a `rev:` does: ~25s of env building becomes ~0.3s warm. The
+      # interpreter path is in the key because pre-commit rebuilds an env whose
+      # pyvenv.cfg names another one, and setup-python floats the patch version.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: |
             pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-
-      - name: Pre-commit (all hooks)
+      - name: Pre-commit (all hooks, all files)
         run: |
           . .venv/bin/activate
           pre-commit run --all-files
       - uses: ./.github/actions/setup-task
-      # The other half of `task lint:repo`, and deliberately in THIS job rather
-      # than behind a paths filter: `skills/` is the source, `.claude/` and
-      # `.agents/` are generated and gitignored, and apm.lock.yaml records
-      # hashes of both — so an edit to a skill that was never re-locked appears
-      # in no diff at all. It went unnoticed for seven files until an audit was
-      # run by hand. `apm audit` exits 0 on drift; `task agents:audit` is the
-      # wrapper that does not.
+      # `skills/` is the source, `.claude/` and `.agents/` are generated and
+      # gitignored, and apm.lock.yaml hashes both, so a skill edit that was
+      # never re-locked appears in no diff at all. `apm audit` exits 0 on
+      # drift; `task agents:audit` is the wrapper that does not.
       - name: Agent-skill lockfile (apm)
         run: task agents:audit
+      # `github` output makes each finding an annotation on the diff.
+      - name: Backend lint (ruff)
+        run: task be:lint -- --output-format=github
+      # The notes are published verbatim to piloti.at, so their prose is linted
+      # on every run, a push straight to release/** included.
+      - name: Release notes (lint)
+        run: task release:lint
+      # AGENTS.md: a change a customer can notice ships with its note. The
+      # escape hatch is the `no-release-note` label, read from the PR as it is
+      # NOW rather than from the event payload: a re-run replays the payload, so
+      # a label added after the push used to need another commit. Add the
+      # label, then re-run this job.
+      - name: Release notes (required for user-visible changes)
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.labels[].name' | grep -qx 'no-release-note'; then
+            echo "Labelled no-release-note: no note required."
+            exit 0
+          fi
+          python3 ci/require_release_note.py "$BASE_SHA" "$HEAD_SHA"
+      # The full history of the commit under test, so a secret is caught in the
+      # commit that added it. Not `--all`, gitleaks' default: a full-depth
+      # checkout fetches every branch, and an open PR's fixture then failed
+      # every other PR's run. Exceptions: CONTRIBUTING.md "Secret scanning".
+      - name: Secret scan (gitleaks)
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" \
+            zricethezav/gitleaks:v8.30.1 detect --source /repo --redact -v \
+            --log-opts="--full-history HEAD"
 
-  backend-test:
+  # Diff-aware: `semgrep ci` on a pull request reports only findings the change
+  # introduces, so it blocks a new finding without failing on the backlog. A
+  # push has nothing new to find that its pull request did not, and the
+  # full-tree report is advisory, so it lives in the weekly Security run.
+  semgrep:
+    name: SAST (Semgrep, new findings)
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.sast == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      # Pinned: an unpinned scanner image changes the rules under a PR that
+      # did not change, and nobody can tell which version said what.
+      image: semgrep/semgrep:1.177.0
+    steps:
+      # Full history: diff-aware scanning needs the merge base with the PR's base.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # p/github-actions includes the mutable-action-tag rule, so an action
+      # referenced by tag instead of commit SHA is a new finding here.
+      - name: Semgrep scan
+        run: >-
+          semgrep ci --json-output=semgrep.json
+          --exclude-rule javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
+        env:
+          SEMGREP_RULES: p/default p/javascript p/typescript p/python p/secrets p/github-actions
+      - name: Findings summary
+        if: always()
+        continue-on-error: true
+        run: python3 ci/semgrep_summary.py semgrep.json "new findings this pull request introduces" >> "$GITHUB_STEP_SUMMARY"
+
+  # Core suite (coverage-gated), the aiq_api plugin suite and the sources/
+  # suites, in one job: they share the environment, and the plugin suites
+  # (~1 min) fit inside the time the frontend lane takes anyway, so a second
+  # job bought no wall clock and cost a queued runner slot.
+  backend:
     name: Backend tests
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write # coverage sticky comment
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # ONE interpreter, the one the backend image ships (deploy/Dockerfile).
       - uses: ./.github/actions/setup-python-env
         with:
-          # ONE version, stated once, everywhere: the interpreter the backend
-          # image ships (`deploy/Dockerfile`) is the one this suite runs on.
-          # The old 3.12/3.13 matrix guarded a version nobody deployed and
-          # cost real debugging time (ToolNode batch order differs per
-          # interpreter; see the gotchas register).
           python-version: "3.14"
       - uses: ./.github/actions/setup-task
       - name: Core suite (coverage-gated)
         run: task be:test:ci
+      - name: aiq_api plugin suite
+        run: task be:test:api:ci
+      - name: sources/ package suites
+        run: task be:test:sources
       - name: Coverage comment (backend)
         if: github.event_name == 'pull_request'
         continue-on-error: true # never fail CI on a comment hiccup
-        uses: MishaKav/pytest-coverage-comment@main
+        uses: MishaKav/pytest-coverage-comment@9ee59af31bd7bcada1cc496f086b407122602dbd # v1.12.3
         with:
           pytest-xml-coverage-path: coverage.xml
+          # The whole-tree table passed GitHub's 65,536-character comment
+          # limit, and the action then posted only the badge.
+          report-only-changed-files: true
           title: Backend coverage (src/aiq_agent)
           unique-id-for-comment: backend-coverage
 
-  # The aiq_api and sources/ suites ran as steps after the core suite in
-  # `backend-test`, so the job paid for all three in series (core 2m17s, then
-  # aiq_api 50s, then sources 7s). They share nothing with the core suite but
-  # the environment, so they run beside it. `task be:verify` still runs all
-  # three locally.
-  backend-test-plugins:
-    name: Backend tests (aiq_api, sources)
-    needs: changes
-    if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-python-env
-        with:
-          python-version: "3.14" # same interpreter as `backend-test`
-      - uses: ./.github/actions/setup-task
-      - name: aiq_api plugin suite
-        run: task be:test:api:ci
-      # sources/ is its own suite, not part of tests/. Same definition as the
-      # local `task be:verify`.
-      - name: sources/ package suites
-        run: task be:test:sources
-
-  # `task fe:verify` runs lint -> types -> tests -> build in series, which is
-  # right locally but wasteful here: on a 2-core runner the four steps measured
-  # 25s + 38s + 264s + 89s, so the tests alone were ~63% of the job and
-  # everything else waited on them. The work is split across jobs that run
-  # concurrently, and the suite itself is sharded. Each piece still runs through
-  # the root Taskfile, so a local `task fe:verify` executes the same commands.
+  # Everything on the UI's toolchain except the test shards. The production
+  # build is NOT here: the frontend image build (`image`) runs the same
+  # `bun run build` inside the Dockerfile whenever the UI's inputs change, so a
+  # second build here only duplicated two minutes of work.
+  #
+  # Tenant isolation is the only check that proves row-level security holds
+  # (ADR-0041): `tenant-isolation.integration.spec.ts` self-skips without a
+  # database, so the unit shards are green whether the policies work or not.
+  # It also runs the migrations as a non-superuser owner, which is what catches
+  # a privilege mistake a superuser hides.
   frontend:
-    name: Frontend (lint, types, build)
+    name: Frontend (cards, lint, types, tenant isolation)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      # These jobs run PR-controlled code — `bun install` executes dependency
-      # lifecycle scripts and the suite runs the app itself — so the checkout
-      # must not leave a repository credential in .git/config for them to find.
-      # Nothing here needs authenticated git: there are no git-URL dependencies
-      # in frontends/ui, and the artifact round-trip uses the Actions API.
-      - uses: actions/checkout@v7
+      # These jobs run PR-controlled code (`bun install` runs lifecycle scripts,
+      # the suite runs the app), so no repository credential is left in
+      # .git/config for them to find. Nothing here needs authenticated git.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Node stays the RUNTIME (and Turbopack's PostCSS step spawns a real
-      # `node`); Bun is only the installer and script runner.
-      - uses: actions/setup-node@v7
+      # Node is the RUNTIME (Turbopack's PostCSS step spawns a real `node`);
+      # Bun is only the installer and script runner.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
       - run: task fe:install
       - run: task fe:cards:check
-      - run: task fe:lint
+      # Findings become annotations on the pull request's diff.
+      - run: task fe:lint -- --format=github
       - run: task fe:types
-      - run: task fe:build
-
-  tenant-isolation:
-    # The ONLY check that proves tenant isolation actually holds. The unit suite
-    # cannot: `tenant-isolation.integration.spec.ts` self-skips without a
-    # database, so without this job CI is green whether the policies work or
-    # not. It also runs migrations as a non-superuser owner, which is what
-    # catches privilege mistakes that a superuser-run migration hides.
-    name: Tenant isolation (row-level security)
-    needs: changes
-    if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-      - uses: ./.github/actions/setup-bun
-      - uses: ./.github/actions/setup-task
-      - run: task fe:install
-      # ubuntu-latest ships PostgreSQL server binaries but does not run a
-      # cluster; the script builds a throwaway one and tears it down.
-      - name: Tenant-isolation suite against a real Postgres
+      # ubuntu-latest ships PostgreSQL server binaries but runs no cluster; the
+      # script builds a throwaway one and tears it down.
+      - name: Tenant isolation (row-level security, real Postgres)
         run: task db:test:rls
         env:
-          # Turns "the suite skipped" into a failure for THIS job only. The
-          # suite self-skips without a database, and the unit shards legitimately
-          # have none — so the demand for one has to come from the job that is
-          # supposed to provide it, not from `CI` being set.
+          # Turns "the suite skipped" into a failure for THIS step only: the
+          # unit shards legitimately have no database.
           GRID_RLS_SUITE_REQUIRED: "1"
 
   frontend-test:
-    name: Frontend tests (shard ${{ matrix.shard }}/6)
+    name: Frontend tests (shard ${{ matrix.shard }}/4)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       # One shard's failure should not hide the others' results.
       fail-fast: false
-      # Six, not four. Measured per-shard wall clock locally at 2 workers (to
-      # match the 2-core runners), calibrated against the real N=4 CI run — the
-      # runners came out 1.68x slower, and the model then predicted N=4's slowest
-      # job at 194s against an actual 194s.
-      #
-      #   N=4   slowest 194s    N=6   152s    N=8   132s    N=10  ~116s
-      #
-      # So 4->6 buys 42s, 6->8 only 20s more, and each step adds ~14% runner
-      # time — this is where the curve flattens. Note the floor: vitest shards by
-      # FILE, and InputArea.spec.tsx alone is 45.9s of the suite's 209.6s of test
-      # execution, so it lands in whichever shard is slowest at every N. Raising N
-      # further cannot beat that file; splitting it can.
+      # Four, not six: under a runner cap each shard is a slot a queued run
+      # waits for. The price, measured on 2026-10-09:
+      # the test step took 2:05, 2:45, 2:33 and 4:04 per shard, so shard 4 is
+      # the run's critical path, about a minute behind the backend lane (3:16).
+      # vitest shards by FILE, so one shard carries the heavy files
+      # (InputArea.spec.tsx alone was 46s of 210s). Split the heavy files to
+      # balance it; adding shards back trades slots for that minute.
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4]
     steps:
-      # These jobs run PR-controlled code — `bun install` executes dependency
-      # lifecycle scripts and the suite runs the app itself — so the checkout
-      # must not leave a repository credential in .git/config for them to find.
-      # Nothing here needs authenticated git: there are no git-URL dependencies
-      # in frontends/ui, and the artifact round-trip uses the Actions API.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
       - run: task fe:install
-      - run: task fe:test:shard SHARD=${{ matrix.shard }}/6
-      # Coverage is collected per shard and merged below: a shard only ever
-      # loads its own slice of the app, so its coverage is meaningless alone and
-      # cannot be recomputed afterwards from the others.
-      - uses: actions/upload-artifact@v7
-        # A failing shard still wrote its blob, and the merged report is where a
-        # reviewer will look — without this the upload is skipped on failure and
-        # the merge job silently reports on a subset.
-        if: always()
+      - run: task fe:test:shard SHARD=${{ matrix.shard }}/4
+      # Coverage is collected per shard and merged below: a shard only loads
+      # its own slice of the app. Uploaded even when the shard failed, because
+      # the merged report is where a reviewer looks.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && github.event_name == 'pull_request'
         with:
           name: vitest-blob-${{ matrix.shard }}
           path: frontends/ui/.vitest-reports
           include-hidden-files: true
           retention-days: 1
 
+  # The coverage comment, and nothing else: correctness is gated by the shards.
+  # Not in `CI OK`, so a slow merge never holds the gate open, and pull request
+  # only, because on a push there is nobody to comment to.
   frontend-coverage:
     name: Frontend coverage
     needs: [changes, frontend-test]
-    # Runs whenever the shards ran at all: a failing shard still produced a blob,
-    # and the merged report is the most useful thing to look at when one fails.
-    if: ${{ !cancelled() && needs.changes.outputs.frontend == 'true' }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write # coverage sticky comment
     steps:
-      # These jobs run PR-controlled code — `bun install` executes dependency
-      # lifecycle scripts and the suite runs the app itself — so the checkout
-      # must not leave a repository credential in .git/config for them to find.
-      # Nothing here needs authenticated git: there are no git-URL dependencies
-      # in frontends/ui, and the artifact round-trip uses the Actions API.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - uses: ./.github/actions/setup-bun
       - uses: ./.github/actions/setup-task
       - run: task fe:install
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: vitest-blob-*
           merge-multiple: true
           path: frontends/ui/.vitest-reports
       - run: task fe:test:merge
       - name: Coverage comment (frontend)
-        if: github.event_name == 'pull_request'
         continue-on-error: true
-        uses: davelosert/vitest-coverage-report-action@v2
+        uses: davelosert/vitest-coverage-report-action@c4bbc33a89b7ace0e63d35f1f7d4bcee31155a73 # v2.13.0
         with:
           working-directory: frontends/ui
 
@@ -356,208 +440,265 @@ jobs:
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontends/web
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontends/web/package-lock.json
       - uses: ./.github/actions/setup-task
-      # Astro reprocesses every blog image on a cold cache — the first CMS
-      # upload alone cost ~25s of the job. The cache is keyed on the image
-      # sources so it only misses when an image actually changed; `restore-keys`
-      # makes that miss a partial hit (the unchanged images stay warm) instead of
-      # a full reprocess. `cacheDir` puts it outside node_modules, where
-      # `task web:install`'s `npm ci` would otherwise delete it.
-      - uses: actions/cache@v6
+      # Astro reprocesses every blog image on a cold cache. Keyed on the image
+      # sources, with `restore-keys` turning a miss into a partial hit. Outside
+      # node_modules, where `npm ci` would delete it. The web image build
+      # restores the same entry into its build context.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: frontends/web/.astro-cache
           key: astro-cache-${{ runner.os }}-${{ hashFiles('frontends/web/src/content/blog/_images/**', 'frontends/web/src/assets/**') }}
           restore-keys: |
             astro-cache-${{ runner.os }}-
       - run: task web:verify
-        working-directory: .
 
   infra:
-    name: Infra (Pulumi typecheck)
+    name: Infra (Pulumi typecheck + manifest tests)
     needs: changes
     if: needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: deploy/pulumi
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: deploy/pulumi/package-lock.json
+          cache-dependency-path: |
+            deploy/pulumi/package-lock.json
+            deploy/pulumi/policy/package-lock.json
       - run: npm ci
+        working-directory: deploy/pulumi
       # The policy pack is its own Node program with its own lockfile; a rule
-      # that no longer compiles would otherwise only surface at deploy time,
-      # i.e. with the guardrails already load-bearing.
+      # that no longer compiles would otherwise surface only at deploy time.
       - run: npm ci
         working-directory: deploy/pulumi/policy
       - uses: ./.github/actions/setup-task
-      # Type-checks every `spec` written against the @kubernetes-models CRD
-      # types (Gateway API / Envoy Gateway / cert-manager) AND the policy pack.
-      # The deeper gates — `pulumi preview` + schema-validate every CR + the
-      # CrossGuard policy pack — need stack credentials and still run in
-      # deploy.yml; this is the part that can run on an untrusted PR.
+      # What can run on an untrusted PR: the types (every CRD `spec`, and the
+      # policy pack) and the manifests under `pulumi.runtime.setMocks` (a
+      # renamed flag, a Service missing a port, a probe on the wrong endpoint).
+      # `pulumi preview`, CRD schema validation and CrossGuard need stack
+      # credentials and run in deploy.yml.
       - run: task infra:types
-        working-directory: .
-      # Manifest assertions under `pulumi.runtime.setMocks` — no cluster, no
-      # stack credentials, so this is the part of the deeper gate that CAN run
-      # on an untrusted PR. It catches the class tsc cannot: a renamed weed
-      # flag, a Service missing the gRPC port `weed shell` needs, a liveness
-      # probe on an endpoint that answers 423.
       - run: task infra:test
-        working-directory: .
 
+  # packages/ sits outside both workspaces (own package-lock.json, own uv.lock),
+  # so neither tier's install can run it. ~4 minutes, nearly all of it
+  # ifc-spatial-py, which is why it is filtered at all.
   packages:
-    # The `packages/` directory had NO gate at all: no Taskfile target, no CI
-    # job, no pre-commit hook — 830 tests behind a default-ON feature that
-    # renders OIB compliance verdicts, and the only thing between a broken
-    # assertion and a customer was somebody remembering to run pytest by hand.
-    # Same shape as `sources/` before it, and the same fix.
-    #
-    # Its own job rather than a step in `backend-test`/`frontend`, because both
-    # packages sit OUTSIDE their neighbouring workspace: `ifc-spatial` has its
-    # own package-lock.json (not the UI's bun workspace) and `ifc-spatial-py`
-    # its own uv.lock (not the root uv workspace), so neither tier's install
-    # can run them.
     name: Standalone packages (packages/)
     needs: changes
     if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      # Runs PR-controlled code (`npm ci` executes dependency lifecycle scripts,
-      # and the suites run the packages themselves), so no repository credential
-      # is left in .git/config for them to find.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: packages/ifc-spatial/package-lock.json
-      # ifc-spatial-py resolves against its OWN uv.lock, not the root one, so the
-      # cache has to be keyed on that file — pointing it at the repo-root lock
-      # would restore an environment this suite never uses and then build the
-      # real one from scratch on every run. It is the expensive half of this job
-      # (636 tests, 3m55s measured locally) and it drags IfcOpenShell + shapely
-      # wheels in, so the cache is the difference between ~4 and ~6 minutes.
-      - uses: astral-sh/setup-uv@v10.0.1
+      # Keyed on the package's OWN uv.lock: the root one would restore an
+      # environment this suite never uses (IfcOpenShell + shapely wheels).
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: packages/ifc-spatial-py/uv.lock
       - uses: ./.github/actions/setup-task
       - name: Install the packages' own toolchains
         run: task pkg:install
-      # Two steps, not `task pkg:test`, so the job's summary says WHICH package
-      # failed without opening the log.
+      # Two steps, not `task pkg:test`, so the summary names the package.
       - name: ifc-spatial (tests + typecheck)
         run: task pkg:test:ts
       - name: ifc-spatial-py (pytest)
         run: task pkg:test:py
 
-  release-note:
-    name: Release note
-    # The note lint runs on every pull request and push, so a push straight to
-    # release/** is still checked; only the require-a-note step reads a PR (its
-    # base and its labels). Skipped like every other job when a push reuses its
-    # pull request's green result for the same tree.
+  # The third-party images deploy/pulumi pins by digest (ADR-0029) are built by
+  # nobody here, so nothing else scans them. Only the pins this change adds or
+  # moves: an untouched pin with a CVE disclosed this morning is not this
+  # change's to fix, and the weekly Security run scans every pin.
+  trivy:
+    name: Image vulns (trivy, changed pins)
     needs: changes
-    if: needs.changes.outputs.reused != 'true'
-    # Deliberately NOT behind a paths filter, and deliberately not part of the
-    # backend tier: this job answers "does this change need a note, and does the
-    # note read like something a customer can use?", which is a question about
-    # the whole PR.
+    if: needs.changes.outputs.pins != '[]'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TRIVY_VERSION: "0.61.1"
+      PINS: ${{ needs.changes.outputs.pins }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The require-a-note check diffs against the merge base, so the base
-          # branch has to be there. Shallow-by-default checkout has neither.
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v10.0.1
+          persist-credentials: false
+      - run: python3 -c 'import json, os; print("\n".join(json.loads(os.environ["PINS"])))' | tee pins.txt
+      - name: Restore the layer analysis
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          enable-cache: true
+          path: .trivy-cache/fanal
+          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
+      - run: bash ci/trivy_scan.sh pins.txt
+      - name: Save the layer analysis
+        if: always() && hashFiles('.trivy-cache/fanal/**') != ''
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .trivy-cache/fanal
+          key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pins.txt') }}
 
-      # The house rules on note prose (plain sentences, no internal references,
-      # no reStructuredText) — the notes are published verbatim to piloti.at.
-      - name: Lint the notes
-        run: uv run --no-project --with reno==4.1.0 python scripts/release_notes.py lint
+  # A pull request proves each image it changes still builds, and pushes
+  # nothing: the token is read-only, so no build here can reach the registry
+  # or the layer cache the next publish imports.
+  image:
+    name: Image build (${{ matrix.name }})
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.build != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read # the GHCR layer cache
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.build) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/build-image
+        with:
+          name: ${{ matrix.name }}
+          context: ${{ matrix.context }}
+          dockerfile: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          repository: ${{ matrix.repository }}
+          hash: ${{ matrix.hash }}
+          registry: ${{ env.REGISTRY }}
 
-      - name: reno lint
-        run: uv run --no-project --with reno==4.1.0 reno --rel-notes-dir releasenotes lint .
+  # A push builds each image GHCR does not have yet and pushes it under its
+  # content tag only. It runs beside the checks rather than after them: the
+  # content tag claims nothing about the commit, so building early costs
+  # nothing if a check later fails, and saves the build time when none does.
+  image-push:
+    name: Image build + push (${{ matrix.name }})
+    needs: changes
+    if: github.event_name == 'push' && needs.changes.outputs.build != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.build) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/build-image
+        with:
+          name: ${{ matrix.name }}
+          context: ${{ matrix.context }}
+          dockerfile: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          repository: ${{ matrix.repository }}
+          hash: ${{ matrix.hash }}
+          registry: ${{ env.REGISTRY }}
+          push: "true"
 
-      # AGENTS.md: a change a customer can notice ships with its note in the same
-      # PR. Enforced here rather than trusted, because the note is the first thing
-      # that gets dropped under time pressure and the only thing the customer sees.
-      # Escape hatch: the `no-release-note` label, for a PR that genuinely changes
-      # nothing a user can observe. A push has no PR to label, so this step runs
-      # on pull requests only.
-      - name: Require a note for user-visible changes
-        if: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'no-release-note') }}
+  # The commit's tags, `sha-<commit>` for all three images (and `latest` on
+  # develop), go on only after every check on this push passed. That is the
+  # contract deploy.yml and a prod promotion rely on: every commit CI passed
+  # has all three images, and no commit CI failed has any.
+  publish:
+    name: Tag images for this commit
+    needs: [changes, repo, backend, frontend, frontend-test, web, infra, packages, trivy, image-push]
+    if: >-
+      always() && github.event_name == 'push' && needs.changes.result == 'success'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          cleanup: false # the runner is discarded; see build-image/action.yml
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # A registry-side manifest copy: seconds, and no layer moves.
+      - name: Tag sha-${{ github.sha }}
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 ci/require_release_note.py "$BASE_SHA" "$HEAD_SHA"
+          IMAGES: ${{ needs.changes.outputs.images }}
+          LATEST: ${{ github.ref == 'refs/heads/develop' }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          registry, sha = os.environ["REGISTRY"], os.environ["GITHUB_SHA"]
+          for image in json.loads(os.environ["IMAGES"]):
+              repo = f"{registry}/{image['repository']}"
+              tags = ["-t", f"{repo}:sha-{sha}"]
+              if os.environ["LATEST"] == "true":
+                  tags += ["-t", f"{repo}:latest"]
+              print(f"{repo}:inputs-{image['hash']} -> sha-{sha}", flush=True)
+              subprocess.run(["docker", "buildx", "imagetools", "create", *tags, f"{repo}:inputs-{image['hash']}"], check=True)
+          PY
 
   ci-ok:
     name: CI OK
     if: always()
-    # `frontend-coverage` is deliberately NOT here. It is serialised after all
-    # four shards but produces only the coverage comment — correctness is
-    # already gated by the shards themselves, which do fail this gate. Requiring
-    # it added ~58s to every run (shards finished 18:57:57, CI OK landed
-    # 18:58:55) for a job whose real work is a 5s merge. It still reports its own
-    # red check if the merge breaks; it just no longer holds the gate open.
+    # `frontend-coverage` is deliberately NOT here: it produces a comment,
+    # correctness is gated by the shards, and requiring it held the gate open
+    # for a minute after the last shard.
     #
-    # `tenant-isolation` IS here, and must stay: it is the only check that proves
-    # the row-level-security boundary actually holds (ADR-0041). The unit shards
-    # cannot — the integration suite self-skips without a database.
-    #
-    # `retrieval-eval` USED TO BE here, for the same reason: it was the only
-    # check that proved a chunker still leaves Punkte as citable units
-    # (ADR-0058 rule 7). It is gone, deliberately, and the reason is written
-    # down here rather than deleted with it: the gate reads the real OIB
-    # Richtlinien, and those are now operator-provided and gitignored
-    # (data/oib/README.md), so no CI checkout can ever have a corpus to measure.
-    # A job that can only pass vacuously is worse than no job.
-    #
-    # The harness survives as an opt-in local tool (`task be:eval:retrieval`),
-    # and it now says so when the corpus is absent instead of raising.
-    # What restoring the gate would take, and what was lost with it:
-    # docs/adr/0058-retrieval-correctness-and-the-measurement-gate.md,
-    # "Update (2026-09-09)".
-    needs: [changes, backend-lint, backend-test, backend-test-plugins, frontend, frontend-test, tenant-isolation, web, infra, packages, repo-lint, release-note]
+    # `retrieval-eval` used to be here. It read the real OIB Richtlinien, which
+    # are now operator-provided and gitignored (data/oib/README.md), so no CI
+    # checkout can hold a corpus to measure, and a job that can only pass
+    # vacuously is worse than none. It survives as `task be:eval:retrieval`;
+    # ADR-0058 "Update (2026-09-09)" says what restoring the gate would take.
+    needs: [changes, repo, semgrep, backend, frontend, frontend-test, web, infra, packages, trivy, image, image-push, publish]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require needed jobs to have passed (skipped is fine)
+        env:
+          NEEDS: ${{ toJSON(needs) }}
         run: |
-          python3 - <<'EOF'
-          import json, sys
-          needs = json.loads('''${{ toJSON(needs) }}''')
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS"])
           failed = {k: v["result"] for k, v in needs.items() if v["result"] not in ("success", "skipped")}
           if failed:
-              print("Failing jobs:", failed)
-              sys.exit(1)
+              sys.exit(f"Failing jobs: {failed}")
           print("All required jobs passed or were skipped.")
-          EOF
+          PY
       # A green pull_request run leaves a marker named for the tree it tested
-      # (GITHUB_SHA is the merge commit every job checked out), so the push that
-      # lands this exact tree can reuse the result: `changes` reads it. After the
-      # check above and without always(), so a failing gate uploads nothing, and
-      # the push still demands that the whole run concluded `success`. Best
-      # effort: a hiccup here costs the push a full re-run, never this gate.
+      # (GITHUB_SHA is the merge commit every job checked out), so the push
+      # that lands this exact tree on a green parent can skip its checks. After
+      # the check above and without always(), so a failing gate uploads nothing.
+      # Best effort: a hiccup costs the push a full run, never this gate.
       - name: Name the tree this run tested
         id: tree
         if: github.event_name == 'pull_request'
@@ -572,7 +713,7 @@ jobs:
       - name: Record this tree as green
         if: github.event_name == 'pull_request' && steps.tree.outputs.tree != ''
         continue-on-error: true
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ci-green-${{ steps.tree.outputs.tree }}
           path: ${{ runner.temp }}/green-run.txt

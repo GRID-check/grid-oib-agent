@@ -11,7 +11,7 @@
  * folders on; this proves the SQL that receives them leaves the documents out,
  * that the tree the decision reads (whether everyone reads, and tombstones) is
  * the one in the database, that a custom folder needs no grant row any more
- * (who is on its list is WorkOS's, ADR-0096) but still needs who set it, that
+ * (who is on its list is WorkOS's, ADR-0097) but still needs who set it, that
  * the old grants stay inside the tenant boundary, and that a deleted folder's
  * tombstone frees its name.
  */

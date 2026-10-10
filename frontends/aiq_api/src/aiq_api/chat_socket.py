@@ -112,6 +112,12 @@ from aiq_agent.common.write_fence import unbind_write_fence
 from aiq_agent.conversation_context import ContextOnlyMessage
 from aiq_agent.conversation_context import append_conversation_context
 from aiq_agent.conversation_context import format_context_turn
+from aiq_agent.observability.langfuse_scores import emit_scores
+from aiq_agent.observability.langfuse_scores import turn_outcome_scores
+from aiq_agent.observability.turn_outcome import begin_turn_outcome
+from aiq_agent.observability.turn_outcome import end_turn_outcome
+from aiq_agent.observability.turn_outcome import record_turn_error
+from aiq_agent.observability.turn_outcome import record_turn_finished
 from aiq_agent.observability.turn_trace import TRACE_ID_METADATA_KEY
 from aiq_agent.observability.turn_trace import pinned_trace
 from aiq_agent.observability.turn_trace import trace_id_for_message
@@ -1268,6 +1274,14 @@ async def _relay_workflow(turn: RunningTurn, request: UserMessage, session: Any)
     """Send every body the turn's ``_run`` yields, in order; the stream closes in this task."""
     async with contextlib.aclosing(stream_workflow(request, session=session)) as bodies:
         async for body in bodies:
+            # The terminal is the turn's authoritative record; the root span,
+            # exported after it, carries it to Langfuse (`turn_outcome`).
+            if isinstance(body, RunFinishedBody):
+                record_turn_finished(body)
+                if body.outcome == "answered":
+                    emit_scores(turn_outcome_scores(body.result), writer="chat")
+            elif isinstance(body, RunErrorBody):
+                record_turn_error(body.code, body.details or body.message)
             await turn.publish(body)
 
 
@@ -1285,16 +1299,28 @@ async def _drive(
     # The turn's trace is named by its answer id, so the persisted answer row
     # (`turn_row_metadata`) can say which trace it is, and a vote on it can be
     # scored there. NAT adopts a pinned id instead of drawing a random one.
-    with pinned_trace(trace_id_for_message(turn.message_id)), user_context(caller), request_trace_tag_context(tags):
-        async with session_manager.session(
-            # Never None: NAT would then derive an id from the unverified headers.
-            user_id=turn.asker_subject or caller.get("type"),
-            user_message_id=request.message_id,
-            conversation_id=request.conversation_id,
-            http_connection=socket,
-            user_input_callback=turn.ask,
-        ) as session:
-            await _relay_workflow(turn, request, session)
+    # The turn's outcome rides its root span (`turn_outcome`): bound here, the
+    # context every export task of this turn snapshots, and filled in place
+    # by `_relay_workflow` when the terminal passes.
+    outcome = begin_turn_outcome()
+    try:
+        with pinned_trace(trace_id_for_message(turn.message_id)), user_context(caller), request_trace_tag_context(tags):
+            async with session_manager.session(
+                # Never None: NAT would then derive an id from the unverified headers.
+                user_id=turn.asker_subject or caller.get("type"),
+                user_message_id=request.message_id,
+                conversation_id=request.conversation_id,
+                http_connection=socket,
+                user_input_callback=turn.ask,
+            ) as session:
+                await _relay_workflow(turn, request, session)
+    except Exception as exc:
+        # Best effort: a root span exported before the exception got here
+        # keeps whatever the box held, so a fault can still read as healthy.
+        record_turn_error(_error_for(exc).code, str(exc))
+        raise
+    finally:
+        end_turn_outcome(outcome)
 
 
 #: ``RUN_ERROR.details`` of a turn its deadline ended, so a log line or a client

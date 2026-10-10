@@ -1,5 +1,5 @@
 /**
- * Setting who may read and who may write a project folder (ADR-0088, ADR-0096).
+ * Setting who may read and who may write a project folder (ADR-0088, ADR-0097).
  *
  * A folder inherits its parent's access, or has its own list: people, each with
  * `read` or `write`, and optionally „everyone in the project reads". The people
@@ -224,7 +224,7 @@ export async function setFolderAccess(
         )
         .returning({ id: projectFolders.id })
       if (rows.length === 0) return rows
-      // A build before ADR-0096 decides from these rows. Left in place they
+      // A build before ADR-0097 decides from these rows. Left in place they
       // would contradict the list now in WorkOS, so a rollback or an old pod in
       // a rolling deploy would read the folder as it was before this change;
       // without them it reads a custom folder as one nobody but admins may read.

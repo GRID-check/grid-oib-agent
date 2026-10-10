@@ -5,7 +5,7 @@
  * A folder either inherits its parent's access (`accessMode: 'inherit'`; a root
  * folder inherits the project) or has its own access list (`'custom'`): a
  * WorkOS `folder` resource on which people hold a folder role that reads or
- * writes (ADR-0096, `./folder-roles`), and optionally „everyone in the project
+ * writes (ADR-0097, `./folder-roles`), and optionally „everyone in the project
  * reads" (`everyoneReads`). Someone without a folder role on it gets nothing,
  * or read when everyone reads.
  *
@@ -119,10 +119,10 @@ async function folderLevelsIn(
 
 /**
  * What clears folders for this session in one project: the folder roles WorkOS
- * has assigned its membership there (ADR-0096), and the admin bypass
+ * has assigned its membership there (ADR-0097), and the admin bypass
  * ({@link seesEveryFolder}).
  *
- * Someone who reads a CLOSED project only because it is closed (ADR-0089: every
+ * Someone who reads a CLOSED project only because it is closed (ADR-0090: every
  * organization member may) clears what a member holding no folder role clears:
  * the folders open to everyone, and no folder with its own list. Closing a
  * project opens it to the office, not its restricted folders. Hence the project
@@ -360,7 +360,7 @@ export async function customFolderNames(organizationId: string, projectId: strin
  * What clears folders in `projectId` for a member who is not the session:
  * someone a conversation is shared with, or the asker of an agent turn. The
  * admin bypass from the roles WorkOS reports for their membership, and
- * otherwise the folder roles it holds in the project (ADR-0096). Fails closed:
+ * otherwise the folder roles it holds in the project (ADR-0097). Fails closed:
  * no membership, or a lookup that failed, clears nothing. In a closed project
  * they read only because it is closed, they clear what a member with no folder
  * role clears ({@link clearanceOf}).
@@ -439,7 +439,7 @@ export const RESTRICTED_PROJECT_READS_AT_ONCE = 4
  * is narrowed to in SQL (the download log's name filter). Each project by the
  * session's clearance in that project ({@link clearanceOf}), so a closed one
  * clears someone who reads it only because it is closed as a member with no
- * role (ADR-0089). A project the list leaves out, past its bound, contributes
+ * role (ADR-0090). A project the list leaves out, past its bound, contributes
  * no folder, so its rows match nothing: the narrowing fails closed. Projects
  * are read {@link RESTRICTED_PROJECT_READS_AT_ONCE} at a time; the answer is in
  * the list's order all the same.

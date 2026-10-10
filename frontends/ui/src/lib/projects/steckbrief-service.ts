@@ -1,12 +1,12 @@
 /**
- * The Steckbrief of a project (ADR-0090): address, period, and everyone who
+ * The Steckbrief of a project (ADR-0091): address, period, and everyone who
  * worked on it. The address is the profile fact `standort_adresse` and is
  * edited where every fact is, in the intake wizard; this service owns the
  * period and the people.
  *
  * Who may do what:
  *   - read: `project:view`, so every member of the office reads a closed
- *     project's Steckbrief (ADR-0089);
+ *     project's Steckbrief (ADR-0090);
  *   - change the period or a person: the profile's write permissions, refused
  *     in a closed project like every other write;
  *   - delete a person: the same in an active project, and `project:manage` in a

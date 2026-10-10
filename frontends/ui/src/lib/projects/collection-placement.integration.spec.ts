@@ -66,7 +66,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     )
   /**
    * Give the folder its own list, or make it inherit again with `null`. Who is
-   * on the list is WorkOS's (ADR-0096) and placement never asks: it keys on
+   * on the list is WorkOS's (ADR-0097) and placement never asks: it keys on
    * whether every member reads (`everyoneReads`), which a list of people does
    * not decide.
    */

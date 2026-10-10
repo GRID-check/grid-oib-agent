@@ -138,7 +138,7 @@ class SourceEntry:
     # locates by matching ``chunk_text`` instead. Several chunks of one page
     # merge their boxes on dedup, so a page cited for two depictions marks both.
     regions: list[SourceRegion] = field(default_factory=list)
-    # The OTHER project a cross-project lookup found this passage in (ADR-0093),
+    # The OTHER project a cross-project lookup found this passage in (ADR-0094),
     # as the knowledge layer's ``Projekt:`` line states it. None for every
     # source of the turn's own scope. The chip names it, and the preview opens
     # the document in that project rather than in the chat's own.
@@ -1179,7 +1179,7 @@ _KL_PROVENANCE_RE = re.compile(r"^Herkunft:\s*(.+)$", re.MULTILINE)
 # rest of the line, not one token: the corpus form is ``3.5.2``, a RIS passage
 # states its locus the way a lawyer reads it, ``§ 63 Abs 1``, and squeezing that
 # to ``§63Abs1`` to fit a one-token rule put an unreadable locus on every chip.
-#: ``Projekt: Name — abgeschlossen (project_id …)`` (``grounding_block._project_line``, ADR-0093).
+#: ``Projekt: Name — abgeschlossen (project_id …)`` (``grounding_block._project_line``, ADR-0094).
 _KL_PROJECT_RE = re.compile(r"^Projekt:\s*(.+?)\s+—\s+(\S+)\s+\(project_id\s+([^\s)]+)\)\s*$", re.MULTILINE)
 _KL_PUNKT_RE = re.compile(r"^Punkt:\s*(.+?)\s*$", re.MULTILINE)
 #: ``Bundesland: …`` under the ``Projekt:`` line (``grounding_block._header_lines``), when the project's Land is stated.
@@ -1459,7 +1459,7 @@ register_source_parser(lambda name: "ris_lookup" in name, _parse_knowledge_layer
 # structured path reads its block by hash and would otherwise recover passages
 # the text path cannot (ADR-0061).
 register_source_parser(lambda name: "read_passage" in name, _parse_knowledge_layer)
-# The cross-project lookup (ADR-0093) renders its search hits in the same
+# The cross-project lookup (ADR-0094) renders its search hits in the same
 # grammar, with a ``Projekt:`` line. A replayed turn reads them back here; its
 # find and brief answers carry no ``Citation:`` line and so state no source.
 register_source_parser(lambda name: "project_lookup" in name, _parse_knowledge_layer)
@@ -2492,7 +2492,7 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
     page: int | None = None
     if entry.citation_key:
         parsed_name, page = _parse_citation_key(entry.citation_key)
-        # A cross-project key names its project after the file (ADR-0093):
+        # A cross-project key names its project after the file (ADR-0094):
         # „Plan.pdf (Wohnbau Graz), p.3". The file is called Plan.pdf.
         project_qualifier = f" ({entry.project_name})" if entry.project_name else None
         if project_qualifier and parsed_name.endswith(project_qualifier):
@@ -2594,7 +2594,7 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         # which the viewer finds by matching ``snippet`` instead.
         "regions": [region.to_wire() for region in entry.regions] or None,
         # The OTHER project a cross-project lookup found this passage in
-        # (ADR-0093): the chip names it, and the preview opens the document in
+        # (ADR-0094): the chip names it, and the preview opens the document in
         # that project. Absent for every source of the chat's own scope.
         "project": _wire_project(entry),
     }
@@ -2639,7 +2639,7 @@ _READ_SOURCE_WIRE_KEYS = frozenset(
         "title",
         "url",
         # Which project a read-but-uncited passage of another project came
-        # from: identity, like the collection (ADR-0093).
+        # from: identity, like the collection (ADR-0094).
         "project",
     }
 )

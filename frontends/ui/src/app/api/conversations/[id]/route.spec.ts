@@ -208,7 +208,7 @@ describe('DELETE /api/conversations/[id]', () => {
   })
 })
 
-describe('GET /api/conversations/[id]: the other projects that restrict the chat (ADR-0093)', () => {
+describe('GET /api/conversations/[id]: the other projects that restrict the chat (ADR-0094)', () => {
   const GRAZ = { id: '22222222-0000-4000-8000-000000000002', name: 'Wohnbau Graz' }
   const get = () =>
     GET(new Request('https://grid.example/api/conversations/conv_1'), { params: Promise.resolve({ id: 'conv_1' }) })

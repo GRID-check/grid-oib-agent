@@ -331,7 +331,7 @@ export const files: typeof en.files = {
     breadcrumb: 'Ordnerpfad',
     movedFolder: '„{name}“ nach „{parent}“ verschoben.',
     moveFolderError: 'Der Ordner konnte nicht verschoben werden. Bitte erneut versuchen.',
-    /** Ordnerzugriff (ADR-0088, ADR-0096): einen Ordner auf Personen einschränken. */
+    /** Ordnerzugriff (ADR-0088, ADR-0097): einen Ordner auf Personen einschränken. */
     access: {
       menu: 'Zugriff …',
       /** Das Schloss am Ordner: Wer auf der Liste steht, sagt erst der Dialog. */

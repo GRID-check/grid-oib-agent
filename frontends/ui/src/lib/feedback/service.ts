@@ -145,7 +145,9 @@ export async function submitAnswerFeedback(
   // The vote as a score on the answer's Langfuse trace (ADR-0044, Amendment 3).
   // After the write, never awaited: Langfuse being slow or down must not cost
   // the voter anything, and the vote in the database is the record either way.
-  void scoreVoteInLangfuse(session.organizationId, row)
+  // The prior verdict decides whether a down-vote is new enough to queue for
+  // review (an edited complaint is not a second one).
+  void scoreVoteInLangfuse(session.organizationId, row, prior?.verdict ?? null)
 
   return toView(row)
 }
@@ -186,7 +188,11 @@ async function implicateFeedbackMemory(
  * the voter's words (`isRestrictedUseVote`), as the platform's own feedback
  * views leave it out: the number and the reason chip are not content.
  */
-async function scoreVoteInLangfuse(organizationId: string, row: AnswerFeedback): Promise<void> {
+async function scoreVoteInLangfuse(
+  organizationId: string,
+  row: AnswerFeedback,
+  previousVerdict: AnswerFeedback['verdict'] | null
+): Promise<void> {
   if (!feedbackScoringEnabled()) return
   try {
     const traceId = await getAnswerTraceId(row.messageId, organizationId)
@@ -199,6 +205,7 @@ async function scoreVoteInLangfuse(organizationId: string, row: AnswerFeedback):
       reason: row.reason ?? null,
       comment: withWords ? (row.comment ?? null) : null,
       expectedAnswer: withWords ? (row.expectedAnswer ?? null) : null,
+      previousVerdict,
     })
   } catch (error) {
     console.warn('[Feedback] Langfuse score failed (non-fatal):', error)

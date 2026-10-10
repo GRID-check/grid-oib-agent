@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * „Ausmisten" against a REAL Postgres (ADR-0091), through the restricted role:
+ * „Ausmisten" against a REAL Postgres (ADR-0092), through the restricted role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/projects/cleanup.integration.spec.ts
@@ -45,7 +45,7 @@ vi.mock('@/lib/authz/projects', async () => {
   }
 })
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn(async () => null) }))
-/** Each custom folder's list in WorkOS (ADR-0096): membership → level. */
+/** Each custom folder's list in WorkOS (ADR-0097): membership → level. */
 const lists = vi.hoisted(() => new Map<string, Record<string, 'read' | 'write'>>())
 vi.mock('@/lib/authz/folder-roles', () => ({
   heldFolderLevels: vi.fn(async (_org: string, membershipId: string) =>

@@ -638,7 +638,7 @@ export const POST = tenantSlotRoute(async function POST(
       submit: path[0] === 'submit',
     })
 
-    // A closed project files nothing (ADR-0089): a research run's report would
+    // A closed project files nothing (ADR-0090): a research run's report would
     // land in it. The agent no longer offers research there; this is the door a
     // direct call comes through.
     if (path[0] === 'submit' && scope.projectId && isProjectClosed(await findProjectTenancy(scope.projectId))) {

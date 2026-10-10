@@ -17,6 +17,7 @@ from aiq_agent.common import provider_limiter
 from aiq_agent.common.credential_resolution import ResolvedCredential
 from aiq_agent.common.openrouter import DataPolicy
 from aiq_agent.common.openrouter import limited_async_http_client
+from aiq_agent.observability.direct_trace import observed_generation
 
 from ..models.requests import GenerateSummaryRequest
 from ..models.requests import GenerateSummaryResponse
@@ -127,10 +128,16 @@ def add_generate_summary_routes(router: APIRouter) -> None:
         )
 
         try:
-            async with limited_async_http_client(cls=provider_limiter.INTERACTIVE, timeout=30.0) as client:
+            async with (
+                observed_generation(
+                    "project-summary", model=cred.model, messages=payload.get("messages")
+                ) as generation,
+                limited_async_http_client(cls=provider_limiter.INTERACTIVE, timeout=30.0) as client,
+            ):
                 response = await client.post(f"{cred.base_url}/chat/completions", json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
+                generation.finish(data)
         except httpx.HTTPStatusError as exc:
             logger.warning(
                 "Summary LLM returned an error status: %s (%s)",

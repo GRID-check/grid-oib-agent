@@ -1,5 +1,5 @@
 /**
- * Migration 0128 against a real Postgres (ADR-0096): who is on a folder's own
+ * Migration 0128 against a real Postgres (ADR-0097): who is on a folder's own
  * list moves to WorkOS, and the one part of a list that names no person stays
  * with the folder as `everyone_reads`. What the SQL carries over from the
  * role-based grants of 0111:

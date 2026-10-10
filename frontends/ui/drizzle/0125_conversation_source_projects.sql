@@ -1,7 +1,7 @@
 -- 0125: conversation_source_projects — the OTHER projects whose content a
--- conversation drew on through the cross-project lookups (ADR-0093).
+-- conversation drew on through the cross-project lookups (ADR-0094).
 --
--- A chat, shared or solo, may search the projects its audience may open (ADR-0093:
+-- A chat, shared or solo, may search the projects its audience may open (ADR-0094:
 -- the reach is the audience's). Content from such a project then sits in the
 -- conversation, so whoever may later read the conversation must be someone who may
 -- open that project too. A restricted folder of that project is recorded where
@@ -31,6 +31,6 @@ CREATE TABLE IF NOT EXISTS "conversation_source_projects" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "conversation_source_projects" IS
-  'Another project whose content this conversation drew on through a cross-project lookup (ADR-0093). Who may read the conversation is decided at read time: only people who may open every recorded project.';
+  'Another project whose content this conversation drew on through a cross-project lookup (ADR-0094). Who may read the conversation is decided at read time: only people who may open every recorded project.';
 --> statement-breakpoint
 SELECT grid_secure_table('conversation_source_projects', 'organization_id = grid_current_org()');

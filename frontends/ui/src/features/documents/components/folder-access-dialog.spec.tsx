@@ -57,7 +57,7 @@ function addPerson(dialog: HTMLElement, name: RegExp): void {
   fireEvent.click(screen.getByRole('option', { name }))
 }
 
-describe('FolderAccessDialog (ADR-0088, ADR-0096)', () => {
+describe('FolderAccessDialog (ADR-0088, ADR-0097)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     client.listProjectPeople.mockResolvedValue(PEOPLE)

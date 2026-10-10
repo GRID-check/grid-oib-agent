@@ -155,7 +155,7 @@ describe('CustomRolesSection', () => {
     return screen.getByTestId('custom-role-delete-confirm')
   }
 
-  it('deletes after a plain confirmation: no folder depends on a role (ADR-0096)', async () => {
+  it('deletes after a plain confirmation: no folder depends on a role (ADR-0097)', async () => {
     stubApi({ roles: [ADMIN, GF], assignable: ASSIGNABLE })
     render(<CustomRolesSection />)
     const confirm = await openDelete()

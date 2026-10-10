@@ -357,7 +357,7 @@ export const files = {
     breadcrumb: 'Folder path',
     movedFolder: '“{name}” moved to “{parent}”.',
     moveFolderError: 'The folder could not be moved. Please try again.',
-    /** Folder access (ADR-0088, ADR-0096): restricting a folder to people. */
+    /** Folder access (ADR-0088, ADR-0097): restricting a folder to people. */
     access: {
       menu: 'Access…',
       /** The lock on a folder: who is on the list only the dialog says. */

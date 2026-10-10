@@ -186,7 +186,7 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
   {
     // Similar projects: the closed projects most like this one that the person
     // may open, with what they share and their decisions and permit conditions
-    // (ADR-0093). A reading surface beside Dateien, so it sits in the work group.
+    // (ADR-0094). A reading surface beside Dateien, so it sits in the work group.
     key: 'referenzen',
     segment: 'referenzen',
     icon: GitCompareArrows,

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Close a project, or reopen it (ADR-0089) — the settings card for whoever
+ * Close a project, or reopen it (ADR-0090) — the settings card for whoever
  * holds `project:manage`. Both directions ask once; neither deletes anything.
  * Closing asks in the „Ausmisten" dialog (`close-project-dialog.tsx`), with
  * the closing debrief inside it (`closing-debrief.tsx`): what the project
@@ -96,7 +96,7 @@ export function ProjectLifecycleCard({
           {closed ? <LockOpen className="size-4" aria-hidden /> : <Lock className="size-4" aria-hidden />}
           {closed ? t('lifecycle.card.reopen') : t('lifecycle.card.close')}
         </Button>
-        {/* Closing goes through „Ausmisten" first (ADR-0091); reopening asks once. */}
+        {/* Closing goes through „Ausmisten" first (ADR-0092); reopening asks once. */}
         {!closed && (
           <CloseProjectDialog projectId={projectId} open={open} onOpenChange={setOpen} onClose={submit}>
             {open && (

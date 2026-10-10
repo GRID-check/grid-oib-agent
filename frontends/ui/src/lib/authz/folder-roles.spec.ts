@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Who holds which folder role, kept in WorkOS (ADR-0096): the read fails
+ * Who holds which folder role, kept in WorkOS (ADR-0097): the read fails
  * closed and is never cached when it fails; the write removes before it
  * assigns; and every change of a list in a project starts a new generation of
  * the project's cached levels, failed or not, so no level read before the

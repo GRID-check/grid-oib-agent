@@ -18,7 +18,7 @@ vi.mock('@/lib/projects/memory-service', () => ({
 vi.mock('@/lib/documents/review-decisions', () => ({ buildReviewDecisionsBlock: vi.fn() }))
 vi.mock('@/lib/authz/folder-access', () => ({
   ANY_MEMBER: { levels: {}, seesEverything: false },
-  // The asker holds a folder role on SECRET (ADR-0096).
+  // The asker holds a folder role on SECRET (ADR-0097).
   clearanceOfMember: vi.fn(async () => ({ levels: { 'folder-secret': 'read' }, seesEverything: false })),
   // Every member reads OPEN; the asker reads OPEN and SECRET.
   readableFolderIdsFor: vi.fn(
@@ -281,7 +281,7 @@ describe('restricted memory in the per-turn digest', () => {
     expect(response.status).toBe(200)
     expect(clearanceOfMember).toHaveBeenCalledWith(ORG_ID, 'user_gf', PROJECT_ID)
     expect(options().readableFolderIds).toEqual(['folder-open', 'folder-secret'])
-    // The answer the turn writes is marked in the admission's transaction (ADR-0092).
+    // The answer the turn writes is marked in the admission's transaction (ADR-0093).
     expect(admitSourceFolders).toHaveBeenCalledWith(
       {
         organizationId: ORG_ID,

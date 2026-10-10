@@ -1,6 +1,6 @@
 /**
  * The permit records of one project as the person reading it may see them
- * (permitting memory, ADR-0094). The project must be viewable, and a record
+ * (permitting memory, ADR-0095). The project must be viewable, and a record
  * whose document sits in a restricted folder shows only to a reader whose
  * roles may read every folder restricting it now: the folders they may read
  * come from their per-role read grants (`memoryClearance`, the read

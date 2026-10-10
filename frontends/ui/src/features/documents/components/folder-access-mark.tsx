@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The lock on a folder with its own access list (ADR-0088, ADR-0096), with
+ * The lock on a folder with its own access list (ADR-0088, ADR-0097), with
  * what the list means in a tooltip: only the people on it, or every project
  * member reading and only the people on it editing. WHO is on it is not in the
  * listing; the folder's ⋯ → „Zugriff…" shows it to whoever may change it.

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A closed project (ADR-0089, migration 0116) against a REAL Postgres, through
+ * A closed project (ADR-0090, migration 0116) against a REAL Postgres, through
  * the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -13,7 +13,7 @@
  * that the 0115 trigger refuses an insert into a closed project while an update
  * still goes through. WorkOS is the only thing stubbed: who holds which
  * organization role, who holds a grant on the project, and who holds a folder
- * role on which folder (ADR-0096).
+ * role on which folder (ADR-0097).
  */
 
 import { sql } from 'drizzle-orm'

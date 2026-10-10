@@ -37,7 +37,7 @@ export interface AccessFolder {
   /**
    * Every project member reads it, and the list decides only who may write.
    * Read only when `accessMode` is `custom`. Who holds the folder's roles is
-   * WorkOS's (ADR-0096); this flag is the one part of a list that names no
+   * WorkOS's (ADR-0097); this flag is the one part of a list that names no
    * person, so it stays with the folder.
    */
   everyoneReads: boolean
@@ -52,7 +52,7 @@ export interface AccessFolder {
 /**
  * Who is asking, reduced to what the folder lists are matched against: the
  * level the person holds on each folder with its own list, by the folder roles
- * WorkOS has assigned them there (ADR-0096). A folder absent from `levels` is
+ * WorkOS has assigned them there (ADR-0097). A folder absent from `levels` is
  * one they hold no role on.
  */
 export interface FolderClearance {

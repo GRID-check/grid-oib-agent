@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Setting a folder's own read/write list (ADR-0088, ADR-0096): people, each
+ * Setting a folder's own read/write list (ADR-0088, ADR-0097): people, each
  * with read or write, and optionally everyone reading. Validated against the
  * organization's members, written to WorkOS BEFORE the folder row says
  * `custom` and the row back to `inherit` BEFORE the WorkOS resource goes, so

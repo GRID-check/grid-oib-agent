@@ -44,7 +44,7 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
     }
 
     // A closed project's role is unchanged, but nothing it lets one change is
-    // open (ADR-0089): only closing and reopening, and the members.
+    // open (ADR-0090): only closing and reopening, and the members.
     const managesProject = role === 'project-admin'
     const canManageProject = managesProject && !closed
     const steckbrief = await getSteckbrief(session, id)

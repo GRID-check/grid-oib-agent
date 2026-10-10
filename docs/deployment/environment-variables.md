@@ -116,7 +116,6 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `AIQ_RETRIEVER_TOP_K` | No | `10` | Default number of chunks a retrieval returns when a caller names no `top_k`. |
 | `AIQ_VERBOSE` | No | `false` | Verbose agent/callback logging (`1`/`true`/`yes` enable). Diagnostic only. |
 | `AIQ_ENABLE_DEBUG` | No | `true` | Mounts the debug console at `/debug`. Set to `0`/`false`/`no`/`off` to disable it — worth doing on any deployment where that surface should not be reachable. |
-| `AIQ_CHAT_URL` | No | `http://localhost:8001` | Base URL of the chat role (ADR-0082) that the Agent Skill helper's `chat` command posts `/chat` to (`skills/aiq-research/scripts/aiq.py`). Read by the skill helper, not the backend. Every other helper command uses `AIQ_SERVER_URL` (the api role, default `http://localhost:8000`). |
 | `GRID_INGEST_WAIT_SECONDS` | No | `20` | How long a chat turn holds for a file that is still being indexed into a collection the turn can read (a just-uploaded attachment), polling once a second, before answering with the inventory's "still being read" note instead. `0` disables the hold. The live status line says the turn is waiting. |
 | `GRID_AVAILABLE_DOCUMENTS_MAX` | No | `50` | Caps how many documents are listed in the agent's `available_documents` prompt block. User-shelf files (Büroablage / Projekt / session) are kept first so the OIB corpus cannot evict them; within a shelf the cut is filename-sorted and deterministic. `0`/negative disables the cap. |
 | `AIQ_EXTRACT_TABLES` | No | `true` (set `false` to disable) | Adds a PDF's uncaptioned tables to the index as `[TABLE from page N]` chunks; off, they stay garbled inside the page text. Captioned tables (a „Tabelle 3“ with its caption) are always read as tables and indexed, whatever this says; the extra pass skips any table the captioned pass already took. Only `false`/`0`/`no`/`off` switch it off; no deployment sets it. |
@@ -371,7 +370,7 @@ Read by `frontends/ui/workers/jobs/index.js`, the entry point of the `bff-jobs` 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `APP_ENV` | No | `development` | Application environment. Set to `production` in release Docker build. |
-| `GRID_GIT_SHA` | No | — (`unknown`) | The commit the running image was built from. **Not set by hand:** `publish-images.yml` passes `--build-arg GRID_GIT_SHA=${{ github.sha }}` and both Dockerfiles re-export it as an env var, so every published image carries its own commit. Nothing inside a container can read its own image tag, which is why a pilot report could not name a build. It appears in the `[boot]` startup line on **both** services and as `sha` on `/api/healthz` (BFF) and `/health` (aiq-agent) — so a deployment can be asked what it is running, over HTTP, days later. Unset (a locally built or hand-tagged image) reads back as `unknown` rather than a guess. Both services. |
+| `GRID_GIT_SHA` | No | — (`unknown`) | The commit the running image was built from. **Not set by hand:** CI's image build (`.github/actions/build-image`) passes `--build-arg GRID_GIT_SHA=${{ github.sha }}` and both Dockerfiles re-export it as an env var, so every published image carries the commit that built it. An image whose inputs did not change is re-tagged rather than rebuilt, so this is the commit its code came from, which can be older than the deployed tag. Nothing inside a container can read its own image tag, which is why a pilot report could not name a build. It appears in the `[boot]` startup line on **both** services and as `sha` on `/api/healthz` (BFF) and `/health` (aiq-agent) — so a deployment can be asked what it is running, over HTTP, days later. Unset (a locally built or hand-tagged image) reads back as `unknown` rather than a guess. Both services. |
 | `LOG_LEVEL` | No | `INFO` | Logging level: DEBUG, INFO, WARNING, ERROR. |
 | `PYTHONWARNINGS` | No | `ignore` | Python warnings filter. |
 | `PROJECT_PURGE_GRACE_DAYS` | No | see `docs/architecture/deletion-pipeline.md` | Grace period before soft-deleted projects are hard-purged (ADR-0011). |
@@ -442,8 +441,10 @@ rendered with no network touched at all.
 The keys are the SAME Langfuse project keys the trace exporter already uses
 (`public-key` / `secret-key` in the Langfuse Secret,
 `deploy/pulumi/src/platform/langfuse.ts`), under Langfuse's own env names
-because its SDK reads them. The agent tiers do not receive them today — a
-deployment that wants prompt management injects them from that Secret.
+because its SDK reads them. Pulumi injects them into the chat, api and
+agent-worker tiers wherever the Langfuse tier is deployed, for the agent's
+scores ("Agent evaluation scores" below). That supplies the capability only: the prompt
+store stays on the bundled file until `LANGFUSE_PROMPTS_ENABLED` is set.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -485,8 +486,12 @@ the traces are found through `GET /api/public/v2/observations`, which answers
 Every thumbs-up or thumbs-down a user leaves on an answer is also written to
 Langfuse, by the frontend (BFF) server side, as a `user-feedback` score on the
 trace that produced the answer (ADR-0044, Amendment 3;
-`frontends/ui/src/lib/langfuse/`). A retracted vote deletes its score. The
-platform answer-feedback view links each rated turn to its trace.
+`frontends/ui/src/lib/langfuse/`). A down-vote adds a categorical
+`user-feedback-reason` score (the reason key, `other` when none was chosen) and
+puts the trace in the `answer-review` annotation queue, if `task
+langfuse:provision` has created it. A retracted vote deletes its scores, and a
+re-vote to up deletes the reason score. The platform answer-feedback view links
+each rated turn to its trace.
 
 Capability only, read per call, and a silent no-op when anything is missing.
 Pulumi injects all five into the frontend only where the Langfuse tier is
@@ -502,6 +507,43 @@ request path scores a vote, and no NetworkPolicy admits that pool to Langfuse.
 | `LANGFUSE_HOST` | No | unset | The Langfuse API the BFF writes scores to: the in-cluster web Service (`http://langfuse-web:3000`), which the `allow-frontend-to-langfuse` NetworkPolicy opens to the frontend pods. Not the public host: that one sits behind the edge's OIDC gate. Frontend. |
 | `LANGFUSE_PUBLIC_URL` | No | unset | Browser-facing origin of the Langfuse UI (`https://langfuse.<domain>`), for the trace and project links in the platform answer-feedback view (`turns[].langfuseTraceUrl`, `langfuse.projectUrl`). Without it, or without `LANGFUSE_PROJECT_ID`, both are null. Frontend. |
 | `LANGFUSE_PROJECT_ID` | No | unset | The Langfuse project id the traces and scores live in; Pulumi passes `langfuseProjectId` (default `grid-oib`), the id headless initialisation created. Frontend. |
+
+## Agent evaluation scores (Langfuse, ADR-0089)
+
+The agent writes the checks every answer passes through (citation
+verification, the quote check, card repair, the confidence cap) as scores on
+the turn's trace, through `POST /api/public/scores`
+(`src/aiq_agent/observability/langfuse_scores.py`). Capability only: without the
+host and both keys every call is a no-op. Pulumi injects all three into the chat
+(`aiq-agent`), api (`aiq-api`) and research-worker (`agent-worker`) tiers only
+where the Langfuse tier is deployed (`langfuseApiEnv` in
+`deploy/pulumi/src/app/config.ts`), the keys by reference to the
+`langfuse-secrets` Secret, and folds the keys into those pods' rollout checksum
+so a rotation restarts them. The ingest worker gets none of them. Compose sets
+none.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGFUSE_HOST` | No | unset | The in-cluster web Service (`http://langfuse-web:3000`), which the `allow-backend-to-langfuse` NetworkPolicy opens to the three backend tiers. Also the host the prompt store uses (section above). aiq-agent, aiq-api, agent-worker. |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | No | unset | The project keys the trace exporter and the BFF use (`public-key` / `secret-key` in `langfuse-secrets`). aiq-agent, aiq-api, agent-worker. |
+
+## Langfuse web tier: default membership (Kubernetes/Pulumi-injected)
+
+Set on `langfuse-web` only, by `langfuseDefaultMembershipEnv` in
+`deploy/pulumi/src/platform/langfuse.ts`. Upstream's automated access
+provisioning
+(<https://langfuse.com/self-hosting/administration/automated-access-provisioning>):
+when Langfuse creates an account, or first links an SSO identity to one, it adds
+the user to these with these roles. Existing memberships are never changed, so a
+promotion made in the Langfuse UI survives every deploy. Compose sets none (it
+has no SSO).
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGFUSE_DEFAULT_ORG_ID` | No | Pulumi: `langfuseOrgId` (`grid`) | The seeded organization a new user joins. |
+| `LANGFUSE_DEFAULT_ORG_ROLE` | No | Pulumi: `langfuseDefaultRole` (`VIEWER`) | `OWNER`, `ADMIN`, `MEMBER`, `VIEWER` or `NONE`; Langfuse refuses to start on anything else, so `loadConfig` refuses it first. In OSS Langfuse this is the role that decides access, because project-level roles are an Enterprise entitlement. |
+| `LANGFUSE_DEFAULT_PROJECT_ID` | No | Pulumi: `langfuseProjectId` (`grid-oib`) | The seeded project a new user joins. Not set when the role is `NONE`. |
+| `LANGFUSE_DEFAULT_PROJECT_ROLE` | No | Pulumi: same as the org role | `OWNER`, `ADMIN`, `MEMBER` or `VIEWER` (no `NONE`). Only takes effect with the Enterprise project-roles entitlement; not set when the role is `NONE`. |
 
 ## Data-tier authentication (Kubernetes/Pulumi-injected)
 
@@ -556,7 +598,7 @@ Tune the per-project FGA authorization path (`lib/authz/projects.ts`), the WorkO
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GRID_AUTHZ_SLOW_CALL_MS` | No | `2000` | Threshold (ms) above which a WorkOS authorization call on the project-authz path is logged as slow (`[WorkOS] slow call: …`), so a production stall names the exact leg instead of an anonymous hang. The fast path stays silent. `0` disables the warning. |
-| `GRID_AUTHZ_CACHE_TTL_MS` | No | `30000` | Caches per-resource FGA `authorization.check` results for `(organizationMembershipId, resourceType, resourceId, permission)` for this many ms in the shared cache (Redis/Dragonfly, fail-open), and, for the same period, the levels a membership's folder roles give in a project (`heldFolderLevels` in `lib/authz/folder-roles.ts`, ADR-0096; a lookup that fails is not cached and clears nothing). Cuts the WorkOS round-trips each websocket upgrade, save, summary and consistency-check makes down to zero on a cache hit. **Security tradeoff:** a project-role grant or revocation, and a person added to or taken off a folder's own list by anything but the access dialog (which drops the cached levels of everyone it changed), propagates up to TTL later — keep it short (30000–60000, matching the 30s feature-flag cache). The org **tenancy** check is never cached (runs every request), so a project can never be served cross-org from cache, and org-admin bypass is unaffected. `0` switches the cache off for a deployment that cannot accept a ≤TTL revocation lag. |
+| `GRID_AUTHZ_CACHE_TTL_MS` | No | `30000` | Caches per-resource FGA `authorization.check` results for `(organizationMembershipId, resourceType, resourceId, permission)` for this many ms in the shared cache (Redis/Dragonfly, fail-open), and, for the same period, the levels a membership's folder roles give in a project (`heldFolderLevels` in `lib/authz/folder-roles.ts`, ADR-0097; a lookup that fails is not cached and clears nothing). Cuts the WorkOS round-trips each websocket upgrade, save, summary and consistency-check makes down to zero on a cache hit. **Security tradeoff:** a project-role grant or revocation, and a person added to or taken off a folder's own list by anything but the access dialog (which drops the cached levels of everyone it changed), propagates up to TTL later — keep it short (30000–60000, matching the 30s feature-flag cache). The org **tenancy** check is never cached (runs every request), so a project can never be served cross-org from cache, and org-admin bypass is unaffected. `0` switches the cache off for a deployment that cannot accept a ≤TTL revocation lag. |
 | `BIM_MAX_IFC_BYTES` | No | `262144000` (250 MB) | **Three** limits in one number, so they cannot disagree about the same file: the upload ceiling for a `.ifc`, the largest file the BFF will extract, and — via `next.config.ts` — the server's request-body ceiling (`proxyClientMaxBodySize`, `serverActions.bodySizeLimit`), which is `max(FILE_UPLOAD_MAX_SIZE_MB, BIM_MAX_IFC_BYTES)`. That last one matters: when the transport limit followed the 100 MB document figure instead, a 149 MB model passed both validators and was then cut off in front of the handler, so `request.formData()` threw `TypeError: Failed to parse body as FormData` — an unhandled 500 naming neither the file nor a size. Deliberately independent of `FILE_UPLOAD_MAX_SIZE_MB` (100 MB), which is sized for documents; an Einreichung model is routinely 50–500 MB. Parsing runs in the Node process and allocates several times the file's own size, so raise this only alongside moving extraction out of the request process (ADR-0045). The batch total-size limit is also lifted to this value for a batch that carries a model, so one legal model cannot fail a limit it could never satisfy. |
 | `BIM_ELEMENT_LIMIT` | No | `200000` | Cap on `bim_elements` rows written per model. The summary's counts and totals stay EXACT above the cap (they are computed while walking, before it applies); only the per-element rows stop, and `summary.truncatedAt` records it so every surface says so out loud. |
 | `BIM_SPATIAL_MAX_MODEL_BYTES` | No | derived (see note) | Largest model the `ifc_measure` **geometry** engine will read into memory on the `aiq-agent` tier. Unset, it is derived at import from the memory the container actually has — cgroup v2 (`/sys/fs/cgroup/memory.max`), then v1, then the host — as `half the limit ÷ 20`, clamped to 16 MB–512 MB. The 20 is the LOW end of IfcOpenShell's measured resident footprint, which runs **20×–143× the file size** and tracks geometric complexity rather than bytes (2.3 MB of sample house occupies 47 MB; a 151 MB Revit export peaked at 5.3 GB). Two consequences worth stating: `os.sysconf` is deliberately not the first source, because inside a limited pod it reports the HOST's RAM and would size a 2 GB pod's ceiling for a 128 GB node — an OOM kill that takes the conversation with it and logs nothing useful; and the gate is **necessary, not sufficient** — a file under the ceiling may still be too complex, while one over it certainly is. Set this explicitly on a dedicated worker sized for large models. A refused model is reported to the user as a fact about the **file** (`ModelTooLargeError`), never as a service outage, and `ifc_query` keeps answering metadata questions about it because that path reads the extracted index and never the bytes. |

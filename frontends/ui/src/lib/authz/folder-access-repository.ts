@@ -102,7 +102,7 @@ export async function listProjectsWithCustomOrBinnedFolders(organizationId: stri
   return rows.flatMap((row) => (row.projectId ? [row.projectId] : []))
 }
 
-/** The project's whole folder tree, tombstones included. Who holds a folder role on a custom folder is WorkOS's (ADR-0096). */
+/** The project's whole folder tree, tombstones included. Who holds a folder role on a custom folder is WorkOS's (ADR-0097). */
 export async function listProjectFolderTree(organizationId: string, projectId: string): Promise<AccessFolder[]> {
   const db = getDb()
   const rows = await withTenant({ organizationId }, () =>

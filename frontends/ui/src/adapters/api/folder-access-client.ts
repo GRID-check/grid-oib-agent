@@ -1,5 +1,5 @@
 /**
- * Folder access client (ADR-0088, ADR-0096): who may read and who may write a
+ * Folder access client (ADR-0088, ADR-0097): who may read and who may write a
  * project folder, through `GET`/`PUT /api/projects/[id]/folders/[folderId]/access`.
  *
  * A folder inherits its parent's access, or has its own list: people, each with

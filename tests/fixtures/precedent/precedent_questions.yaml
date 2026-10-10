@@ -301,7 +301,7 @@ questions:
       says_none: true
       not_cites: [Baden, Mödling, Moedling, Linz, Gänserndorf, Hinterbrühl, Wagramer, Neubaugasse]
 
-  # --- held out, permitting memory (ADR-0094): written 8 Oct 2026 before any ran ---
+  # --- held out, permitting memory (ADR-0095): written 8 Oct 2026 before any ran ---
   - id: perm-ma37-nachgefordert
     group: explicit
     holdout: true

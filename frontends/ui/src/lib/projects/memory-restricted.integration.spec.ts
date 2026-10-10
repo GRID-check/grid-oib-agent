@@ -90,7 +90,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       folderIds.push(
         firstId(
           await inTenant(() =>
-            // Its own list; who is on it is WorkOS's (ADR-0096).
+            // Its own list; who is on it is WorkOS's (ADR-0097).
             db.execute<{ id: string }>(sql`
               insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
               values (${ORG}, ${projectId}::uuid, ${folder}, ${folder}, 'custom', ${USER}, now())
@@ -425,7 +425,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       await inTenant(() =>
         db.execute(sql`update project_folders set deleted_at = now(), deleted_by = ${USER} where id = ${restricted[0]}::uuid`)
       )
-      // Someone holding the folder role on it, as WorkOS reports it (ADR-0096), and someone holding none.
+      // Someone holding the folder role on it, as WorkOS reports it (ADR-0097), and someone holding none.
       const listed = async (levels: Record<string, 'read' | 'write'>) =>
         inTenant(async () =>
           memory.listProjectMemory(projectId, {

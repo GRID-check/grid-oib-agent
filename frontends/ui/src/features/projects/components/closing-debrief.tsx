@@ -3,7 +3,7 @@
 /**
  * The closing debrief (docs/roadmap/office-experience.md, step 3): what a
  * project leaves the office when it closes, shown in the close dialog before
- * the project locks. Closing makes project memory read-only (ADR-0089), so this
+ * the project locks. Closing makes project memory read-only (ADR-0090), so this
  * is the last moment to keep what the project learned.
  *
  * Three parts, each composing what already exists rather than a second editor:

@@ -23,7 +23,7 @@ export const nav = {
     research: 'Research',
     /** Automation — Tasks and Skills as tabs inside one section. */
     automation: 'Automation',
-    /** Similar closed projects, read for this one (ADR-0093). */
+    /** Similar closed projects, read for this one (ADR-0094). */
     referenzen: 'Similar projects',
     skills: 'Skills',
     jobs: 'Jobs',

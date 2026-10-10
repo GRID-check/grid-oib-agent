@@ -253,6 +253,13 @@ export const PLATFORM_PERMISSION_SPECS: readonly PermissionSpec[] = [
     description: 'Platform tier: manage platform-wide settings and defaults.',
     tier: 'platform',
   },
+  {
+    slug: 'platform:observability:view',
+    name: 'View LLM observability',
+    description:
+      'Platform tier: open Langfuse (traces, scores, cost) read-only. Gated at the edge; Langfuse roles decide the rest.',
+    tier: 'platform',
+  },
 ]
 
 /** Project-tier permissions — checked per project via WorkOS FGA. */
@@ -368,7 +375,7 @@ export const SKILL_PERMISSION_SPECS: readonly PermissionSpec[] = [
 ]
 
 /**
- * Folder-tier permissions (ADR-0096). Only a folder with its own access list is
+ * Folder-tier permissions (ADR-0097). Only a folder with its own access list is
  * a WorkOS resource, registered directly under its project, and no project role
  * holds these: being in the project grants nothing on such a folder, which is
  * how it is narrower than the project without an exclusion WorkOS does not
@@ -555,7 +562,21 @@ export const ROLES: readonly RoleSpec[] = [
       'Read-only platform staff: sees every organization and cross-org usage, changes nothing. Exclusive to the GRID Platform organization.',
     tier: 'platform',
     scope: 'platform-org',
-    permissions: ['platform:organizations:view', 'platform:usage:view', 'platform:settings:view'],
+    permissions: [
+      'platform:organizations:view',
+      'platform:usage:view',
+      'platform:settings:view',
+      'platform:observability:view',
+    ],
+  },
+  {
+    slug: 'platform-observability-analyst',
+    name: 'Observability Analyst',
+    description:
+      'Read-only Langfuse for business analysts and the Fachbereich: traces, scores and cost, nothing else. Exclusive to the GRID Platform organization.',
+    tier: 'platform',
+    scope: 'platform-org',
+    permissions: ['platform:observability:view'],
   },
 
   // ---- Project tier ------------------------------------------------------
@@ -619,7 +640,7 @@ export const ROLES: readonly RoleSpec[] = [
     ],
   },
 
-  // ---- Folder tier (ADR-0096) -------------------------------------------
+  // ---- Folder tier (ADR-0097) -------------------------------------------
   {
     slug: 'folder-reader',
     name: 'Folder Reader',

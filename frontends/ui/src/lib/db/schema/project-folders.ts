@@ -69,7 +69,7 @@ export const projectFolders = pgTable('project_folders', {
    * Whether the folder inherits its parent's access (`inherit`, the default; a
    * root folder inherits the project) or has its own access list (`custom`),
    * migration 0111, ADR-0088. Who is on a custom list is WorkOS's: the folder
-   * is a `folder` resource and the people hold a folder role on it (ADR-0096,
+   * is a `folder` resource and the people hold a folder role on it (ADR-0097,
    * migration 0128). `lib/authz/folder-access.ts` is the one place that
    * decides what it means.
    */
@@ -77,7 +77,7 @@ export const projectFolders = pgTable('project_folders', {
   /**
    * On a custom folder: every project member reads it, and the list decides
    * only who may write (what the `*` entry was). Ignored while `inherit`.
-   * Migration 0128, ADR-0096.
+   * Migration 0128, ADR-0097.
    */
   everyoneReads: boolean('everyone_reads').notNull().default(false),
   /** Who last set the folder's own access list, and when; required while it is `custom`. */

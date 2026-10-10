@@ -20,7 +20,7 @@ export interface ProfiledConversationSummary {
   /** Display name for `organizationId`; null when unknown or unresolvable. */
   organizationName: string | null
   title: string | null
-  /** The conversation drew on a folder with restricted access (ADR-0092). */
+  /** The conversation drew on a folder with restricted access (ADR-0093). */
   titleWithheld: boolean
   /** Turns in the scope's range, not in the conversation's whole life. */
   turnCount: number

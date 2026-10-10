@@ -1,5 +1,5 @@
 /**
- * Who may read and who may write a project folder (ADR-0088, ADR-0096).
+ * Who may read and who may write a project folder (ADR-0088, ADR-0097).
  *
  * GET — the folder's access as it is now: `{ mode: 'inherit' }` or
  * `{ mode: 'custom', everyoneReads, people: [{ userId, level }] }`, the people

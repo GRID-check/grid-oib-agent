@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * „Zugriff auf …": who may read and who may write one folder (ADR-0088, ADR-0096).
+ * „Zugriff auf …": who may read and who may write one folder (ADR-0088, ADR-0097).
  *
  * Two answers: as the parent folder (the root folder's parent is the project:
  * everyone keeps what their project permissions allow), or an own list —

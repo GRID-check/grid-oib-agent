@@ -1,8 +1,8 @@
 /**
- * Carry each folder's role grants over to WorkOS folder roles (ADR-0096) — or
+ * Carry each folder's role grants over to WorkOS folder roles (ADR-0097) — or
  * show what it would do.
  *
- * Before ADR-0096 a folder with its own access list named organization ROLES
+ * Before ADR-0097 a folder with its own access list named organization ROLES
  * (`project_folder_grants`). Now the folder is a WorkOS `folder` resource and
  * the PEOPLE on its list hold a folder role on it. Migration 0128 carried the
  * `*` entries over in SQL; the role entries need WorkOS, so they are this

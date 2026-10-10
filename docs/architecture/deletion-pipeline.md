@@ -151,7 +151,7 @@ Purge steps (`purger/purge-folder.js` → `POST /api/internal/folders/[id]/purge
 2. Find the answers that drew on the folder's documents (stored cited and read sources, by document id or collection and file name), record the folder on their conversations (`conversation_restricted_folders`), mark them `metadata.sourceDeleted`, and mark the reports Piloti filed from them.
 3. When the organization's setting is „Mit dem Ordner entfernen": the derived-content removal (below), its ids merged into the row's payload (`payload.derivedRemoval`).
 4. Erase each document by the document delete's own steps (`eraseProjectDocument`: chunks, every version's objects, renditions, thumbnails and extracted images, grants and assignments, the row, the chunks once more).
-5. Mark the entry's folders `purged_at`, last: they stay as permanent tombstones with their access list (ADR-0088): `access_mode` and `everyone_reads` on the row, and a folder with its own list keeps its WorkOS `folder` resource and the folder roles on it (ADR-0096).
+5. Mark the entry's folders `purged_at`, last: they stay as permanent tombstones with their access list (ADR-0088): `access_mode` and `everyone_reads` on the row, and a folder with its own list keeps its WorkOS `folder` resource and the folder roles on it (ADR-0097).
 6. The purger erases the Langfuse traces of the conversations step 3 touched and merges the counts into the payload.
 
 Every step is idempotent; a retry after any failure finishes the work, and a folder already purged answers `already-purged` with the conversations whose traces step 6 still owes. A row that names a folder not in the bin is failed for good (`not_in_bin`).

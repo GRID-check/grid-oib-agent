@@ -92,7 +92,7 @@ describe.skipIf(!url)('the files the closing extraction may read, against live P
   /** A folder with its own access list (one role, not every member): it restricts reading. */
   async function restrictedFolder(name: string): Promise<string> {
     return idOf(
-      // Its own list; who is on it is WorkOS's (ADR-0096).
+      // Its own list; who is on it is WorkOS's (ADR-0097).
       await inserted(sql`
         insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
         values (${ORG}, ${projectId}::uuid, ${name}, ${name}, 'custom', ${USER}, now())

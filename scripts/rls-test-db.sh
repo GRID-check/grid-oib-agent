@@ -1018,7 +1018,7 @@ check_in grid_cross_project "SELECT count(*) FROM permit_records" "0" "0126 re-a
 echo "==> 0126 permit records and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0127: the evidence a drafted decision was read from (ADR-0095),
+# Migration 0127: the evidence a drafted decision was read from (ADR-0096),
 # and its DOWN.
 #
 # On grid_cross_project, after 0126: project_memory is already secured, so the
@@ -1044,7 +1044,7 @@ check_in grid_cross_project "SELECT (evidence IS NULL)::text || ',' || (SELECT c
 echo "==> 0127 memory evidence and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0128: who holds a folder's own list moves to WorkOS (ADR-0096),
+# Migration 0128: who holds a folder's own list moves to WorkOS (ADR-0097),
 # and its DOWN.
 #
 # On a database of its own migrated through 0127, the spec plants folders with

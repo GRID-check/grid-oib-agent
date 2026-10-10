@@ -1,6 +1,6 @@
 /**
  * The file names a memory item cites as its evidence, as a reader may be shown
- * them NOW (ADR-0095).
+ * them NOW (ADR-0096).
  *
  * A source-grounded decision stores the file names and pages it was read from
  * (`project_memory.evidence`, migration 0127): a snapshot of where the closing

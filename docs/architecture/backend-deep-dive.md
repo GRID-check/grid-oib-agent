@@ -583,7 +583,7 @@ load-bearing:
   documents' chunks and keeps every row; the purge after
   `FOLDER_PURGE_GRACE_DAYS` erases the documents one by one and keeps the
   folders as tombstones with their access lists (a folder with its own list
-  keeps its WorkOS folder resource, ADR-0096). Migration 0115's triggers refuse
+  keeps its WorkOS folder resource, ADR-0097). Migration 0115's triggers refuse
   filing anything into a deleted folder, and its CHECK refuses a deleted Archiv
   folder. `folder-bin.integration.spec.ts` pins it against Postgres. An Archiv
   folder has no bin: `deleteShelfFolder` re-files its documents and child
@@ -1909,6 +1909,18 @@ fallback is in the trace METADATA instead, as `prompt_name` and
 `prompt_version`. Env vars:
 [`environment-variables.md`](../deployment/environment-variables.md)
 §Prompt management.
+
+**Editing a template.** Each agent keeps its Jinja2 templates in
+`src/aiq_agent/agents/<agent>/prompts/`; `load_prompt` reads one and
+`render_prompt_template` renders it (`common/prompt_utils.py`). The `.j2` file
+is the authority on the variables it uses, so keep every one the agent passes,
+and keep standing instructions above per-call content so the provider's prompt
+cache keeps hitting. Keep a template task-agnostic: which sources a question
+needs is decided at run time by the data source registry and
+`source_router.j2`, not by names written into the prompt. Editing an existing
+template needs no code change; a new one is used only once the agent's Python
+loads and renders it. Which model each role runs on is config:
+[llm-providers.md](llm-providers.md#which-model-each-role-uses).
 
 ### Project memory (implemented)
 

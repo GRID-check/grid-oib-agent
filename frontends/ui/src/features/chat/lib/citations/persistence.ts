@@ -81,7 +81,7 @@ const wireSourceSchema = z
      * the schema only has to admit an array.
      */
     regions: z.array(z.unknown()).nullish(),
-    /** The other project a cross-project lookup found it in (ADR-0093); validated by `projectFromWire`. */
+    /** The other project a cross-project lookup found it in (ADR-0094); validated by `projectFromWire`. */
     project: z
       .object({
         id: z.string(),

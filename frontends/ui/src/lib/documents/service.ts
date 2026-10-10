@@ -702,7 +702,7 @@ export async function fetchSemanticHits(
   collectionName: string,
   query: string,
   topKFiles: number,
-  /** Longer than the backend's 300 only where the snippet is the evidence (the cross-project lookups, ADR-0093). */
+  /** Longer than the backend's 300 only where the snippet is the evidence (the cross-project lookups, ADR-0094). */
   snippetMaxChars?: number
 ): Promise<BackendSearchHit[]> {
   const scopeHeaders = buildGridRequestContextWireHeaders(

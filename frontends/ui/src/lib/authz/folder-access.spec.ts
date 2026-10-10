@@ -83,7 +83,7 @@ const F = {
 }
 
 /**
- * The people on the lists (ADR-0096): who holds a folder role is WorkOS's, so a
+ * The people on the lists (ADR-0097): who holds a folder role is WorkOS's, so a
  * person's clearance is the level they hold on each folder with its own list.
  * `gf` the managing director, `pl` the project lead, `bh` the bookkeeper,
  * `member` someone on no list.
@@ -575,7 +575,7 @@ describe('the session loaders', () => {
   })
 })
 
-describe('a closed project (ADR-0089): closing opens no restricted folder', () => {
+describe('a closed project (ADR-0090): closing opens no restricted folder', () => {
   const closed = { organizationId: 'org-1', deletedAt: null, status: 'closed' as const }
 
   beforeEach(() => {
@@ -729,7 +729,7 @@ describe('requireFolderWrite — the one write check', () => {
 })
 
 describe('a list whose people have all left leaves its folder to the admins', () => {
-  // Was „a role deleted in WorkOS" (ADR-0088). Lists name people now (ADR-0096),
+  // Was „a role deleted in WorkOS" (ADR-0088). Lists name people now (ADR-0097),
   // so the flagging of folders naming a deleted role is gone; what the rule
   // does with a list that matches nobody is unchanged.
   const DEAD = '99999999-aaaa-4bbb-8ccc-0000000000a1'

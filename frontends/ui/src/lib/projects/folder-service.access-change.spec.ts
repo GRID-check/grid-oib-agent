@@ -14,7 +14,7 @@
  * (`folder-bin.integration.spec.ts`).
  *
  * Who is on a list is the folder roles WorkOS reports for each membership
- * (ADR-0096): `om-gf` (the session), `om-bh` (the reader), `om-hr` (nobody here).
+ * (ADR-0097): `om-gf` (the session), `om-bh` (the reader), `om-hr` (nobody here).
  *
  *   Verwaltung/           inherits
  *     Verträge/           gf: write, bh: read
@@ -232,7 +232,7 @@ describe('moving a folder', () => {
     )
     expect(vi.mocked(recordAuditEvent).mock.calls[0][0].metadata).toEqual({
       folderId: TREE.projektordner.id,
-      // The folder that now governs it, by id: who is on its list is WorkOS's (ADR-0096).
+      // The folder that now governs it, by id: who is on its list is WorkOS's (ADR-0097).
       grants: 'folder:f-vertraege',
       roles: '',
       documentsMoved: 3,

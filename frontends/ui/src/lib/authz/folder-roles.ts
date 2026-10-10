@@ -1,5 +1,5 @@
 /**
- * Who holds which folder role, kept in WorkOS (ADR-0096).
+ * Who holds which folder role, kept in WorkOS (ADR-0097).
  *
  * A folder with its own access list is a WorkOS `folder` resource, registered
  * directly under its project, and access to it is a folder role assigned on it

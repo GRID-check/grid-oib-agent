@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A chat's use of OTHER projects (ADR-0093, migration 0125) against a REAL
+ * A chat's use of OTHER projects (ADR-0094, migration 0125) against a REAL
  * Postgres, through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -10,7 +10,7 @@
  * `task db:test:rls` (scripts/rls-test-db.sh) builds that database and runs it.
  *
  * Who may open which project and who holds which folder role are the WorkOS
- * answers, faked (ADR-0096); the projects, the folder tree, the conversations, the grants and the
+ * answers, faked (ADR-0097); the projects, the folder tree, the conversations, the grants and the
  * records are real rows. What it proves:
  *   - a hand-out from the other project and a restricted folder of it records
  *     the project and the folder id;
@@ -22,7 +22,7 @@
  *   - a chat whose audience changed after the reach was computed is refused
  *     and records nothing;
  *   - the answer a hand-out with a restricted folder goes to is marked in
- *     `message_restricted_use` (ADR-0092); one of open content only is not;
+ *     `message_restricted_use` (ADR-0093); one of open content only is not;
  *   - no memory may be written from such a chat;
  *   - a CLOSED project restricts nobody: anyone may read and be shared the
  *     chat, memory may be written; reopened, it restricts again; a restricted
@@ -295,7 +295,7 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
     expect(await count(ORG, 'conversation_restricted_folders', id)).toBe(0)
   })
 
-  it('marks the answer a restricted folder is handed to, and not one that got open content only (ADR-0092)', async () => {
+  it('marks the answer a restricted folder is handed to, and not one that got open content only (ADR-0093)', async () => {
     const restricted = await chat()
     const open = await chat()
     const restrictedAnswer = randomUUID()
@@ -340,7 +340,7 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
     }
   })
 
-  it('refuses a memory from a chat that drew on a restricted folder of a closed project (ADR-0089)', async () => {
+  it('refuses a memory from a chat that drew on a restricted folder of a closed project (ADR-0090)', async () => {
     const id = await chat()
     await setStatus(ids.other, 'closed')
     try {

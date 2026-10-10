@@ -6,7 +6,7 @@ Status: decided by the product owner, 6 Oct 2026 (decisions at the end). Builds 
 ADR-0080; becomes ADR-0081.
 
 > **Who is on a folder's list changed on 9 Oct 2026
-> ([ADR-0096](../docs/adr/0096-who-holds-a-folder-s-own-list-is-a-workos-folder-role.md)).**
+> ([ADR-0097](../docs/adr/0097-who-holds-a-folder-s-own-list-is-a-workos-folder-role.md)).**
 > A list names people, not roles: the folder is a WorkOS `folder` resource and
 > each person on it holds a folder role (`folder-reader` for Lesen,
 > `folder-editor` for Bearbeiten). „Alle Projektmitglieder dürfen lesen" is a
@@ -36,7 +36,7 @@ job and nothing to forget.
 | | |
 |---|---|
 | Levels | **Lesen**: see, open, download, search, use in answers. **Bearbeiten**: Lesen plus upload, new folder, rename, move, delete, new version, file drafts/reports into it. |
-| Who | People: a folder role assigned to the person on the folder in WorkOS (ADR-0096). Until 9 Oct 2026, WorkOS roles, with no per-person grants. |
+| Who | People: a folder role assigned to the person on the folder in WorkOS (ADR-0097). Until 9 Oct 2026, WorkOS roles, with no per-person grants. |
 | Default | A folder inherits its parent; a root folder inherits the project (what the person's project role allows). |
 | Own list | A folder with its own list grants only the listed people, at the listed level, and Lesen to every project member when „Alle Projektmitglieder dürfen lesen" is set. A list with nobody on it and without that flag is not allowed. |
 | Nesting | Narrows only: the effective level is the lowest along the path. |
@@ -51,7 +51,7 @@ Two columns matter for each change: what the person sees, and how fast.
 
 | Change | What follows | How fast |
 |---|---|---|
-| **Someone is added to a folder's list** | They see the folder at the level the list gives, and every chat, note, report and task tagged only with folders they can now read. Being given a role adds no folder since ADR-0096. | Next request (see "Latency"). |
+| **Someone is added to a folder's list** | They see the folder at the level the list gives, and every chat, note, report and task tagged only with folders they can now read. Being given a role adds no folder since ADR-0097. | Next request (see "Latency"). |
 | **Someone is taken off a folder's list** | Folders, documents, search hits and every derived item tagged with a folder they can no longer read disappear for them. A chat shared with them that used such a folder **stays in their list** under a neutral title; opening it shows „Dir fehlen inzwischen die Rechte, um diesen Chat zu sehen" and nothing of its content. The owner sees the same on the share. An open chat closes before the next turn. | Next request when the access dialog took them off (it drops their cached folder roles); ≤ `GRID_AUTHZ_CACHE_TTL_MS` (30 s by default) for a change made in WorkOS directly. An answer already streaming finishes. |
 | **Someone leaves the project / organization** | Same as being taken off every list in it. Their private chats stay theirs but the project is gone from them. Content they created stays in the project. | Next request. |
 | **Folder tightened** (person removed, Bearbeiten → Lesen, inherit → own list) | Readers who lost access lose the folder and all derived content tagged with it. If the set of readers changed, its documents move to the matching search index (purge first, then re-index; documents show "Wird gelesen" meanwhile). Chats already shared with people who now lack access: they lose the chat (rule above). | Visibility: immediately. Index move: minutes. |
@@ -59,14 +59,14 @@ Two columns matter for each change: what the person sees, and how fast.
 | **Folder moved** under another parent | Its effective access is recomputed from the new path (narrowing parents apply). Same consequences as tightened/loosened. Needs `project:manage` when the move changes who can read. | As above. |
 | **Document moved** to another folder | The document gets the destination's access. Content derived **before** the move keeps its tag (the folder it was read from): a move never widens what was already said about it. | Immediately. |
 | **Folder deleted** | Papierkorb for 14 days (hidden, not searchable, restorable with its access); then purged, leaving a tombstone with its access rules. Derived chats, answers and notes follow the organization's setting (default: unchanged for the same people, with „Quelle gelöscht am …"; „Mit dem Ordner entfernen" removes it with the purge). See "Deleting folders, retention and GDPR". | Hidden at once; purge after 14 days. |
-| **Role deleted / renamed in WorkOS** | Nothing for folders since ADR-0096: lists name people. (Before, a deleted role's grants stopped matching anyone, the project settings flagged „Ordner ohne gültige Rolle" and deleting a role asked for confirmation; all three are gone.) | — |
+| **Role deleted / renamed in WorkOS** | Nothing for folders since ADR-0097: lists name people. (Before, a deleted role's grants stopped matching anyone, the project settings flagged „Ordner ohne gültige Rolle" and deleting a role asked for confirmation; all three are gone.) | — |
 | **Chat shared** | Allowed with people who can read every folder the chat drew on; the share dialog lists only them. Each later turn may draw only on folders everyone in the chat can read. | Immediately. |
 | **Chat unshared** | The person loses the chat. Turns afterwards may again draw on folders only the owner can read. | Immediately. |
 | **Downloads, exports, copies** | Cannot be taken back. Said plainly in the user guide. **Every download is logged** (who, which document and version, when, from which folder), and opens of documents in folders with their own list; admins see the log. | — |
 
 ## Latency: roles come from the login token today
 
-> Since ADR-0096 this governs only the admin bypass: whether someone is an
+> Since ADR-0097 this governs only the admin bypass: whether someone is an
 > organization admin is still read from the membership with a ≤ 60 s cache.
 > Folder roles are read from WorkOS per project and cached for
 > `GRID_AUTHZ_CACHE_TTL_MS`, like every other FGA answer.

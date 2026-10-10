@@ -83,11 +83,11 @@ Everything below exists in **both** environments:
 Both carry the same three resource types, the same 24 GRID permissions and the
 same 13 roles, verified role-by-role against the catalog after each run.
 
-The **folder tier** (ADR-0096, 2026-10-09) came later and is not in either count
+The **folder tier** (ADR-0097, 2026-10-09) came later and is not in either count
 yet: the `folder` resource type exists in Staging (checked 2026-10-09) and not in
 Production, and its two permissions and two roles exist once
 `provision:authz -- --apply` has run against the environment.
-[Rolling out folder roles](#rolling-out-folder-roles-adr-0096) has the order.
+[Rolling out folder roles](#rolling-out-folder-roles-adr-0097) has the order.
 
 Two Production-specific notes:
 
@@ -117,7 +117,7 @@ Organization.
 | `organization` | — | System root. Carries org-tier and platform-tier permissions. |
 | `project` | `organization` | Tenant workspace: documents, memory, conversations. |
 | `skill` | `project` | A scheduled agent-skill job attached to a project (Agent Skills). |
-| `folder` | `project` | A project folder with its own access list (ADR-0096). Who may read or change it is a folder role (§2a) assigned on it to a person. |
+| `folder` | `project` | A project folder with its own access list (ADR-0097). Who may read or change it is a folder role (§2a) assigned on it to a person. |
 
 **Only a folder with its own list is a resource**, and it sits directly under
 its project whatever its depth in the folder tree. A folder that inherits is not
@@ -236,7 +236,8 @@ environment-scoped role holds a `platform:*` permission.
 | `folder-reader` | environment (Folder) | `folder:read` |
 | `folder-editor` | environment (Folder) | `folder:read`, `folder:write` |
 | `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |
-| `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view`, `platform:settings:view` — every read, no `*:manage`. `platformApiRoute` requires the specific permission per route, which is what makes "read-only" true rather than described. |
+| `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view`, `platform:settings:view`, `platform:observability:view` — every read, no `*:manage`. `platformApiRoute` requires the specific permission per route, which is what makes "read-only" true rather than described. |
+| `platform-observability-analyst` | **GRID Platform org only** | `platform:observability:view` only: opens Langfuse at the edge for business analysts and the Fachbereich, and no platform surface in the app (ADR-0089). The scope must be assigned to the Connect application before the stack that checks it is deployed, or every Langfuse login fails with `invalid_scope` |
 
 The two folder roles are assigned on one folder resource to one organization
 membership, by the folder's access dialog in a project's Files
@@ -558,7 +559,7 @@ conversation graph refuses the escalation even when the model asks anyway. So a
 tenant without deep research is never shown a plan, and one without tasks is
 never told an Auftrag was created.
 
-The same answer carries a closed project (ADR-0089): the turn sends its
+The same answer carries a closed project (ADR-0090): the turn sends its
 `projectId`, and a closed project answers `deepResearch: false` and
 `tasks: false` whatever the flags say, because both file into the project.
 
@@ -623,7 +624,7 @@ Three things follow, and each has cost somebody an afternoon:
 > ones), 13 roles, and no others.
 >
 > Since then the catalog gained `org:downloads:view` (2026-10-06) and the folder
-> tier (ADR-0096, 2026-10-09). What the next diff should find: 4 resource types
+> tier (ADR-0097, 2026-10-09). What the next diff should find: 4 resource types
 > (`folder` beside `skill` under `project`), 36 permissions (30 custom plus 6
 > widget ones), 15 roles.
 
@@ -677,9 +678,9 @@ run: resource types, AuthKit's *Allow sign-ups* toggle, the
 Bootstrap alternative: set `GRID_PLATFORM_OWNER_EMAILS=<owner email>` until
 steps 3–5 are done, then clear it.
 
-## Rolling out folder roles (ADR-0096)
+## Rolling out folder roles (ADR-0097)
 
-Before ADR-0096 a folder with its own access list named organization roles, in
+Before ADR-0097 a folder with its own access list named organization roles, in
 `project_folder_grants`. Now the folder is a `folder` resource and the people on
 its list hold a folder role on it. Migration `0128` carries over what needs no
 WorkOS (the reserved `*` entry becomes `project_folders.everyone_reads`, or the
@@ -750,7 +751,7 @@ a later migration drops it.
   allowlist.
 - **Per-resource**: `lib/authz/resource-check.ts` is the single FGA round-trip
   for both the project and skill tiers, and fails closed.
-- **Folders** (ADR-0096): `lib/authz/folder-roles.ts` holds every WorkOS call of
+- **Folders** (ADR-0097): `lib/authz/folder-roles.ts` holds every WorkOS call of
   the folder tier. A person's levels in a project are two
   `listResourcesForMembership` calls (`folder:read`, `folder:write`) scoped to
   the project, cached for `GRID_AUTHZ_CACHE_TTL_MS` like every FGA answer, and

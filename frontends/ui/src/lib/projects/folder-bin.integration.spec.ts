@@ -18,7 +18,7 @@
  *     Verträge/                   gf: write, bh: read     Vertrag.pdf
  *
  * Who is on a folder's own list is the folder roles WorkOS reports for each
- * membership (ADR-0096), faked here per membership (`om_gf`, `om_bh`, `om_pl`).
+ * membership (ADR-0097), faked here per membership (`om_gf`, `om_bh`, `om_pl`).
  *       Alt/                      inherits                Alt.pdf
  *   Pläne/                        inherits                Plan.pdf
  *     Archiv/                     inherits                Archiv.pdf
@@ -53,7 +53,7 @@ vi.mock('@/lib/documents/service', () => ({
 }))
 // Project permissions are WorkOS's; each session here states which it holds,
 // and a denial is the real one's: not found.
-// A closed project (ADR-0089) is stubbed the way `requireProjectAccess` decides
+// A closed project (ADR-0090) is stubbed the way `requireProjectAccess` decides
 // it: writes refused before anything else unless the caller asks as if active.
 const projectState = vi.hoisted(() => ({ closed: false }))
 vi.mock('@/lib/authz/projects', async () => {
@@ -758,7 +758,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
       await expect(bin.restoreFolderFromBin(pl, { projectId, folderId: folder.vertraege })).rejects.toMatchObject({ status: 404 })
     })
 
-    it('in a closed project the manager restores, and nobody else does (ADR-0089)', async () => {
+    it('in a closed project the manager restores, and nobody else does (ADR-0090)', async () => {
       await bin.moveFolderToBin(gf, { projectId, folderId: folder.vertraege })
       projectState.closed = true
       try {

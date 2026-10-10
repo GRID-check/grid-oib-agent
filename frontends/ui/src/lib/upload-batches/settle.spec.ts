@@ -168,7 +168,7 @@ describe('onDocumentsSettled', () => {
     }))
     vi.mocked(orgRoleHoldsPermission).mockResolvedValue(false)
     vi.mocked(userHoldsProjectPermission).mockResolvedValue(true)
-    // Only gf holds a folder role on Honorare (ADR-0096): asked per person, by their membership as it is now.
+    // Only gf holds a folder role on Honorare (ADR-0097): asked per person, by their membership as it is now.
     vi.mocked(isFolderVisibleToMember).mockImplementation(async (_o, _p, _f, userId) => userId === 'gf')
 
     await onDocumentsSettled('org-1', [{ id: 'doc-q', status: 'quarantined' }])

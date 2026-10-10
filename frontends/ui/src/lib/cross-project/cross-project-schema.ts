@@ -1,6 +1,6 @@
 /**
  * The cross-project lookups' wire schemas, as JSON Schema, for the Python tier
- * (ADR-0055, ADR-0093). Generated from `types.ts` into
+ * (ADR-0055, ADR-0094). Generated from `types.ts` into
  * `tests/fixtures/cross-project.schema.json`, which the agent's tools are
  * tested against (`tests/aiq_agent/tools/cross_project/test_wire_contract.py`),
  * so the two languages read one contract.

@@ -453,7 +453,7 @@ export async function getRunView(
   await requireProjectAccess(session, projectId, 'project:view')
   const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
   if (!run) throw new NotFoundError('Unknown run')
-  // A revision task is judged when read: its document's folder as it is now (ADR-0092).
+  // A revision task is judged when read: its document's folder as it is now (ADR-0093).
   await requireMaySeeSubject(session, projectId, run, 'Unknown run')
   return runView(run)
 }
@@ -479,7 +479,7 @@ async function runView(run: TaskRun): Promise<RunView> {
 /**
  * Who may act on a run (cancel it, have it write now, hand it a document): its
  * requester, or a member of the project. Not someone who reads the project
- * only because it is closed (ADR-0089): reading and chatting about a closed
+ * only because it is closed (ADR-0090): reading and chatting about a closed
  * project is every member's, steering somebody else's run is not. Returns the
  * run, found in the project.
  */

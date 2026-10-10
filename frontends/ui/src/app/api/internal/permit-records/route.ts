@@ -1,6 +1,6 @@
 /**
  * INTERNAL — the ingest pipeline hands over what a model read out of a
- * Bescheid (docs/design/permitting-memory.md, ADR-0094), and the BFF keeps it
+ * Bescheid (docs/design/permitting-memory.md, ADR-0095), and the BFF keeps it
  * as the document's permit record and its requirements.
  *
  * Sent once per document typed `Bescheid`, after it is indexed. `record: null`

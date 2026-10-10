@@ -13,7 +13,7 @@ When a user asks a question, the AI needs to know which knowledge sources to sea
 - The active project collection (`proj_{projectId}`, if working in a project)
 - The restricted-folder collections the session is cleared for
   (`<project collection>_r<12 hex>`, interactive chat turns only — ADR-0087, see
-  [Restricted folders](#restricted-folders-adr-0087-adr-0088-adr-0096))
+  [Restricted folders](#restricted-folders-adr-0087-adr-0088-adr-0097))
 - The session collection (`s_{conversationId}`, if in a conversation)
 
 This page is about which collections a request READS. What writes into the
@@ -121,7 +121,7 @@ async function buildCollectionScopeFromRequest(
 
 ---
 
-## Restricted folders (ADR-0087, ADR-0088, ADR-0096)
+## Restricted folders (ADR-0087, ADR-0088, ADR-0097)
 
 A folder with its own access list that not every project member reads
 (`project_folders.access_mode = 'custom'` without `everyone_reads`, migrations
@@ -142,7 +142,7 @@ shelf `project`, only when ALL of these hold:
   (`submitAgentRun`, session-less) never get one: their reports are filed for
   the whole project;
 - the session may read the folder (`effectiveFolderLevel` over the levels its
-  folder roles give, ADR-0096: read from WorkOS by `heldFolderLevels` in
+  folder roles give, ADR-0097: read from WorkOS by `heldFolderLevels` in
   `lib/authz/folder-roles.ts`, cached for `GRID_AUTHZ_CACHE_TTL_MS`; a lookup
   that fails clears nothing);
 - everyone the conversation is shared with may read it too

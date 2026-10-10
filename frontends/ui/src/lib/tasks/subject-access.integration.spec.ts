@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * A revision task is judged when it is read, by the folder its document is in
- * NOW (ADR-0092), against a REAL Postgres through the restricted runtime role:
+ * NOW (ADR-0093), against a REAL Postgres through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/tasks/subject-access.integration.spec.ts
@@ -25,7 +25,7 @@
  *     sits in a folder of a project with an access list of its own;
  *   - that move marks the thread's messages and votes, so the staff views keep
  *     withholding them, and Langfuse their words, after the document moves
- *     back and after the thread is deleted (marks are sticky, ADR-0092).
+ *     back and after the thread is deleted (marks are sticky, ADR-0093).
  */
 
 import { sql } from 'drizzle-orm'
@@ -62,7 +62,7 @@ const CLEARED = `user_subj_cleared_${STAMP}`
 const UNCLEARED = `user_subj_uncleared_${STAMP}`
 const THREAD = `s_subj_thread_${STAMP}`
 
-/** The restricted folder, once made: CLEARED holds folder-reader on it (ADR-0096), UNCLEARED nothing. */
+/** The restricted folder, once made: CLEARED holds folder-reader on it (ADR-0097), UNCLEARED nothing. */
 const listed = { folderId: '' }
 const clearanceFor = (userId: string): FolderClearance => ({
   levels: userId === CLEARED && listed.folderId ? { [listed.folderId]: 'read' } : {},

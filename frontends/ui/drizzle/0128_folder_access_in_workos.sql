@@ -1,4 +1,4 @@
--- 0128: who holds a folder's own access list moves to WorkOS (ADR-0096).
+-- 0128: who holds a folder's own access list moves to WorkOS (ADR-0097).
 --
 -- A folder with its own list (`access_mode = 'custom'`) is now a WorkOS
 -- `folder` resource, and the people on the list hold a folder role on it

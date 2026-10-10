@@ -2,7 +2,7 @@
 
 /**
  * Dev preview for read/write folder access in the project Files view
- * (ADR-0088, ADR-0096).
+ * (ADR-0088, ADR-0097).
  *
  * The REAL `FileBrowserPane`, three times, as three people see one project:
  * a writer (Jana Weber, Projektleitung), a person who may only read two of the
@@ -44,7 +44,7 @@ const MEMBERS = [
 ].map((member) => ({ ...member, organizationMembershipId: `om-${member.userId}`, profilePictureUrl: null }))
 
 /**
- * Each folder's own list (ADR-0096), as `GET …/access` answers it:
+ * Each folder's own list (ADR-0097), as `GET …/access` answers it:
  *
  *   Pläne      — inherits the project
  *   Verträge   — Claudia Hofer: Bearbeiten, Jana Weber: Bearbeiten, Tom Berger: Lesen

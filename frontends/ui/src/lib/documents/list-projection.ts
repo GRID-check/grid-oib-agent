@@ -123,7 +123,7 @@ export function toFolderWireRow(row: ProjectFolderRow): FolderItem {
     path: row.path,
     // Only ever a folder the reader may read (ADR-0088); the lock needs to
     // know it has its own list, and the write affordances need what this
-    // reader may do here. Who is on the list is not shipped (ADR-0096).
+    // reader may do here. Who is on the list is not shipped (ADR-0097).
     ownAccess: row.ownAccess,
     access: row.access,
     createdAt: row.createdAt.toISOString(),

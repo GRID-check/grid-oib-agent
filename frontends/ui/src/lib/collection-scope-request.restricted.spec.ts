@@ -9,7 +9,7 @@
  *
  * The folder-access decision runs for real over a mocked folder tree, so the
  * only thing that differs between the members below is the folder roles WorkOS
- * reports for their memberships (ADR-0096).
+ * reports for their memberships (ADR-0097).
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'

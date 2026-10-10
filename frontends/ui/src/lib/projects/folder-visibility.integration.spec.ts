@@ -39,7 +39,7 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
   const inTenant = <T>(run: () => Promise<T>): Promise<T> => withTenant({ organizationId: ORG, userId: USER }, run)
   const firstId = (rows: Iterable<{ id: string }>): string => String(Array.from(rows)[0]?.id)
 
-  /** A folder with its own list everyone does not read (`restricted`), or one that inherits. Who is on a list is WorkOS's (ADR-0096). */
+  /** A folder with its own list everyone does not read (`restricted`), or one that inherits. Who is on a list is WorkOS's (ADR-0097). */
   async function insertFolder(name: string, parentId: string | null, path: string, restricted: boolean) {
     return firstId(
       await inTenant(() =>

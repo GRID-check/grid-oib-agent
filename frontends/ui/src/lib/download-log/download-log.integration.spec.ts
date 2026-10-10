@@ -34,7 +34,7 @@ vi.mock('@/lib/sharing/directory', () => ({
 }))
 // No WorkOS here: the admin bypass falls back to the session's own permissions.
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn(async () => null) }))
-/** The folders whose list in WorkOS names the membership `om_gf` (ADR-0096): Verträge, once made. */
+/** The folders whose list in WorkOS names the membership `om_gf` (ADR-0097): Verträge, once made. */
 const gfList = vi.hoisted(() => new Set<string>())
 vi.mock('@/lib/authz/folder-roles', () => ({
   heldFolderLevels: vi.fn(async (_org: string, membershipId: string) =>

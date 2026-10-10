@@ -212,7 +212,7 @@ function restrictionsAt(tree: ReadonlyMap<string, AccessFolder>, folderId: strin
 /**
  * The audit form of {@link restrictionsAt}: each folder with its own list by
  * id, `+*` when everyone reads it, folders `;`-joined. Who is on each list is
- * the folder's folder roles in WorkOS (ADR-0096), so the folder names it.
+ * the folder's folder roles in WorkOS (ADR-0097), so the folder names it.
  */
 function describeRestrictions(chain: readonly AccessFolder[]): string {
   return chain.map((folder) => `folder:${folder.id}${folder.everyoneReads ? '+*' : ''}`).join(';')

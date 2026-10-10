@@ -3,7 +3,7 @@
  *
  * A conversation that drew on a restricted folder has its messages and the
  * votes on them marked by the database, and every cross-tenant reader asks the
- * database's one rule of each vote (ADR-0092, ADR-0087, ADR-0088), against a
+ * database's one rule of each vote (ADR-0093, ADR-0087, ADR-0088), against a
  * REAL Postgres through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \

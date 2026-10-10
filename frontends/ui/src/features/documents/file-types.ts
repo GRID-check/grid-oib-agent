@@ -12,7 +12,7 @@ export interface FolderItem {
   createdAt?: string
   updatedAt?: string
   /**
-   * Set when the folder has its own access list (ADR-0088, ADR-0096): whether
+   * Set when the folder has its own access list (ADR-0088, ADR-0097): whether
    * every project member reads it. Who else is on it is read when the access
    * dialog opens, by whoever may change it. Null/absent when it inherits its
    * parent's. The listing only carries folders the reader may read. A

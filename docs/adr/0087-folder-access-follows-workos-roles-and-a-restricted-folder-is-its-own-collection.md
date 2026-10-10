@@ -8,7 +8,7 @@ informed: everyone working in this repo
 
 # Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection
 
-> **Who is on a list is superseded by [ADR-0096](0096-who-holds-a-folder-s-own-list-is-a-workos-folder-role.md)** (2026-10-09):
+> **Who is on a list is superseded by [ADR-0097](0097-who-holds-a-folder-s-own-list-is-a-workos-folder-role.md)** (2026-10-09):
 > people holding a WorkOS folder role on the folder, not organization roles.
 
 > **Partly superseded by [ADR-0088](0088-folder-access-is-read-write-per-role.md)** (2026-10-06):
@@ -174,7 +174,7 @@ opens none for the version nobody asked about. Giving tasks a folder audience
 instead would be a second visibility model for the task list, the inbox and the
 run thread, for one door. A task opened before its draft's folder was
 restricted is judged when read by the folder the document is in now, and so is
-its thread (ADR-0092).
+its thread (ADR-0093).
 
 Answer feedback is read across tenants: by Piloti staff in the platform
 drill-in and its CSV export (which feeds `scripts/feedback_to_cases.py`), by
@@ -183,7 +183,7 @@ organization's turns. A vote on an answer written while its conversation had
 a `conversation_restricted_folders` row is left out of all of them
 (`OUTSIDE_RESTRICTED_USE`); only the aggregate counts include it. The answer is
 marked by the server, keyed by its message id, and the mark outlives the chat
-(`message_restricted_use`, ADR-0092, which replaced 0120's mark on the vote by
+(`message_restricted_use`, ADR-0093, which replaced 0120's mark on the vote by
 its client-sent conversation id). The digest's cache key was bumped with the
 filter, so a digest written from such a vote is not served.
 

@@ -21,7 +21,7 @@ const COLLECTION = 'proj_alpha'
 /**
  * Verträge: the Geschäftsführung writes, the contracts clerk reads. Personal:
  * Geschäftsführung only. Who is on each list is the folder roles WorkOS
- * reports (ADR-0096), so a clearance is the levels a person holds.
+ * reports (ADR-0097), so a clearance is the levels a person holds.
  */
 const VERTRAEGE_ID = '01234567-89ab-4cde-8f01-23456789abcd'
 const PERSONAL_ID = 'ba987654-3210-4cde-8f01-23456789abcd'
@@ -31,7 +31,7 @@ const OPENED_ID = 'c0ffee00-0000-4000-8000-000000000001'
 const DELETED_ID = 'dead0000-0000-4000-8000-000000000001'
 const VERTRAEGE = `${COLLECTION}_r0123456789ab`
 const PERSONAL = `${COLLECTION}_rba9876543210`
-/** „Honorare" in another project (ADR-0093): Geschäftsführung only. */
+/** „Honorare" in another project (ADR-0094): Geschäftsführung only. */
 const HONORARE_ID = 'aaaa0000-0000-4000-8000-0000000000aa'
 /** On every Geschäftsführung list; reads Opened too, once it gets one. */
 const GF: FolderClearance = {
@@ -63,7 +63,7 @@ const state = vi.hoisted(() => ({
   written: [] as string[][],
   members: new Map<string, FolderClearance>(),
   tree: [] as AccessFolder[],
-  /** Another project's folder tree, by project id (ADR-0093); every other project reads `tree`. */
+  /** Another project's folder tree, by project id (ADR-0094); every other project reads `tree`. */
   trees: new Map<string, AccessFolder[]>(),
   /** Which project a folder of another project belongs to. */
   folderOwners: new Map<string, string>(),
@@ -518,7 +518,7 @@ describe('lockedConversationIds: which of a list the session may no longer read 
   })
 })
 
-describe('a chat that drew on another project (ADR-0093)', () => {
+describe('a chat that drew on another project (ADR-0094)', () => {
   const OTHER = 'project_2'
   /** An open folder of the other project. */
   const PLAENE_ID = 'aaaa0000-0000-4000-8000-0000000000bb'
@@ -630,7 +630,7 @@ describe('a chat that drew on another project (ADR-0093)', () => {
   })
 })
 
-describe('the cost of asking who may open the recorded projects (ADR-0093)', () => {
+describe('the cost of asking who may open the recorded projects (ADR-0094)', () => {
   it('stops asking about a person at their first project they may not open', async () => {
     state.projects = ['project_a', 'project_b', 'project_c']
     state.opens = new Set([`${OWNER}:project_a`, `${OWNER}:project_b`, `${OWNER}:project_c`])

@@ -23,7 +23,7 @@ vi.mock('@/lib/projects/memory-judge-audit', async (importOriginal) => ({
   recordRefusedMemoryJudgeVerdict: vi.fn().mockResolvedValue(undefined),
 }))
 
-// The cross-project record (ADR-0093): which conversations drew on another project.
+// The cross-project record (ADR-0094): which conversations drew on another project.
 const crossProject = vi.hoisted(() => ({ recorded: new Map<string, string[]>() }))
 vi.mock('@/lib/db', () => ({ getDb: () => ({}) }))
 vi.mock('@/lib/conversations/restricted-use-repository', () => ({
@@ -73,7 +73,7 @@ afterEach(() => {
   crossProject.recorded.clear()
 })
 
-describe('POST /api/internal/memory — a conversation that drew on another project (ADR-0093)', () => {
+describe('POST /api/internal/memory — a conversation that drew on another project (ADR-0094)', () => {
   it('refuses with a typed 409 before anything is written, for project and organization scope', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.stubEnv('GRID_ALLOW_AGENT_ORG_MEMORY', 'true')

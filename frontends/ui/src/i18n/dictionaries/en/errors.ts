@@ -57,7 +57,7 @@ export const errors = {
       'A document you named sits in a folder with restricted access, so it cannot be handed to a research run: a run’s documents and its report are visible to everyone in the project, including people not cleared for that folder.',
   },
   /**
-   * The cross-project lookups (ADR-0093), refusing where their findings could
+   * The cross-project lookups (ADR-0094), refusing where their findings could
    * reach someone who may not open the other project. Relayed as the API error;
    * the agent quotes the German one to the reader.
    */

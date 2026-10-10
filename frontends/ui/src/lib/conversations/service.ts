@@ -173,7 +173,7 @@ export interface ConversationWithAccess extends Conversation {
   engagementSuggestion: ConversationEngagement | null
   /**
    * The other projects this chat's answers drew on that restrict it NOW
-   * (ADR-0093), judged at read time like every door: a project closed since the
+   * (ADR-0094), judged at read time like every door: a project closed since the
    * answer is not here, a reopened one is, and a closed project's restricted
    * folder names its project. What the composer's notice lists.
    */
