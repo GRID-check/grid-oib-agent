@@ -12,13 +12,14 @@
  * invalid ones are the shapes a leak arrives in.
  */
 
-import { RuleTester } from 'eslint'
+import { RuleTester } from 'oxlint/plugins-dev'
 import { describe, expect, it } from 'vitest'
 import rule from './require-tenant-cache-key.mjs'
 import { GLOBAL_CACHE_KEYS } from './global-cache-keys.mjs'
 
 const ruleTester = new RuleTester({
-  parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
+  eslintCompat: true,
+  languageOptions: { sourceType: 'module' },
 })
 
 const withImport = (body) => `import { getCached, setCached } from '@/lib/cache'\n${body}`

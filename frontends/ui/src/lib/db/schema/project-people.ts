@@ -5,7 +5,7 @@ import { projects } from './projects'
 
 /**
  * Everyone who worked on a project, with or without a Piloti account
- * (migration 0117, ADR-0090): former staff, external planners, the client's
+ * (migration 0117, ADR-0091): former staff, external planners, the client's
  * people. The Steckbrief's people list.
  *
  * Personal data of people who mostly never gave it: name, function, company,

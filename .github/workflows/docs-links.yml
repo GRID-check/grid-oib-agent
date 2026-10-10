@@ -44,21 +44,18 @@ jobs:
   link-check:
     name: External link sweep (weekly)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - name: Check external links in tracked Markdown
-        env:
-          # Same exclusion the pre-commit hook applies: skill cards are generated
-          # blobs, not prose anyone maintains links in.
-          EXCLUDE: '^skills/[^/]+/skill-card\.md$'
         run: |
           set -uo pipefail
-          mapfile -t FILES < <(git ls-files '*.md' | grep -Ev "$EXCLUDE")
+          mapfile -t FILES < <(git ls-files '*.md')
           echo "Checking ${#FILES[@]} files"
           npx --yes "markdown-link-check@${MARKDOWN_LINK_CHECK_VERSION}" \
             --config ci/markdown-link-check-external-config.json \

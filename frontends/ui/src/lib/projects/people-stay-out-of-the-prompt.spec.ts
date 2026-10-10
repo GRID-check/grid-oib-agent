@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The Steckbrief's people never reach the agent (ADR-0090). They are personal
+ * The Steckbrief's people never reach the agent (ADR-0091). They are personal
  * data of people who mostly never gave it — former staff, external planners —
  * and the agent's context is sent to a model on every turn.
  *

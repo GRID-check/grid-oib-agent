@@ -109,13 +109,9 @@
  *
  * ## What moves
  *
- * Nothing loops. A new row simply appears, and the pane's height steps to take
- * it in one frame, not transitioned: it grows inside the Herleitung's capped,
- * bottom-pinned scroller, so the growth reads as the row arriving rather than
- * as the page moving (see the pane's style below). The connectors into the newest row used to march (React Flow's
- * `animated` edge, the library's `dashdraw`); while the turn works the header's
- * shimmer is its one ambient motion, and a second loop beside it competed for
- * the same glance. See `renderedEdges`.
+ * Only React Flow's own `animated` edge: while the turn is live, the
+ * connectors INTO the newest row march (`.react-flow__edge.animated`, the
+ * library's `dashdraw`). Everything else simply appears. See `renderedEdges`.
  */
 
 'use client'
@@ -1317,6 +1313,17 @@ export function sameNodeData(a: unknown, b: unknown): boolean {
 const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 }
 const PRO_OPTIONS = { hideAttribution: true }
 
+/**
+ * The edges as React Flow draws them: the connectors INTO `newestRow` get the
+ * library's own `animated` flag (the marching `dashdraw` dash), every other
+ * connector stays solid. Pass an empty row for a settled graph. Exported for
+ * its spec.
+ */
+export function animateFrontier(edges: Edge[], newestRow: readonly string[]): Edge[] {
+  if (newestRow.length === 0) return edges
+  const frontier = new Set(newestRow)
+  return edges.map((e) => (frontier.has(e.target) ? { ...e, animated: true } : e))
+}
 
 /**
  * Keep the previous edge object wherever a rebuilt edge says the same thing.
@@ -1422,20 +1429,24 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
     if (changed.length > 0) updateNodeInternals(changed)
   }, [handleSigs, updateNodeInternals])
 
-  // The connectors are solid, live or settled. The marching dash they had at
-  // the frontier was a second loop beside the header's shimmer, and it
-  // repainted on the main thread (~245 ms per second on a 4x throttled phone,
-  // Herleitung audit, 2026-09).
-  //
+  // The connectors are solid. While the turn streams, the ones into the newest
+  // row are React Flow's own `animated` edges, and nothing else in the graph
+  // moves. That dash loop repaints on the main thread (a marching connector
+  // measured ~245 ms of main thread per second on a 4x throttled phone,
+  // Herleitung audit, 2026-09), so it is held to the frontier and to a live
+  // turn: a settled graph draws no animated edge at all. People watch it to
+  // see the agent work (2026-10), which is what it costs that for.
+  const frontierKey = live ? (rows.at(-1) ?? []).join('|') : ''
   // The last edges handed to React Flow, so an unchanged edge keeps its object
   // (`keepEdgeIdentity`). Rewritten only when the memo recomputes, and the
   // write is idempotent, so a double render lands on the same array.
   const keptEdgesRef = useRef<Edge[]>([])
   const renderedEdges = useMemo(() => {
-    const kept = keepEdgeIdentity(keptEdgesRef.current, edges)
+    const newestRow = frontierKey ? frontierKey.split('|') : []
+    const kept = keepEdgeIdentity(keptEdgesRef.current, animateFrontier(edges, newestRow))
     keptEdgesRef.current = kept
     return kept
-  }, [edges])
+  }, [edges, frontierKey])
 
   const rowsKey = useMemo(() => rows.map((r) => r.join('|')).join('/'), [rows])
 
@@ -1518,11 +1529,6 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
       // React Flow's stylesheet takes and this graph never uses. See the rule in
       // globals.css — without it the whole Herleitung is a dead zone under a
       // finger, and it is the tallest thing in a turn.
-      //
-      // The height is set, not transitioned: a live graph that gains a row
-      // grows inside the Herleitung's capped, bottom-pinned scroller
-      // (`ChatThinking`), so the growth reads as the newest row arriving
-      // rather than as the page moving.
       className="reasoning-flow-scrollable w-full overflow-hidden"
       data-testid="reasoning-flow"
       role="group"

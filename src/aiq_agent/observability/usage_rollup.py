@@ -206,6 +206,10 @@ def record_usage_turn(
             usage_completion_tokens=rollup.completion_tokens,
             usage_total_tokens=rollup.total_tokens,
             usage_cost_usd=rollup.cost_usd,
+            # Provenance of the dollars, and the zero row's flag: the two facts
+            # that tell "spent nothing" from "spent and reported nothing".
+            usage_cost_source=rollup.cost_source,
+            usage_error=rollup.error,
         )
     except Exception:
         logger.debug("Could not stamp the turn usage rollup onto the trace", exc_info=True)
