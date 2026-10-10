@@ -32,7 +32,6 @@ const PROJECT_SECTION_SEGMENTS: readonly ProjectSectionKey[] = [
   'files',
   'knowledge',
   'automation',
-  'referenzen',
   'intake',
   'settings',
 ]
@@ -45,6 +44,9 @@ const EXTRA_PROJECT_SEGMENTS: Record<string, PathLabel> = {
   research: { namespace: 'nav', key: 'sections.research' },
   members: { namespace: 'nav', key: 'returnTargets.members' },
   model: { namespace: 'nav', key: 'returnTargets.model' },
+  // Similar projects left the rail for the project hub; `/referenzen` only
+  // redirects now, but a trail recorded before that still names it.
+  referenzen: { namespace: 'nav', key: 'sections.referenzen' },
 }
 
 /** Org-level routes, matched on their first segment below `/app`. */

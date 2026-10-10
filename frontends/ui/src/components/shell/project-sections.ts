@@ -4,10 +4,9 @@ import {
   BookOpenCheck,
   ClipboardList,
   Folder,
-  GitCompareArrows,
   Inbox,
   MessageSquare,
-  Settings,
+  LayoutDashboard,
   Zap,
 } from 'lucide-react'
 
@@ -38,6 +37,10 @@ import {
  * is last because the badge already draws the eye. Settings stays pinned at the
  * bottom.
  *
+ * There is deliberately no Similar projects entry either: it is reference
+ * reading about the project, so it is a tile on the project's Overview and a
+ * section behind it (`/settings/references`), and `/referenzen` redirects there.
+ *
  * There is deliberately no Model entry: an IFC is a file, it opens
  * from the Files grid, and a second rail item for one file type was a
  * destination nobody navigated to. The palette additionally surfaces the
@@ -48,7 +51,6 @@ import {
 export type ProjectSectionKey =
   | 'chat'
   | 'automation'
-  | 'referenzen'
   | 'files'
   | 'knowledge'
   | 'archiv'
@@ -184,19 +186,6 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     group: 'work',
   },
   {
-    // Similar projects: the closed projects most like this one that the person
-    // may open, with what they share and their decisions and permit conditions
-    // (ADR-0094). A reading surface beside Dateien, so it sits in the work group.
-    key: 'referenzen',
-    segment: 'referenzen',
-    icon: GitCompareArrows,
-    i18nKey: 'referenzen',
-    inRail: true,
-    inPalette: true,
-    shortcutKey: 'r',
-    group: 'work',
-  },
-  {
     // The org-wide Archiv (ADR-0024) keeps its org-scoped route; the entry is a
     // cross-project doorway, not a project subpage.
     key: 'archiv',
@@ -245,7 +234,10 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
 ]
 
 /**
- * The pinned Settings entry (spec §5). The rail renders it separately from the
+ * The pinned project hub entry, labelled Overview (spec §5, §9.2). It opens on
+ * the project dashboard, with the setup sections behind it; the key and the
+ * `/settings` segment kept their old name so links and the `g s` jump still
+ * land. The rail renders it separately from the
  * scrollable section nav (docked above the user footer); the palette lists it
  * inline. Kept out of {@link PROJECT_SECTIONS} so `railSections` never emits it
  * into the scrollable group.
@@ -253,7 +245,7 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
 export const PROJECT_SETTINGS_SECTION: ProjectSection = {
   key: 'settings',
   segment: 'settings',
-  icon: Settings,
+  icon: LayoutDashboard,
   i18nKey: 'settings',
   inRail: true,
   inPalette: true,

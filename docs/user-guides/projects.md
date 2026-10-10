@@ -39,12 +39,11 @@ Opening a project (`/app/projects/{id}`) lands you in **Ask Piloti** — the pro
 | **Ask Piloti** | `/app/projects/{id}/chat` | Project-scoped conversations (the landing surface) |
 | **Files** | `/app/projects/{id}/files` | List, upload, and manage files |
 | **History** | `/app/projects/{id}/history` | All conversations and deep-research runs; rows reopen in chat |
-| **Ähnliche Projekte** | `/app/projects/{id}/referenzen` | The office's closed projects most like this one: [Similar projects](#similar-projects) |
 | **Jobs** | `/app/projects/{id}/jobs` | This project's scheduled prompts, and their run history (feature-flagged) |
 | **Skills** | `/app/projects/{id}/skills` | The organization's skill toolbox (feature-flagged) |
 | **Büroablage** | `/app/archiv` | The office's org-wide shared files (feature-flagged) |
 | **Inbox** | `/app/inbox` | Mentions, shares, and operational notices (feature-flagged) |
-| **Settings** | `/app/projects/{id}/settings` | Project parameters, members, memory, insights, danger zone (pinned at the bottom of the sidebar) |
+| **Overview** | `/app/projects/{id}/settings` | The project hub, pinned at the bottom of the sidebar: a dashboard of tiles, among them [Similar projects](#similar-projects), with members, memory, usage, documents and similar projects as sections behind it |
 
 Every section except **Ask Piloti** shares one page header: a `{project} / {section}` breadcrumb, the section title, a one-line subtitle, and optional actions on the right. Ask Piloti is the exception — it is a full-bleed conversation surface with its own toolbar.
 
@@ -175,7 +174,7 @@ Whoever may edit the brief may change the period and the people. In a closed pro
 
 ## Similar projects
 
-**Ähnliche Projekte** (`/app/projects/{id}/referenzen`, `g r`) lists the office's closed projects most like this one that you may open, at most twelve. They are the same projects, in the same order, that Piloti is given at the start of every chat turn and searches on its own when a question is comparative („wie haben wir das gelöst?"), see [chat](chat.md#searching-other-projects).
+The project hub's **Ähnliche Projekte** tile names the three closed projects most like this one, each with what it shares and how many decisions and Bescheide it holds; it names only projects that share something. Its link opens the section behind it (`/app/projects/{id}/settings/references`; the old `/referenzen` links redirect there), which lists the office's closed projects most like this one that you may open, at most twelve. They are the same projects, in the same order, that Piloti is given at the start of every chat turn and searches on its own when a question is comparative („wie haben wir das gelöst?"), see [chat](chat.md#searching-other-projects).
 
 - **Verglichen nach** names what the comparison rests on: this project's Bundesland, Gebäudeklasse, Bauweise, uses and kind of work. A fact still *offen* makes the comparison coarser; **Im Briefing ergänzen** opens the intake wizard. A value Piloti only read from the documents is marked *aus den Unterlagen, unbestätigt*.
 - Each card shows the project's period, Bundesland and the OIB edition it was planned under, what it has in **common** with this project (a trait either side only has from its documents is marked unconfirmed), the decisions it recorded with who stands behind each (*von einer Person bestätigt*, *aus den Unterlagen erschlossen*, *von Piloti notiert*, the same words Piloti uses when it cites them), and the conditions its Bescheide set. The footer counts everything the project holds, though the card shows the first few.

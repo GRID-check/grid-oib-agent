@@ -30,7 +30,7 @@ export const nav = {
     /** The tab that leads: work delegated to Piloti, one card per task (ADR-0051). */
     tasks: 'Tasks',
     archiv: 'Office filing',
-    settings: 'Settings',
+    settings: 'Overview',
     // The intake wizard, labelled "Setup" in the product (⌘K palette only).
     intake: 'Setup',
   },
@@ -43,7 +43,7 @@ export const nav = {
     automation:
       'What Piloti did while you were away, what it will do next, and the skills it does it with.',
     knowledge: 'What the knowledge base currently contains.',
-    settings: 'Project profile, members, memory, and danger zone.',
+    settings: 'Where this project stands, and how it is set up.',
     intake: 'Guided briefing for this project.',
   },
   /**

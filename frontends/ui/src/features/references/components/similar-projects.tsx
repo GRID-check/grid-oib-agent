@@ -2,7 +2,8 @@
 
 /**
  * Similar projects: the closed projects most like this one that the person may
- * open, one card each (`/app/projects/{id}/referenzen`). The data is the
+ * open, one card each (the project hub's Similar projects section,
+ * `/app/projects/{id}/settings/references`). The data is the
  * service's (`getSimilarProjects`); this draws it from the reference atoms and
  * the raised-card shape, and says so when there is none.
  *
@@ -172,7 +173,7 @@ export function SimilarProjects({ projectId, page }: { projectId: string; page: 
   const alike = page.projects.filter((project) => project.alike)
   const others = page.projects.filter((project) => !project.alike)
   return (
-    <div className="flex flex-col gap-6 px-4 py-4 md:px-8">
+    <div className="flex flex-col gap-6">
       <p className="max-w-prose text-sm text-muted-foreground">{t('intro')}</p>
       <ComparedBy projectId={projectId} basis={page.basis} />
       {page.projects.length === 0 ? (
