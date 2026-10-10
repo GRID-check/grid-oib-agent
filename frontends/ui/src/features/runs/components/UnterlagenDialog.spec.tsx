@@ -110,6 +110,31 @@ describe('UnterlagenDialog', () => {
       expect(onOpenChange).toHaveBeenCalledWith(false)
     })
 
+    it('names a document from a restricted folder as such and offers no add for it', () => {
+      const onAdd = vi.fn()
+      render(
+        <UnterlagenDialog
+          mode="add"
+          open
+          onOpenChange={() => undefined}
+          documents={[
+            { name: 'Abmahnung_Meier_2026.pdf', title: 'Abmahnung Meier', shelf: 'project', restricted: true },
+            { name: 'Brandschutzkonzept.pdf', shelf: 'project', restricted: false },
+          ]}
+          named={[]}
+          onAdd={onAdd}
+        />
+      )
+      expect(within(rows()[0]).queryByRole('button')).toBeNull()
+      expect(within(rows()[0]).getByTestId('unterlagen-restricted')).toHaveTextContent('restricted')
+      expect(within(rows()[0]).getByTestId('unterlagen-restricted')).toHaveAttribute(
+        'title',
+        expect.stringContaining('restricted access')
+      )
+      fireEvent.click(within(rows()[1]).getByRole('button', { name: 'Add Brandschutzkonzept.pdf' }))
+      expect(onAdd).toHaveBeenCalledTimes(1)
+    })
+
     it('says it is loading while the inventory has not arrived', () => {
       render(
         <UnterlagenDialog

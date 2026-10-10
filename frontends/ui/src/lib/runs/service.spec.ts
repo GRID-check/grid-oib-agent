@@ -43,6 +43,9 @@ vi.mock('@/lib/collection-scope-request', () => ({
   })),
 }))
 vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn(), resolveInboxItemsFor: vi.fn() }))
+// The project's folders and the documents a run is handed: the real Unterlagen refusal runs against them.
+vi.mock('@/lib/authz/folder-access-repository', () => ({ listProjectFolderTree: vi.fn() }))
+vi.mock('@/lib/documents/repository', () => ({ findProjectDocumentsByFilenames: vi.fn() }))
 // Partial: the real slot helpers are what a route opens, and replacing the
 // module wholesale would test a service the app does not run.
 vi.mock('@/lib/db/tenant-context', async (importOriginal) => ({
@@ -57,7 +60,16 @@ vi.mock('@/lib/jobs/backend-client', async (importOriginal) => ({
   addDocumentToBackendJob: vi.fn(),
 }))
 
-import { BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
+import {
+  BadRequestError,
+  ConflictError,
+  ConversationConfinedError,
+  NotFoundError,
+  UpstreamError,
+} from '@/lib/api/errors'
+import type { AccessFolder } from '@/lib/authz/folder-access'
+import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
+import { findProjectDocumentsByFilenames, type DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -163,6 +175,8 @@ beforeEach(() => {
   vi.mocked(taskRepository.findRunById).mockResolvedValue(run)
   vi.mocked(taskRepository.findRunInProject).mockResolvedValue(run)
   vi.mocked(taskRepository.findRunByBackendJobId).mockResolvedValue(run)
+  vi.mocked(listProjectFolderTree).mockResolvedValue([])
+  vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([])
   vi.mocked(writeMessageContent).mockResolvedValue(message(null))
   vi.mocked(findMessageInConversation).mockResolvedValue(
     message({ [`run_ledger`]: emptyRunLedger(RUN, T0) }),
@@ -701,5 +715,66 @@ describe('addRunDocument', () => {
 
     vi.mocked(addDocumentToBackendJob).mockRejectedValueOnce(new JobCancelError('gateway', 502))
     await expect(addRunDocument(session, 'project-1', RUN, doc)).rejects.toBeInstanceOf(UpstreamError)
+  })
+
+  /**
+   * ADR-0084 lets every project:chat member read the run's stream and report,
+   * where the document's name and title would land. A cleared member picking a
+   * document from a restricted folder is refused, and the backend hears nothing.
+   */
+  describe('a document from a restricted folder (ADR-0087)', () => {
+    const PERSONAL = 'folder-personal'
+    const OPEN = 'folder-plaene'
+    const TREE: AccessFolder[] = [
+      { id: PERSONAL, parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'read' }] },
+      { id: 'folder-unter-personal', parentId: PERSONAL, accessMode: 'inherit', grants: [] },
+      { id: OPEN, parentId: null, accessMode: 'inherit', grants: [] },
+    ]
+    const row = (filename: string, folderId: string | null) =>
+      ({ id: `doc-${filename}`, filename, folderId }) as DocumentListRow
+
+    beforeEach(() => {
+      vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
+    })
+
+    it.each([PERSONAL, 'folder-unter-personal'])(
+      'refuses one filed in %s, in the reader’s language, without asking the backend',
+      async (folderId) => {
+        vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([row('Abmahnung_Meier_2026.pdf', folderId)])
+        const error = await addRunDocument(
+          session,
+          'project-1',
+          RUN,
+          { name: 'Abmahnung_Meier_2026.pdf', title: 'Abmahnung Meier', shelf: 'project' },
+          'en'
+        ).catch((caught: unknown) => caught)
+
+        expect(error).toBeInstanceOf(ConversationConfinedError)
+        expect((error as ConversationConfinedError).action).toBe('planDocument')
+        expect((error as ConversationConfinedError).message).toContain('restricted access')
+        expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith(
+          'project-1',
+          'org_1',
+          ['Abmahnung_Meier_2026.pdf'],
+          { includeArchived: true }
+        )
+        expect(addDocumentToBackendJob).not.toHaveBeenCalled()
+      }
+    )
+
+    it('hands over a document from an open folder, or the project root', async () => {
+      vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([row('Einreichplan.pdf', OPEN)])
+      await addRunDocument(session, 'project-1', RUN, doc)
+      vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([row('Einreichplan.pdf', null)])
+      await addRunDocument(session, 'project-1', RUN, doc)
+      expect(addDocumentToBackendJob).toHaveBeenCalledTimes(2)
+    })
+
+    it('never looks up an Archiv document: no project folder restricts the Archiv', async () => {
+      await addRunDocument(session, 'project-1', RUN, { name: 'Leitfaden.pdf', shelf: 'archiv' })
+      expect(listProjectFolderTree).not.toHaveBeenCalled()
+      expect(findProjectDocumentsByFilenames).not.toHaveBeenCalled()
+      expect(addDocumentToBackendJob).toHaveBeenCalled()
+    })
   })
 })

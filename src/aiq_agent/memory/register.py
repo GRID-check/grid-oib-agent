@@ -11,6 +11,14 @@ Two scopes:
 - ``organization``: cross-cutting knowledge that applies to every project in
   the user's organization (never shared across organizations).
 
+A turn whose scope holds a restricted folder's collection (ADR-0087) still
+remembers: :mod:`aiq_agent.memory.restriction` decides which restricted
+collections the finding depends on, and it is stored as restricted memory that
+only people cleared for them are served or shown. Such a finding is never
+organization memory (that reaches every project): it is filed in the turn's
+project instead, and it never becomes a confirmation card (an accepted card is
+written open, by the user's own session).
+
 See docs/architecture/project-memory-design.md.
 """
 
@@ -19,6 +27,7 @@ import json
 import logging
 from dataclasses import dataclass
 from typing import Annotated
+from typing import Any
 from typing import Literal
 
 from pydantic import BeforeValidator
@@ -29,9 +38,18 @@ from aiq_agent import project_context
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.registry import get_card_registry
 from aiq_agent.knowledge import project_memory as memory_client
+from aiq_agent.knowledge import scoping
+from aiq_agent.knowledge.restricted_collections import restricted_collections_in
+from aiq_agent.memory.restriction import Restriction
+from aiq_agent.memory.restriction import RestrictionEvidence
+from aiq_agent.memory.restriction import decide_restriction
+from aiq_agent.memory.restriction import restricted_digest_notes
+from aiq_agent.memory.restriction import restriction_evidence
+from aiq_agent.memory.shown_notes import turn_shown_notes
 from nat.plugin_api import Builder
 from nat.plugin_api import FunctionBaseConfig
 from nat.plugin_api import FunctionInfo
+from nat.plugin_api import LLMRef
 from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
@@ -58,6 +76,10 @@ _NO_PROJECT_RESULT = (
     "recorded in project-scoped chats. Do not retry."
 )
 _NO_ORG_RESULT = "Error: organization unknown for this session — cannot record org-wide memory. Do not retry."
+_RESTRICTED_NO_PROJECT_RESULT = (
+    "Error: the finding was NOT saved. It draws on a restricted folder, and restricted memory "
+    "can only be kept in a project, but no project is in scope. Do not retry."
+)
 
 #: A failed write that is the transport's fault, not the caller's. Narrow on
 #: purpose: ``ValueError`` from the client means this tool's vocabulary and
@@ -124,6 +146,61 @@ def _resolve_target(scope: str, project_id: str | None, organization_id: str | N
     return _Target("organization", None, organization_id)
 
 
+def _turn_restriction_evidence() -> RestrictionEvidence:
+    """What this turn could have taken from restricted folders (ADR-0087).
+
+    The scope decides whether the question arises at all: the inventory block
+    and ``list_files`` name in-scope documents with their summaries, so a
+    restricted collection in scope can be in front of the model before any
+    retrieval. What was read is this turn's captures plus the conversation's
+    citation registry, whose passages are in the history the model is
+    answering from; what could be listed is the turn's uncapped inventory.
+    """
+    scope = scoping.get_collection_scope_from_context()
+    # What earlier turns of the conversation were shown of restricted memory
+    # (`memory/shown_notes.py`): evidence even in a turn whose scope no longer
+    # holds the folder the note came from.
+    earlier = turn_shown_notes()
+    if not restricted_collections_in(scope) and earlier.empty:
+        return RestrictionEvidence()
+    from aiq_agent.common.citation_verification import get_session_registry
+    from aiq_agent.common.citation_verification import get_turn_captures
+    from aiq_agent.knowledge.inventory import get_turn_documents
+
+    sources = list(get_turn_captures())
+    registry = get_session_registry()
+    if registry is not None:
+        sources.extend(registry.all_sources())
+    return restriction_evidence(
+        scope,
+        source_collections=(source.collection for source in sources),
+        listed_documents=get_turn_documents(),
+        # Restricted memory in the prompt: the digest's `restricted` lines and
+        # what this turn already stored as restricted.
+        restricted_notes=(
+            *restricted_digest_notes(memory_client.turn_memory_digest()),
+            *memory_client.turn_restricted_memory_writes(),
+        ),
+        earlier_notes=earlier.notes,
+        always=earlier.overflowed,
+    )
+
+
+def _restricted_target(target: _Target, project_id: str | None) -> _Target | str:
+    """Where a restricted finding lands: always the project, never the organization.
+
+    Organization memory reaches every project in the tenant, and the restriction
+    is a project's folders, so a restricted finding meant for the whole office is
+    kept as restricted memory of the project it came from.
+    """
+    if target.scope == "project":
+        return target
+    if not project_id:
+        return _RESTRICTED_NO_PROJECT_RESULT
+    logger.info("remember: a restricted organization-scoped finding is filed as restricted project memory")
+    return _Target("project", project_id, target.organization_id)
+
+
 def _emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> bool:
     """Build and register a ``memory_proposal`` confirmation card.
 
@@ -152,7 +229,9 @@ def _emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> b
     return True
 
 
-def _failure_result(exc: Exception, *, scope: str, kind: str, content: str, confidence: str) -> str:
+def _failure_result(
+    exc: Exception, *, scope: str, kind: str, content: str, confidence: str, restricted: bool = False
+) -> str:
     """Translate a failed write into a tool result, emitting a card when one helps.
 
     An ORG-scoped write the agent's service token may not make is the one
@@ -167,21 +246,34 @@ def _failure_result(exc: Exception, *, scope: str, kind: str, content: str, conf
     else:
         logger.error("Failed to record memory item", exc_info=exc)
 
-    if (org_denied or scope == "organization") and _emit_memory_proposal_card(
-        content=content, kind=kind, confidence=confidence
+    # Never a card for a restricted finding: accepting it writes open memory
+    # through the user's own session, which is the leak by another door.
+    if (
+        not restricted
+        and (org_denied or scope == "organization")
+        and _emit_memory_proposal_card(content=content, kind=kind, confidence=confidence)
     ):
         return _CARD_SHOWN_RESULT
     return _ORG_DISABLED_RESULT if org_denied else _UNAVAILABLE_RESULT
 
 
-def _success_result(kind: str, scope: str, *, supersedes: bool) -> str:
+def _success_result(kind: str, scope: str, *, supersedes: bool, restricted: bool = False, demoted: bool = False) -> str:
     """The tool result for a write that landed."""
     if not supersedes:
-        return f"Recorded {kind} in {scope} memory."
-    # Deliberately not claiming the old entry WAS retired: the frontend ignores
-    # a quote it cannot resolve, or one naming a human-curated entry, and this
-    # call does not learn which happened.
-    return f"Recorded {kind} in {scope} memory, replacing the earlier note where it still matched."
+        result = f"Recorded {kind} in {scope} memory."
+    else:
+        # Deliberately not claiming the old entry WAS retired: the frontend ignores
+        # a quote it cannot resolve, or one naming a human-curated entry, and this
+        # call does not learn which happened.
+        result = f"Recorded {kind} in {scope} memory, replacing the earlier note where it still matched."
+    if restricted:
+        result += (
+            " It draws on a restricted folder, so it is kept as restricted memory: only people cleared "
+            "for that folder are shown it or given it in their chats."
+        )
+    if demoted:
+        result += " It was kept in this project, not organization-wide, because it draws on a restricted folder."
+    return result
 
 
 _TOOL_DESCRIPTION = (
@@ -208,10 +300,44 @@ class ProjectMemoryRememberConfig(FunctionBaseConfig, name="project_memory_remem
     """Configuration for the project-memory ``remember`` tool."""
 
     max_content_chars: int = Field(default=500, description="Maximum characters per remembered finding.")
+    judge_llm: LLMRef | None = Field(
+        default=None,
+        description=(
+            "Model that judges whether a finding written in a turn with restricted folders in scope draws "
+            "on a restricted document it did not read (ADR-0087). Resolved like the memory-reflection "
+            "stage's model (same agent group, org override, BYOK). Unset: such a finding is restricted "
+            "to every restricted folder in scope (fail closed)."
+        ),
+    )
+
+
+async def _base_judge_llm(builder: Builder, ref: LLMRef | None) -> Any:
+    """The judge's configured model, or None (fail closed) when unset or unbuildable."""
+    if ref is None:
+        return None
+    try:
+        from aiq_agent.common import get_langchain_llm
+
+        return await get_langchain_llm(builder, ref)
+    except Exception:  # noqa: BLE001 - the judge is optional; without it restricted findings fail closed
+        logger.warning("Could not build the memory restriction judge; restricted findings fail closed", exc_info=True)
+        return None
+
+
+def _turn_judge_llm(base: Any) -> Any:
+    """``base`` with this turn's org override and credential, as the reflection stage resolves it."""
+    if base is None:
+        return None
+    from aiq_agent.common.model_overrides import AgentGroup
+    from aiq_agent.stages.runner import resolve_group_llm
+
+    return resolve_group_llm(base, AgentGroup.MEMORY_REFLECTION, label="remember judge")
 
 
 @register_function(config_type=ProjectMemoryRememberConfig)
 async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, builder: Builder):
+    base_judge = await _base_judge_llm(builder, tool_config.judge_llm)
+
     async def _remember(
         kind: Kind,
         content: str,
@@ -226,13 +352,21 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
         content = content[: tool_config.max_content_chars]
         supersedes = supersedes.strip()
 
-        target = _resolve_target(
-            scope,
-            project_context.get_project_id_from_context(),
-            project_context.get_organization_id_from_context(),
-        )
+        project_id = project_context.get_project_id_from_context()
+        target = _resolve_target(scope, project_id, project_context.get_organization_id_from_context())
         if isinstance(target, str):
             return target
+        evidence = _turn_restriction_evidence()
+        restriction: Restriction = None
+        if evidence.restricted:
+            restriction = await decide_restriction(content, evidence, llm=_turn_judge_llm(base_judge))
+        demoted = False
+        if restriction is not None:
+            restricted_target = _restricted_target(target, project_id)
+            if isinstance(restricted_target, str):
+                return restricted_target
+            demoted = restricted_target.scope != target.scope
+            target = restricted_target
 
         try:
             item_id = await asyncio.to_thread(
@@ -248,13 +382,24 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
                 # the quote and ignores it when nothing matches or the target is
                 # human-curated, so the write lands either way.
                 supersedes_content=supersedes or None,
+                # ADR-0087: served and shown only to people cleared for all of these.
+                restricted_collections=restriction,
             )
         except _WRITE_FAILURES as exc:
-            return _failure_result(exc, scope=target.scope, kind=kind, content=content, confidence=confidence)
+            return _failure_result(
+                exc,
+                scope=target.scope,
+                kind=kind,
+                content=content,
+                confidence=confidence,
+                restricted=restriction is not None,
+            )
 
         if item_id is None:
             return "Error: unknown project — nothing recorded."
-        logger.info("Recorded %s memory item %s (%s)", target.scope, item_id, kind)
-        return _success_result(kind, target.scope, supersedes=bool(supersedes))
+        logger.info("Recorded %s memory item %s (%s, restricted=%s)", target.scope, item_id, kind, restriction)
+        return _success_result(
+            kind, target.scope, supersedes=bool(supersedes), restricted=restriction is not None, demoted=demoted
+        )
 
     yield FunctionInfo.from_fn(_remember, description=_TOOL_DESCRIPTION)

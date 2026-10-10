@@ -20,6 +20,8 @@
 
 import 'server-only'
 import { BadRequestError } from '@/lib/api/errors'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import type { DbExecutor } from '@/lib/db/executor'
 import {
   RESOURCE_ROLES,
   SHAREABLE_RESOURCE_TYPES,
@@ -34,6 +36,13 @@ import {
   listConversationIdsForProject,
   updateConversationVisibilityInOrg,
 } from '@/lib/conversations/repository'
+import {
+  assertMayWidenConversation,
+  peopleWhoMayRead,
+  widenConversationAudience,
+  type AudienceWidening,
+} from '@/lib/conversations/restricted-use'
+import { clearanceOf, requireFolderWrite } from '@/lib/authz/folder-access'
 import {
   documentIdsExisting,
   findDocumentTenancy,
@@ -74,6 +83,12 @@ export interface ResourceProbe {
   createdBy: string | null
   /** Set when soft-deleted; callers decide whether that is a 404. */
   deletedAt: Date | null
+  /**
+   * The project folder the resource is filed in, for a resource that has one
+   * (a project document). A folder the session is not cleared for hides the
+   * resource whatever grant it holds (ADR-0087).
+   */
+  folderId?: string | null
 }
 
 export interface ShareableDescriptor {
@@ -107,12 +122,14 @@ export interface ShareableDescriptor {
   /**
    * Persist a visibility change. Returns false when the row is missing in this
    * org (caller maps to 404). Lives on the descriptor so a new type cannot
-   * compile a silent no-op write (§3.1).
+   * compile a silent no-op write (§3.1). `executor` is the transaction a
+   * {@link widenAudience} guard holds; absent, the write opens its own.
    */
   readonly setVisibility: (
     resourceId: string,
     organizationId: string,
     visibility: ResourceVisibility,
+    executor?: DbExecutor,
   ) => Promise<boolean>
   /** One-line title for inbox / mention copy (§3.3). */
   readonly describeRef: (resourceId: string, organizationId: string) => Promise<ResourceRef | null>
@@ -120,6 +137,51 @@ export interface ShareableDescriptor {
   readonly exists: (ids: readonly string[]) => Promise<Set<string>>
   /** Ids of this type inside a project — project-member cleanup (§3.5). */
   readonly listIdsInProject: (projectId: string, organizationId: string) => Promise<string[]>
+  /**
+   * Refuse a widening of the resource's audience that its content forbids,
+   * before anything is written or a rate limit spent (ADR-0087). Absent: the
+   * type has no such content and may be shared as its roles allow.
+   */
+  readonly assertMayWiden?: (session: AuthorizedSession, resourceId: string, widening: AudienceWidening) => Promise<void>
+  /**
+   * Run a widening's write under the guard that makes the check and the write
+   * one step, passing the write the transaction's handle. Present whenever
+   * {@link assertMayWiden} is: the pre-check alone races.
+   */
+  readonly widenAudience?: <T>(
+    session: AuthorizedSession,
+    resourceId: string,
+    widening: AudienceWidening,
+    write: (executor: DbExecutor) => Promise<T>,
+  ) => Promise<T>
+  /**
+   * Refuse a change to who may reach the resource, or who is on the hook for
+   * it, from someone who may not WRITE it. For a type whose write is decided
+   * somewhere finer than the role (a project document: the folder it is filed
+   * in, ADR-0088): sharing and assigning are changes to it, and a reader of a
+   * read-only folder may not make them whatever role they hold on the document.
+   * Absent: the role decides, as it always did.
+   */
+  readonly requireWriteAccess?: (session: AuthorizedSession, resourceId: string) => Promise<void>
+  /**
+   * Which of `userIds` may read the resource's CONTENT now, for a type whose
+   * content is judged against something that changes after it was shared (a
+   * conversation: the folders it drew on, ADR-0088). `asker` is the session,
+   * whose own clearance is already held. Judged at read time and never stored,
+   * so a role given back opens the resource again.
+   *
+   * Absent: the role alone decides, as it always did. Present: a person who
+   * holds a role but is not among the readers is LOCKED
+   * (`ResourceAccess.contentLocked`), every default read refuses them
+   * (`ResourceRightsLostError`), the roster flags them and the invite picker
+   * disables them.
+   */
+  readonly readersAmong?: (
+    organizationId: string,
+    resourceId: string,
+    userIds: readonly string[],
+    asker?: AuthorizedSession,
+  ) => Promise<ReadonlySet<string>>
 }
 
 /**
@@ -154,8 +216,8 @@ const conversationDescriptor: ShareableDescriptor = {
   defaultVisibility: 'private',
   roles: RESOURCE_ROLES,
   supportsMentions: true,
-  setVisibility: async (resourceId, organizationId, visibility) => {
-    const row = await updateConversationVisibilityInOrg(resourceId, organizationId, visibility)
+  setVisibility: async (resourceId, organizationId, visibility, executor) => {
+    const row = await updateConversationVisibilityInOrg(resourceId, organizationId, visibility, executor)
     return row !== null
   },
   describeRef: async (resourceId, organizationId) => {
@@ -165,6 +227,22 @@ const conversationDescriptor: ShareableDescriptor = {
   },
   exists: (ids) => conversationIdsExisting(ids),
   listIdsInProject: (projectId, organizationId) => listConversationIdsForProject(projectId, organizationId),
+  // A conversation that drew on a restricted folder (ADR-0087) may reach only
+  // people cleared for every folder it drew on, and never the whole project.
+  // The record of what it drew on is written when a turn admits restricted
+  // content, under the lock the widening's write takes here, so a share and a
+  // use cannot pass each other (`lib/conversations/restricted-use.ts`).
+  assertMayWiden: (session, resourceId, widening) => assertMayWidenConversation(session, resourceId, widening),
+  widenAudience: (session, resourceId, widening, write) =>
+    widenConversationAudience(session, resourceId, widening, write),
+  // The same record, asked per person at read time: who may still read it.
+  readersAmong: async (organizationId, resourceId, userIds, asker) =>
+    peopleWhoMayRead(
+      organizationId,
+      resourceId,
+      userIds,
+      asker ? new Map([[asker.userId, await clearanceOf(asker)]]) : undefined,
+    ),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
     // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).
@@ -199,6 +277,7 @@ const documentDescriptor: ShareableDescriptor = {
       createdBy: row.createdBy,
       // Documents are hard-deleted (0077): a row that exists is live.
       deletedAt: null,
+      folderId: row.folderId,
     }
   },
   allowedVisibilities: DOCUMENT_VISIBILITIES,
@@ -207,14 +286,20 @@ const documentDescriptor: ShareableDescriptor = {
   // Mentions about a file happen on a conversation that has the file as
   // subject (spec F7), not on the document resource itself.
   supportsMentions: false,
-  setVisibility: async (resourceId, organizationId, visibility) => {
-    const row = await updateDocumentVisibilityInOrg(resourceId, organizationId, visibility)
+  setVisibility: async (resourceId, organizationId, visibility, executor) => {
+    const row = await updateDocumentVisibilityInOrg(resourceId, organizationId, visibility, executor)
     return row !== null
   },
   describeRef: async (resourceId, organizationId) => {
     const row = await findDocumentTenancy(resourceId)
     if (!row || row.organizationId !== organizationId) return null
     return { title: documentDisplayName(row) }
+  },
+  // Sharing and assigning change a document: a write in its folder (ADR-0088).
+  requireWriteAccess: async (session, resourceId) => {
+    const row = await findDocumentTenancy(resourceId)
+    if (!row?.projectId) return
+    await requireFolderWrite(session, row.projectId, [row.folderId ?? null])
   },
   exists: (ids) => documentIdsExisting(ids),
   listIdsInProject: (projectId, organizationId) => listDocumentIdsForProject(projectId, organizationId),

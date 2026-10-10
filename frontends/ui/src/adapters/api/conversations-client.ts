@@ -21,13 +21,35 @@ export interface ConversationTitleResult {
   error?: string
 }
 
+/** A conversation as the list sends it: the row, and whether its content is withheld from this reader (ADR-0088). */
+export type ListedConversation = Conversation & { contentLocked?: boolean }
+
+/**
+ * The server refused a read or write because the reader may no longer read what
+ * the conversation drew on (403 `RESOURCE_RIGHTS_LOST`). Not "not found" and
+ * not "forbidden": the chat is theirs and stays in their list, without content.
+ */
+export class ConversationRightsLostError extends Error {
+  constructor() {
+    super('You no longer have the rights to view this conversation.')
+    this.name = 'ConversationRightsLostError'
+  }
+}
+
+/** Throw {@link ConversationRightsLostError} when `res` is that refusal; otherwise do nothing. */
+async function throwIfRightsLost(res: Response): Promise<void> {
+  if (res.status !== 403) return
+  const body = (await res.clone().json().catch(() => null)) as { code?: unknown } | null
+  if (body?.code === 'RESOURCE_RIGHTS_LOST') throw new ConversationRightsLostError()
+}
+
 export const conversationsClient = {
   /**
    * List conversations, optionally scoped to a project. The BFF applies a
    * fail-open rule for legacy rows without a projectId (they are included in
    * every project scope) so users never lose sight of their history.
    */
-  async list(projectId?: string): Promise<Conversation[]> {
+  async list(projectId?: string): Promise<ListedConversation[]> {
     const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
     const res = await fetch(`/api/conversations${query}`)
     if (!res.ok) throw new Error('Failed to fetch conversations')
@@ -36,6 +58,7 @@ export const conversationsClient = {
 
   async get(id: string): Promise<Conversation> {
     const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`)
+    await throwIfRightsLost(res)
     if (!res.ok) throw new Error('Conversation not found')
     return res.json()
   },
@@ -123,6 +146,7 @@ export const conversationsClient = {
     const res = await fetch(
       `/api/conversations/${encodeURIComponent(conversationId)}/messages`,
     )
+    await throwIfRightsLost(res)
     if (!res.ok) throw new Error('Failed to fetch messages')
     return res.json()
   },
@@ -139,6 +163,7 @@ export const conversationsClient = {
         body: JSON.stringify(message),
       },
     )
+    await throwIfRightsLost(res)
     if (!res.ok) throw new Error('Failed to create message')
     return res.json()
   },
@@ -155,6 +180,7 @@ export const conversationsClient = {
         body: JSON.stringify(messages),
       },
     )
+    await throwIfRightsLost(res)
     if (!res.ok) throw new Error('Failed to create messages')
     return res.json()
   },
@@ -261,6 +287,29 @@ export const conversationsClient = {
       },
     )
     if (!res.ok) throw new Error('Failed to update message prompt state')
+    return res.json()
+  },
+
+  /**
+   * Cut the asker's stopped answer to what was on screen (`shown`), when the
+   * Stop reached the server after it had stored the whole answer. The server
+   * cuts its own stored text by the stop rule and never writes text it does
+   * not hold; a row already stored as stopped is left alone.
+   */
+  async cutStoppedAnswer(
+    conversationId: string,
+    messageId: string,
+    body: { turnId: string; shown: string },
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/stopped`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to cut the stopped answer')
     return res.json()
   },
 }

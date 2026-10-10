@@ -1,0 +1,30 @@
+name: Cancel CI for a closed pull request
+
+# A pull request that is merged or closed while its CI run is still going has
+# no use for that run's result, but the run keeps its runner slots until it
+# finishes, and slots are what every queued run waits for (docs/contributing/ci.md).
+# The squash merge starts its own push run, which tests the merged tree.
+#
+# Concurrency groups are repository-wide, across workflows. This run joins the
+# pull request's CI group (ci.yml: `ci-<event>-<ref>`), and cancel-in-progress
+# cancels the run already in it. tests/test_ci_workflows.py keeps the two group
+# names equal.
+on:
+  pull_request:
+    types: [closed]
+    branches: [develop, "release/**", "claude/**"]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # A run needs a job to exist. This one only says what happened.
+  cancel:
+    name: Cancel CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo "Pull request closed; any CI run still in progress for it was cancelled."

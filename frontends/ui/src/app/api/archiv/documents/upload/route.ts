@@ -13,6 +13,8 @@ import { BadRequestError } from '@/lib/api/errors'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { uploadArchivDocument } from '@/lib/archiv/service'
 import { DOCUMENT_UPLOAD_LIMIT } from '@/lib/limits'
+import { readScreeningRelease } from '@/lib/upload-screening/service'
+import { readUploadBatchId } from '@/lib/upload-batches/service'
 
 export const POST = apiRoute(
   async ({ session, request }) => {
@@ -32,6 +34,8 @@ export const POST = apiRoute(
     return uploadArchivDocument(session, file, request, {
       folderId: typeof folderId === 'string' && folderId ? folderId : null,
       originPath: typeof originPath === 'string' ? originPath : null,
+      screeningRelease: readScreeningRelease(formData.get('screeningRelease')),
+      uploadBatchId: readUploadBatchId(formData.get('uploadBatchId')),
     })
   },
   { authz: { enforcedBy: 'uploadArchivDocument (canManageArchiv)' }, limits: { rule: DOCUMENT_UPLOAD_LIMIT } }

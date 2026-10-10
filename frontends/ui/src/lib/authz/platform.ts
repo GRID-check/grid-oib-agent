@@ -42,6 +42,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { organizationRolePermissions } from './org-role-permissions'
 import {
   ALL_PLATFORM_PERMISSION_SLUGS,
+  PLATFORM_PERMISSIONS,
   permissionsForPlatformRole,
   type PlatformPermission,
 } from './permissions'
@@ -235,8 +236,15 @@ export async function platformPermissions(
  */
 export async function isPlatformStaff(session: GridSession | null): Promise<boolean> {
   const permissions = await platformPermissions(session)
-  return permissions !== null && permissions.size > 0
+  if (permissions === null) return false
+  // `platform:observability:view` opens Langfuse at the edge and nothing in
+  // this app (ADR-0089): an analyst holding only it has no platform surface,
+  // so showing them the area would show a page of 403s.
+  return [...permissions].some((permission) => !EDGE_ONLY_PLATFORM_PERMISSIONS.has(permission))
 }
+
+/** Platform permissions checked at the edge only, never by a surface here. */
+const EDGE_ONLY_PLATFORM_PERMISSIONS: ReadonlySet<string> = new Set([PLATFORM_PERMISSIONS.observabilityView])
 
 /**
  * True when this session holds one specific platform permission.

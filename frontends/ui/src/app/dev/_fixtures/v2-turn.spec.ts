@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { parseWireEvent, type WireEvent } from '@/adapters/api/wire-v2'
 import { foldTurnEvents } from '@/features/chat/lib/turn-fold'
 import { STREAM_FRAMES } from './stream-frames'
-import { v2Turn } from './v2-turn'
+import { answerBodies, asSettled, v2Turn } from './v2-turn'
 
 const IDS = { conversationId: 'c', turnId: 't', messageId: 'm' }
 
@@ -41,5 +41,23 @@ describe.each(['oib2', 'varianten'] as const)('the %s turn as v2 events', (name)
       .filter(({ frame }) => frame.type !== 'RUN_FINISHED' && frame.type !== 'STATE_SNAPSHOT')
       .filter(({ frame }) => encoder.encode(JSON.stringify(frame)).length > 4096)
     expect(oversized.map(({ frame }) => `${frame.type}/${String(frame.name ?? '')}`)).toEqual([])
+  })
+})
+
+describe.each(['oib2', 'varianten'] as const)('the %s answer as the product ends it today', (name) => {
+  const recorded = answerBodies(STREAM_FRAMES[name], 'm')
+  const settled = asSettled(recorded)
+  const snapshot = recorded.find(({ body }) => body.type === 'STATE_SNAPSHOT')!.body.snapshot as { text: string; sources: unknown[] }
+  const result = settled.find(({ body }) => body.type === 'RUN_FINISHED')!.body.result as { text: string; sources: unknown[] }
+
+  it('ends on the settled text and sources, not the recorded terminal', () => {
+    expect(result.text).toBe(snapshot.text)
+    expect(result.sources).toEqual(snapshot.sources)
+  })
+
+  it('changes nothing but the terminal', () => {
+    expect(settled.filter(({ body }) => body.type !== 'RUN_FINISHED')).toEqual(
+      recorded.filter(({ body }) => body.type !== 'RUN_FINISHED')
+    )
   })
 })

@@ -131,21 +131,39 @@ describe('useAnswerFileReferences', () => {
     expect(result.current.fileNames).toEqual([])
   })
 
-  it('waits for the answer to finish arriving', async () => {
+  // It used to wait for the finished answer, which fetched at the settle and
+  // re-parsed an answer the reader had just read to the end. The paced body
+  // grows a word at a time, so a name is linked once it is whole on screen.
+  it('starts while the answer is still arriving, as soon as a filename appears', async () => {
     let fetched = false
     corpora({ projekt: [row('p1', 'pd8280-2.pdf')], onProjectFetch: () => (fetched = true) })
-    const { result } = renderHook(() =>
-      useAnswerFileReferences({
-        body: 'Beginnen Sie mit pd8280-2.pdf.',
-        projectId: 'proj-1',
-        conversationId: 'conv-1',
-        isStreaming: true,
-      })
+    const { result, rerender } = renderHook(({ body }) =>
+      useAnswerFileReferences({ body, projectId: 'proj-1', conversationId: 'conv-1' }),
+      { initialProps: { body: 'Beginnen Sie mit' } }
     )
-
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(fetched).toBe(false)
-    expect(result.current.fileNames).toEqual([])
+
+    rerender({ body: 'Beginnen Sie mit pd8280-2.pdf' })
+    await waitFor(() => expect(result.current.fileNames).toEqual(['pd8280-2.pdf']))
+    expect(fetched).toBe(true)
+  })
+
+  // The marker plugins are memoised on this result, so a new object per reveal
+  // step re-parsed every block of the answer per word once a name had appeared.
+  it('keeps the same references while the body grows around the same names', async () => {
+    corpora({ projekt: [row('p1', 'pd8280-2.pdf')] })
+    const { result, rerender } = renderHook(({ body }) =>
+      useAnswerFileReferences({ body, projectId: 'proj-1', conversationId: 'conv-1' }),
+      { initialProps: { body: 'Beginnen Sie mit pd8280-2.pdf' } }
+    )
+    await waitFor(() => expect(result.current.fileNames).toEqual(['pd8280-2.pdf']))
+    const before = result.current
+
+    rerender({ body: 'Beginnen Sie mit pd8280-2.pdf und lesen' })
+    rerender({ body: 'Beginnen Sie mit pd8280-2.pdf und lesen Sie' })
+    expect(result.current).toBe(before)
+    expect(result.current.fileNames).toBe(before.fileNames)
   })
 
   it('degrades to plain prose when the index cannot be read', async () => {

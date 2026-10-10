@@ -14,26 +14,12 @@ import { hardenedContainerSecurityContext } from "../platform/security";
 import {
   ROLLOUT,
   gracefulShutdown,
-  secretChecksum,
   secretChecksumAnnotations,
   surgeRollout,
 } from "../platform/rollout";
-import { frontendLangfuseChecksumInput } from "../platform/langfuse";
+import { withLangfuseKeysChecksum } from "../platform/langfuse";
 import { AppSecrets, AppWiring, frontendEnv } from "./config";
 import { PORT, UID } from "../constants";
-
-/**
- * The frontend pod's rollout checksum: the app Secret's, plus the Langfuse keys
- * when the tier is deployed. Unchanged without Langfuse, so enabling nothing
- * restarts nothing.
- */
-export function frontendSecretChecksum(
-  cfg: GridConfig,
-  appChecksum: pulumi.Input<string>,
-): pulumi.Input<string> {
-  const langfuse = frontendLangfuseChecksumInput(cfg);
-  return langfuse ? secretChecksum({ app: appChecksum, langfuse }) : appChecksum;
-}
 
 export interface Frontend {
   deployment: k8s.apps.v1.Deployment;
@@ -91,7 +77,7 @@ export function installFrontend(
             // instead of a Secret nobody re-reads (rollout.ts).
             // The Langfuse keys (when the tier is deployed) come from their own
             // Secret, so their rotation is folded in here too.
-            annotations: secretChecksumAnnotations(frontendSecretChecksum(cfg, secrets.checksum)),
+            annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
           },
           spec: {
             enableServiceLinks: false, // see chroma.ts — legacy env collisions

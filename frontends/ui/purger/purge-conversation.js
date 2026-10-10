@@ -17,6 +17,11 @@
  * already does for every entity — the claim, `FOR UPDATE SKIP LOCKED`, attempts
  * with backoff, the legal-hold guard, `failed` after MAX_ATTEMPTS — and asks the
  * BFF to run its one erasure: `POST /api/internal/conversations/<id>/erase`.
+ *
+ * What it adds to that is the one store the BFF does not reach: the chat's
+ * Langfuse traces, deleted by session id once the BFF has erased the chat
+ * (`workers/langfuse-traces.js`). Only a retry gets here: a delete request that
+ * finishes closes its own queue row and the purger never sees it.
  */
 
 const { LEGAL_HOLD_CODE, assertNoHold } = require('./purge-project')
@@ -63,7 +68,15 @@ async function purgeConversation(tx, entry, deps) {
       signal: AbortSignal.timeout(ERASE_TIMEOUT_MS),
     },
   )
-  if (res.ok) return
+  if (res.ok) {
+    // After the BFF's erasure, not before: a held or live chat is refused above
+    // and must keep its traces. The BFF steps end by closing the queue row only
+    // when the purger has not claimed it, so a throw here leaves the row
+    // 'purging', and the attempts and backoff retry the whole call; the BFF
+    // answers `already-gone` the second time and this step runs again.
+    await deps.eraseConversationTraces(entry.entity_id)
+    return
+  }
 
   const body = /** @type {{ error?: unknown, details?: { reason?: unknown } } | null} */ (
     typeof res.json === 'function' ? await res.json().catch(() => null) : null

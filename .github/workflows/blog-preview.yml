@@ -39,6 +39,7 @@ jobs:
   detect:
     name: Detect changed posts
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # Fork PRs get a read-only token and cannot receive comments — skip them.
     if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
@@ -47,7 +48,7 @@ jobs:
       has_posts: ${{ steps.diff.outputs.has_posts }}
       paths: ${{ steps.diff.outputs.paths }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -116,6 +117,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.has_posts == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Informational: a flaky browser or a preview-only build failure must never
     # block a content PR. `task web:verify` in ci.yml is the check that gates it.
     continue-on-error: true
@@ -125,20 +127,20 @@ jobs:
       count: ${{ steps.stage.outputs.count }}
       artifact_url: ${{ steps.upload.outputs.artifact-url }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           # The steps below run PR-controlled dependency scripts and app code —
           # they must never find a repository credential in the workspace.
           persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontends/web/package-lock.json
 
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: frontends/web/.astro-cache
           key: astro-cache-${{ runner.os }}-${{ hashFiles('frontends/web/src/content/blog/_images/**', 'frontends/web/src/assets/**') }}
@@ -153,7 +155,7 @@ jobs:
         run: task web:preview
 
       - name: Cache the Playwright Chromium download
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           # Keyed on the pin below: a browser cached for one playwright-core
@@ -203,7 +205,7 @@ jobs:
           echo "count=$(find "$OUT" -maxdepth 1 -name '*.png' | wc -l)" >> "$GITHUB_OUTPUT"
           ls -la "$OUT"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         id: upload
         with:
           name: blog-previews
@@ -218,11 +220,12 @@ jobs:
     # silently dropped.
     if: ${{ !cancelled() && needs.detect.outputs.has_posts == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       pull-requests: write # upsert the sticky comment
     steps:
       - name: Upsert the sticky PR comment
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PATHS: ${{ needs.detect.outputs.paths }}
           COUNT: ${{ needs.capture.outputs.count }}

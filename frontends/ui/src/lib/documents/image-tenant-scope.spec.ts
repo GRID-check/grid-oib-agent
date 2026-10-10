@@ -106,6 +106,9 @@ vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:800
 vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: vi.fn() }))
 vi.mock('@/lib/documents/vlm-capability', () => ({ isVlmConfigured: vi.fn() }))
 vi.mock('./reconcile-status', () => ({ reconcileDocumentStatuses: vi.fn() }))
+// Folder placement drops the project's cached prompt view, whose loader reaches
+// the document-role tables the narrow schema double above does not provide.
+vi.mock('@/lib/project-profile/prompt-view', () => ({ invalidateProjectPromptViewCache: vi.fn() }))
 
 // Clients doubled, key builders real. The thumbnail rule was previously
 // re-implemented here as `${key}.thumb.jpg` — a shape production has never
@@ -127,9 +130,10 @@ vi.mock('@/lib/s3', async (importOriginal) => ({
 vi.mock('@/lib/images/signed-image-url', () => ({
   verifyDocumentImageUrl: () => ({
     ok: true,
-    claims: { organizationId: 'org-from-signature', documentId: 'doc-1', variant: 'original', exp: 0 },
+    claims: { organizationId: 'org-from-signature', userId: 'user-from-signature', documentId: 'doc-1', variant: 'original', exp: 0 },
   }),
   buildDocumentImageUrl: () => null,
+  DOCUMENT_IMAGE_CACHE_CONTROL: 'private, max-age=300',
 }))
 
 import { getTenantContext, runWithTenantSlot } from '@/lib/db/tenant-context'

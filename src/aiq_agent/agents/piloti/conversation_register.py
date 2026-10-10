@@ -41,10 +41,15 @@ from aiq_agent.common.wire_v2 import RunFinishedBody
 from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.common.wire_v2 import StepFinishedBody
 from aiq_agent.conversation_context import register_context_appender
+from aiq_agent.knowledge.inventory import get_turn_documents
 from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import set_turn_documents
+from aiq_agent.knowledge.restricted_use import begin_restricted_use
+from aiq_agent.knowledge.restricted_use import bind_restricted_use
+from aiq_agent.knowledge.restricted_use import without_restricted
 from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
+from aiq_agent.memory.shown_notes import ShownNotes
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.stages import schedule_post_answer_stages
 from aiq_agent.turn.admission import PROFILE_AGENT_NAME
@@ -58,6 +63,7 @@ from aiq_agent.turn.answer_stream import bound_live_prose
 from aiq_agent.turn.api_seam import skip_clarifier_requested
 from aiq_agent.turn.context import TurnContext
 from aiq_agent.turn.context import load_turn_context
+from aiq_agent.turn.context import settle_restriction
 from aiq_agent.turn.context import thread_id_for_turn
 from aiq_agent.turn.context import turn_identity
 from aiq_agent.turn.context import user_info_from_principal
@@ -72,6 +78,7 @@ from aiq_agent.turn.payload import TurnInputs
 from aiq_agent.turn.payload import extract_turn_inputs
 from aiq_agent.turn.registries import TurnRegistries
 from aiq_agent.turn.registries import load_session_registry
+from aiq_agent.turn.registries import load_turn_shown_notes
 from aiq_agent.turn.registries import turn_registries
 from aiq_agent.turn.response import answer_message_id
 from aiq_agent.turn.response import build_result
@@ -254,6 +261,7 @@ def _turn_state(
         org_instructions=context.org_instructions,
         deep_research_allowed=context.deep_research_allowed,
         tasks_allowed=context.tasks_allowed,
+        confined=context.confined,
     )
 
 
@@ -282,6 +290,12 @@ def _finished(
         query_text=inputs.query_text,
         cards=cards,
         remembered_this_turn=registries.memory_writes,
+        registry_collections=registries.source_collections,
+        restricted_memory_writes=registries.restricted_memory_writes,
+        earlier_restricted_notes=registries.shown_notes,
+        # Every row the turn could list (`list_files` shows uncapped rows with
+        # their summaries), bound by `_prepare_turn` for this task.
+        listed_documents=get_turn_documents(),
     )
     schedule_post_answer_stages(facts, llms=stage_llms)
     return finished(build_result(outcome.state, cards, message_id))
@@ -295,7 +309,7 @@ async def _load_setup(
     conversation_id: str | None,
     thread_id: str,
     resolve_stages: bool,
-) -> tuple[TurnContext, Inventory, Any, StatusStep | None]:
+) -> tuple[TurnContext, Inventory, Any, StatusStep | None, ShownNotes]:
     """The four independent setup I/O paths, overlapped.
 
     Each fails open on its own (:mod:`aiq_agent.turn.context`,
@@ -310,14 +324,18 @@ async def _load_setup(
     the step that says whether it did — the file it writes IS the result, and
     the model finds it with `ls` exactly as it finds a draft it wrote itself.
     """
-    context, inventory, session_registry, subject_step = await asyncio.gather(
+    context, inventory, session_registry, subject_step, shown_notes = await asyncio.gather(
         spanned(
             "setup.project_context",
             load_turn_context(
                 request, conversation_id=thread_id, query_text=inputs.query_text, resolve_stages=resolve_stages
             ),
         ),
-        load_inventory(scope),
+        # Listing is not use (ADR-0088): a restricted folder's file names and
+        # summaries stay out of the inventory block and `list_files`, so they
+        # never reach the prompt without an admission. Searching them is
+        # admitted per tool round (`admit_tool_results`).
+        load_inventory(without_restricted(scope)),
         spanned("setup.session_registry", load_session_registry(thread_id)),
         spanned(
             "setup.subject_document",
@@ -328,10 +346,14 @@ async def _load_setup(
                 # one when it goes looking for the file this write leaves behind.
                 conversation_id=conversation_id,
                 organization_id=request.organization_id,
+                user_id=request.user_id,
             ),
         ),
+        # The restricted memory earlier turns were shown (ADR-0087): evidence
+        # for the memory restriction decision, kept beside the citation registry.
+        spanned("setup.shown_restricted_notes", load_turn_shown_notes(thread_id)),
     )
-    return context, inventory, session_registry, subject_step
+    return context, inventory, session_registry, subject_step, shown_notes
 
 
 @dataclass(frozen=True)
@@ -356,6 +378,8 @@ class _Turn:
     inputs: TurnInputs
     request: GridRequestContext
     runtime: _TurnRuntime
+    #: The restricted memory earlier turns were shown (ADR-0087).
+    shown_notes: ShownNotes = ShownNotes()
 
 
 async def _prepare_turn(
@@ -376,7 +400,7 @@ async def _prepare_turn(
     is announced before it is waited out.
     """
     scope = resolve_scope(header_scope, conversation_id)
-    context, inventory, session_registry, subject_step = await _load_setup(
+    context, inventory, session_registry, subject_step, shown_notes = await _load_setup(
         request,
         inputs,
         scope,
@@ -384,11 +408,12 @@ async def _prepare_turn(
         thread_id=runtime.thread_id,
         resolve_stages=resolve_stages,
     )
+    context = settle_restriction(context, request)
     if subject_step is not None:
         yield StepFinishedBody(step=subject_step)
     if (waiting := pending_uploads(inventory)) is not None:
         yield StepFinishedBody(step=waiting)
-        inventory = await wait_for_uploads(scope, inventory)
+        inventory = await wait_for_uploads(without_restricted(scope), inventory)
     skip_clarifier = not enable_clarifier or skip_clarifier_requested()
     # The inventory reaches the PROMPT as the rendered block and the TOOLS as
     # rows. The write-side workspace tools resolve a file name against these
@@ -402,7 +427,7 @@ async def _prepare_turn(
     set_norm_families(inventory.norm_families)
     set_inventory_drops(inventory.inventory_drops)
     state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
-    yield _Turn(agent, state, session_registry, context, inputs, request, runtime)
+    yield _Turn(agent, state, session_registry, context, inputs, request, runtime, shown_notes)
 
 
 async def _answer(turn: _Turn, *, message_id: str, stream: bool) -> AsyncIterator[EventBody]:
@@ -415,7 +440,13 @@ async def _answer(turn: _Turn, *, message_id: str, stream: bool) -> AsyncIterato
     """
     runtime = turn.runtime
     outcome: TurnOutcome[ConversationState] | None = None
-    async with turn_registries(runtime.thread_id, turn.session_registry) as registries:
+    async with turn_registries(
+        runtime.thread_id,
+        turn.session_registry,
+        memory_digest=turn.context.stage_facts.memory_digest,
+        shown_notes=turn.shown_notes,
+        restricted_scope=turn.context.restricted_scope,
+    ) as registries:
         answering = answer_turn(
             turn.agent,
             turn.state,
@@ -454,6 +485,11 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         # Retrieval reads the turn's focus from the ContextVars this parse sets.
         inputs = extract_turn_inputs(query)
         logger.info("ChatDeepResearcherAgent: %s (data sources: %s)", inputs.query_text, inputs.data_sources)
+        # Which restricted folders this turn may draw on, asked of the BFF
+        # before anything reads the scope (ADR-0087, ADR-0088). Bound on every
+        # turn, None included, so one turn never runs on the last one's answer;
+        # the scope read below and every read path after it keep only these.
+        bind_restricted_use(await begin_restricted_use(request, conversation_id))
         header_scope = get_scoped_collections_from_context()
         # Say what is happening in the FIRST hole of the turn — only when one
         # of the reader's OWN shelves is in scope; the base corpus is a constant.

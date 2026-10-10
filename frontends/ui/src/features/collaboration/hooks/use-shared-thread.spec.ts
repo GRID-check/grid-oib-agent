@@ -522,6 +522,35 @@ describe('useSharedThread — reconciliation', () => {
     await waitFor(() => expect(result.current.turnInFlight).toBeNull())
   })
 
+  test('the end of a turn waits for the read that brings its answer, so the observer is never left blank', async () => {
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await waitFor(() => expect(result.current.shared).toBe(true))
+    await emit({ kind: 'conversation.turn', conversationId: CONVERSATION_ID, phase: 'started', actorUserId: ANNA })
+
+    // The persisted answer is on its way: the read is held open.
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => (release = resolve))
+    const answered = [
+      ...routes.messages,
+      row('a1', { role: 'assistant', authorUserId: null, metadata: { messageType: 'agent_response' } }),
+    ]
+    fetchMock.mockImplementationOnce(async () => {
+      await held
+      return Response.json(answered)
+    })
+    await emit({ kind: 'conversation.turn', conversationId: CONVERSATION_ID, phase: 'ended', actorUserId: ANNA })
+
+    // Cleared here, the live view (gated on the turn) unmounted a round trip
+    // before the answer that replaces it.
+    expect(result.current.turnInFlight).not.toBeNull()
+
+    await act(async () => release())
+    await waitFor(() => expect(result.current.turnInFlight).toBeNull())
+    expect(storedMessages().some((message) => message.id === 'a1')).toBe(true)
+  })
+
   test('picks up the server-authoritative path when a thread that was private is re-opened', async () => {
     // The documented cost of NF-8's strictness: a private thread listens for
     // nothing, so it learns it has been shared on the next open rather than

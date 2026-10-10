@@ -109,6 +109,25 @@ describe.skipIf(!url)('bff_job_queue reads and writes from the BFF', () => {
     expect(open).toBeNull()
   })
 
+  it('finds only a job no worker has claimed yet when asked for one not started', async () => {
+    const jobId = await enqueueAs(ORG_A, 'p-started')
+    const find = () =>
+      context.withTenant({ organizationId: ORG_A }, () =>
+        repo.findOpenJobId({ kind: 'reindex_project', organizationId: ORG_A, matching: { projectId: 'p-started' }, notStarted: true }),
+      )
+    expect(await find()).toBe(jobId)
+
+    await context.withPlatformAccess('test: a worker claims the job', () =>
+      db.execute(sql`UPDATE bff_job_queue SET status = 'claimed', claimed_by = 'w-1', claimed_at = now(), heartbeat_at = now() WHERE job_id = ${jobId}::uuid`),
+    )
+
+    expect(await find()).toBeNull()
+    const open = await context.withTenant({ organizationId: ORG_A }, () =>
+      repo.findOpenJobId({ kind: 'reindex_project', organizationId: ORG_A, matching: { projectId: 'p-started' } }),
+    )
+    expect(open).toBe(jobId)
+  })
+
   it('finds the newest dead job of a kind by its payload, in the caller’s lane only, with its reason', async () => {
     const dead = await enqueueAs(ORG_A, 'p-gave-up', 'bim_extract')
     await enqueueAs(ORG_A, 'p-gave-up', 'bim_extract') // still queued: not dead
