@@ -192,7 +192,8 @@ environment-scoped role holds a `platform:*` permission.
 | `project-editor` | environment (Project) | + `project:edit`, `project:documents:write`, `project:memory:write` |
 | `project-admin` | environment (Project) | + `project:manage`, `project:members:manage`, `project:skills:manage` |
 | `org-platform-owner` | **GRID Platform org only** | all `platform:*` + five `widgets:*` |
-| `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view`, `platform:settings:view` — every read, no `*:manage`. `platformApiRoute` requires the specific permission per route, which is what makes "read-only" true rather than described. |
+| `org-platform-support` | **GRID Platform org only** | `platform:organizations:view`, `platform:usage:view`, `platform:settings:view`, `platform:observability:view` — every read, no `*:manage`. `platformApiRoute` requires the specific permission per route, which is what makes "read-only" true rather than described. |
+| `platform-observability-analyst` | **GRID Platform org only** | `platform:observability:view` only: opens Langfuse at the edge for business analysts and the Fachbereich, and no platform surface in the app (ADR-0089). The scope must be assigned to the Connect application before the stack that checks it is deployed, or every Langfuse login fails with `invalid_scope` |
 
 The five fine-grained org personas exist to keep ADR-0016's extensibility
 contract honest: each holds a strict subset of Admin and works with no code

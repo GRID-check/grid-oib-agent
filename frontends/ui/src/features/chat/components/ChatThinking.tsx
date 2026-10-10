@@ -202,43 +202,6 @@ const nextDisclosure = (d: Disclosure, autoOpen: boolean | undefined): Disclosur
   return next
 }
 
-/**
- * The live panel's content is capped and scrolls inside itself, pinned to its
- * newest row, so a Herleitung that grows past the viewport does not push the
- * answer it is about to fold into below the fold. Pinned only while the reader
- * is at its bottom: one who scrolled up inside it to read stays put. The top
- * edge fades (`data-overflow`) only while there is something above to fade.
- * Imperative and frame-synchronous: nothing here renders.
- */
-const useBottomPin = (enabled: boolean) => {
-  const [el, setEl] = useState<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (!el) return
-    if (!enabled) {
-      el.dataset.overflow = 'false'
-      return
-    }
-    let pinned = true
-    const pin = () => {
-      el.dataset.overflow = el.scrollHeight > el.clientHeight ? 'true' : 'false'
-      if (pinned) el.scrollTop = el.scrollHeight
-    }
-    const onScroll = () => {
-      pinned = el.scrollHeight - el.scrollTop - el.clientHeight <= 24
-    }
-    pin()
-    const observer = new ResizeObserver(pin)
-    observer.observe(el)
-    if (el.firstElementChild) observer.observe(el.firstElementChild)
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => {
-      observer.disconnect()
-      el.removeEventListener('scroll', onScroll)
-    }
-  }, [el, enabled])
-  return setEl
-}
-
 /** Phase announcements are at least this far apart, so a fast turn does not queue them. */
 const PHASE_NOTE_MIN_GAP_MS = 3000
 
@@ -315,7 +278,6 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
   // once through `opening`.
   const [opening, startOpening] = useTransition()
   const handleOpenChange = (next: boolean) => {
-    if (!isThinking) setCapped(false)
     const apply = () =>
       setDisclosure((d) => ({ ...d, open: next, closeReason: 'toggle', userToggled: true }))
     if (next && !isThinking) startOpening(apply)
@@ -364,13 +326,6 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
           : t('thinking.interrupted')
         : ''
   const spokenPhase = useThrottledText(phaseNote, PHASE_NOTE_MIN_GAP_MS)
-
-  // The live cap. It holds past the settle for a panel the reader opened while
-  // the turn worked: released in the settle's frame, the full graph would grow
-  // above the answer they are reading. Their next toggle releases it.
-  const [capped, setCapped] = useState(isThinking)
-  if (isThinking && !capped) setCapped(true)
-  const pinRef = useBottomPin(capped && open)
 
   // "What actually ran" — one compact chip per executed agent/tool, so the
   // Herleitung names its steps without the technical-steps opt-in.
@@ -611,11 +566,7 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
             then gives up its height in one frame while invisible, so the reader
             never watches a box slide. A reader's own close keeps the collapse
             (height and opacity together), on the exit easing. Reduced motion:
-            both instant. `overflow-hidden` so the collapse clips.
-
-            While the turn works the content is capped and scrolls inside
-            itself, pinned to the newest row (`useBottomPin`); a reader who
-            opens a settled one gets all of it (`capped`). */}
+            both instant. `overflow-hidden` so the collapse clips. */}
         <AnimatePresence initial={false} custom={{ reason: closeReason, reducedMotion }}>
           {open && (
             <motion.div
@@ -630,45 +581,36 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
               // page to follow it while it collapses.
               className="overflow-hidden [overflow-anchor:none]"
             >
-              <div
-                ref={pinRef}
-                className={cn(
-                  capped &&
-                    'max-h-[min(50svh,420px)] overflow-y-auto overscroll-contain data-[overflow=true]:[mask-image:linear-gradient(to_bottom,transparent,black_24px)]'
-                )}
-              >
-                <div>
-                  {/* Executed steps — what actually ran, as compact chips,
-                      ABOVE the graph. Below it, the row was shoved down by
-                      every row the live graph gained (motion audit, 2026-10);
-                      above, a new chip only ever extends its own line. */}
-                  {/* Reserved while the panel is capped (live, or opened while
-                      live), invisible until its first chip: arriving with the
-                      first tool, the row pushed the graph below it down by its
-                      64 px in the middle of the steps phase. And kept, invisible,
-                      when the settle drops the live-only skill chips, so an open
-                      panel does not lose the row's height at the settle. */}
-                  {(executedSteps.length > 0 || capped) && (
-                    <div
-                      className={cn(
-                        'border-base flex flex-col gap-2 border-t px-4 pb-1 pt-3',
-                        executedSteps.length === 0 && 'invisible'
-                      )}
-                      aria-hidden={executedSteps.length === 0 || undefined}
-                    >
+              <div>
+                  <div className="border-base border-t px-2 pb-3 pt-3 sm:px-4">
+                    <ReasoningFlow
+                      steps={steps}
+                      userQuestion={userQuestion}
+                      answerConfidence={answerConfidence}
+                      citations={citations}
+                      escalationReason={escalationReason}
+                      retrievalLedger={retrievalLedger}
+                      live={isThinking}
+                      sourceCards={sourceCards}
+                    />
+                  </div>
+
+                  {/* Executed steps — what actually ran, as compact chips, under
+                      the graph; a running one breathes. */}
+                  {executedSteps.length > 0 && (
+                    <div className="border-base flex flex-col gap-2 border-t px-4 pb-3 pt-3">
                       <SectionLabel>{t('thinking.executedSteps')}</SectionLabel>
-                      {/* min-h: one chip's line, held before the first chip. */}
-                      <div className="flex min-h-6 flex-wrap gap-1.5">
+                      <div className="flex flex-wrap gap-1.5">
                         {executedSteps.map((s) => (
                           <span
                             key={s.key}
                             className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-secondary px-2.5 py-1 text-xs font-medium text-muted-foreground"
                           >
-                            {/* Static: the header's shimmer is the turn's one
-                                ambient loop, and a pulsing dot per running chip
-                                made several. */}
                             {s.running && (
-                              <span aria-hidden="true" className="size-1.5 rounded-full bg-brand" />
+                              <span
+                                aria-hidden="true"
+                                className="size-1.5 animate-caret-breathe rounded-full bg-brand motion-reduce:animate-none"
+                              />
                             )}
                             {/* A skill with no authored title is named by its bare
                                 `/identifier`, so the identifier half renders
@@ -689,24 +631,6 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
                     </div>
                   )}
 
-                  <div
-                    className={cn(
-                      'px-2 pb-3 pt-3 sm:px-4',
-                      executedSteps.length === 0 && !capped && 'border-base border-t'
-                    )}
-                  >
-                    <ReasoningFlow
-                      steps={steps}
-                      userQuestion={userQuestion}
-                      answerConfidence={answerConfidence}
-                      citations={citations}
-                      escalationReason={escalationReason}
-                      retrievalLedger={retrievalLedger}
-                      live={isThinking}
-                      sourceCards={sourceCards}
-                    />
-                  </div>
-
                   {/* Basis footer — the files attached to this message, as clean
                       pills. Only shown when the Herleitung is expanded. */}
                   {fileChips.length > 0 && (
@@ -724,7 +648,6 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
                       </div>
                     </div>
                   )}
-                </div>
               </div>
             </motion.div>
           )}
@@ -886,10 +809,10 @@ interface StatusIconProps {
 
 /**
  * The header's fixed 20 px icon slot, one keyed child per status so the slot
- * cross-fades. Nothing in it loops: while the turn works the label's shimmer
- * is the one ambient motion, and a spinner beside it made two. The settle's
- * check arrives with a small spring (scale 0.7 → 1) — the end of the turn is
- * the moment worth marking.
+ * cross-fades. While the turn works it spins, beside the label's shimmer: a
+ * static dot read as a stalled turn, and people watch this header to see the
+ * agent is still at it (2026-10). The settle's check arrives with a small
+ * spring (scale 0.7 → 1) — the end of the turn is the moment worth marking.
  */
 const StatusIcon = forwardRef<HTMLSpanElement, StatusIconProps>(function StatusIcon(
   { status, t, enter, leave },
@@ -900,15 +823,9 @@ const StatusIcon = forwardRef<HTMLSpanElement, StatusIconProps>(function StatusI
   // (opacity has nothing to overshoot), both instant under reduced motion.
   const iconSwap = useIconSwapTransition()
   const glyph: Record<HeaderStatus, ReactNode> = {
-    live: (
-      <span
-        role="img"
-        aria-label={t('thinking.inProgress')}
-        className="size-2 rounded-full bg-brand"
-      />
-    ),
+    live: <Spinner size="sm" label={t('thinking.inProgress')} />,
     waiting: <Clock className="size-5" aria-hidden="true" />,
-    recovering: <span aria-hidden="true" className="size-2 rounded-full bg-muted-foreground" />,
+    recovering: <Spinner size="sm" aria-hidden="true" />,
     interrupted: <AlertTriangle className="size-5" aria-hidden="true" />,
     stopped: <CircleSlash className="size-5" aria-hidden="true" />,
     failed: <AlertTriangle className="size-5" aria-hidden="true" />,
@@ -919,7 +836,7 @@ const StatusIcon = forwardRef<HTMLSpanElement, StatusIconProps>(function StatusI
   const tone: Record<HeaderStatus, string> = {
     live: '',
     waiting: 'text-brand',
-    recovering: '',
+    recovering: 'text-muted-foreground',
     interrupted: 'text-warning',
     stopped: 'text-muted-foreground',
     failed: 'text-warning',
