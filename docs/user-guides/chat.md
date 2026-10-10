@@ -438,8 +438,9 @@ stays with the people who may open it.** From then on the chat:
 - starts no deep research and no task, changes no project brief, files nothing
   into the project, and adds nothing to project or office memory.
 
-A notice below the text field, above the row of controls, names the other
-projects that restrict the chat right now and says what that closes: a running
+A small chip below the text field, „2 andere Projekte", counts the other
+projects that restrict the chat right now; clicking it names them and says
+what that closes (the answers already name the projects they cite): a running
 project, or a project whose folder with its own access list the chat drew on,
 even when that project is closed. If a running project is closed later, the
 chat opens up; if a closed one is reopened, the restriction comes back; the

@@ -1266,6 +1266,7 @@ export const chat = {
    */
   /** The notice once a chat's answers drew on another project (ADR-0094). */
   otherProjects: {
+    chip: '{count, plural, one {One other project} other {# other projects}}',
     title: 'This chat draws on other projects: {projects}.',
     gone: 'a project that no longer exists',
     body: 'It can be shared only with people who may open those projects. Nothing from it goes into project memory, tasks, deep research or the project’s files.',
