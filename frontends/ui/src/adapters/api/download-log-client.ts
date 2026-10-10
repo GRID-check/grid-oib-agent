@@ -24,7 +24,7 @@ const EntrySchema = z.object({
   scope: z.enum(DOWNLOAD_LOG_SCOPES),
   projectId: z.string().nullable(),
   projectName: z.string().nullable(),
-  // Optional for a response from a build before ADR-0089.
+  // Optional for a response from a build before ADR-0090.
   projectStatus: z.enum(PROJECT_STATUSES).nullable().optional(),
   documentId: z.string(),
   documentName: z.string(),

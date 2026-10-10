@@ -5,12 +5,13 @@
  * flag `text-muted-foreground` and the next author disables the rule.
  */
 
-import { RuleTester } from 'eslint'
+import { RuleTester } from 'oxlint/plugins-dev'
 import { describe, expect, it } from 'vitest'
 import rule from './card-type-scale.mjs'
 
 const ruleTester = new RuleTester({
-  parserOptions: { ecmaVersion: 2022, sourceType: 'module', ecmaFeatures: { jsx: true } },
+  eslintCompat: true,
+  languageOptions: { sourceType: 'module', parserOptions: { lang: 'jsx' } },
 })
 
 // `RuleTester.run` declares its own suite, so it has to sit at the top level.

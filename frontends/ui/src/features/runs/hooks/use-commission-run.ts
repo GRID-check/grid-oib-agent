@@ -6,7 +6,7 @@
  * conversation; the thread is re-read so the block appears where the reader
  * is, and the run block then follows the run's own ledger stream.
  *
- * Null in a closed project (ADR-0089): a run files its report into the
+ * Null in a closed project (ADR-0090): a run files its report into the
  * project, so the BFF refuses it, and the thread offers neither „Klären" nor
  * „Bericht fortschreiben" (the matrix and the run block say why instead).
  */

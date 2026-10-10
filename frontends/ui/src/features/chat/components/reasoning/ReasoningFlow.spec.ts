@@ -3,6 +3,7 @@
  */
 import { describe, test, expect } from 'vitest'
 import {
+  animateFrontier,
   buildGraph,
   defaultFoldedRounds,
   keepEdgeIdentity,
@@ -514,7 +515,7 @@ describe('buildGraph — only the handles a layout needs (P2-8)', () => {
   })
 })
 
-describe('nothing in the graph loops: no edge is animated, live or settled', () => {
+describe('the live frontier: only the connectors into the newest row march', () => {
   const liveSpine = (): ReasoningFlowProps => ({
     ...base,
     live: true,
@@ -526,10 +527,24 @@ describe('nothing in the graph loops: no edge is animated, live or settled', () 
     ],
   })
 
-  test('a live graph marks no edge animated', () => {
+  test('while live, exactly the edges into the newest row are animated', () => {
     const cards = [card('a'), card('b')]
     const g = buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards)
+    const newest = g.rows.at(-1)!
+    const edges = animateFrontier(g.edges, newest)
+    const into = edges.filter((e) => newest.includes(e.target))
+    expect(into.length).toBeGreaterThan(0)
+    for (const e of into) expect(e.animated).toBe(true)
+    for (const e of edges.filter((e) => !newest.includes(e.target))) expect(e.animated).toBeUndefined()
+  })
+
+  test('a settled graph has no animated edge', () => {
+    const cards = [card('a'), card('b')]
+    const g = buildGraph({ ...liveSpine(), live: false, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 2), cards)
     expect(g.edges.length).toBeGreaterThan(0)
+    // Settled is an empty newest row, which is what ReasoningFlow passes.
+    expect(animateFrontier(g.edges, []).some((e) => e.animated)).toBe(false)
+    // …and `buildGraph` itself never marks one.
     expect(g.edges.some((e) => e.animated)).toBe(false)
   })
 

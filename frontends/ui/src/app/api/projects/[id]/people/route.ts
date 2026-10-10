@@ -1,5 +1,5 @@
 /**
- * Add a person to a project's Steckbrief (ADR-0090). Thin handler; who may,
+ * Add a person to a project's Steckbrief (ADR-0091). Thin handler; who may,
  * the account check and the audit trail live in `steckbrief-service`.
  */
 

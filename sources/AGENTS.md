@@ -22,7 +22,7 @@ Keep it that way: a helper a test needs from another file is imported by its pat
 (`from sources.ris_adapter.tests.conftest import LookupHarness`), never as
 `tests.conftest`.
 
-This suite went uncovered for a long time. CI now runs it in the backend-test job
+This suite went uncovered for a long time. CI now runs it in the Backend tests job
 (`task be:test:sources`). A package here once carried
 three tests asserting a function signature the implementation had already
 changed, and they stayed green through every gate because nothing ran them.
@@ -32,8 +32,8 @@ changed, and they stayed green through every gate because nothing ran them.
 | When you | You must | What fails you |
 |---|---|---|
 | Add a package | Put it under `sources/`, which `[tool.uv.workspace]` globs, then run `uv sync --group dev` | It is a directory nothing installs |
-| Register a function | `@register_function` with a `FunctionBaseConfig` subclass, plus a `nat.plugins` entry point in the **root** `pyproject.toml` | NAT never discovers it |
-| Make it toggleable in the UI | Register it in `aiq_agent/common/data_source_registry.py` | The tool works and no user can turn it on |
+| Register a function | `@register_function` with a `FunctionBaseConfig` subclass, plus a `nat.plugins` entry point in the **package's own** `pyproject.toml` | NAT never discovers it |
+| Make it toggleable in the UI | Add it to the `data_sources` registry in `configs/config_oib_openrouter.yml` (the entry shape is `DataSourceEntry` in `aiq_agent/common/data_source_registry.py`) | The tool works and no user can turn it on |
 | Add a third-party API | Read the key from config, never from a module-level `os.environ` at import | The plugin fails to import on a deployment that does not use it, taking unrelated tools with it |
 | Return retrieved text | Return passages a citation can resolve to and be verified against | An unverifiable "source" launders an ungrounded claim. See `aiq_agent/common/source_kinds.py` |
 | Return EVIDENCE the answer may cite | Build `GroundingHit` records and call `render_grounding_block` (`aiq_agent/common/grounding_block.py`, ADR-0061). Never write `Source:` / `Citation:` / `Relevance Score:` lines yourself | Nothing local, and the reader quietly loses the fields you meant to state. The renderer files the records under the bytes it returns, and `extract_sources_from_tool_result` reads them back; text it did not render falls to the regex parser, which recovers less than you stated |
@@ -57,8 +57,8 @@ changed, and they stayed green through every gate because nothing ran them.
   anything less claims nothing. Say
   "insufficient" through that field, never as text a producer writes itself:
   the prompt names the label (`COVERAGE_GAP_LABEL`).
-- [`aiq-add-data-source`](../skills/aiq-add-data-source/SKILL.md) is the
-  step-by-step; [`aiq-add-tool`](../skills/aiq-add-tool/SKILL.md) covers a
-  non-retrieval tool.
+- The step-by-step for a new tool or data source, from package layout to
+  binding it to an agent:
+  [`adding-a-tool.md`](../docs/architecture/adding-a-tool.md).
 - `uv run` here resolves an environment without the workspace packages. Use the
   venv that `uv sync --group dev` builds, which is what the Taskfile does.
