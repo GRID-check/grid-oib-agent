@@ -80,6 +80,10 @@
     "de": "Ein Chat, dessen Löschen fehlgeschlagen ist, weil ein Dienst kurz nicht erreichbar war, wird jetzt automatisch gelöscht, sobald der Dienst wieder verfügbar ist. Bisher blieb er ausgeblendet, bis jemand ihn erneut löschte."
   },
   {
+    "en": "A corrected file uploaded over an existing document, or a new version of a document published from a draft, is checked before colleagues see it. Until then the document is visible only to the person who uploaded it and those who may release files.",
+    "de": "Eine korrigierte Datei, die ein bestehendes Dokument ersetzt, oder eine neue Version eines Dokuments, die aus einem Entwurf veröffentlicht wird, wird geprüft, bevor Kolleginnen und Kollegen sie sehen. Bis dahin ist das Dokument nur für die Person sichtbar, die es hochgeladen hat, sowie für Personen, die Dateien freigeben dürfen."
+  },
+  {
     "en": "A date in a project note, such as a submission deadline, is no longer mistaken for a phone number and dropped.",
     "de": "Ein Datum in einer Projektnotiz, etwa eine Einreichfrist, wird nicht mehr für eine Telefonnummer gehalten und verworfen."
   },
@@ -184,6 +188,10 @@
     "de": "Eine Datei, die in Quarantäne wartet, lässt sich nicht überschreiben, auch nicht von der Person, die sie hochgeladen hat, sodass die zurückgehaltene Fassung nie Teil ihres Verlaufs wird. Löschen Sie die Datei in Quarantäne zuerst, oder lassen Sie sie freigeben."
   },
   {
+    "en": "A file has no preview image until its check has passed, and Piloti does not read a file under review when a revision is requested on it.",
+    "de": "Eine Datei erhält erst ein Vorschaubild, wenn sie die Prüfung bestanden hat, und Piloti liest eine Datei während der Prüfung nicht aus, wenn dafür eine Überarbeitung angefordert wird."
+  },
+  {
     "en": "A file in quarantine can be asked for: press „Freigabe anfragen“ next to it in the upload summary, and the people who may release it get an inbox notice naming the file. In Organisation → Quarantäne, „Ansehen“ opens the file where it is filed, so it can be looked at before it is released.",
     "de": "Für eine Datei in Quarantäne lässt sich die Freigabe anfragen: Drücken Sie daneben in der Upload-Zusammenfassung auf „Freigabe anfragen“, und wer sie freigeben darf, erhält eine Meldung im Postfach, die die Datei nennt. Unter Organisation → Quarantäne öffnet „Ansehen“ die Datei dort, wo sie abgelegt ist, sodass sie sich vor der Freigabe ansehen lässt."
   },
@@ -208,12 +216,20 @@
     "de": "Eine während des Gesprächs hochgeladene Datei lässt sich sofort aus der Quellenangabe öffnen, und referenzierte Dateien, die Piloti nicht anzeigen kann, etwa Word-Dokumente oder Tabellen, lassen sich dort herunterladen."
   },
   {
+    "en": "A file waiting in quarantine no longer shows up anywhere for colleagues who may not see it: not in the project overview and its counts, the upload history, the IFC model list, the document roles, the name check of a new upload, or a file's status. Deleting, moving or renaming it answers as if it did not exist.",
+    "de": "Eine Datei in Quarantäne wird Kolleginnen und Kollegen ohne entsprechende Berechtigung nirgends mehr angezeigt: weder in der Projektübersicht und den dortigen Zählungen noch im Upload-Verlauf, in der IFC-Modellliste, bei den Dokumentrollen, bei der Namensprüfung eines neuen Uploads oder beim Dateistatus. Beim Löschen, Verschieben oder Umbenennen wird so reagiert, als würde die Datei nicht existieren."
+  },
+  {
     "en": "A file waiting to be read shows how many of your office's uploads are ahead of it, for example \"Wartet · 3 Dateien davor\".",
     "de": "Eine Datei, die noch eingelesen werden muss, zeigt an, wie viele Uploads Ihres Büros noch vor ihr an der Reihe sind, z. B. „Wartet · 3 Dateien davor“."
   },
   {
     "en": "A file whose name mentions an OIB-Richtlinie, such as your own commentary on it, is no longer merged with the Richtlinie into one source.",
     "de": "Eine Datei, deren Name eine OIB-Richtlinie nennt, etwa ein eigener Kommentar dazu, wird nicht mehr mit der Richtlinie zu einer Quelle zusammengefasst."
+  },
+  {
+    "en": "A file whose reading failed before the check (an IFC model too large to read, for example) waits in Organisation → Quarantäne, marked as not checked, until someone who may release files releases or deletes it. The person who uploaded it can ask for the release.",
+    "de": "Eine Datei, deren Einlesen vor der Prüfung fehlgeschlagen ist (zum Beispiel ein zu großes IFC-Modell), bleibt unter Organisation → Quarantäne als nicht geprüft gekennzeichnet, bis eine freigabeberechtigte Person sie freigibt oder löscht. Die Person, die sie hochgeladen hat, kann die Freigabe beantragen."
   },
   {
     "en": "A file whose reading was cut short by a restart of the service that reads it now shows as failed with a retry, instead of staying in progress forever and refusing to be read again. A restart while a Word or PowerPoint file is still being converted is not covered: that file stays at Wird gelesen until you choose Erneut lesen.",
@@ -316,8 +332,20 @@
     "de": "Ein Foto oder eine eingescannte Zeichnung in einem hochgeladenen PDF kann Piloti jetzt einzeln und in voller Auflösung ansehen, statt nur als Teil der ganzen Seite."
   },
   {
+    "en": "A precedent from another Bundesland is now marked as decided under another Bauordnung.",
+    "de": "Ein Präzedenzfall aus einem anderen Bundesland ist jetzt als nach einer anderen Bauordnung entschieden gekennzeichnet."
+  },
+  {
+    "en": "A project admin reviewing a colleague's image that is still being checked sees the image instead of \"preview failed\".",
+    "de": "Ein Projektadministrator sieht beim Ansehen eines noch überprüften Bildes eines Kollegen das Bild statt „Vorschau fehlgeschlagen“."
+  },
+  {
     "en": "A project link with a mistyped or truncated address now shows the same \"no access\" page as any project you cannot open, instead of a general error page.",
     "de": "Ein Projektlink mit einer falsch eingegebenen oder abgeschnittenen Adresse zeigt jetzt dieselbe Seite „Kein Zugriff“ wie jedes Projekt, das Sie nicht öffnen können, statt einer allgemeinen Fehlerseite."
+  },
+  {
+    "en": "A project now has a page of similar past projects: the closed projects most like it that you may open, with what they share, the OIB edition they were planned under, what the authority demanded there, and the decisions they recorded.",
+    "de": "Ein Projekt hat jetzt eine Seite mit ähnlichen früheren Projekten: abgeschlossene Projekte, die Sie öffnen können und die ihm am ähnlichsten sind, samt Gemeinsamkeiten, der Ausgabe der OIB-Richtlinien, nach der sie geplant wurden, den Forderungen der Behörde und den dokumentierten Entscheidungen."
   },
   {
     "en": "A project whose creation failed part-way is no longer left behind unreachable by the person who created it.",
@@ -462,6 +490,10 @@
   {
     "en": "A source could be shown as cited before it had been checked, and stayed marked that way even when the check later removed it from the answer. The panel now reports only what survived verification.",
     "de": "Eine Quelle kann als zitiert angezeigt werden, bevor sie geprüft wurde, und bleibt auch dann so markiert, wenn die Prüfung sie später aus der Antwort entfernt. Das Panel zeigt jetzt nur noch Quellen an, die die Überprüfung bestanden haben."
+  },
+  {
+    "en": "A source from another project is now labelled as a precedent, with the project's status and Bundesland, and an answer that uses one keeps apart what applies, how the office usually does it, and where it was done before, saying when the rules or the Land differ.",
+    "de": "Eine Quelle aus einem anderen Projekt ist jetzt als Präzedenzfall gekennzeichnet und enthält den Projektstatus sowie das Bundesland. Verwendet eine Antwort einen solchen Präzedenzfall, unterscheidet sie zwischen den geltenden Vorgaben, der üblichen Vorgehensweise des Büros und dem Projekt, in dem etwas bereits umgesetzt wurde, und weist darauf hin, wenn sich Vorschriften oder Bundesland unterscheiden."
   },
   {
     "en": "A stack upgraded from before the KEDA queue scaling no longer fails its deploy at the agent-worker ScaledObject. KEDA now takes over the research worker's old autoscaler instead of refusing to scale a workload it already scaled, so the deploy finishes with nothing done by hand.",
@@ -646,6 +678,10 @@
   {
     "en": "An overview now shows its parts either as a table or as a mindmap, never both. The duplicate drawing used to appear while the answer arrived and then vanish when it finished.",
     "de": "Eine Übersicht zeigt ihre Bestandteile jetzt entweder als Tabelle oder als Mindmap, nie beides. Die doppelte Darstellung erscheint während der Antwort und verschwindet nach deren Abschluss."
+  },
+  {
+    "en": "An uploaded file now reaches colleagues only once its check for sensitive data has passed, usually a few moments after the upload. Until then only the person who uploaded it and those who may release quarantined files see it.",
+    "de": "Eine hochgeladene Datei ist für Kolleginnen und Kollegen erst sichtbar, wenn sie die Prüfung auf sensible Daten bestanden hat – meist wenige Augenblicke nach dem Upload. Bis dahin ist sie nur für die Person sichtbar, die sie hochgeladen hat, und für jene, die Dateien aus der Quarantäne freigeben dürfen."
   },
   {
     "en": "An uploaded folder is now matched against the project: Piloti recognises existing folders, even when spelled differently or coming from a Mac, creates only the missing ones and files every document where it stood in the folder tree.",
@@ -868,12 +904,20 @@
     "de": "Ein Klick auf eine Zeile der Aufträge-Liste öffnet jetzt den Lauf selbst, mit denselben Runden, Quellen und Fundstellen wie im Verlauf, und einem Link in diesen Verlauf."
   },
   {
+    "en": "Closing a project now asks what it should leave the office. The dialog shows the facts Piloti compares projects by, names the ones still open, and lists the project's recorded decisions.",
+    "de": "Beim Schließen eines Projekts wird jetzt gefragt, was das Büro verlassen soll. Der Dialog zeigt die Fakten, anhand derer Piloti Projekte vergleicht, nennt die noch offenen Punkte und listet die erfassten Entscheidungen des Projekts auf."
+  },
+  {
     "en": "Closing the preview is never one-way: with the ✕, Escape or by dragging it shut, a tab stays at the edge and brings the document back at the width you chose.",
     "de": "Das Schließen der Vorschau ist nie endgültig: Nach ✕, Escape oder Zuziehen bleibt am Rand ein Reiter, der das Dokument in der gewählten Breite zurückholt."
   },
   {
     "en": "Comparison and data tables in chat cards are now set in normal text size instead of the smallest type, and column headings stand out by weight.",
     "de": "Vergleichs- und Datentabellen in den Karten stehen jetzt in normaler Textgröße statt in der kleinsten Schrift, und Spaltenköpfe heben sich durch den Schriftschnitt ab."
+  },
+  {
+    "en": "Confirm the decisions that are right, or record a lesson in your own words, and Piloti cites them in later projects as confirmed by a person.",
+    "de": "Bestätigen Sie die richtigen Entscheidungen oder halten Sie eine Erkenntnis mit eigenen Worten fest. Piloti zitiert sie in späteren Projekten als von einer Person bestätigt."
   },
   {
     "en": "Confirming the upload preview checks your office's list once more before a folder is created; if the preview changed meanwhile, nothing is sent and the dialog shows the new preview to confirm.",
@@ -1026,6 +1070,10 @@
   {
     "en": "Dragging files into Dateien now uploads them even when they come straight from an email or a cloud-synced folder, where the drop used to do nothing.",
     "de": "Das Ziehen von Dateien in Dateien lädt diese jetzt auch hoch, wenn sie direkt aus einer E-Mail oder einem cloud-synchronisierten Ordner stammen – zuvor blieb das Ablegen ohne Wirkung."
+  },
+  {
+    "en": "Drawing on a closed project changes nothing about your chat. A chat that drew on a running project, or on a restricted folder of any other project, can be shared only with people who may open it, and nothing from it is saved to project memory.",
+    "de": "Die Verwendung eines abgeschlossenen Projekts wirkt sich nicht auf Ihren Chat aus. Ein Chat, der auf ein laufendes Projekt oder einen eingeschränkten Ordner eines anderen Projekts zurückgreift, kann nur mit Personen geteilt werden, die darauf zugreifen dürfen. Aus dem Chat wird nichts im Projektspeicher gespeichert."
   },
   {
     "en": "Drawings never carry a measurement. A Schnitt, a Treppe, a Fluchtweg or ein Abstand still comes back as one of the fifteen technical schematics, where Piloti supplies the values and the drawing is computed from them, so the picture cannot disagree with its own numbers.",
@@ -1228,6 +1276,10 @@
     "de": "Fußnoten in einer Antwort folgen Ihrer Sprache, und ihre Sprungmarken funktionieren wieder."
   },
   {
+    "en": "For a question an earlier project may already have answered, Piloti now searches the closed projects most like yours from the start, and finds them by construction method too.",
+    "de": "Bei Fragen, die möglicherweise bereits in einem früheren Projekt beantwortet wurden, durchsucht Piloti jetzt von Anfang an die abgeschlossenen Projekte, die Ihrem am ähnlichsten sind, und findet sie auch anhand der Bauweise."
+  },
+  {
     "en": "For a very long text file, a note under the text now says that only the beginning is shown, so the last visible line no longer reads like the end of the document.",
     "de": "Bei einer sehr langen Textdatei steht jetzt unter dem Text, dass nur der Anfang angezeigt wird, damit die letzte sichtbare Zeile nicht wie das Ende des Dokuments wirkt."
   },
@@ -1306,6 +1358,10 @@
   {
     "en": "In a large project, Piloti can now rename, move and assign files beyond the first 50 as well. It used to refuse them as unknown files.",
     "de": "In großen Projekten kann Piloti jetzt auch Dateien ab der 51. umbenennen, verschieben und zuordnen. Bisher lehnt Piloti sie als unbekannte Dateien ab."
+  },
+  {
+    "en": "In a shared chat Piloti searches only what everyone in it may open, so it never shows a colleague something they may not read.",
+    "de": "In einem gemeinsamen Chat durchsucht Piloti nur Inhalte, die alle Beteiligten öffnen dürfen, und zeigt Kolleginnen und Kollegen nie etwas an, das sie nicht lesen dürfen."
   },
   {
     "en": "In the Herleitung a passage read by point now shows the point, such as „Pkt. 3.5.2“, before the page.",
@@ -1636,12 +1692,20 @@
     "de": "Piloti wählt Skills jetzt selbst: Es liest die Kurzbeschreibung jedes verfügbaren Skills und lädt die Anleitung, wenn sie zur Frage passt. Unter der Antwort steht weiterhin, welche Skills sie geprägt haben."
   },
   {
+    "en": "Piloti now finds comparable past projects by every building's construction, uses and building class, as entered in the brief. It used to compare them by Bundesland and kind of work alone.",
+    "de": "Piloti findet ähnliche frühere Projekte jetzt anhand der im Brief angegebenen Bauweise, Nutzungen und Gebäudeklasse jedes Gebäudes. Bisher erfolgte der Vergleich nur anhand des Bundeslands und der Art der Arbeit."
+  },
+  {
     "en": "Piloti now knows how you filed your project documents: it can say what is in Brandschutz, name the folder when it points at a file, and search one folder including its subfolders. Renaming or moving a folder updates what it sees without re-uploading anything.",
     "de": "Piloti kennt jetzt Ihre Ablage: Es sagt, was im Ordner Brandschutz liegt, nennt den Ordner, wenn es auf eine Datei verweist, und durchsucht einen Ordner samt Unterordnern. Umbenennen oder Verschieben eines Ordners übernimmt es sofort, ohne dass etwas neu hochgeladen werden muss."
   },
   {
     "en": "Piloti now learns from answers you mark as not helpful: each report is anonymised and becomes a lesson it reads on every later answer. Your feedback text stays in your organization; only the anonymised lesson leaves it.",
     "de": "Piloti lernt jetzt aus Antworten, die Sie als nicht hilfreich markieren: Jede Meldung wird anonymisiert und zu einer Lektion, die Piloti bei jeder späteren Antwort liest. Ihr Feedbacktext bleibt in Ihrer Organisation, nur die anonymisierte Lektion verlässt sie."
+  },
+  {
+    "en": "Piloti now looks into the office's past projects on its own, starting with the closed projects most like yours, whenever a question is about how something was solved before. Every source from another project names that project and is presented as a precedent, not as a rule.",
+    "de": "Piloti durchsucht jetzt selbstständig frühere Projekte Ihres Büros – beginnend mit den abgeschlossenen Projekten, die Ihrem am ähnlichsten sind –, wenn es darum geht, wie etwas schon einmal gelöst wurde. Jede Quelle aus einem anderen Projekt weist das betreffende Projekt aus und wird als Präzedenzfall, nicht als Regel, dargestellt."
   },
   {
     "en": "Piloti now opens the exact Stelle a conclusion names — „OIB-Richtlinie 2, Pkt. 3.5.2\" — instead of searching for it a second time, and its first round is limited to two searches so the second one can be precise.",
@@ -1652,12 +1716,24 @@
     "de": "Piloti veröffentlicht jetzt ein Changelog. Jede Änderung, die Sie im Produkt bemerken, wird in verständlicher Sprache dokumentiert und erscheint am Tag der Veröffentlichung auf piloti.at/changelog auf Deutsch und Englisch."
   },
   {
+    "en": "Piloti now recalls project memory by meaning, not only by shared words, and finds other projects' decisions however a question is phrased, in any language. The step that compares meaning had silently not run.",
+    "de": "Piloti ruft Projektwissen jetzt anhand der Bedeutung statt nur anhand gemeinsamer Wörter ab und findet Entscheidungen aus anderen Projekten unabhängig davon, wie eine Frage formuliert ist und in welcher Sprache sie gestellt wird. Der Schritt zum Bedeutungsvergleich wurde unbemerkt nicht ausgeführt."
+  },
+  {
+    "en": "Piloti now remembers what authorities demanded in your past Bescheide and Nachforderungen, and answers „Fragt die Behörde das wieder nach?\" with the Auflagen of comparable projects, each citing its Bescheid. Reading a Bescheid at upload costs one extra model call.",
+    "de": "Piloti merkt sich jetzt, was Behörden in Ihren bisherigen Bescheiden und Nachforderungen verlangt haben, und beantwortet „Fragt die Behörde das wieder nach?“ mit den Auflagen vergleichbarer Projekte, jeweils mit Verweis auf den Bescheid. Das Lesen eines Bescheids beim Upload kostet einen zusätzlichen Modellaufruf."
+  },
+  {
     "en": "Piloti now takes on work that lasts longer than an answer: „Mach den Einreichcheck bis Freitag“ creates a task that runs on its own, under your name and permissions, and reports back when done.",
     "de": "Piloti nimmt jetzt Arbeit an, die länger dauert als eine Antwort: „Mach den Einreichcheck bis Freitag“ legt einen Auftrag an, der unter Ihrem Namen und mit Ihren Rechten selbständig läuft und sich meldet, wenn er fertig ist."
   },
   {
     "en": "Piloti remembers your decisions on its suggestions: a rejected suggestion or discarded note does not come back in the next answer.",
     "de": "Piloti merkt sich Ihre Entscheidungen zu seinen Vorschlägen: Ein abgelehnter Vorschlag oder eine verworfene Notiz kommt in der nächsten Antwort nicht wieder."
+  },
+  {
+    "en": "Piloti skips folders you are not allowed to read in those projects, and files still held back for review, your own uploads included.",
+    "de": "Piloti überspringt Ordner, die Sie in diesen Projekten nicht lesen dürfen, sowie Dateien, die noch zur Prüfung zurückgehalten werden – auch Ihre eigenen Uploads."
   },
   {
     "en": "Piloti starts reading before it starts thinking: for a question about a regulation or a project file, it fetches the likely passages first, so most questions are answered one step sooner. The Herleitung shows this as the first search step.",
@@ -1712,6 +1788,10 @@
     "de": "Das Projektgedächtnis berücksichtigt jetzt Ihr Feedback: Widerspricht ein negativer Kommentar einer gespeicherten Notiz, wird diese Notiz in Ihrem Projekt als weniger verlässlich markiert. Gelöscht wird nichts, und angeheftete Notizen sind ausgenommen."
   },
   {
+    "en": "Prüfbuch confirmations on an IFC model still under review, and the number of such files in a folder in the Papierkorb, are no longer shown to colleagues who may not see the model or the file.",
+    "de": "Prüfbuch-Bestätigungen zu einem IFC-Modell, das sich noch in Prüfung befindet, sowie die Anzahl solcher Dateien in einem Ordner im Papierkorb werden Kolleginnen und Kollegen, die das Modell oder die Datei nicht sehen dürfen, nicht mehr angezeigt."
+  },
+  {
     "en": "Questions about Austrian law are answered with citable paragraphs from the RIS, and an office can give Piloti standing instructions that apply to every question. From 18 September deep research and the Automation section are switched on per office, on request.",
     "de": "Fragen zum österreichischen Recht beantwortet Piloti mit zitierbaren Paragraphen aus dem RIS, und ein Büro kann Piloti stehende Anweisungen mitgeben, die für jede Frage gelten. Seit 18. September schalten wir Tiefenrecherche und Automatisierung pro Büro auf Anfrage frei."
   },
@@ -1750,6 +1830,10 @@
   {
     "en": "Re-indexing a project and rescanning failed documents now continue after a restart instead of stopping half way, and an upload made meanwhile is read first. Both start at once and finish in the background, so the page no longer waits for them.",
     "de": "Die Neuindizierung eines Projekts und das erneute Scannen fehlgeschlagener Dokumente werden nach einem Neustart fortgesetzt, statt auf halbem Weg abzubrechen. Ein zwischenzeitlicher Upload wird zuerst eingelesen. Beide Vorgänge starten gleichzeitig und werden im Hintergrund abgeschlossen, sodass die Seite nicht mehr auf sie warten muss."
+  },
+  {
+    "en": "Re-indexing a project or restoring a folder from the Papierkorb no longer takes a file out of quarantine. Only a release does.",
+    "de": "Beim erneuten Indexieren eines Projekts oder beim Wiederherstellen eines Ordners aus dem Papierkorb wird eine Datei nicht mehr aus der Quarantäne entfernt. Nur eine Freigabe hebt die Quarantäne auf."
   },
   {
     "en": "Re-uploading a document under the same name now replaces its earlier version in the knowledge index instead of competing with it, so an answer can no longer cite a superseded upload with full confidence. A document under a new name is still treated as a new document — deciding that one file supersedes a differently-named one stays a human call.",
@@ -2236,6 +2320,10 @@
     "de": "Der Hinweis, woran Piloti gerade arbeitet, flackert nicht mehr und ist auf dem Telefon wieder lesbar."
   },
   {
+    "en": "The notice under the message box now shows which other projects restrict a chat right now. It used to keep showing a project after it was closed, and missed a closed project's restricted folder.",
+    "de": "Der Hinweis unter dem Nachrichtenfeld zeigt jetzt, welche anderen Projekte einen Chat gerade einschränken. Bisher wurde ein Projekt auch nach dem Schließen weiterhin angezeigt, und ein eingeschränkter Ordner eines geschlossenen Projekts wurde nicht berücksichtigt."
+  },
+  {
     "en": "The page for setting up an organization is simpler: one field, one button and three lines on what happens next, with sign-out always at the top right.",
     "de": "Die Seite zum Einrichten der Organisation ist einfacher: ein Feld, ein Knopf und drei Zeilen dazu, wie es weitergeht, mit dem Abmelden immer oben rechts."
   },
@@ -2484,6 +2572,10 @@
     "de": "Übergibt Piloti eine Frage an die Tiefenrecherche, sagt es jetzt in eigenen Worten, warum; der Grund steht in der Herleitung."
   },
   {
+    "en": "When Piloti looks into the office's past projects, it now quotes the decisions and requirements those projects wrote down in their project memory first, named by project, and then the documents. Restricted notes show up only in a chat that is yours alone and only if you may read the folder they came from.",
+    "de": "Wenn Piloti frühere Projekte des Büros durchsucht, zitiert es jetzt zuerst die dort im Projektgedächtnis festgehaltenen Entscheidungen und Anforderungen, nach Projekt benannt, und danach die Dokumente. Eingeschränkte Notizen werden nur in einem Chat angezeigt, den nur Sie sehen, und nur dann, wenn Sie den Ordner lesen dürfen, aus dem sie stammen."
+  },
+  {
     "en": "When Piloti proposes a research plan and you reply in your own words, it now revises the plan with your answer. A plain no still skips the plan and answers directly.",
     "de": "Schlägt Piloti einen Rechercheplan vor und Sie antworten in eigenen Worten, überarbeitet es den Plan jetzt mit Ihrer Antwort. Ein schlichtes Nein überspringt den Plan weiterhin und führt zur direkten Antwort."
   },
@@ -2584,6 +2676,10 @@
     "de": "Wenn der Chat einen Server erreicht, auf dem eine andere Version als auf der Seite läuft, weist Piloti jetzt darauf hin, statt Sie aufzufordern, Ihre Netzwerkverbindung zu überprüfen."
   },
   {
+    "en": "When the office's past projects hold nothing comparable, Piloti now says so. It used to answer that the search was unavailable and ask you to try again.",
+    "de": "Wenn die bisherigen Projekte des Büros nichts Vergleichbares enthalten, sagt Piloti das jetzt. Bisher meldet es, dass die Suche nicht verfügbar ist, und bittet Sie, es erneut zu versuchen."
+  },
+  {
     "en": "When the on-screen keyboard opens, the app now makes room for it instead of letting it cover the composer, so you can see what you are typing.",
     "de": "Wenn sich die Bildschirmtastatur öffnet, macht die App jetzt Platz für sie, statt das Eingabefeld zu verdecken – so sehen Sie, was Sie eingeben."
   },
@@ -2606,6 +2702,10 @@
   {
     "en": "When two sources contradict each other, Piloti now shows the difference, names both with their reference and says which rule decides, or that the sources cannot settle it.",
     "de": "Widersprechen sich zwei Quellen, zeigt Piloti den Unterschied jetzt an, nennt beide mit Fundstelle und sagt, welche Regel den Vorrang entscheidet, oder dass sich der Widerspruch aus den Quellen nicht auflösen lässt."
+  },
+  {
+    "en": "When you close a project, Piloti can read its documents and suggest its Bundesland, building class, construction, uses, OIB edition and the decisions it made, each with the document and page it comes from. You confirm each one, and similar projects are then found by what they are.",
+    "de": "Wenn Sie ein Projekt schließen, kann Piloti dessen Dokumente lesen und das Bundesland, die Gebäudeklasse, die Bauweise, die Nutzungen, die OIB-Ausgabe sowie die darin getroffenen Entscheidungen vorschlagen – jeweils mit dem Dokument und der Seite, aus denen die Information stammt. Sie bestätigen jeden Vorschlag; ähnliche Projekte werden anschließend anhand dieser Merkmale gefunden."
   },
   {
     "en": "When you close a project, Piloti now proposes which files it no longer needs, such as working copies, older versions, duplicates and temporary files. It is marked as an AI proposal, you decide about every file, and what you confirm goes to the Papierkorb for 14 days.",
