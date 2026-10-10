@@ -272,7 +272,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
               />
 
               {/* The scrims under and above the floating composer (`ComposerScrim`). */}
-              <ComposerScrim threadEmpty={isThreadEmpty} />
+              <ComposerScrim />
 
               {/* Floating composer stack: overlays the bottom of the chat scroll
               area instead of docking below it, so messages scroll behind the

@@ -70,7 +70,7 @@ end`
 
 /**
  * The current folder of every document a revision task written into these
- * conversations revises (ADR-0092). Read alongside the record: the thread holds
+ * conversations revises (ADR-0093). Read alongside the record: the thread holds
  * the draft's text and the revised draft, so it is read as a conversation that
  * drew on the folder the document is in NOW. Not stored: a document moved, or
  * a folder loosened, changes the answer at the next read. A document that is
@@ -188,7 +188,7 @@ export async function recordSourceFolders(
 /**
  * Mark one answer of this conversation as drawing on a folder with restricted
  * access, when the database's rule says the conversation does
- * (`grid_conversation_restricted_use`, migration 0124, ADR-0092). Keyed by the
+ * (`grid_conversation_restricted_use`, migration 0124, ADR-0093). Keyed by the
  * answer's message id, which the agent mints for the turn and the vote names,
  * so the mark exists whether or not the answer is ever persisted. Idempotent;
  * the runtime role may insert marks and never lift one.
@@ -228,7 +228,7 @@ export async function deleteRecordedSourceFolders(
  */
 export const RECORDED_PROJECTS_LIMIT = 200
 
-/** The other projects this conversation drew on (ADR-0093, migration 0125), sorted. */
+/** The other projects this conversation drew on (ADR-0094, migration 0125), sorted. */
 export async function listRecordedSourceProjects(
   executor: DbExecutor,
   organizationId: string,
@@ -301,7 +301,7 @@ export async function recordSourceProjects(
 /**
  * The project each of these folders belongs to, for the folders of this
  * organization that belong to one (an Archiv folder has none). How a record
- * that names a folder of ANOTHER project (ADR-0093) finds the tree that judges
+ * that names a folder of ANOTHER project (ADR-0094) finds the tree that judges
  * it; a folder id not found stays unknown, which is a folder nobody may read.
  */
 export async function projectsOfFolders(

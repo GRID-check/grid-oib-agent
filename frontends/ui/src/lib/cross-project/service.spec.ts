@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * The cross-project lookups (ADR-0093), with the projects listing, the
+ * The cross-project lookups (ADR-0094), with the projects listing, the
  * project's own search and the stores mocked: only a solo chat may ask; a
  * project the reader cannot open is invisible (the listing decides, and the
  * search never reaches it); the conversation's own project is left out; one

@@ -110,7 +110,7 @@ export async function seesEveryFolder(session: AuthorizedSession): Promise<boole
  * long. Only when WorkOS cannot be asked is the token's claim the answer, as it
  * is for the roles.
  *
- * Someone who reads a CLOSED project only because it is closed (ADR-0089: every
+ * Someone who reads a CLOSED project only because it is closed (ADR-0090: every
  * organization member may) clears what a member holding no role clears: the
  * folders open to everyone, and no folder with its own role list. Their roles
  * were never matched against this project's grants before it closed, and
@@ -423,7 +423,7 @@ export const RESTRICTED_PROJECT_READS_AT_ONCE = 4
  * is narrowed to in SQL (the download log's name filter). Each project by the
  * session's clearance in that project ({@link clearanceOf}), so a closed one
  * clears someone who reads it only because it is closed as a member with no
- * role (ADR-0089). A project the list leaves out, past its bound, contributes
+ * role (ADR-0090). A project the list leaves out, past its bound, contributes
  * no folder, so its rows match nothing: the narrowing fails closed. Projects
  * are read {@link RESTRICTED_PROJECT_READS_AT_ONCE} at a time; the answer is in
  * the list's order all the same.

@@ -1,6 +1,6 @@
 /**
  * INTERNAL — one project's brief (confirmed facts and summary), from a solo
- * chat (ADR-0093). The agent's `read_project_brief` tool is the caller; the
+ * chat (ADR-0094). The agent's `read_project_brief` tool is the caller; the
  * acting person is the envelope's, as a pinned session, and must be able to
  * open the project (404 otherwise, like every project the caller cannot see).
  *

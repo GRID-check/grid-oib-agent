@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * A revision task is judged when it is read, by the folder its document is in
- * NOW (ADR-0092), against a REAL Postgres through the restricted runtime role:
+ * NOW (ADR-0093), against a REAL Postgres through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/tasks/subject-access.integration.spec.ts
@@ -25,7 +25,7 @@
  *     sits in a folder of a project with an access list of its own;
  *   - that move marks the thread's messages and votes, so the staff views keep
  *     withholding them, and Langfuse their words, after the document moves
- *     back and after the thread is deleted (marks are sticky, ADR-0092).
+ *     back and after the thread is deleted (marks are sticky, ADR-0093).
  */
 
 import { sql } from 'drizzle-orm'

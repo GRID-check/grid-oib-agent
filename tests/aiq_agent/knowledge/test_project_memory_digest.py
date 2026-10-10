@@ -147,7 +147,7 @@ def test_the_asker_travels_and_served_restricted_notes_confine_the_turn(monkeypa
         reset_restricted_use(token)
     assert "userId=u1" in captured["url"]
     assert "restrictedCollections=proj_p1_r0123456789ab" in captured["url"]  # pragma: allowlist secret
-    # ADR-0092: the answer the turn writes is marked when a restricted note is admitted.
+    # ADR-0093: the answer the turn writes is marked when a restricted note is admitted.
     assert "answerMessageId=answer-1" in captured["url"]
     assert use.confined is True
 

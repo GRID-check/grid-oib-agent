@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A solo chat's use of OTHER projects (ADR-0093, migration 0125) against a REAL
+ * A solo chat's use of OTHER projects (ADR-0094, migration 0125) against a REAL
  * Postgres, through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -21,7 +21,7 @@
  *     folder; the project-wide visibility is refused;
  *   - a chat shared before the hand-out is refused and records nothing;
  *   - the answer a hand-out with a restricted folder goes to is marked in
- *     `message_restricted_use` (ADR-0092); one of open content only is not;
+ *     `message_restricted_use` (ADR-0093); one of open content only is not;
  *   - no memory may be written from such a chat;
  *   - the erasure takes both records, and another organization sees neither.
  */
@@ -243,7 +243,7 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
     expect(await count(ORG, 'conversation_restricted_folders', id)).toBe(0)
   })
 
-  it('marks the answer a restricted folder is handed to, and not one that got open content only (ADR-0092)', async () => {
+  it('marks the answer a restricted folder is handed to, and not one that got open content only (ADR-0093)', async () => {
     const restricted = await chat()
     const open = await chat()
     const restrictedAnswer = randomUUID()

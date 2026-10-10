@@ -62,6 +62,10 @@ from aiq_agent.common.quote_stamps import stamp_quote_lines
 from aiq_agent.common.tool_validation import validate_tool_availability
 from aiq_agent.common.turn_status import emit_answer_repair
 from aiq_agent.common.turn_status import emit_citation_check
+from aiq_agent.observability.langfuse_scores import card_validity_score
+from aiq_agent.observability.langfuse_scores import dialect_scores
+from aiq_agent.observability.langfuse_scores import emit_scores
+from aiq_agent.observability.langfuse_scores import quote_patch_scores
 from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
 
 from .answer_shape import drop_restated_mindmaps
@@ -457,8 +461,10 @@ async def _checked_envelope_card(
             validated, _ = validate_model_card(repaired)
         if validated is not None:
             emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_REPAIRED)
+            emit_scores([card_validity_score(outcome="repaired", card_type=card_type, index=index)], writer="piloti")
     if validated is None:
         emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_DROPPED)
+        emit_scores([card_validity_score(outcome="dropped", card_type=card_type, index=index)], writer="piloti")
     return validated
 
 
@@ -546,6 +552,7 @@ async def _verify_with_quote_patch(content: str, registry: SourceRegistry, patch
     # marker and is not "being corrected".
     emit_answer_repair(quotes=len(candidates))
     patched, count = await patch_quotes(verified.content, candidates, patch)
+    emit_scores(quote_patch_scores(count), writer="piloti")
     if not count:
         return verified
     # The second pass verifies text the first already stripped, so it sees none
@@ -1055,6 +1062,7 @@ def _held_to_dialect(content: str, meta: AnswerMeta | None) -> DialectResult:
     dialect = validate_dialect(content, meta.kind if meta is not None else None)
     if dialect.census or dialect.repairs:
         record_trace_metadata(answer_dialect=dialect.as_trace())
+    emit_scores(dialect_scores(dialect.repairs), writer="piloti")
     return dialect
 
 

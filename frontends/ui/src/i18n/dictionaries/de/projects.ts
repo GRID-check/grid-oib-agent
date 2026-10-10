@@ -101,7 +101,7 @@ export const projects: typeof en.projects = {
     cancel: 'Abbrechen',
     removed: '{count} Dateien in den Papierkorb gelegt.',
     error: 'Das Ausmisten hat nicht geklappt; das Projekt ist noch offen.',
-    /** Das Ausmisten ist gescheitert und ließ sich nicht ganz zurücknehmen (ADR-0091): wo nachsehen. */
+    /** Das Ausmisten ist gescheitert und ließ sich nicht ganz zurücknehmen (ADR-0092): wo nachsehen. */
     partial:
       'Das Ausmisten hat nicht geklappt und ließ sich nicht ganz zurücknehmen. Manche Dateien liegen womöglich noch in einem Ordner „{folders}“ in ihrem Ordner oder im Papierkorb. Das Projekt ist noch offen.',
     rules: {

@@ -904,7 +904,7 @@ export async function fireScheduledJob(
   if (!definition.enabled) {
     return { fired: false, reason: 'disabled' }
   }
-  // A closed project runs no task (ADR-0089): it is read-only, and a run files
+  // A closed project runs no task (ADR-0090): it is read-only, and a run files
   // into it. The schedule stays, visibly skipped, so a reopen resumes it.
   if (isProjectClosed(await findProjectInOrg(definition.projectId, definition.organizationId))) {
     await recordRun(definition, 'schedule', 'scheduler', randomUUID(), {

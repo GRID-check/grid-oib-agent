@@ -110,7 +110,7 @@ class TestTurnStart:
 
 
 class TestTheAnswerTravels:
-    """ADR-0092: the BFF marks the answer the turn writes, so its id rides every question."""
+    """ADR-0093: the BFF marks the answer the turn writes, so its id rides every question."""
 
     @pytest.fixture
     def posted(self, monkeypatch) -> list[dict[str, Any]]:

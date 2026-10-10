@@ -1,5 +1,5 @@
 /**
- * The cross-project lookups' wire contract (ADR-0093): what the agent's tools
+ * The cross-project lookups' wire contract (ADR-0094): what the agent's tools
  * send and what the BFF answers. The one description, in zod, shared by the
  * routes and the specs and exported as JSON Schema for the Python tier
  * (`cross-project-schema.ts`, `tests/fixtures/cross-project.schema.json`), as
@@ -47,7 +47,7 @@ const isoDay = z
 /**
  * The answer the turn is writing (`answer_message_id(conversation, turn)`, a
  * uuid the agent derives, streams and persists the answer under). The BFF marks
- * it in `message_restricted_use` (ADR-0092), in the transaction that records
+ * it in `message_restricted_use` (ADR-0093), in the transaction that records
  * what the lookup hands out, when the conversation drew on a restricted folder.
  */
 const answerMessageId = z.string().uuid().nullish()

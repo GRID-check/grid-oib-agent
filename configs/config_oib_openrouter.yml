@@ -697,7 +697,7 @@ functions:
     _type: create_task
 
   # Cross-project lookups for a solo chat (src/aiq_agent/tools/cross_project,
-  # ADR-0093): search other projects' documents, find projects, read a brief.
+  # ADR-0094): search other projects' documents, find projects, read a brief.
   # Chat only: deep research gets no admission round, so it must never be
   # handed another project's content.
   project_lookup:

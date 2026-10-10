@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Dev preview: how a solo chat shows that it drew on other projects (ADR-0093).
+ * Dev preview: how a solo chat shows that it drew on other projects (ADR-0094).
  * Rendered through the real components with fixture data, no backend:
  *
  *   1. THE SOURCES — an answer citing a project upload of this chat, a passage
@@ -69,7 +69,7 @@ export default function OtherProjectsDevPage() {
     <main className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8" data-testid="other-projects-preview">
       <div>
         <h1 className="text-lg font-semibold">A solo chat that drew on other projects</h1>
-        <p className="text-muted-foreground mt-1 text-sm">ADR-0093: sources name their project; the composer says what closed.</p>
+        <p className="text-muted-foreground mt-1 text-sm">ADR-0094: sources name their project; the composer says what closed.</p>
       </div>
       <Block title="1. The sources">
         <AnswerCitations documents={documents} anchorPrefix="dev-other-projects">

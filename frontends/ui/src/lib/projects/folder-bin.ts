@@ -249,7 +249,7 @@ interface BinOptions {
   /**
    * Bin the folder only when it holds exactly these documents, checked under
    * the bin lock, which every insert or move into a folder also takes: a
-   * caller that filled the folder itself („Ausmisten", ADR-0091) never bins a
+   * caller that filled the folder itself („Ausmisten", ADR-0092) never bins a
    * file someone else put there meanwhile. Otherwise 409, and nothing moves.
    */
   onlyDocuments?: readonly string[]
@@ -511,7 +511,7 @@ export async function restoreFolderFromBin(
 
 /**
  * The project half of who may restore: document write, as for deleting. In a
- * closed project (ADR-0089) nobody writes, but a restore undoes a deletion
+ * closed project (ADR-0090) nobody writes, but a restore undoes a deletion
  * rather than adding content, and the 14-day purge keeps running: whoever
  * manages the project may restore there, so an „Ausgemistet" file is not lost
  * for want of a reopen.

@@ -84,7 +84,7 @@ beforeEach(() => {
 })
 
 describe('POST /api/internal/turn-context', () => {
-  it('says when the conversation drew on another project (ADR-0093), so the turn starts with its doors shut', async () => {
+  it('says when the conversation drew on another project (ADR-0094), so the turn starts with its doors shut', async () => {
     vi.mocked(drewOnOtherProjects).mockResolvedValueOnce(true)
 
     const { data } = await (await call()).json()

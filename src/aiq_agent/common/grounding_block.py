@@ -109,7 +109,7 @@ PROJECT_STATUS_LABELS: dict[str, str] = {"active": "laufend", "closed": "abgesch
 
 
 class SourceProject(BaseModel):
-    """The project a hit from ANOTHER project came from (ADR-0093).
+    """The project a hit from ANOTHER project came from (ADR-0094).
 
     Only the cross-project lookup sets it: every other hit comes from the
     turn's own scope and names no project. Rendered as the ``Projekt:`` line,
@@ -186,7 +186,7 @@ class GroundingHit(BaseModel):
     #: Whether :attr:`body` was cut, which appends the truncation marker. The
     #: marker is protocol and not evidence, so the reader drops it again.
     body_truncated: bool = False
-    #: The other project this hit came from (ADR-0093); ``None`` for every hit
+    #: The other project this hit came from (ADR-0094); ``None`` for every hit
     #: of the turn's own scope, which renders no ``Projekt:`` line.
     project: SourceProject | None = None
     #: Where on the page the passage sits, for the viewer to mark (issue #433).

@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * The record a cross-project lookup writes before it answers (ADR-0093), with
+ * The record a cross-project lookup writes before it answers (ADR-0094), with
  * the store mocked: the solo rule, read under the lock; the projects and
  * restricted folders recorded in one transaction; nothing recorded and a typed
  * refusal once the chat is not the asker's alone. And the memory writer's
@@ -84,7 +84,7 @@ describe('recordCrossProjectHandOut', () => {
     expect(state.steps).toEqual(['lock', 'audience', `projects:${OTHER}`, `folders:${HONORARE_ID}`])
   })
 
-  it('marks the answer the turn is writing in the same transaction, after the record (ADR-0092)', async () => {
+  it('marks the answer the turn is writing in the same transaction, after the record (ADR-0093)', async () => {
     await recordCrossProjectHandOut({ ...party, answerMessageId: ANSWER }, { projectIds: [OTHER], folderIds: [HONORARE_ID] })
 
     // In the transaction (`{ tx: true }`), after the folder: the database marks

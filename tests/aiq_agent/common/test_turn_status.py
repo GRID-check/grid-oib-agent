@@ -106,7 +106,7 @@ class TestRetrieval:
         assert _live(steps)[0].values["corpus"] == "ris"
 
     def test_a_lookup_in_other_projects_says_where_it_went(self, steps) -> None:
-        """The reader sees the chat leave its own project (ADR-0093)."""
+        """The reader sees the chat leave its own project (ADR-0094)."""
         turn_status.emit_retrieval(
             [{"name": "project_lookup", "args": {"action": "search", "query": "Traufe Holzbau"}}],
             round_index=0,

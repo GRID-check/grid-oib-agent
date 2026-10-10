@@ -1,5 +1,5 @@
 /**
- * Cross-project lookups for a solo chat (ADR-0093): list and find the projects
+ * Cross-project lookups for a solo chat (ADR-0094): list and find the projects
  * the reader may chat in, read one project's brief, and search documents across
  * them. The one place that decides what a lookup may return; the agent's routes
  * (`app/api/internal/cross-project/*`) are thin adapters over it.
@@ -78,7 +78,7 @@ export interface CrossProjectCaller {
   session: AuthorizedSession
   conversationId: string
   currentProjectId: string | null
-  /** The answer the turn is writing, from the request body; marked with the hand-out (ADR-0092). */
+  /** The answer the turn is writing, from the request body; marked with the hand-out (ADR-0093). */
   answerMessageId?: string | null
 }
 
@@ -180,7 +180,7 @@ export function projectsInScope(
   return others
 }
 
-/** List and find the projects the reader may chat in (ADR-0093). Every project listed is recorded. */
+/** List and find the projects the reader may chat in (ADR-0094). Every project listed is recorded. */
 export async function listLookupProjects(
   caller: CrossProjectCaller,
   request: CrossProjectListRequest
@@ -312,7 +312,7 @@ async function searchOneProject(
   })
 }
 
-/** Search documents across the projects the reader may chat in, one bounded page of projects per call (ADR-0093). */
+/** Search documents across the projects the reader may chat in, one bounded page of projects per call (ADR-0094). */
 export async function searchAcrossProjects(
   caller: CrossProjectCaller,
   request: CrossProjectSearchRequest

@@ -9,6 +9,8 @@ export const chat = {
     faster: 'Faster',
     smarter: 'Smarter',
     help: 'How long Piloti thinks before it answers. More effort helps with tricky questions but costs time and tokens. Applies to this chat.',
+    maximumWarning:
+      'Rarely smarter than High. Piloti thinks far longer, costs far more tokens and tends to overthink.',
     levels: {
       minimal: 'Minimal',
       low: 'Low',
@@ -228,7 +230,7 @@ export const chat = {
     },
     grounding: { belegt: 'sourced', abgeleitet: 'derived', offen: 'unsourced' },
     clarify: 'Clarify',
-    /** Under the matrix in a closed project, where „Clarify“ would be (ADR-0089). */
+    /** Under the matrix in a closed project, where „Clarify“ would be (ADR-0090). */
     clarifyClosed: 'Closed project: no new research to clarify open findings.',
     commissioned: 'Run commissioned',
     change: {
@@ -882,7 +884,8 @@ export const chat = {
         // A quotation no passage holds verbatim is corrected in place to the
         // cited passage's own wording (ADR-0067). No search, no rewrite; a quote
         // it cannot correct keeps its marker.
-        repair: 'A quotation differs from the source’s wording — correcting it against the original …',
+        repair:
+          'A quotation differs from the source’s wording — correcting it against the original …',
         escalation: 'A quick lookup is not enough — starting deep research',
       },
     },
@@ -1255,7 +1258,7 @@ export const chat = {
    * Sensitive data in chat (ADR-0086): what the composer reports before sending.
    * The placeholders themselves are domain data and come from `content-screen.ts`.
    */
-  /** The notice once a chat's answers drew on another project (ADR-0093). */
+  /** The notice once a chat's answers drew on another project (ADR-0094). */
   otherProjects: {
     title: 'This chat draws on other projects: {projects}.',
     closed: '{name} (closed)',

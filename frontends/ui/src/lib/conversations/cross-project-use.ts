@@ -1,5 +1,5 @@
 /**
- * What a solo chat drew on from OTHER projects (ADR-0093): the record the
+ * What a solo chat drew on from OTHER projects (ADR-0094): the record the
  * cross-project lookups write, and what it refuses.
  *
  * ## Recorded when the BFF hands the content out
@@ -20,7 +20,7 @@
  *   * the answer the turn is writing (`answerMessageId`, the agent's
  *     `answer_message_id(conversation, turn)`) is marked in
  *     `message_restricted_use` when the conversation now drew on a restricted
- *     folder (ADR-0092), as `admitSourceFolders` marks it for the
+ *     folder (ADR-0093), as `admitSourceFolders` marks it for the
  *     conversation's own project. Open content of another project is not
  *     restricted use: `conversation_source_projects` stays outside
  *     `grid_conversation_restricted_use`, so a hand-out of projects alone marks
@@ -105,7 +105,7 @@ export async function recordCrossProjectHandOut(party: HandOutParty, handOut: Cr
   if (!solo) throw sharedChatRefusal()
 }
 
-/** Whether this conversation drew on another project (ADR-0093): what a turn reads to know its doors are shut. */
+/** Whether this conversation drew on another project (ADR-0094): what a turn reads to know its doors are shut. */
 export async function drewOnOtherProjects(conversationId: string, organizationId: string): Promise<boolean> {
   return (await listRecordedSourceProjects(getDb(), organizationId, conversationId)).length > 0
 }

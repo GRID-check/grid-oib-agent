@@ -497,7 +497,7 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
                 request, conversation_id, answer_message_id=turn_answer_message_id(conversation_id)
             )
         )
-        # What the conversation drew on from OTHER projects (ADR-0093): a fresh
+        # What the conversation drew on from OTHER projects (ADR-0094): a fresh
         # object every turn, filled from the turn context and by the lookups.
         bind_cross_project_turn(CrossProjectTurn())
         header_scope = get_scoped_collections_from_context()

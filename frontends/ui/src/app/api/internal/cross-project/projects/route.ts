@@ -1,6 +1,6 @@
 /**
  * INTERNAL — list and find the projects the asker may open, from a solo chat
- * (ADR-0093): name, status, address, created. The agent's `find_projects` tool
+ * (ADR-0094): name, status, address, created. The agent's `find_projects` tool
  * is the caller; the acting person is the envelope's, as a pinned session.
  *
  * `POST` `CrossProjectListRequest` → `CrossProjectListResponse`

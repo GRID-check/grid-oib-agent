@@ -78,7 +78,7 @@ export class ConversationConfinedError extends ApiError {
 }
 
 /**
- * 409 — a cross-project lookup (ADR-0093) asked from a conversation that is
+ * 409 — a cross-project lookup (ADR-0094) asked from a conversation that is
  * not its asker's alone: shared with someone, visible to the project, or
  * someone else's. The lookups are for solo chats only, because what they find
  * in another project would then sit in a conversation others read. The
@@ -92,7 +92,7 @@ export class CrossProjectSharedChatError extends ApiError {
 
 /**
  * 409 — a memory write from a conversation that drew on another project
- * (ADR-0093). Project and organization memory are read by everyone in the
+ * (ADR-0094). Project and organization memory are read by everyone in the
  * project, so nothing found in another project may reach them from a chat.
  */
 export class CrossProjectMemoryError extends ApiError {

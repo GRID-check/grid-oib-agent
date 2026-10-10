@@ -410,7 +410,7 @@ function runRefOf(row: InboxItem): RunRef | null {
  * project, and the project's access says nothing about a revision task whose
  * document has since moved into a folder the recipient may not read: its row
  * carries the task's title and a link into its thread, so it is judged by the
- * same rule as the task list and the run view (`subject-access.ts`, ADR-0092)
+ * same rule as the task list and the run view (`subject-access.ts`, ADR-0093)
  * and redacted like a revoked one.
  */
 async function rowsWithUnreadableRuns(session: AuthorizedSession, rows: readonly InboxItem[]): Promise<Set<string>> {
