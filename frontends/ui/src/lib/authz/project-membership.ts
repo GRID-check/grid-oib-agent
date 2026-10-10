@@ -130,7 +130,7 @@ export async function userHoldsProjectPermission(
   const membership = await resolveSubjectMembership(session.organizationId, targetUserId)
   if (!membership) return false
 
-  // A closed project (ADR-0089), mirrored from requireProjectAccess: a write is
+  // A closed project (ADR-0090), mirrored from requireProjectAccess: a write is
   // nobody's, and reading and chatting are every member's.
   const project = await findProjectTenancy(projectId)
   if (!project || project.organizationId !== session.organizationId || project.deletedAt) return false
