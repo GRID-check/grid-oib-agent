@@ -83,7 +83,7 @@ export async function listProjects(
 
   const visible = await Promise.all(
     projects.map(async (project) => {
-      // Every member reads a closed project (ADR-0089), and so finds it here.
+      // Every member reads a closed project (ADR-0090), and so finds it here.
       if (isProjectClosed(project)) return project
       const allowed = await checkResourcePermission({
         organizationMembershipId: session.organizationMembershipId,
@@ -242,7 +242,7 @@ export async function deleteProject(
   confirmName: string,
   request: Request
 ): Promise<{ purgeAfter: Date }> {
-  // A closed project can still be deleted (ADR-0089): deletion is the GDPR
+  // A closed project can still be deleted (ADR-0090): deletion is the GDPR
   // path, and it is soft, with its grace period, exactly as for an active one.
   await requireProjectAccess(session, projectId, 'project:manage', { evenWhenClosed: true })
 
@@ -286,7 +286,7 @@ export async function deleteProject(
 }
 
 /**
- * Close a project, or reopen it (ADR-0089). `project:manage`, asked as if the
+ * Close a project, or reopen it (ADR-0090). `project:manage`, asked as if the
  * project were active: it is the one write a closed project allows. Closing
  * deletes and purges nothing; it makes the project read-only and opens it to
  * every member of the organization for reading, with every folder that has its

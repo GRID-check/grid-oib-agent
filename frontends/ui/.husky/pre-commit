@@ -18,7 +18,7 @@ wait $TYPECHECK_PID || TYPECHECK_EXIT=$?
 
 # Report results
 if [ $LINT_EXIT -ne 0 ]; then
-  echo "❌ ESLint failed"
+  echo "❌ Lint (oxlint) failed"
 fi
 
 if [ $TYPECHECK_EXIT -ne 0 ]; then

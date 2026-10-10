@@ -18,7 +18,7 @@
  * `text-success`, …) are also spelled `text-*` and are untouched — a colour is
  * not a size, and §A3 gives colour its own four axes.
  *
- * It is switched on PER FILE in eslint.config.mjs rather than across the
+ * It is switched on PER FILE in .oxlintrc.json rather than across the
  * folder. The charter's migration policy is deliberate (§A2): a flag-day
  * rewrite of 200 call sites is not worth the review burden, so a card is
  * migrated when a sprint touches it for another reason — and "a card that has

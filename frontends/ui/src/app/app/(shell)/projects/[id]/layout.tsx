@@ -90,7 +90,7 @@ export default async function ProjectLayout({
             "Zurück zu <project>" rather than a path it can only read an id out
             of — including the org-scope rail's own back control. */}
         <NavigationTrailLabel label={current.name} />
-        {/* Which project, and whether it is closed (ADR-0089), for every
+        {/* Which project, and whether it is closed (ADR-0090), for every
             surface below: the banner, file previews, chat source chips. */}
         <CurrentProjectProvider
           value={{

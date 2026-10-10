@@ -197,7 +197,7 @@ export interface DownloadLogEntry {
   scope: AccessLogRow['scope']
   projectId: string | null
   projectName: string | null
-  /** `closed`: the file's project is closed (ADR-0089), said beside its name. */
+  /** `closed`: the file's project is closed (ADR-0090), said beside its name. */
   projectStatus: ProjectStatus | null
   documentId: string
   /** Null when {@link DownloadLogEntry.nameWithheld}. */
@@ -298,7 +298,7 @@ async function folderReadableBy(
     !trees.has(row.projectId) && row.folderPath === null && row.ownList
   const undecided = new Set(rows.flatMap((row) => (filed(row) && gone(row) ? [row.projectId] : [])))
   if (trees.size === 0 && undecided.size === 0) return () => true
-  // A clearance is one project's (ADR-0089: a closed project clears someone
+  // A clearance is one project's (ADR-0090: a closed project clears someone
   // who reads it only because it is closed as a member with no role).
   const clearances = new Map<string, FolderClearance>()
   for (const projectId of new Set([...trees.keys(), ...undecided])) {
