@@ -1,5 +1,5 @@
 /**
- * The Steckbrief of a project (ADR-0090): read it, or set its period. Thin
+ * The Steckbrief of a project (ADR-0091): read it, or set its period. Thin
  * handlers; who may, and the audit trail, live in `steckbrief-service`.
  */
 

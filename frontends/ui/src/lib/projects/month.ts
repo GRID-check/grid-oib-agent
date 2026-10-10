@@ -1,5 +1,5 @@
 /**
- * A month, as the Steckbrief keeps its dates (ADR-0090): Beginn and Abschluss
+ * A month, as the Steckbrief keeps its dates (ADR-0091): Beginn and Abschluss
  * of a project, and from–to of each person on it, are months. On the wire a
  * month is `YYYY-MM`; in Postgres it is a `date` on the first of that month
  * (migration 0117 CHECKs the day). Pure, shared by the service and the form.

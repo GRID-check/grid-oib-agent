@@ -3,8 +3,9 @@
  * rule existed. Transport code (route handlers, server components) calls a
  * service; the query lives there (ADR-0017, `bff-service-architecture.md`).
  *
- * One list, read by the `@typescript-eslint/no-restricted-imports` block in `eslint.config.mjs`
- * (so an editor and `eslint <file>` flag a new offender at once) and by
+ * One list, mirrored in the `typescript/no-restricted-imports` override of
+ * `.oxlintrc.json` (so an editor and `bun run lint` flag a new offender at once;
+ * `lint-config.spec.mjs` fails when the mirror drifts) and read by
  * `src/lib/db/server-component-db-access.spec.ts` (which also fails when an entry
  * here no longer offends). Shrink it; never grow it.
  */

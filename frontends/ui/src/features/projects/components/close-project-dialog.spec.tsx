@@ -1,5 +1,5 @@
 /**
- * Closing with „Ausmisten" (ADR-0091): the proposal is labelled as an AI
+ * Closing with „Ausmisten" (ADR-0092): the proposal is labelled as an AI
  * proposal, every item can be deselected, only what stays selected goes to the
  * Papierkorb, and nothing is removed before the person confirms.
  */

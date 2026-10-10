@@ -657,9 +657,13 @@ below are what each of them does instead. Every phase and edge, with its
 fixture and its check: [`lifecycles/chat-turn.md`](lifecycles/chat-turn.md).
 Three rules hold across all of them:
 
-- **One ambient loop per phase.** Before the answer, the Herleitung header's
-  shimmering label. During the prose, the caret. After the settle, nothing.
-  No spinner beside the label, no pulsing pill, no progress sweep.
+- **The working turn looks alive; the settled one is still.** While the turn
+  works, the Herleitung header's icon spins beside its shimmering label, the
+  graph's connectors into its newest row march, and a running step's chip
+  pulses: people watch this panel to see the agent at work, and a static dot
+  with solid connectors read as a stalled turn (2026-10). During the prose the
+  label stops shimmering and the caret is the text's one motion; the header
+  icon spins until the settle. After the settle, nothing moves.
 - **Fade, then resize.** A block that must change size while visible fades
   first, then changes height in one frame while it is invisible. Only a block
   arriving below the reading point, a card slot growing and a panel the
@@ -675,14 +679,14 @@ question row and is the working cue from the first frame: „Denkt nach…" with
 the label's shimmer, a timer from the question's timestamp once it passes two
 seconds (`useElapsedSeconds`, in a reserved `3.5ch` with tabular digits), and
 no typing bubble that a panel later replaces. The steps grow into the same
-object. The header's icon slot is static; the screen reader hears the phase,
-never the per-step phrase, at most once every 3 s.
+object. The header's icon slot holds a spinner while the turn works; the
+screen reader hears the phase, never the per-step phrase, at most once every 3 s.
 
-**The live cap.** While the turn works, the panel's content is capped at
-`min(50svh, 420px)` and scrolls inside itself, pinned to its newest row while
-the reader is at its bottom, with a top fade only while something is above.
-A Herleitung that grew past the viewport used to push the answer it was about
-to fold into below the fold.
+**No live cap.** The panel shows its whole graph from the framing card down,
+with the executed-step chips under it. A cap at `min(50svh, 420px)`, pinned to
+the newest row, was tried (2026-10): it cut the graph's first steps off at the
+top and read as broken. The fold at the answer's first content is what keeps
+the answer in view, not a cap.
 
 **The fold.** The answer has begun the moment it has anything to draw: a
 masthead or a card counts as well as the first word. At that moment a panel
@@ -698,14 +702,13 @@ an answer row a snapshot mounted before its first word already stands where it
 stays. The hold runs from the fold's start to its end whatever the turn does
 meanwhile, so a Stop or an end inside the fold does not mount the answer under
 the fading panel. A panel the reader opened or closed
-by hand is never overruled; one they opened keeps its cap through the settle,
-and their next toggle releases it.
+by hand is never overruled.
 
 **The header through the settle.** From the first word the label stops
 shimmering and becomes the panel's summary („Herleitung · n Quellen"); the
 caret is the turn's one moving thing from then on. The header stays live
-until the answer settles. At the settle the label does not change: the dot in
-the icon slot becomes a check on `iconSwapTransition` (scale 0.7 → 1 on
+until the answer settles. At the settle the label does not change: the spinner
+in the icon slot becomes a check on `iconSwapTransition` (scale 0.7 → 1 on
 `springSnap`, opacity on a tween), and the timer freezes on the answer's own
 duration, never below the last live figure. There is no „Fertig": swapping
 the label for it at the settle moved the summary across the row. A label

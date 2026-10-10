@@ -174,7 +174,7 @@ export default function ChatWelcomePreviewPage() {
       <main className="bg-background flex h-dvh flex-col">
         <div className="relative flex min-h-0 flex-1 flex-col" style={columnVars}>
           {ready && <ChatArea isAuthenticated />}
-          <ComposerScrim threadEmpty={isThreadEmpty} />
+          <ComposerScrim />
           <motion.div
             ref={composerRef}
             className="absolute inset-x-0 z-10 flex flex-col"

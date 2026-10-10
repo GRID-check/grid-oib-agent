@@ -174,7 +174,7 @@ export interface DownloadLogEntry {
   scope: AccessLogRow['scope']
   projectId: string | null
   projectName: string | null
-  /** `closed`: the file's project is closed (ADR-0089), said beside its name. */
+  /** `closed`: the file's project is closed (ADR-0090), said beside its name. */
   projectStatus: ProjectStatus | null
   documentId: string
   documentName: string
