@@ -118,16 +118,20 @@ describe('ChatThinking', () => {
       expect(screen.queryByText('Attached files:')).not.toBeInTheDocument()
     })
 
-    test('a panel the reader opened while live keeps its cap through the settle', async () => {
+    test('the live panel shows the whole graph: no capped, bottom-pinned window that cut its first steps off', async () => {
       const user = userEvent.setup()
-      const { rerender, container } = render(
+      const { container } = render(
         <ChatThinking steps={[createStep()]} isThinking autoOpen={false} messageFiles={files} />
       )
       await user.click(screen.getByRole('button', { expanded: false }))
-      const capped = () => container.querySelector('[class*="max-h-[min(50svh,420px)]"]')
-      expect(capped()).not.toBeNull()
-      rerender(<ChatThinking steps={[createStep()]} isThinking={false} autoOpen={false} messageFiles={files} />)
-      expect(capped()).not.toBeNull()
+      expect(container.querySelector('[class*="max-h-"]')).toBeNull()
+      expect(container.querySelector('[class*="overflow-y-auto"]')).toBeNull()
+    })
+
+    test('while the turn works the header icon spins, as the working sign people watch for', () => {
+      const { container } = render(<ChatThinking steps={[createStep()]} isThinking messageFiles={files} />)
+      expect(screen.getByLabelText('Thinking in progress')).toBeInTheDocument()
+      expect(container.querySelector('.animate-spin')).not.toBeNull()
     })
 
     test('a panel the reader opened is not folded or reopened by the turn', async () => {
@@ -146,14 +150,14 @@ describe('ChatThinking', () => {
   })
 
   describe('the header from the send to the settle', () => {
-    test('while the answer streams it stays live, names the panel, and does not shimmer', () => {
+    test('while the answer streams it stays live, names the panel, and its icon keeps spinning', () => {
       const { container } = render(<ChatThinking steps={[createStep()]} isThinking answering />)
 
       expect(screen.getByLabelText('Thinking in progress')).toBeInTheDocument()
       expect(screen.getByText('Trace')).toBeInTheDocument()
       expect(header().queryByText('Working on a response …')).not.toBeInTheDocument()
-      // The caret is the turn's one moving thing now: no shimmer, no spinner.
-      expect(container.querySelector('[data-slot="spinner"]')).toBeNull()
+      // Until the turn settles the spinner says the agent is still at it.
+      expect(container.querySelector('[data-slot="spinner"]')).not.toBeNull()
     })
 
     test('a stopped turn shows „Stopped", never the green check', () => {
@@ -304,16 +308,6 @@ describe('ChatThinking', () => {
     test('the trigger is marked for the lifecycle fixtures', () => {
       render(<ChatThinking steps={[createStep()]} isThinking />)
       expect(screen.getByRole('button')).toHaveAttribute('data-herleitung-trigger')
-    })
-
-    test('while live, the executed-steps row is held before its first chip', () => {
-      // The row arrives with the first tool; held, it does not push the graph
-      // below it down by its height in the middle of the steps phase.
-      const status = storedStep({ id: 'status:a', kind: 'status', slot: 'a', key: 'status.nope' })
-      const { container } = render(<ChatThinking steps={[status]} isThinking autoOpen />)
-
-      const held = container.querySelector('[aria-hidden="true"].invisible')
-      expect(held).not.toBeNull()
     })
 
     test('defaults to isThinking true', () => {

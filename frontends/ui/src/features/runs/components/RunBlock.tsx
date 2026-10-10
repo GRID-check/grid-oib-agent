@@ -725,7 +725,7 @@ export function RunBlock({
 
   const receipt = grundlageReceipt(ledger)
 
-  // A closed project commissions nothing (ADR-0089): say so where „Bericht fortschreiben“ would be.
+  // A closed project commissions nothing (ADR-0090): say so where „Bericht fortschreiben“ would be.
   const closedProject = useCurrentProject()?.status === 'closed'
   const carryForward: ReactNode =
     closedProject && (status === 'fertig' || status === 'unterbrochen') ? (

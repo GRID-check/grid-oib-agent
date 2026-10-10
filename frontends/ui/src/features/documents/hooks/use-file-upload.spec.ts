@@ -766,7 +766,7 @@ describe('useFileUpload — durable document uploads', () => {
     expect(mockOrchestratorFns.enqueueJobs).toHaveBeenCalled()
   })
 
-  test('a project closed while the tab was open is named in the reader’s language (ADR-0089)', async () => {
+  test('a project closed while the tab was open is named in the reader’s language (ADR-0090)', async () => {
     const { result } = renderUpload()
 
     let pending!: Promise<void>

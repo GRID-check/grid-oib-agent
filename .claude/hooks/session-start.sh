@@ -7,10 +7,9 @@
 # repo installs it. So an agent that means to follow CONTRIBUTING.md runs the
 # underlying commands by hand, gets the two toolchains it happens to need, and
 # works a whole session without the rest. The half that goes missing silently is
-# `agents:setup`: `.claude/skills/` stays empty, so THIS REPO'S OWN SKILLS never
-# load, and the agent works to the general rules while `aiq-definition-of-done`
-# and `aiq-prepare-pr` sit unread on disk. That is not a thing to remember. It
-# is a thing to make impossible, which is what a SessionStart hook is for.
+# `agents:setup`: `.claude/skills/` stays empty, so the pinned skills never load
+# and the agent works without them. That is not a thing to remember. It is a
+# thing to make impossible, which is what a SessionStart hook is for.
 #
 # Mirrors `Taskfile.yml`'s `setup` target step for step, deliberately: when that
 # target changes this file has to change with it, and a reader comparing the two

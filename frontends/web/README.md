@@ -62,9 +62,9 @@ visitor downloads it — the content guard warns above 4 MB for that reason.
 Astro's cache is relocated to `frontends/web/.astro-cache` (`cacheDir` in
 `astro.config.mjs`) because the default `node_modules/.astro` is deleted by the
 `npm ci` in `task web:install`, which made every CI build reprocess every image
-from cold — 44s versus 19s warm on current content. `ci.yml` and
-`publish-images.yml` both restore it via `actions/cache`; the latter feeds it
-into the Docker build context, since a layer cache cannot help a `RUN npm run
+from cold — 44s versus 19s warm on current content. CI's web job restores and
+saves it via `actions/cache`, and the web image build
+(`.github/actions/build-image`) restores it into the Docker build context, since a layer cache cannot help a `RUN npm run
 build` that `COPY . .` has already invalidated.
 
 ### Previewing a post

@@ -6,9 +6,11 @@ from pydantic import Field
 
 from aiq_agent.observability.langfuse_trace_attributes import LangfuseTraceAttributeProcessor
 from aiq_agent.observability.langfuse_trace_attributes import PromptLinkProcessor
+from aiq_agent.observability.langfuse_trace_attributes import TraceContextProcessor
 from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
 from aiq_agent.observability.langfuse_trace_attributes import UserIdentityStripProcessor
 from aiq_agent.observability.langfuse_trace_attributes import identity_attributes_enabled
+from aiq_agent.observability.trace_context import langfuse_release
 from nat.observability.exporter.base_exporter import BaseExporter
 from nat.plugin_api import Builder
 from nat.plugin_api import register_telemetry_exporter
@@ -123,6 +125,11 @@ async def otelcollector_redaction_telemetry_exporter(
         "telemetry.sdk.version": get_opentelemetry_sdk_version(),
         "service.name": config.project,
     }
+    # The commit, as the logs and metrics resources already carry it; spans
+    # carry it per span too, as Langfuse's release (`observability.trace_context`).
+    release = langfuse_release()
+    if release:
+        default_resource_attributes["service.version"] = release
     merged_resource_attributes = {**default_resource_attributes, **config.resource_attributes}
 
     exporter = OTLPSpanHeaderRedactionAdapterExporter(
@@ -182,6 +189,20 @@ async def otelcollector_redaction_telemetry_exporter(
                 exc_info=True,
             )
 
+    # Environment, release, observation type, trace name and the turn's
+    # outcome (ADR-0089). A deployment name, a commit, a span type and the
+    # labels a finished turn carries are not personal data, so this is always
+    # installed, ahead of redaction like the two above.
+    if TraceContextProcessor is not None:
+        try:
+            exporter.add_processor(TraceContextProcessor(), name="grid_trace_context", position=0)
+        except Exception:
+            logger.warning(
+                "otelcollector_redaction: could not install the trace context processor - "
+                "traces will export without environment, release or observation types.",
+                exc_info=True,
+            )
+
     # Langfuse session/user attribution (ADR-0044). Same availability rule as
     # the exporter itself: the deployment sets GRID_TRACE_IDENTITY_ATTRIBUTES
     # only where the Langfuse tier exists, so an Aspire-only stack builds the
@@ -195,6 +216,13 @@ async def otelcollector_redaction_telemetry_exporter(
     # off, that must not reach the trace store either.
     if not identity_attributes_enabled() and UserIdentityStripProcessor is not None:
         exporter.add_processor(UserIdentityStripProcessor(), name="grid_strip_user_identity", position=0)
+    # What tools recorded (feature tags, usage rollup, dialect census) is not
+    # identity either; with the identity half off it still has to reach the
+    # trace, or the privacy switch would also switch off cost and quality.
+    if not identity_attributes_enabled() and LangfuseTraceAttributeProcessor is not None:
+        exporter.add_processor(
+            LangfuseTraceAttributeProcessor(identity=False), name="grid_trace_contributions", position=0
+        )
     if identity_attributes_enabled() and LangfuseTraceAttributeProcessor is not None:
         try:
             exporter.add_processor(
