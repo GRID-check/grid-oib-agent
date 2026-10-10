@@ -41,7 +41,7 @@ describe('errorResponse', () => {
     })
   })
 
-  it('answers an insert into a closed project (GPC01) as the 403 the permission check gives (ADR-0089)', async () => {
+  it('answers an insert into a closed project (GPC01) as the 403 the permission check gives (ADR-0090)', async () => {
     const error = Object.assign(new Error('Failed query: insert into "documents"'), {
       cause: Object.assign(new Error('project p1 is closed; nothing may be added to it'), { code: 'GPC01' }),
     })

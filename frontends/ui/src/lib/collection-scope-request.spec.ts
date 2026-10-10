@@ -164,7 +164,7 @@ describe('a conversationId on the WS upgrade is authorized (F2)', () => {
   })
 })
 
-describe('a caller who reads a closed project only because it is closed (ADR-0089)', () => {
+describe('a caller who reads a closed project only because it is closed (ADR-0090)', () => {
   it('is reported as read-only, so the job envelope signs them no project', async () => {
     vi.mocked(requireProjectAccess).mockResolvedValue({
       role: 'project-viewer',
