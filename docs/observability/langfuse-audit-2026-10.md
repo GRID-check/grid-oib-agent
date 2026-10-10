@@ -141,3 +141,20 @@ needed.
     ledger with `activity=ingest` and carry no session, so they are not erased
     with a chat and age out after 30 days
     ([upload governance audit](../audit/upload-governance-traceability-2026-10-06.md)).
+13. **The office's experience (ADR-0094, ADR-0096) is only half observable.**
+    Since 10 Oct a `project_lookup` is a `retrieve.project_lookup` observation,
+    and the root carries the catalog size, p(precedent), whether round 0
+    prefetched the reference projects, and how many cited sources came from
+    other projects (`langfuse.md`). Still open:
+    - the closed-project reading (`knowledge/project_experience.py`, three
+      LangChain calls per project behind `POST /v1/internal/project-experience`)
+      is no generation and has no trace name: it needs a sync adapter for
+      `observed_generation`, and `test_model_calls_are_traced.py` cannot see it
+      (it scans `routes/` for `/chat/completions`);
+    - the precedent eval (`suite.py --set precedent`) is no dataset, so its
+      checks (looked when it should, cited, invented project, said nothing
+      comparable, edition caveat) are not scores anyone can trend;
+    - nothing records that a reader opened a precedent chip or a reference on
+      „Ähnliche Projekte", so `SIMILARITY_WEIGHTS` cannot be learned from what
+      readers use, as ADR-0094 promises. Which store (a PostHog event, a
+      Langfuse score on the turn) is a product decision.

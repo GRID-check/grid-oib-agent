@@ -1,6 +1,9 @@
 /**
  * Who stands behind a recorded decision, one rule for every reader: the agent's
- * cross-project lookup and a person's similar-projects page say the same.
+ * cross-project lookup and a person's similar-projects page say the same, in
+ * the same words: „von einer Person bestätigt", „aus den Unterlagen
+ * erschlossen", „von Piloti notiert" (`references.decisions.origin`, and
+ * `_decision_provenance` in the tool).
  */
 
 import type { ProjectMemoryItem } from '@/lib/db/schema'

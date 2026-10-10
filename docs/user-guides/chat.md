@@ -397,7 +397,9 @@ Gebäudeklasse, Bauweise and use), and it can search their documents (by topic,
 optionally by document type such as Detail or Gutachten, by OIB discipline,
 and by the project's period), find a project by name or address, and read a
 project's brief. While it searches, the status line says „in anderen
-Projekten". Piloti also finds what other projects **decided**: the decisions and
+Projekten"; once the answer is done, the Herleitung keeps an „Andere Projekte"
+step. The same list, with what each project shares with this one, is the
+project's [Ähnliche Projekte](projects.md#similar-projects) page. Piloti also finds what other projects **decided**: the decisions and
 constraints their project memory recorded while they ran („Stiegenhaus in
 Stahlbeton, weil das Gutachten nur so die Abweichung zuließ"). These often
 say why, which a document rarely does. They come first in the answer, cited
@@ -436,8 +438,9 @@ stays with the people who may open it.** From then on the chat:
 - starts no deep research and no task, changes no project brief, files nothing
   into the project, and adds nothing to project or office memory.
 
-A notice below the text field, above the row of controls, names the other
-projects that restrict the chat right now and says what that closes: a running
+A small chip below the text field, „2 andere Projekte", counts the other
+projects that restrict the chat right now; clicking it names them and says
+what that closes (the answers already name the projects they cite): a running
 project, or a project whose folder with its own access list the chat drew on,
 even when that project is closed. If a running project is closed later, the
 chat opens up; if a closed one is reopened, the restriction comes back; the

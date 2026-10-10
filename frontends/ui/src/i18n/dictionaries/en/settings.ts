@@ -50,7 +50,9 @@ export const settings = {
       similar: {
         label: 'Similar projects',
         open: '{count, plural, one {Open the similar project} other {All # similar projects}}',
-        empty: 'No closed project of the office is like this one yet. They appear here once projects are closed.',
+        openOthers: 'See the closed projects',
+        openMore: 'See more similar projects',
+        empty: 'No closed project in the office yet. One appears here once it is closed.',
       },
       usage: {
         label: 'Used this month',

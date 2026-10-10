@@ -144,7 +144,8 @@ export const projects: typeof en.projects = {
         'Was dieses Projekt gelernt hat, kann jedes künftige Projekt im Büro nutzen: Piloti schlägt es vor, wenn eine ähnliche Frage kommt. Prüfen Sie vor dem Abschluss kurz, was davon bleibt.',
       fingerprint: {
         heading: 'Woran Piloti es wiederfindet',
-        description: 'Nach diesen Angaben findet Piloti vergleichbare Projekte. Fehlende ergänzen Sie im Briefing.',
+        description:
+          'Nach diesen Angaben findet Piloti vergleichbare Projekte, und Ihr Büro findet dieses unter „Ähnliche Projekte“. Fehlende ergänzen Sie im Briefing.',
         missing: '{count, plural, one {# Angabe fehlt} other {# Angaben fehlen}}',
         complete: 'Vollständig',
         open: 'offen',
@@ -187,6 +188,7 @@ export const projects: typeof en.projects = {
         confirmed: 'Bestätigt',
         dismiss: 'Verwerfen',
         grounded: 'aus den Unterlagen erschlossen',
+        noted: 'von Piloti notiert',
         evidencePage: '{file}, S. {page}',
         kind: { decision: 'Entscheidung', constraint: 'Vorgabe' },
       },

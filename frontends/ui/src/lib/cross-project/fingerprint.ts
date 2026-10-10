@@ -25,7 +25,7 @@ import {
   type ProjectIntakeQuestion,
 } from '@/lib/project-profile/intake-definition'
 import type { ProjectPrimitiveValue, ProjectProfile } from '@/lib/project-profile/types'
-import { similarityFacts, type SimilarityFacts } from './similarity'
+import { confirmedSimilarityFacts, similarityFacts, type SharedTrait, type SimilarityFacts } from './similarity'
 
 /** The fingerprint's facts, in the order the similarity weighs them. */
 export const FINGERPRINT_KEYS = ['bundesland', 'gebaeudeklasse', 'bauweise', 'nutzungen', 'vorhabensart'] as const
@@ -53,6 +53,11 @@ const FACT_LABELS: ReadonlyMap<string, ReadonlyMap<string, string>> = (() => {
 
 export function factLabel(key: string, token: string): string {
   return FACT_LABELS.get(key)?.get(token) ?? token
+}
+
+/** A shared trait as a reader sees it: the Gebäudeklasse as „GK n", the rest in the intake's own words. */
+export function sharedTraitLabel(trait: SharedTrait): string {
+  return trait.key === 'gebaeudeklasse' ? `GK ${trait.value}` : factLabel(trait.key, trait.value)
 }
 
 /** A question that writes or derives a fact, and whether it is asked once per building. */
@@ -124,7 +129,7 @@ function valueOf(key: FingerprintKey, facts: SimilarityFacts): string | null {
 /** Every fingerprint fact of a profile, open and inapplicable ones included. */
 export function fingerprintOf(profile: ProjectProfile | null | undefined): FingerprintFact[] {
   const facts = similarityFacts(profile ?? null)
-  const confirmed = similarityFacts(profile ? { ...profile, assumptions: {} } : null)
+  const confirmed = confirmedSimilarityFacts(profile ?? null)
   const { answers, bauwerke } = profile
     ? answersFromProfile(profile, DEFINITION)
     : { answers: {} as Record<string, ProjectPrimitiveValue>, bauwerke: defaultBauwerke() }

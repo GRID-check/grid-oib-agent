@@ -886,6 +886,9 @@ export const chat: typeof en.chat = {
       webSearch: 'Websuche',
       ris: 'RIS',
       corpus: 'Wissen',
+      // In anderen Projekten des Büros nachgeschlagen (ADR-0094), meist in den
+      // abgeschlossenen Referenzprojekten.
+      otherProjects: 'Andere Projekte',
       reading: 'Lesen',
       // Das Arbeitsverzeichnis der Unterhaltung: schreiben, lesen, ändern,
       // auflisten — ein Wort für alle vier. Was Lesende interessiert, ist dass
@@ -1283,6 +1286,7 @@ export const chat: typeof en.chat = {
    */
   /** The notice once a chat's answers drew on another project (ADR-0094). */
   otherProjects: {
+    chip: '{count, plural, one {Ein anderes Projekt} other {# andere Projekte}}',
     title: 'Dieser Chat stützt sich auf andere Projekte: {projects}.',
     gone: 'ein Projekt, das es nicht mehr gibt',
     body: 'Er lässt sich nur mit Personen teilen, die diese Projekte öffnen dürfen. Aus ihm geht nichts ins Projektgedächtnis, in Aufträge, in eine Tiefenrecherche oder in die Projektablage.',

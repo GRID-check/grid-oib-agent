@@ -40,6 +40,9 @@ const state = vi.hoisted(() => ({
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn(async () => ({})),
 }))
+vi.mock('@/lib/authz/decide', () => ({
+  can: vi.fn(async () => true),
+}))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectInOrg: vi.fn(async (id: string) => state.inOrg.find((project) => project.id === id) ?? null),
   listProjectsInOrg: vi.fn(async () => state.inOrg),
@@ -65,11 +68,18 @@ vi.mock('@/lib/permits/repository', () => ({
   listPermitRecordsForProject: vi.fn(async (_org: string, projectId: string) => state.permits.get(projectId) ?? []),
 }))
 
+import { can } from '@/lib/authz/decide'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getProjectMemory, listProjects, memoryClearance } from '@/lib/projects/service'
 import { listPermitRecordsForProject } from '@/lib/permits/repository'
 import { getSimilarProjects } from './service'
-import { SIMILAR_PERMIT_REQUIREMENTS_MAX, SIMILAR_PERMIT_RECORDS_READ, SIMILAR_PERMITS_MAX, SIMILAR_PROJECTS_MAX } from './types'
+import {
+  SIMILAR_DECISIONS_MAX,
+  SIMILAR_PERMIT_REQUIREMENTS_MAX,
+  SIMILAR_PERMIT_RECORDS_READ,
+  SIMILAR_PERMITS_MAX,
+  SIMILAR_PROJECTS_MAX,
+} from './types'
 
 const fact = (value: unknown) => ({ value, confidence: 'confirmed', source: 'user_confirmed', updatedAt: '2026-01-01T00:00:00Z' })
 const suggestion = (value: unknown) => ({
@@ -132,13 +142,13 @@ beforeEach(() => {
 
 describe('getSimilarProjects: which projects', () => {
   it('lists only the closed projects other than the current one, most alike first', async () => {
-    const result = await getSimilarProjects(session, 'current')
+    const result = (await getSimilarProjects(session, 'current')).projects
     expect(result.map((project) => project.id)).toEqual(['closed-near', 'closed-mid', 'closed-far'])
   })
 
   it('never lists a project the reader cannot view, and reads none of its memory', async () => {
     // `hidden` is as alike as `nearby`, but it is not in what the reader may view.
-    const result = await getSimilarProjects(session, 'current')
+    const result = (await getSimilarProjects(session, 'current')).projects
     expect(result.map((project) => project.id)).not.toContain('closed-hidden')
     expect(vi.mocked(getProjectMemory).mock.calls.map(([, id]) => id)).not.toContain('closed-hidden')
     expect(vi.mocked(listPermitRecordsForProject).mock.calls.map(([, id]) => id)).not.toContain('closed-hidden')
@@ -158,9 +168,9 @@ describe('getSimilarProjects: which projects', () => {
     expect(listProjects).not.toHaveBeenCalled()
   })
 
-  it('answers an empty list when no closed project is like this one', async () => {
+  it('answers no project when the office has no closed one other than this', async () => {
     state.visible = [activeTwin, current]
-    expect(await getSimilarProjects(session, 'current')).toEqual([])
+    expect((await getSimilarProjects(session, 'current')).projects).toEqual([])
     expect(getProjectMemory).not.toHaveBeenCalled()
   })
 
@@ -169,13 +179,13 @@ describe('getSimilarProjects: which projects', () => {
       closed(`closed-${index}`, { profile: profileOf(HOLZBAU) })
     )
     state.visible = [...many, current]
-    const result = await getSimilarProjects(session, 'current')
+    const result = (await getSimilarProjects(session, 'current')).projects
     expect(result).toHaveLength(SIMILAR_PROJECTS_MAX)
   })
 
   it('drops a project whose read is refused in between, and keeps the others', async () => {
     state.refused.add('closed-near')
-    const result = await getSimilarProjects(session, 'current')
+    const result = (await getSimilarProjects(session, 'current')).projects
     expect(result.map((project) => project.id)).toEqual(['closed-mid', 'closed-far'])
   })
 
@@ -187,14 +197,64 @@ describe('getSimilarProjects: which projects', () => {
 
 describe('getSimilarProjects: what each project shares and records', () => {
   it('names what the two projects share, in the intake’s own labels', async () => {
-    const [near] = await getSimilarProjects(session, 'current')
-    expect(near.sharedTraits).toEqual(['Niederösterreich', 'GK 4', 'Holzbau', 'Wohnen'])
-    const [, , farProject] = await getSimilarProjects(session, 'current')
+    const [near] = (await getSimilarProjects(session, 'current')).projects
+    expect(near.sharedTraits.map((trait) => trait.value)).toEqual(['Niederösterreich', 'GK 4', 'Holzbau', 'Wohnen'])
+    const [, , farProject] = (await getSimilarProjects(session, 'current')).projects
     expect(farProject.sharedTraits).toEqual([])
   })
 
+  it('tells the projects that share something from the ones listed only because they are closed', async () => {
+    const unrelated = closed('closed-unrelated', { profile: profileOf({ bundesland: 'tirol' }) })
+    state.visible = [nearby, unrelated, current]
+    const result = (await getSimilarProjects(session, 'current')).projects
+    expect(result.map((project) => [project.id, project.alike])).toEqual([
+      ['closed-near', true],
+      ['closed-unrelated', false],
+    ])
+  })
+
+  it('marks a shared trait unconfirmed when either side has it only from its documents', async () => {
+    const suggested = closed('closed-suggested', {
+      profile: profileOf({ bundesland: 'niederoesterreich' }, { gebaeudeklasse: suggestion(4) }),
+    })
+    state.visible = [suggested, current]
+    const [found] = (await getSimilarProjects(session, 'current')).projects
+    expect(found.sharedTraits).toEqual([
+      { value: 'Niederösterreich', confirmed: true },
+      { value: 'GK 4', confirmed: false },
+    ])
+  })
+
+  it('counts every decision the reader may see, though the card shows only the first ones', async () => {
+    state.memory.set(
+      'closed-near',
+      Array.from({ length: SIMILAR_DECISIONS_MAX + 2 }, (_, index) => decision(`d${index}`))
+    )
+    const [near] = (await getSimilarProjects(session, 'current')).projects
+    expect(near.decisions).toHaveLength(SIMILAR_DECISIONS_MAX)
+    expect(near.counts.decisions).toBe(SIMILAR_DECISIONS_MAX + 2)
+  })
+
+  it('says what it compared, how many facts the briefing could still add, and how many closed projects it left out', async () => {
+    const many = Array.from({ length: SIMILAR_PROJECTS_MAX + 3 }, (_, index) => closed(`closed-${index}`))
+    state.visible = [...many, current]
+    const page = await getSimilarProjects(session, 'current')
+    expect(page.more).toBe(3)
+    expect(page.basis.facts.find((fact) => fact.key === 'bauweise')?.value).toBe('Holzbau')
+    // Only the kind of work is open and the briefing's to fill; HOLZBAU answers the rest.
+    expect(page.basis.missing).toBe(1)
+    expect(page.basis.editable).toBe(true)
+  })
+
+  it('offers the briefing only to a reader who may edit it, which nobody may on a closed project', async () => {
+    vi.mocked(can).mockResolvedValueOnce(false)
+    const page = await getSimilarProjects(session, 'current')
+    expect(page.basis.editable).toBe(false)
+    expect(vi.mocked(can)).toHaveBeenCalledWith(session, 'project:edit', { type: 'project', id: 'current' })
+  })
+
   it('reads the Bundesland and the period, and ends a closed project without an end date on its closing day', async () => {
-    const result = await getSimilarProjects(session, 'current')
+    const result = (await getSimilarProjects(session, 'current')).projects
     const byId = Object.fromEntries(result.map((project) => [project.id, project]))
     expect(byId['closed-near'].period).toEqual({ start: '2019-03-01', end: '2021-11-30' })
     expect(byId['closed-far'].period).toEqual({ start: '2019-02-01', end: '2024-05-03' })
@@ -207,7 +267,7 @@ describe('getSimilarProjects: what each project shares and records', () => {
     })
     const confirmed = closed('closed-mid', { profile: profileOf({ bundesland: 'niederoesterreich', oib_ausgabe: '2015' }) })
     state.visible = [suggested, confirmed, far, current]
-    const result = await getSimilarProjects(session, 'current')
+    const result = (await getSimilarProjects(session, 'current')).projects
     const byId = Object.fromEntries(result.map((project) => [project.id, project]))
     expect(byId['closed-near'].oibEdition).toEqual({ value: '2019', confirmed: false })
     expect(byId['closed-mid'].oibEdition).toEqual({ value: '2015', confirmed: true })
@@ -219,7 +279,7 @@ describe('getSimilarProjects: what each project shares and records', () => {
       profile: profileOf({ gebaeudeklasse: 4 }, { bundesland: suggestion('niederoesterreich') }),
     })
     state.visible = [suggestedLand, current]
-    const [only] = await getSimilarProjects(session, 'current')
+    const [only] = (await getSimilarProjects(session, 'current')).projects
     expect(only.bundesland).toEqual({ value: 'Niederösterreich', confirmed: false })
   })
 
@@ -230,7 +290,7 @@ describe('getSimilarProjects: what each project shares and records', () => {
       decision('superseded', { status: 'superseded' }),
       decision('org-wide', { scope: 'organization', projectId: null }),
     ])
-    const [near] = await getSimilarProjects(session, 'current')
+    const [near] = (await getSimilarProjects(session, 'current')).projects
     expect(getProjectMemory).toHaveBeenCalledWith(session, 'closed-near')
     expect(near.decisions).toHaveLength(5)
     expect(near.decisions.map((entry) => entry.id)).toEqual(['d0', 'd1', 'd2', 'd3', 'd4'])
@@ -247,7 +307,7 @@ describe('getSimilarProjects: what each project shares and records', () => {
       }),
       decision('agent', { provenanceType: 'agent', verification: 'unverified' }),
     ])
-    const [near] = await getSimilarProjects(session, 'current')
+    const [near] = (await getSimilarProjects(session, 'current')).projects
     const origins = Object.fromEntries(near.decisions.map((entry) => [entry.id, entry.origin]))
     expect(origins).toEqual({ person: 'person', documents: 'documents', agent: 'agent' })
     expect(near.decisions[1].sources).toEqual([{ fileName: 'Bescheid.pdf', page: '3' }])
@@ -273,7 +333,7 @@ describe('getSimilarProjects: what each project shares and records', () => {
         requirements,
       }))
     )
-    const [near] = await getSimilarProjects(session, 'current')
+    const [near] = (await getSimilarProjects(session, 'current')).projects
     expect(listPermitRecordsForProject).toHaveBeenCalledWith(ORG, 'closed-near', ['folder-open'], {
       maxRecords: SIMILAR_PERMIT_RECORDS_READ,
       maxPerRecord: SIMILAR_PERMIT_REQUIREMENTS_MAX,

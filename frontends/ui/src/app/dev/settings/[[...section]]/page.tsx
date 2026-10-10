@@ -38,7 +38,7 @@ import {
 import { getApplicableStandards } from '@/lib/oib/applicable-standards'
 import type { ProjectProfile } from '@/lib/project-profile/types'
 import { FIXTURE_PROJECT_ID, FIXTURE_USER_ID, HISTORY } from '../../_fixtures/upload-batches'
-import { SIMILAR_PROJECTS as SIMILAR } from '../../_fixtures/similar-projects'
+import { SIMILAR_PAGE } from '../../_fixtures/similar-projects'
 import { SimilarProjects } from '@/features/references/components/similar-projects'
 import { SimilarProjectsTile } from '@/features/projects/components/overview/similar-projects-tile'
 import type { SteckbriefView } from '@/lib/projects/steckbrief-types'
@@ -297,7 +297,7 @@ export default function SettingsDevPage({
               steckbrief={STECKBRIEF}
               similar={
                 <SimilarProjectsTile
-                  projects={SIMILAR}
+                  page={SIMILAR_PAGE}
                   href={`/dev/settings/references${suffix}`}
                 />
               }
@@ -314,7 +314,7 @@ export default function SettingsDevPage({
               canEditLimit={admin}
             />
           )}
-          {current === 'references' && <SimilarProjects projects={SIMILAR} />}
+          {current === 'references' && <SimilarProjects projectId={PROJECT_ID} page={SIMILAR_PAGE} />}
           {current === 'documents' && (
             <DocumentsSettings
               projectId={PROJECT_ID}

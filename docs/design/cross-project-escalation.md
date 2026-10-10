@@ -140,7 +140,9 @@ sees, and the content is fetched only when it is relevant.
 ## When the model climbs
 
 The model climbs when one of the catalog's triggers fires. `scope: similar`
-is the default, and `closed`, `all` and `named` remain available. The budgets
+is the default; `closed` walks only the closed projects in the same
+most-alike order (what the turn's precedent prefetch searches), and `all`
+(newest first) and `named` remain available. The budgets
 stay: 8 projects per call, 4 at a time, a 900-character passage, and
 per-project attribution.
 

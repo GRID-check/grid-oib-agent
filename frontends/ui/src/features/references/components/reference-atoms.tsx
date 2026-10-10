@@ -87,11 +87,15 @@ export function OriginChip({ origin }: { origin: ReferenceOrigin }): JSX.Element
   )
 }
 
-/** A period as its years: „2019–2021", or one year when it began and ended in it. */
+/**
+ * A period as its years: „2019–2021", one year when it began and ended in it,
+ * and „2019–" while it has no end, as the agent's catalog writes it.
+ */
 export function periodYears(period: ReferencePeriod): string {
   const from = period.start.slice(0, 4)
   const to = period.end?.slice(0, 4)
-  return to && to !== from ? `${from}–${to}` : from
+  if (!to) return `${from}–`
+  return to !== from ? `${from}–${to}` : from
 }
 
 /** A section of the card: its eyebrow, then what it holds. */

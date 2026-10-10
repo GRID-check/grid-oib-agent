@@ -207,6 +207,14 @@ describe('sharedTraits', () => {
       { key: 'nutzungen', value: 'wohnen' },
     ])
   })
+
+  it('names every fact that scored, the kind of work included', () => {
+    const current = similarityFacts(profile({ vorhabensart: ['zubau'] }))
+    const other = similarityFacts(profile({ vorhabensart: ['neubau', 'zubau'] }))
+
+    expect(similarity(current, other)).toBeGreaterThan(0)
+    expect(sharedTraits(current, other)).toEqual([{ key: 'vorhabensart', value: 'zubau' }])
+  })
 })
 
 describe('rankBySimilarity', () => {

@@ -52,7 +52,9 @@ export const settings: typeof en.settings = {
       similar: {
         label: 'Ähnliche Projekte',
         open: '{count, plural, one {Ähnliches Projekt öffnen} other {Alle # ähnlichen Projekte}}',
-        empty: 'Noch kein abgeschlossenes Projekt des Büros ist diesem ähnlich. Sie erscheinen hier, sobald Projekte abgeschlossen werden.',
+        openOthers: 'Abgeschlossene Projekte ansehen',
+        openMore: 'Weitere ähnliche Projekte ansehen',
+        empty: 'Noch kein abgeschlossenes Projekt im Büro. Es erscheint hier, sobald eines abgeschlossen ist.',
       },
       usage: {
         label: 'Verbrauch diesen Monat',

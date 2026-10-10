@@ -43,7 +43,7 @@ Opening a project (`/app/projects/{id}`) lands you in **Ask Piloti** — the pro
 | **Skills** | `/app/projects/{id}/skills` | The organization's skill toolbox (feature-flagged) |
 | **Büroablage** | `/app/archiv` | The office's org-wide shared files (feature-flagged) |
 | **Inbox** | `/app/inbox` | Mentions, shares, and operational notices (feature-flagged) |
-| **Settings** | `/app/projects/{id}/settings` | Project parameters, members, memory, insights, danger zone (pinned at the bottom of the sidebar) |
+| **Overview** | `/app/projects/{id}/settings` | The project hub, pinned at the bottom of the sidebar: a dashboard of tiles, among them [Similar projects](#similar-projects), with members, memory, usage, documents and similar projects as sections behind it |
 
 Every section except **Ask Piloti** shares one page header: a `{project} / {section}` breadcrumb, the section title, a one-line subtitle, and optional actions on the right. Ask Piloti is the exception — it is a full-bleed conversation surface with its own toolbar.
 
@@ -172,13 +172,24 @@ Source: `frontends/ui/src/features/jobs/`, service in
 
 Whoever may edit the brief may change the period and the people. In a closed project the Steckbrief is read-only, but the project's admins can still remove a person: removing a person deletes every detail about them for good, which is how a request to erase someone's data is met.
 
+## Similar projects
+
+The project hub's **Ähnliche Projekte** tile names the three closed projects most like this one, each with what it shares and how many decisions and Bescheide it holds; it names only projects that share something. Its link opens the section behind it (`/app/projects/{id}/settings/references`; the old `/referenzen` links redirect there), which lists the office's closed projects most like this one that you may open, at most twelve. They are the same projects, in the same order, that Piloti is given at the start of every chat turn and searches on its own when a question is comparative („wie haben wir das gelöst?"), see [chat](chat.md#searching-other-projects).
+
+- **Verglichen nach** names what the comparison rests on: this project's Bundesland, Gebäudeklasse, Bauweise, uses and kind of work. A fact still *offen* makes the comparison coarser; **Im Briefing ergänzen** opens the intake wizard, offered only to someone who may edit the brief, so never on a closed project. A value Piloti only read from the documents is marked *aus den Unterlagen, unbestätigt*.
+- Each card shows the project's period, Bundesland and the OIB edition it was planned under, what it has in **common** with this project (a trait either side only has from its documents is marked unconfirmed), the decisions it recorded with who stands behind each (*von einer Person bestätigt*, *aus den Unterlagen erschlossen*, *von Piloti notiert*, the same words Piloti uses when it cites them), and the conditions its Bescheide set. The footer counts everything the project holds, though the card shows the first few.
+- **Piloti fragen** opens a new chat in THIS project with a question about that reference ready to send.
+- Closed projects that share nothing recorded with this one are listed apart, under **Weitere abgeschlossene Projekte**, newest first; more than twelve are named as a count, and Piloti searches them too.
+
+The page shows what you could open anyway: a closed project is open to the whole office, and a folder with its own access list stays as restricted as everywhere else.
+
 ## Closing a project
 
 When the work on a project is done, close it: **Settings → Project status → Close project**. You need the project's admin role (`project:manage`).
 
 Before it closes, Piloti offers to **clear out** („Ausmisten") what the finished project no longer needs: working copies, superseded versions, duplicates, temporary and lock files, and drafts Piloti wrote that were never published. It looks only at files you may edit, and only at their names, folders, types, tags, summaries and version state; it does not read the files again. Only files that passed the upload check reach the AI; a file held in quarantine is never proposed. The list is marked as an AI proposal, with a reason for each file, or says that only fixed rules made it when the AI check is unavailable. Every file starts selected; deselect what should stay. Nothing is removed until you confirm. What you confirm goes to the project's Papierkorb for 14 days, in a folder „Ausgemistet ‹date›" inside the folder it came from, and can be restored from there. Either all of it goes or none of it: if moving one fails, everything is put back and the project stays open. **Close without removing anything** skips this step.
 
-Above the clear-out, the same dialog asks what this project should leave the office. Piloti offers a closed project's experience to every similar project later, so the dialog shows
+Above the clear-out, the same dialog asks what this project should leave the office. Piloti offers a closed project's experience to every similar project later, in chat and on their [Ähnliche Projekte](#similar-projects) page, so the dialog shows
 
 - **How Piloti finds it again**: the Bundesland, Gebäudeklasse, Bauweise, uses and kind of work it compares projects by, and the period. A fact still *open* makes the project harder to find; **Add in the brief** opens the intake wizard. A fact the brief does not ask of this project, such as the construction of a retaining wall, says *does not apply* and is not missing. The building class is derived rather than entered in the brief, so it is shown but not counted.
 - **What the office should keep**: the decisions and constraints the project memory holds. **Confirm** the ones that are right, and other projects cite them as confirmed by a person rather than as Piloti's reading. **Record a lesson** adds one in your words.

@@ -90,7 +90,10 @@ never in scope; its own tools search it under its own scope.
 **Search.** `similar` (default) walks the projects in reach most like the
 current one first (`lib/cross-project/similarity.ts`: Bundesland, then
 Gebäudeklasse with a neighbouring class counting a little, Bauweise, uses, kind
-of work); `closed`, `all` and `named` remain. Optional filters: document type
+of work); `closed` walks only the closed ones, in the same order (amended
+2026-10-10: it walked them newest first, so the turn's precedent prefetch
+searched the newest closed projects, not the catalog's closest); `all` and
+`named` remain. Optional filters: document type
 and OIB discipline (the ingestion tags, after retrieval) and the PROJECT's
 period (the Steckbrief's Beginn and Abschluss, else the day it was created in
 Piloti), never a file's upload day. Inside each project the search IS

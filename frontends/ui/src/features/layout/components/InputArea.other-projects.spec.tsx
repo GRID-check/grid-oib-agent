@@ -106,6 +106,9 @@ function serverSays(restricting: Array<{ id: string; name: string | null }>) {
 
 const notice = () => screen.queryByTestId('other-projects-notice')
 
+/** The projects the chip names: its accessible name, since the names sit in its popover until it is opened. */
+const named = (element: HTMLElement | null) => element?.querySelector('button')?.getAttribute('aria-label') ?? ''
+
 beforeEach(() => {
   useChatStore.setState({ currentConversation: null, conversations: [], isStreaming: false })
 })
@@ -130,7 +133,7 @@ describe('the other-projects notice follows the server’s record, not the answe
     render(<InputArea isAuthenticated connectionMode="sse" />)
 
     const shown = await screen.findByTestId('other-projects-notice')
-    expect(shown).toHaveTextContent('Wohnbau Graz')
+    expect(named(shown)).toContain('Wohnbau Graz')
   })
 
   test('a reopened project is listed although the citation recorded it closed', async () => {
@@ -139,7 +142,7 @@ describe('the other-projects notice follows the server’s record, not the answe
     render(<InputArea isAuthenticated connectionMode="sse" />)
 
     const shown = await screen.findByTestId('other-projects-notice')
-    expect(shown).toHaveTextContent('Wohnbau Graz and Schule Linz')
+    expect(named(shown)).toContain('Wohnbau Graz and Schule Linz')
   })
 
   test('nothing restricting: no notice, whatever the citations carry', async () => {
@@ -157,7 +160,7 @@ describe('the other-projects notice follows the server’s record, not the answe
     open([answer('a1', GRAZ)])
     render(<InputArea isAuthenticated connectionMode="sse" />)
 
-    expect(await screen.findByTestId('other-projects-notice')).toHaveTextContent('a project that no longer exists')
+    expect(named(await screen.findByTestId('other-projects-notice'))).toContain('a project that no longer exists')
   })
 
   test('it is read again when a turn ends: the notice appears after the answer that drew on another project', async () => {
@@ -181,7 +184,7 @@ describe('the other-projects notice follows the server’s record, not the answe
       })
     })
 
-    expect(await screen.findByTestId('other-projects-notice')).toHaveTextContent('Schule Linz')
+    expect(named(await screen.findByTestId('other-projects-notice'))).toContain('Schule Linz')
     expect(reads.count).toBeGreaterThan(1)
   })
 
@@ -196,6 +199,6 @@ describe('the other-projects notice follows the server’s record, not the answe
 
     await act(async () => {})
     expect(reads.count).toBe(1)
-    expect(notice()).toHaveTextContent('Schule Linz')
+    expect(named(notice())).toContain('Schule Linz')
   })
 })

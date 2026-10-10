@@ -35,8 +35,8 @@ export type ProjectStatus = (typeof PROJECT_STATUSES)[number]
 
 /**
  * Which projects a search covers: every one in reach ordered by likeness to the
- * current project (`similar`, the default), the closed ones, every one newest
- * first, or the ones it names. The conversation's own project is never part of
+ * current project (`similar`, the default), the closed ones in that same order
+ * (`closed`), every one newest first (`all`), or the ones it names (`named`). The conversation's own project is never part of
  * it: that one is searched by the chat's own tools, under its own scope.
  */
 export const CROSS_PROJECT_SCOPES = ['similar', 'closed', 'all', 'named'] as const

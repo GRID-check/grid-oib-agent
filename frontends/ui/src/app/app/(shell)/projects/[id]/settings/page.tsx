@@ -102,10 +102,10 @@ async function SimilarProjectsSlot({
   session: AuthorizedSession
   projectId: string
 }): Promise<JSX.Element> {
-  const projects = await getSimilarProjects(session, projectId)
+  const page = await getSimilarProjects(session, projectId)
   return (
     <SimilarProjectsTile
-      projects={projects}
+      page={page}
       href={settingsSectionHref(projectId, 'references')}
     />
   )

@@ -455,6 +455,27 @@ describe('searchAcrossProjects', () => {
     expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[1].id])
   })
 
+  it('walks the closed projects most like the current one first, as the catalog lists them', async () => {
+    // The turn's precedent prefetch searches `closed`: newest first, it searched
+    // the eight newest closed projects and missed the catalog's closest ones.
+    const closed = { status: 'closed' as const, closedAt: new Date(), closedBy: OWNER }
+    const profile = (bundesland: string) => ({
+      facts: { bundesland: { value: bundesland, confidence: 'confirmed' as const, source: 'onboarding' as const, updatedAt: '' } },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    })
+    state.reachable = [
+      project(1, { ...closed, profile: profile('wien') }),
+      project(2, { ...closed, profile: profile('tirol') }),
+      project(3, { profile: profile('tirol') }),
+    ]
+
+    await searchAcrossProjects(caller(state.reachable[2].id), search({ scope: 'closed' }))
+
+    expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[1].id, state.reachable[0].id])
+  })
+
   it('narrows by the PROJECT’s period before searching, not by when a file was uploaded', async () => {
     // Projekt 1 began 2026-02-15, Projekt 2 2026-03-15, Projekt 3 2026-04-15; all still open.
     const result = await searchAcrossProjects(caller(), search({ to: '2026-03-31' }))

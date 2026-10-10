@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { render, screen } from '@/test-utils'
 import { OtherProjectsNotice } from './OtherProjectsNotice'
 
 describe('OtherProjectsNotice (ADR-0094)', () => {
-  it('names every project it is given and says what that closes: the list is the server’s, not filtered here', () => {
+  it('is one small chip, which names every project and says what that closes when opened', async () => {
     render(
       <OtherProjectsNotice
         projects={[
@@ -13,15 +14,23 @@ describe('OtherProjectsNotice (ADR-0094)', () => {
       />
     )
 
-    const notice = screen.getByTestId('other-projects-notice')
-    expect(notice.textContent).toContain('Wohnbau Graz and Schule Linz')
-    expect(notice.textContent).toContain('project memory')
+    const chip = screen.getByRole('button', { name: 'This chat draws on other projects: Wohnbau Graz and Schule Linz.' })
+    expect(chip.textContent).toBe('2 other projects')
+    expect(screen.queryByText(/project memory/)).not.toBeInTheDocument()
+
+    await userEvent.click(chip)
+
+    const panel = await screen.findByRole('dialog', {
+      name: 'This chat draws on other projects: Wohnbau Graz and Schule Linz.',
+    })
+    expect(panel).toHaveAccessibleDescription(/project memory/)
+    expect(screen.getByText(/project memory/)).toBeVisible()
   })
 
   it('says so for a project that is gone, which still narrows the chat', () => {
     render(<OtherProjectsNotice projects={[{ id: 'x', name: null }]} />)
 
-    expect(screen.getByTestId('other-projects-notice').textContent).toContain('a project that no longer exists')
+    expect(screen.getByRole('button', { name: /a project that no longer exists/ }).textContent).toBe('One other project')
   })
 
   it('renders nothing when nothing restricts the chat', () => {

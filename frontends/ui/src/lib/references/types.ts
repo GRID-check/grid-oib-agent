@@ -8,6 +8,7 @@
  * without pulling the database into the browser bundle.
  */
 
+import type { FingerprintFact } from '@/lib/cross-project/fingerprint'
 import type { PermitRecordKind, PermitRequirementKind, ProjectMemoryKind } from '@/lib/db/schema'
 
 /** How many closed projects the page lists; the rest of the office stays out of sight. */
@@ -75,8 +76,37 @@ export interface SimilarProject {
   bundesland: ReferenceFact<string> | null
   /** The OIB edition the project was planned under, as its token (`2019`); null when none is known. */
   oibEdition: ReferenceFact<string> | null
-  /** What the project shares with the current one, as labels (`Niederösterreich`, `GK 4`, `Holzbau`). */
-  sharedTraits: string[]
+  /**
+   * Whether the ranking found anything in common (`similarity.ts` above 0). A
+   * closed project that shares nothing is still listed, after the alike ones,
+   * by recency: the office may have few, and the reader should see them.
+   */
+  alike: boolean
+  /**
+   * What the project shares with the current one, as labels (`Niederösterreich`,
+   * `GK 4`, `Holzbau`); `confirmed` false when either side only has it as a
+   * suggestion read from its documents.
+   */
+  sharedTraits: ReferenceFact<string>[]
   decisions: ReferenceDecision[]
   permits: ReferencePermit[]
+  /** How many decisions and permit records the project holds for this reader, before the page cuts them. */
+  counts: { decisions: number; permits: number }
+}
+
+/** What the ranking compared: the current project's fingerprint, open facts included. */
+export interface ReferenceBasis {
+  facts: FingerprintFact[]
+  /** Facts the briefing can still fill that are open; each one makes the ranking coarser. */
+  missing: number
+  /** The reader may complete the briefing: `project:edit`, which a closed project refuses. */
+  editable: boolean
+}
+
+/** The similar-projects page: what it compared, the projects, and how many closed ones it left out. */
+export interface SimilarProjectsPage {
+  basis: ReferenceBasis
+  projects: SimilarProject[]
+  /** Closed projects the reader may open beyond {@link SIMILAR_PROJECTS_MAX}; Piloti searches them too. */
+  more: number
 }

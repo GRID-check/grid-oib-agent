@@ -1,10 +1,27 @@
 /** Similar closed projects: the page a person reads for the office's past work (ADR-0094). */
 export const references = {
   intro:
-    'Closed projects like this one that you may open: what they share with it, the conditions their permits set and the decisions they recorded.',
+    'The office’s closed projects most like this one that you may open: what they share, the decisions made there and the conditions the authority set. Piloti draws on the same projects as precedent in chat.',
+  basis: {
+    title: 'Compared by',
+    fact: '{label}: {value}',
+    open: '{label}: open',
+    missing:
+      '{count, plural, one {# fact is} other {# facts are}} missing from the brief; adding {count, plural, one {it} other {them}} sharpens the comparison.',
+  },
   empty: {
-    title: 'No closed projects like this one yet.',
-    description: 'Closed projects appear here once the office closes them.',
+    title: 'No closed projects in the office yet.',
+    description: 'Once a project is closed it appears here, with what it shares with this one.',
+  },
+  noneAlike: 'No closed project shares a trait with this one yet.',
+  others: {
+    title: 'Other closed projects',
+    description: 'Nothing in common with this project recorded, newest first.',
+  },
+  more: '… and {count, plural, one {# more closed project} other {# more closed projects}}, which Piloti also searches in chat.',
+  ask: {
+    action: 'Ask Piloti',
+    question: 'What can we take from the project “{name}” for this project?',
   },
   fields: {
     period: 'Period',
@@ -24,7 +41,7 @@ export const references = {
       constraint: 'Constraint',
     },
     origin: {
-      person: 'Recorded by a person',
+      person: 'Confirmed by a person',
       documents: 'From the documents',
       agent: 'Noted by Piloti',
     },

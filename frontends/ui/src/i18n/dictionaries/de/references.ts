@@ -3,10 +3,27 @@ import type { en } from '../en'
 /** Ähnliche abgeschlossene Projekte: was das Büro früher gebaut hat, soweit die Person es einsehen darf. */
 export const references: typeof en.references = {
   intro:
-    'Abgeschlossene Projekte wie dieses, die Sie einsehen dürfen: was sie mit ihm gemeinsam haben, welche Auflagen ihre Bescheide enthalten und welche Entscheidungen sie festgehalten haben.',
+    'Abgeschlossene Projekte des Büros, die diesem am ähnlichsten sind und die Sie einsehen dürfen: was sie gemeinsam haben, welche Entscheidungen dort fielen und welche Auflagen die Behörde stellte. Dieselben Projekte zieht Piloti im Chat als Präzedenzfälle heran.',
+  basis: {
+    title: 'Verglichen nach',
+    fact: '{label}: {value}',
+    open: '{label}: offen',
+    missing:
+      '{count, plural, one {# Angabe fehlt} other {# Angaben fehlen}} im Briefing; mit {count, plural, one {ihr} other {ihnen}} wird der Vergleich genauer.',
+  },
   empty: {
-    title: 'Noch keine abgeschlossenen Projekte, die diesem ähneln.',
-    description: 'Abgeschlossene Projekte erscheinen hier, sobald sie im Büro geschlossen werden.',
+    title: 'Noch keine abgeschlossenen Projekte im Büro.',
+    description: 'Sobald ein Projekt abgeschlossen ist, erscheint es hier, mit dem, was es mit diesem gemeinsam hat.',
+  },
+  noneAlike: 'Kein abgeschlossenes Projekt teilt bisher ein Merkmal mit diesem.',
+  others: {
+    title: 'Weitere abgeschlossene Projekte',
+    description: 'Ohne erfasste Gemeinsamkeit mit diesem Projekt, die neuesten zuerst.',
+  },
+  more: '… und {count, plural, one {# weiteres abgeschlossenes Projekt} other {# weitere abgeschlossene Projekte}}, die Piloti im Chat ebenfalls durchsucht.',
+  ask: {
+    action: 'Piloti fragen',
+    question: 'Was können wir aus dem Projekt „{name}“ für dieses Projekt übernehmen?',
   },
   fields: {
     period: 'Zeitraum',
@@ -14,7 +31,7 @@ export const references: typeof en.references = {
     oibEdition: 'OIB-Ausgabe',
     oibEditionValue: 'OIB-Richtlinien {edition}',
     sharedTraits: 'Gemeinsam',
-    noSharedTraits: 'Keine gemeinsamen Merkmale erfasst.',
+    noSharedTraits: 'Nichts gemeinsam erfasst.',
     notRecorded: 'nicht erfasst',
     unconfirmed: 'aus den Unterlagen, unbestätigt',
   },
@@ -26,7 +43,7 @@ export const references: typeof en.references = {
       constraint: 'Vorgabe',
     },
     origin: {
-      person: 'von einer Person festgehalten',
+      person: 'von einer Person bestätigt',
       documents: 'aus den Unterlagen erschlossen',
       agent: 'von Piloti notiert',
     },
