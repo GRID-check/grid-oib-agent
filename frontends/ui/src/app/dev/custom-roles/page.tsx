@@ -13,10 +13,6 @@
  * applies create, edit and delete to an in-memory list, so the round trip can
  * be tried. Deleting „Projektleitung" answers 409 (still assigned).
  *
- * Deleting „Geschäftsführung" (ADR-0088) shows the folders that name it and
- * deletes only with the confirmation (`?confirmFolders=1`); `?usage=hidden` is
- * the role manager who may not read those folders, who is told how many.
- *
  * `?dialog=create` and `?dialog=edit` open the editor on load, for captures;
  * `?dialog=delete` opens the deletion confirmation of „Geschäftsführung".
  * Not linked from anywhere and 404s outside development.
@@ -67,13 +63,6 @@ const ROLES: OrganizationRole[] = [
   },
 ]
 
-/** The folders whose own list names „Geschäftsführung"; the admin may read them. */
-const FOLDERS_USING = [
-  { folderId: 'f-honorare', folderName: 'Honorare', projectId: 'p-sued', projectName: 'Schule Süd' },
-  { folderId: 'f-vertraege', folderName: 'Verträge', projectId: 'p-sued', projectName: 'Schule Süd' },
-  { folderId: 'f-personal', folderName: 'Personal', projectId: 'p-halle', projectName: 'Halle 3' },
-]
-
 const HELD = new Set(['org:archiv:manage', 'org:members:manage', 'org:projects:create', 'org:skills:manage'])
 const ASSIGNABLE: AssignablePermission[] = [
   'org:settings:manage',
@@ -100,18 +89,8 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       const method = init?.method ?? 'GET'
       const rest = (url.split('/api/organization/roles/')[1] ?? '').split('?')[0]
       const slug = decodeURIComponent(rest.split('/')[0] ?? '')
-      if (method === 'GET' && rest.endsWith('/usage')) {
-        const hidden = new URLSearchParams(window.location.search).get('usage') === 'hidden'
-        return Response.json({ total: FOLDERS_USING.length, folders: hidden ? [] : FOLDERS_USING })
-      }
       if (method === 'GET') return Response.json({ roles, assignable: ASSIGNABLE })
       if (method === 'DELETE') {
-        if (slug === 'org-geschaeftsfuehrung' && !url.includes('confirmFolders=1')) {
-          return Response.json(
-            { error: { message: 'folders' }, details: { reason: 'role-used-by-folders', total: FOLDERS_USING.length } },
-            { status: 409 }
-          )
-        }
         if (slug === 'org-projektleitung') {
           return Response.json({ error: { message: 'still assigned' } }, { status: 409 })
         }

@@ -1,0 +1,7 @@
+---
+features:
+  - >
+    When you close a project, Piloti can read its documents and suggest its
+    Bundesland, building class, construction, uses, OIB edition and the
+    decisions it made, each with the document and page it comes from. You
+    confirm each one, and similar projects are then found by what they are.

@@ -49,7 +49,7 @@ describe('/api/projects/[id]/members', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockRequireAuthorizedSession.mockResolvedValue(session)
-    mockRequireProjectAccess.mockResolvedValue({ role: 'project-admin' })
+    mockRequireProjectAccess.mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
   })
 
   it('lists project-resource memberships by effective project permissions and merges user details', async () => {

@@ -71,7 +71,7 @@ def _is_embedding_mismatch(value: object) -> bool:
 # with surface_documents; citations already peek the cited project file.
 _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "Read and cite passages from the ingested knowledge base (OIB corpus, "
-    "this project's files, the Büroarchiv). This is the evidence tool — it "
+    "this project's files, the Büroablage). This is the evidence tool — it "
     "returns quotable excerpts with a Citation key. It does not open a file "
     "in the UI.\n"
     "WHEN TO CALL — any question that needs a passage from a stored document. "
@@ -93,7 +93,7 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "characters ('EG') matches as a whole word only. The reader's own files come first.\n"
     "WHEN NOT TO CALL — to put a file on screen (the user asked to SEE or "
     "BROWSE files, no legal question): that is `surface_documents`. After "
-    "you cite a project or Büroarchiv file, do not also call "
+    "you cite a project or Büroablage file, do not also call "
     "`surface_documents`; the UI peeks the cited file. Live Austrian law "
     "(statutes, Bauordnungen) is the RIS tools, not this index. When you "
     "already know WHICH document you need, that is `read_passage` — with the "
@@ -268,7 +268,8 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "Who answers the judge's yes/no (llm|jev). `jev` asks the decision model one noul per "
             "passage of the head first (ADR-0064, ~300 ms, a fraction of a cent): a head it finds "
             "sufficient costs no judge call, and only an insufficient head runs requery_llm, for the "
-            "phrasings. A decision that cannot run (no key, ZDR, breaker open) falls back to the judge."
+            "phrasings. A decision that cannot run (no key, a BYOK key on another host, breaker open) falls "
+            "back to the judge."
         ),
     )
     decision_sufficiency_threshold: float = Field(
@@ -534,7 +535,7 @@ def _restrict_scope_to_turn(entries):
     (``focus_shelf`` / ``source_preset``, mapped by ``shelves_for_turn``)
     may only drop entries from it, so a "summarize this upload" turn cannot
     be padded with Archiv hits (#429) and a Projektunterlagen chip cannot
-    keep searching the Büroarchiv (#436).
+    keep searching the Büroablage (#436).
     """
     try:
         from aiq_agent.common.focus_file import get_turn_shelves
@@ -1384,7 +1385,7 @@ def _ambiguous_file_names(chunks) -> set[str]:
 
     A search fans out across the base corpus, the session collection and the
     project collections concurrently, so one result set can carry a project
-    `Plan.pdf` and a Büroarchiv `Plan.pdf` — different documents that a bare
+    `Plan.pdf` and a Büroablage `Plan.pdf` — different documents that a bare
     filename cannot tell apart. Those names (and only those) get a shelf
     qualifier in their citation key, so the common case stays a plain filename.
 

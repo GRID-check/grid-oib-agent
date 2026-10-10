@@ -416,6 +416,7 @@ export async function replaceDocumentWithinQuota(
         // verdict says nothing about them, and a stale `clean` in the upload
         // summary would vouch for content nobody checked.
         screeningOutcome: null,
+        screenedHash: null,
         uploadBatchId: next.uploadBatchId ?? null,
         updatedAt: new Date(),
       })

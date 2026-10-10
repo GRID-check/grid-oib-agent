@@ -134,7 +134,7 @@ def resolve_document(name: str) -> ResolvedDocument | Refusal:
     rows = _rows()
     if not rows:
         return Refusal(
-            "Fehler: Diese Unterhaltung sieht keine Projekt- oder Büroarchiv-Dateien, also auch keine, die "
+            "Fehler: Diese Unterhaltung sieht keine Projekt- oder Büroablage-Dateien, also auch keine, die "
             "gemeint sein könnte. Sage das, statt einen Dateinamen zu raten."
         )
 

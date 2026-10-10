@@ -1,0 +1,6 @@
+---
+security:
+  - >
+    Piloti no longer revises a file in a folder with restricted access as an
+    Auftrag, which the whole project would see. „Piloti überarbeiten lassen“
+    now says why, and Änderungen anfordern still works.

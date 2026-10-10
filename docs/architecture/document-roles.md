@@ -69,6 +69,11 @@ being filed into one — the correct rule, not a limitation.
   that stopped being the Bebauungsplan.
 - **Idempotence.** Re-declaring an existing binding is a no-op, not a unique
   violation.
+- **A binding is answered the way its document is.** A binding to a file in a
+  folder the session may not see (ADR-0087), or to a held upload it neither
+  uploaded nor reviews (ADR-0086), is not listed, cannot be declared, and
+  answers `404` to a revoke. A single-holder slot still counts such a holder:
+  declaring another document displaces it, without naming it in the answer.
 - **Membership before the foreign key.** The FK would reject a foreign document
   as a constraint violation; checking first answers "that file is not in this
   project", and catches the soft-deleted case the FK cannot see.

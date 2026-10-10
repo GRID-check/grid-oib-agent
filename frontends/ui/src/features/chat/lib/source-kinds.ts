@@ -3,7 +3,7 @@
  * `src/aiq_agent/common/source_kinds.py` (ADR-0026).
  *
  * The coarse KIND drives the chip **color** (the provenance/trust family:
- * Baurecht / Büroarchiv / Projektwissen / Web — one of the `--source-*` tint
+ * Baurecht / Büroablage / Projektwissen / Web — one of the `--source-*` tint
  * families). The fine LANE drives an **authority badge** (OIB / RIS / ÖNORM)
  * shown on the chip and in the popover: the OIB-vs-RIS distinction an architect
  * needs (binding law vs. an adopted technical guideline vs. an external
@@ -160,7 +160,7 @@ export const asShelf = (value: string | null | undefined): Shelf | undefined => 
  *
  * Two different things used to be the same string. The SHELF now travels as data
  * on the payload; nothing here is how a consumer learns it. What survives is the
- * citation KEY, which is a human-readable identity (`Plan.pdf (Büroarchiv),
+ * citation KEY, which is a human-readable identity (`Plan.pdf (Büroablage),
  * p.3`) and still carries a qualifier when one filename was retrieved from more
  * than one shelf in the same turn — otherwise two different `Plan.pdf`s would
  * share a key. This table is what a reader must strip to recover the filename,
@@ -171,9 +171,14 @@ export const asShelf = (value: string | null | undefined): Shelf | undefined => 
  * deliberately independent of the shelf's display label: display copy may be reworded
  * freely, these may not — renaming a label must not change what a stored key
  * parses to, nor what today's keys strip to.
+ *
+ * A renamed shelf keeps its old qualifier here as a reader-only row: the archiv
+ * shelf became „Büroablage" (6 Oct 2026), so the backend writes `(Büroablage)`
+ * and keys persisted before that still say `(Büroarchiv)`. The backend lists the
+ * retired name in `RETIRED_SHELF_QUALIFIERS`.
  */
 export const CITATION_KEY_QUALIFIERS: ReadonlyArray<readonly [qualifier: string, shelf: Shelf]> = [
-  ['Büroarchiv', 'archiv'],
+  ['Büroablage', 'archiv'],
   ['Projektwissen', 'project'],
   ['Basiswissen', 'base'],
   // `session` DOES appear in keys written from ADR-0047 onward, even though no
@@ -189,6 +194,9 @@ export const CITATION_KEY_QUALIFIERS: ReadonlyArray<readonly [qualifier: string,
   // Both runtimes must agree on this set; the display label may be reworded freely,
   // this may not.
   ['Private Sitzung', 'session'],
+  // Retired: the archiv shelf's name until 6 Oct 2026. No writer emits it; keys
+  // persisted before the rename still carry it and must keep stripping.
+  ['Büroarchiv', 'archiv'],
 ]
 
 /**

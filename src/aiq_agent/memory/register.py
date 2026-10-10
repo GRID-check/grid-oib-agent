@@ -40,10 +40,11 @@ from aiq_agent.cards.registry import get_card_registry
 from aiq_agent.knowledge import project_memory as memory_client
 from aiq_agent.knowledge import scoping
 from aiq_agent.knowledge.restricted_collections import restricted_collections_in
-from aiq_agent.memory.restriction import Restriction
+from aiq_agent.knowledge.restricted_use import drew_on_other_projects
+from aiq_agent.memory.restriction import RestrictionDecision
 from aiq_agent.memory.restriction import RestrictionEvidence
-from aiq_agent.memory.restriction import decide_restriction
 from aiq_agent.memory.restriction import restricted_digest_notes
+from aiq_agent.memory.restriction import restriction_decisions
 from aiq_agent.memory.restriction import restriction_evidence
 from aiq_agent.memory.shown_notes import turn_shown_notes
 from nat.plugin_api import Builder
@@ -65,6 +66,13 @@ _ORG_DISABLED_RESULT = (
     "Error: organization-wide memory is disabled by the administrator in this "
     "deployment; the finding was NOT saved. Tell the user that firm-wide rules "
     "currently have to be added by hand in the organization memory panel. Do not retry."
+)
+#: A conversation that drew on another project (ADR-0094) remembers nothing:
+#: project and organization memory are read by people who may not open it.
+_CROSS_PROJECT_RESULT = (
+    "Nicht gespeichert: Diese Unterhaltung stützt sich auf andere Projekte, deshalb wird nichts aus ihr "
+    "im Projekt- oder Büro-Gedächtnis gespeichert. Sage das der Nutzerin in einem Satz, wenn sie darum "
+    "gebeten hat, sich etwas zu merken. Nicht erneut versuchen."
 )
 _UNAVAILABLE_RESULT = (
     "Error: the finding was NOT saved — long-term memory is unavailable. Do not tell "
@@ -229,17 +237,22 @@ def _emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> b
     return True
 
 
-def _failure_result(
-    exc: Exception, *, scope: str, kind: str, content: str, confidence: str, restricted: bool = False
-) -> str:
+def _failure_result(exc: Exception, *, kind: str, content: str, confidence: str, restricted: bool = False) -> str:
     """Translate a failed write into a tool result, emitting a card when one helps.
 
     An ORG-scoped write the agent's service token may not make is the one
     failure with a sanctioned alternative: a confirmation card lets the user
     complete the write through their OWN authenticated session (org-wide) or
-    save it to just this project. Everything else — and every project-scoped
-    failure — gets an honest error string instead of a dead end.
+    save it to just this project. Only that refusal: the BFF audits the memory
+    judge's verdict before it refuses (``outcome: refused``), and a write that
+    failed otherwise (a 500, a timeout) reached no audit, so a card for it would
+    write open memory whose judge's "none" the trail never saw. Everything else
+    gets an honest error string.
     """
+    if isinstance(exc, memory_client.CrossProjectMemoryRefusedError):
+        # No card: accepting one would write the finding through the reader's
+        # own session, the same leak by another door.
+        return _CROSS_PROJECT_RESULT
     org_denied = isinstance(exc, memory_client.OrgMemoryDisabledError)
     if org_denied:
         logger.warning("Org-scoped remember denied by frontend policy (org memory disabled)")
@@ -248,11 +261,8 @@ def _failure_result(
 
     # Never a card for a restricted finding: accepting it writes open memory
     # through the user's own session, which is the leak by another door.
-    if (
-        not restricted
-        and (org_denied or scope == "organization")
-        and _emit_memory_proposal_card(content=content, kind=kind, confidence=confidence)
-    ):
+    # `org_denied` is only ever an organization-scoped write.
+    if not restricted and org_denied and _emit_memory_proposal_card(content=content, kind=kind, confidence=confidence):
         return _CARD_SHOWN_RESULT
     return _ORG_DISABLED_RESULT if org_denied else _UNAVAILABLE_RESULT
 
@@ -351,15 +361,19 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
             return "Error: content must not be empty."
         content = content[: tool_config.max_content_chars]
         supersedes = supersedes.strip()
+        if drew_on_other_projects():
+            # ADR-0094; the BFF refuses the write too.
+            return _CROSS_PROJECT_RESULT
 
         project_id = project_context.get_project_id_from_context()
         target = _resolve_target(scope, project_id, project_context.get_organization_id_from_context())
         if isinstance(target, str):
             return target
         evidence = _turn_restriction_evidence()
-        restriction: Restriction = None
+        decision = RestrictionDecision(None)
         if evidence.restricted:
-            restriction = await decide_restriction(content, evidence, llm=_turn_judge_llm(base_judge))
+            [decision] = await restriction_decisions([content], evidence, llm=_turn_judge_llm(base_judge))
+        restriction = decision.restriction
         demoted = False
         if restriction is not None:
             restricted_target = _restricted_target(target, project_id)
@@ -384,11 +398,12 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
                 supersedes_content=supersedes or None,
                 # ADR-0087: served and shown only to people cleared for all of these.
                 restricted_collections=restriction,
+                # Audited by the BFF with the item it was about (AI Act).
+                restriction_judge=decision.judge.as_payload() if decision.judge else None,
             )
         except _WRITE_FAILURES as exc:
             return _failure_result(
                 exc,
-                scope=target.scope,
                 kind=kind,
                 content=content,
                 confidence=confidence,

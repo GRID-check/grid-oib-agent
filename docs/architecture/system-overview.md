@@ -19,7 +19,7 @@ Piloti the agent is a **member of that office**. Architects work inside
 **projects**; chat is how they talk to the agent, and **tasks** (Aufgaben)
 are how they hand it work — a task is the work object, a job the recurring
 schedule behind it (§5.12). Every **normative claim** is grounded in a passage retrieved this
-turn from the project, the office archive, or the Austrian building-regulation
+turn from the project, the Büroablage, or the Austrian building-regulation
 corpus. Not every answer is a ruling. Piloti does not replace the
 Entwurfsverfasser or the Behörde.
 

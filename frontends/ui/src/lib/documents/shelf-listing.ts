@@ -14,6 +14,7 @@ import { listAssignmentsWithoutAccessCheck, type AssignedPerson } from '@/lib/as
 import { encodeDocumentListCursor } from './list-cursor'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
 import type { DocumentListPage, DocumentListRow } from './repository'
+import { keepReadable, type ListingReader, type ShelfReader } from './document-reader'
 
 /**
  * One row of a document listing.
@@ -25,23 +26,47 @@ import type { DocumentListPage, DocumentListRow } from './repository'
  * anything reading a listing had to re-widen the type to find the faces it
  * renders.
  */
-export type ListedDocument = Omit<DocumentListRow, 'metadata'> &
-  DocumentMetadata & { assignees: AssignedPerson[] }
+export type ListedDocument = Omit<DocumentListRow, 'metadata' | 'createdBy' | 'screeningOutcome' | 'screenedHash'> &
+  DocumentMetadata & {
+    assignees: AssignedPerson[]
+    /**
+     * When a folder this report was drawn from was purged (ADR-0088): the
+     * purge marks a filed report it finds (`metadata.sourceDeleted`), and the
+     * listing shows „Quelle gelöscht am …". Null for every other document.
+     */
+    sourceDeletedAt?: string | null
+  }
+
+/** The purge's mark on a filed report, when it carries a real date. */
+function sourceDeletedAtOf(metadata: unknown): string | null {
+  if (typeof metadata !== 'object' || metadata === null) return null
+  const mark = (metadata as { sourceDeleted?: { at?: unknown } }).sourceDeleted
+  const at = mark && typeof mark === 'object' ? mark.at : undefined
+  return typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? at : null
+}
 
 /**
  * What a row needs before it leaves the BFF, whichever query found it: the
  * listing page or a by-name lookup. The CALLER has already authorized the shelf
- * every row was read from.
+ * every row was read from, and passes the same reader its query was narrowed by.
  */
 export async function toListedDocuments(
   session: AuthorizedSession,
   rows: DocumentListRow[],
+  /** The reader the rows' query was narrowed by (`shelfReaderFor`, or `SCREENED_ONLY` for a model, ADR-0086). */
+  reader: ListingReader,
 ): Promise<ListedDocument[]> {
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
-  const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
+  // A row the query let through on an earlier verdict (a re-index of a file
+  // that passed before) can come back `quarantined`: it is narrowed again here,
+  // by the same rule, after the verdict (ADR-0086).
+  const reconciled = keepReadable(await reconcileDocumentStatuses(rows, session.organizationId), reader)
 
-  const listed = reconciled.map(({ metadata: _metadata, ...row }) => row)
+  const listed = reconciled.map(({ metadata, createdBy: _createdBy, screeningOutcome: _screening, screenedHash: _screened, ...row }) => ({
+    ...row,
+    sourceDeletedAt: sourceDeletedAtOf(metadata),
+  }))
 
   if (!isCollaborationEnabled(session) || listed.length === 0) {
     return listed.map((row) => ({ ...row, assignees: [] }))
@@ -59,9 +84,10 @@ export async function toListedDocuments(
 export async function toListedPage(
   session: AuthorizedSession,
   page: DocumentListPage,
+  reader: ShelfReader,
 ): Promise<{ documents: ListedDocument[]; nextCursor: string | null }> {
   return {
-    documents: await toListedDocuments(session, page.rows),
+    documents: await toListedDocuments(session, page.rows, reader),
     nextCursor: page.nextCursor ? encodeDocumentListCursor(page.nextCursor) : null,
   }
 }

@@ -12,6 +12,7 @@ import { useFilePreviewStore } from '../stores/file-preview-store'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import type { DocumentWireRow } from '../lib/file-item'
 import { handOverDroppedFiles, takeDroppedFiles } from '../lib/dropped-file-handover'
+import { SUGGESTED_SCREENING_POLICY } from '@/lib/upload-screening/policy'
 
 function renderWorkspace(ui: ReactElement) {
   return render(
@@ -539,6 +540,80 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
     expect(moveRequests[0]).toEqual({ documentId: 'doc-eg', folderId: 'folder-for-Plaene' })
   })
 
+  // Ticket 5 (ADR-0086): the plan the reader confirms is settled before
+  // anything goes, a folder's name included.
+  describe('settled before it is applied', () => {
+    const officePolicy = { ...SUGGESTED_SCREENING_POLICY, nameTerms: [...SUGGESTED_SCREENING_POLICY.nameTerms, 'Huber'] }
+    const planChanged = 'The preview has changed. Nothing was uploaded. Please review it and confirm again.'
+
+    it('makes no folder named with a term the admin saved while the dialog was open', async () => {
+      renderWithCorpus([])
+      await dropFolder([pathed('Wohnbau/Huber/Notiz.pdf'), pathed('Wohnbau/New.pdf')])
+      const confirm = await screen.findByTestId('folder-upload-confirm')
+      await waitFor(() => expect(confirm).toBeEnabled())
+
+      server.use(
+        http.get('/api/organization/upload-screening', () =>
+          HttpResponse.json({ policy: officePolicy, suggested: false, suggestion: SUGGESTED_SCREENING_POLICY }),
+        ),
+      )
+      await userEvent.click(confirm)
+
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith(planChanged))
+      expect(ensureRequests).toEqual([])
+      expect(mockUploadFiles).not.toHaveBeenCalled()
+      const dialog = screen.getByTestId('folder-upload-dialog')
+      expect(within(dialog).getByTestId('folder-upload-excluded')).toHaveTextContent('Wohnbau/Huber/Notiz.pdf')
+    })
+
+    it('sends nothing, and says nothing was uploaded, when the office list cannot be read at confirm', async () => {
+      renderWithCorpus([])
+      await dropFolder([pathed('Wohnbau/New.pdf')])
+      const confirm = await screen.findByTestId('folder-upload-confirm')
+      await waitFor(() => expect(confirm).toBeEnabled())
+
+      server.use(http.get('/api/organization/upload-screening', () => HttpResponse.json({}, { status: 500 })))
+      await userEvent.click(confirm)
+
+      await waitFor(() =>
+        expect(toastError).toHaveBeenCalledWith(
+          "Your office's list of sensitive data could not be loaded. Nothing was uploaded. Please try again.",
+        ),
+      )
+      expect(toastSuccess).not.toHaveBeenCalled()
+      expect(ensureRequests).toEqual([])
+      expect(mockUploadFiles).not.toHaveBeenCalled()
+    })
+
+    it('waits for a release probe still in flight, and asks again when the file is a version', async () => {
+      renderWithCorpus([{ ...existing, id: 'doc-lohn', filename: 'Lohnzettel.pdf' }])
+      let answer: () => void = () => undefined
+      const held = new Promise<void>((resolve) => {
+        answer = resolve
+      })
+      server.use(
+        http.post('/api/documents/name-matches', async ({ request }) => {
+          const { names } = (await request.clone().json()) as { names: string[] }
+          // Falls through to the shelf's own handler once answered.
+          if (names.includes('Lohnzettel.pdf')) await held
+        }),
+      )
+      const dialog = await dropFolder([pathed('Akt/Lohnzettel.pdf'), pathed('Akt/New.pdf')])
+      const confirm = await screen.findByTestId('folder-upload-confirm')
+      await waitFor(() => expect(confirm).toBeEnabled())
+
+      await userEvent.click(within(dialog).getByTestId('folder-upload-release'))
+      await userEvent.click(confirm)
+      expect(mockUploadFiles).not.toHaveBeenCalled()
+
+      answer()
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith(planChanged))
+      expect(mockUploadFiles).not.toHaveBeenCalled()
+      expect(ensureRequests).toEqual([])
+      expect(within(dialog).getByTestId('folder-upload-count-update')).toHaveTextContent('1')
+    })
+  })
+
   it('still takes a handful of picked files straight to the upload path', async () => {
     renderWithCorpus()
     const input = screen.getByTestId('project-upload-input') as HTMLInputElement
@@ -728,6 +803,33 @@ describe('ProjectFileWorkspace — a picked file the project already holds', () 
 
     await waitFor(() => expect(toastError).toHaveBeenCalled())
     expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  // Ticket 5: an excluded file is not transferred, not even briefly, and its
+  // name is part of it (ADR-0086).
+  it('never asks the server about a name the office list holds back', async () => {
+    renderWithCorpus()
+    pick(new File(['x'], 'Lohnzettel_Mai_Huber.pdf', { type: 'application/pdf' }))
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(within(dialog).getAllByText(/Lohnzettel_Mai_Huber\.pdf/).length).toBeGreaterThan(0))
+    expect(probedNames).toEqual([])
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  it('sends nothing, not even the name, while the office list cannot be read', async () => {
+    server.use(http.get('/api/organization/upload-screening', () => HttpResponse.json({}, { status: 500 })))
+    renderWithCorpus()
+    pick(new File(['x'], 'Notizen.pdf', { type: 'application/pdf' }))
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        "Your office's list of sensitive data could not be loaded. Nothing was uploaded. Please try again.",
+      ),
+    )
+    expect(probedNames).toEqual([])
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
   })
 })
 

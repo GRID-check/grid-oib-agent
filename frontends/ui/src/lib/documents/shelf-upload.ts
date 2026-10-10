@@ -34,6 +34,7 @@ import { folderReadOnlyError, getProjectFolderAccess } from '@/lib/authz/folder-
 import { assertIfcMayBeFiledIn } from '@/lib/projects/ifc-folder-guard'
 import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
 import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
+import { assertMayReplaceHeld } from '@/lib/upload-screening/quarantine-reviewers'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -52,6 +53,7 @@ import { shelfOwner, type DocumentShelf } from './shelf'
 import type { IngestPriority } from './service'
 import { requireShelfWrite } from './shelf-authz'
 import { shelfCollectionName } from './shelf-collection'
+import type { DispatchDocumentResult } from './service'
 
 /** What an upload names besides the file, on either shelf. */
 export interface ShelfUploadInput {
@@ -88,7 +90,7 @@ export interface UploadDocumentResult {
    * — reporting the `uploaded` birth status would hide that work behind a
    * terminal "Abgelegt" badge for a model that is about to become openable.
    */
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
+  status: DispatchDocumentResult['status']
   filename: string
   /**
    * The bytes were already the live document's, so nothing was written and no
@@ -122,7 +124,14 @@ async function uploadAuditEvent(
   session: AuthorizedSession,
   shelf: DocumentShelf,
   request: Request,
-  event: { documentId: string; filename: string; fileSize: number; collectionName: string; replaced: boolean },
+  event: {
+    documentId: string
+    filename: string
+    fileSize: number
+    collectionName: string
+    folderId: string | null
+    replaced: boolean
+  },
 ): Promise<void> {
   const located =
     shelf.kind === 'project' ? { projectId: shelf.projectId } : { collectionName: event.collectionName }
@@ -132,6 +141,8 @@ async function uploadAuditEvent(
     action: shelf.kind === 'project' ? 'document.uploaded' : 'archiv.document.uploaded',
     targetType: 'document',
     targetId: event.documentId,
+    // A file put under a folder not every member may read is not named (ADR-0087).
+    filedIn: shelf.kind === 'project' ? { projectId: shelf.projectId, folderId: event.folderId } : null,
     // Filename is user-controlled — cap it before it reaches the trail.
     // `replaced` distinguishes a new document from new bytes under an existing
     // id, which is the one thing the trail could no longer infer from the id.
@@ -180,6 +191,7 @@ function placeUpload(session: AuthorizedSession, input: PlaceUploadInput): Promi
     // A re-upload is a new version of the document it supersedes, and files it
     // where this upload goes: a write on the folder it is in now, too (ADR-0088).
     if (superseded && !input.mayWriteFolder(superseded.folderId ?? null)) throw folderReadOnlyError()
+    if (superseded) await assertMayReplaceHeld(session, superseded, filename)
     const documentId = superseded?.id ?? crypto.randomUUID()
     /*
      * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
@@ -505,6 +517,7 @@ export async function uploadToShelf(
     filename,
     fileSize: file.size,
     collectionName,
+    folderId: upload.folderId,
     replaced: placed.replaced,
   })
   await auditScreeningOverride(
@@ -512,6 +525,7 @@ export async function uploadToShelf(
     {
       documentId,
       projectId: shelf.kind === 'project' ? shelf.projectId : null,
+      folderId: upload.folderId,
       filename,
       overridden: upload.screeningOverridden,
     },

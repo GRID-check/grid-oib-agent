@@ -769,7 +769,7 @@
       "type": "object"
     },
     "DocumentGridCard": {
-      "description": "Project/B\u00fcroarchiv files the user asked to see.\n\nSystem-emitted by ``surface_documents``. One file or a short browse\nchoice \u2014 same card, the list length is the difference. Never a\ncatalogue. Citations of exactly one project/B\u00fcro file peek without\nthis card (``useCitationPeek``).",
+      "description": "Project/B\u00fcroablage files the user asked to see.\n\nSystem-emitted by ``surface_documents``. One file or a short browse\nchoice \u2014 same card, the list length is the difference. Never a\ncatalogue. Citations of exactly one project/B\u00fcro file peek without\nthis card (``useCitationPeek``).",
       "properties": {
         "documents": {
           "description": "The surfaced files, best match first",
@@ -2521,7 +2521,7 @@
             }
           ],
           "default": null,
-          "description": "Which corpus it came from: 'projekt' (project) or 'buero' (B\u00fcroarchiv)",
+          "description": "Which corpus it came from: 'projekt' (project) or 'buero' (B\u00fcroablage)",
           "title": "Source"
         },
         "summary": {

@@ -1,5 +1,6 @@
 'use client'
 
+import { SourceDeletedNote } from '@/components/projects/source-deleted-note'
 import type { JSX } from 'react'
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
@@ -298,6 +299,7 @@ export function FileListView({
                       >
                         {documentDisplayName(file)}
                       </span>
+                      {file.sourceDeletedAt && <SourceDeletedNote at={file.sourceDeletedAt} />}
                       {/* The summary earns its line here in a way it cannot on
                           a card: the row is already one line tall, so a second
                           one doubles the information without doubling the

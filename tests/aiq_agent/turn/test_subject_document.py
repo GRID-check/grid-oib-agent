@@ -30,6 +30,7 @@ from aiq_agent.tools.documents.draft_store import DraftBackend
 from aiq_agent.tools.documents.filing import FilingError
 from aiq_agent.turn import subject_document
 from aiq_agent.turn.payload import SubjectVersion
+from aiq_agent.turn.response import answer_message_id
 
 CONVERSATION = "conv-subject-1"
 ORGANIZATION = "org_1"
@@ -65,14 +66,18 @@ def store(monkeypatch: pytest.MonkeyPatch) -> InMemoryStore:
 
 
 @pytest.fixture
-def reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str, str | None]]:
+def reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str, str | None, str | None]]:
     """Every internal read the loader makes, with the body it gets back."""
-    seen: list[tuple[str, str, str, str | None]] = []
+    seen: list[tuple[str, str, str, str | None, str | None]] = []
 
     def _read(
-        version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+        version_id: str,
+        organization_id: str,
+        conversation_id: str,
+        user_id: str | None = None,
+        answer_message_id: str | None = None,
     ) -> dict[str, Any]:
-        seen.append((version_id, organization_id, conversation_id, user_id))
+        seen.append((version_id, organization_id, conversation_id, user_id, answer_message_id))
         return dict(BODY)
 
     monkeypatch.setattr(subject_document, "get_document_version_content", _read)
@@ -125,7 +130,7 @@ class TestAnUnpublishedSubject:
             },
         )
         path = "/entwuerfe/Befund Fluchtwege.md"
-        assert reads == [("ver-9", ORGANIZATION, CONVERSATION, ASKER)]
+        assert reads == [("ver-9", ORGANIZATION, CONVERSATION, ASKER, answer_message_id(CONVERSATION, None))]
         assert _stored(store, path)["content"] == TEXT
 
     async def test_it_is_named_after_the_documents_LABEL_not_its_filename(self, store, reads) -> None:
@@ -238,7 +243,11 @@ class TestWhenTheBytesDoNotArrive:
         self, store, monkeypatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         def _refuse(
-            version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+            version_id: str,
+            organization_id: str,
+            conversation_id: str,
+            user_id: str | None = None,
+            answer_message_id: str | None = None,
         ) -> dict[str, Any]:
             raise FilingError("the document API refused the read (403)", status=403)
 
@@ -251,7 +260,11 @@ class TestWhenTheBytesDoNotArrive:
         self, store, monkeypatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         def _unreachable(
-            version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+            version_id: str,
+            organization_id: str,
+            conversation_id: str,
+            user_id: str | None = None,
+            answer_message_id: str | None = None,
         ) -> dict[str, Any]:
             raise FilingError("the document API could not be reached")
 
@@ -266,7 +279,11 @@ class TestWhenTheBytesDoNotArrive:
 
     async def test_an_unexpected_failure_never_reaches_the_turn(self, store, monkeypatch) -> None:
         def _explode(
-            version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+            version_id: str,
+            organization_id: str,
+            conversation_id: str,
+            user_id: str | None = None,
+            answer_message_id: str | None = None,
         ) -> dict[str, Any]:
             raise RuntimeError("boom")
 
@@ -305,8 +322,9 @@ class TestTheReadIsScopedToTheConversation:
         await _load(OPEN)
 
         # The asker: a subject in a folder not every member may read is
-        # admitted for the conversation against its audience (ADR-0088).
-        assert reads == [("ver-9", ORGANIZATION, CONVERSATION, ASKER)]
+        # admitted for the conversation against its audience (ADR-0088). The
+        # answer the turn writes: marked in that admission (ADR-0093).
+        assert reads == [("ver-9", ORGANIZATION, CONVERSATION, ASKER, answer_message_id(CONVERSATION, None))]
 
     async def test_a_subject_from_a_restricted_folder_confines_the_turn(self, store, monkeypatch) -> None:
         # The BFF admitted and recorded the folder before sending the bytes;
@@ -338,7 +356,11 @@ class TestTheReadIsScopedToTheConversation:
         # subject: a reopened conversation, a subject that moved on. There is
         # nothing to load, the turn is an ordinary one, and nothing is written.
         def _absent(
-            version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+            version_id: str,
+            organization_id: str,
+            conversation_id: str,
+            user_id: str | None = None,
+            answer_message_id: str | None = None,
         ) -> dict[str, Any]:
             raise FilingError("the document API refused the read (404)", status=404)
 

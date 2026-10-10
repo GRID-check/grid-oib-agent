@@ -171,7 +171,7 @@ describe('parseKbLocator', () => {
       page: 3,
       shelf: 'project',
     })
-    expect(parseKbLocator('Plan.pdf (Büroarchiv)')).toEqual({
+    expect(parseKbLocator('Plan.pdf (Büroablage)')).toEqual({
       filename: 'Plan.pdf',
       page: undefined,
       shelf: 'archiv',
@@ -305,7 +305,7 @@ describe('resolveCitationTarget', () => {
 
   describe('a citation names its own shelf', () => {
     // Ordering ("project first") is a tie-break, not an identity. When the
-    // citation CARRIES its shelf, that wins — otherwise a Büroarchiv citation
+    // citation CARRIES its shelf, that wins — otherwise a Büroablage citation
     // opens the project's unrelated file of the same name. The shelf arrives as
     // data (ADR-0047); the collection id is never prefix-matched for it.
     const shelvedDocuments: StoredDocumentRef[] = [
@@ -324,7 +324,7 @@ describe('resolveCitationTarget', () => {
 
     test("a LEGACY key's qualifier resolves it too, with no shelf on the wire", () => {
       const target = targetFor(
-        { url: '', content: '[KB] Plan.pdf (Büroarchiv), p.2' },
+        { url: '', content: '[KB] Plan.pdf (Büroablage), p.2' },
         shelvedDocuments
       )
 

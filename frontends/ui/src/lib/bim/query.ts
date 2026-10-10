@@ -24,6 +24,7 @@ import { likeContains } from '@/lib/text/like-pattern'
 import { z } from 'zod'
 import { ApiError } from '@/lib/api/errors'
 import { bimElements } from '@/lib/db/schema'
+import { internalRead } from '@/lib/documents/document-reader'
 import {
   aggregateBimElements,
   countBimElementsByType,
@@ -1019,7 +1020,9 @@ export async function runBimQuery(
   request: BimQuery,
   context: { modelId: string; organizationId: string }
 ): Promise<BimQueryResult> {
-  const model = await findBimModelById(context.modelId, context.organizationId)
+  // Every model id here was resolved through its reader's rule by the caller
+  // (`getAccessibleModel`, `resolveInternalModel`), base models included.
+  const model = await findBimModelById(context.modelId, context.organizationId, internalRead('reloaded'))
   if (!model) throw new BimModelNotReadyError('failed', 'Model not found')
   if (model.status !== 'ready') {
     throw new BimModelNotReadyError(
@@ -1196,7 +1199,7 @@ export async function runBimQuery(
       if (!request.baseModelId) {
         throw new BimModelNotReadyError('failed', 'compliance-diff requires a base model')
       }
-      const base = await findBimModelById(request.baseModelId, context.organizationId)
+      const base = await findBimModelById(request.baseModelId, context.organizationId, internalRead('reloaded'))
       if (!base || base.status !== 'ready') {
         throw new BimModelNotReadyError(base?.status ?? 'failed', 'Base model is not ready')
       }
@@ -1252,7 +1255,7 @@ export async function runBimQuery(
       if (!request.baseModelId) {
         throw new BimModelNotReadyError('failed', 'No model to compare against was resolved')
       }
-      const baseModel = await findBimModelById(request.baseModelId, context.organizationId)
+      const baseModel = await findBimModelById(request.baseModelId, context.organizationId, internalRead('reloaded'))
       if (!baseModel || baseModel.status !== 'ready') {
         throw new BimModelNotReadyError(
           baseModel?.status ?? 'failed',

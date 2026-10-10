@@ -225,7 +225,7 @@ describe('exportAccessibleComplianceBcf', () => {
     const bcf = await byName('Haus-A_V3.ifc')
     const markup = [...readZipEntries(bcf.bytes).entries()].find(([p]) => p.endsWith('markup.bcf'))?.[1] ?? ''
 
-    expect(listBimCheckConfirmations).toHaveBeenCalledWith('org-1', 'proj-1')
+    expect(listBimCheckConfirmations).toHaveBeenCalledWith('org-1', 'proj-1', expect.objectContaining({ kind: 'shelves' }))
     expect(markup).toContain('TopicStatus="Closed"')
     expect(markup).toContain('Gutachten liegt vor')
   })

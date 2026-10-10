@@ -11,13 +11,18 @@
  * a batch completes only once it is sealed and nothing of it is in flight, it
  * completes ONCE however often it is settled (the inbox item it triggers must
  * go out once), another organization cannot see it, and a release takes only
- * for the exact bytes the reviewer saw.
+ * for the exact bytes the reviewer saw. And the content gate's decisions
+ * (migration 0119): a status write lands only on the dispatch it resolved,
+ * records one decision per dispatch, and the decision stays owed to the audit
+ * trail, outliving its document, until it is marked once; then the retention
+ * sweep, and only it, deletes it.
  */
 
 import { sql } from 'drizzle-orm'
 import type { Document } from '@/lib/db/schema'
 import type { QuarantineCursor } from '@/lib/documents/repository'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { REVIEWER_READER, internalRead } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 
@@ -30,22 +35,29 @@ const BATCH = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a01'
 describe.skipIf(!url)('upload batches against Postgres', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
+  let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
   let repo: typeof import('./repository')
   let documentsRepo: typeof import('@/lib/documents/repository')
+  let decisionsRepo: typeof import('@/lib/upload-screening/repository')
   let projectId: string
 
   const inTenant = <T>(organizationId: string, run: () => Promise<T>): Promise<T> =>
     withTenant({ organizationId, userId: USER }, run)
 
-  async function insertDocument(filename: string, status: string, extra: { hash?: string } = {}): Promise<string> {
+  async function insertDocument(
+    filename: string,
+    status: string,
+    extra: { hash?: string; batch?: string; folderId?: string | null; jobId?: string } = {}
+  ): Promise<string> {
+    const metadata = extra.jobId ? JSON.stringify({ ingestJobId: extra.jobId }) : null
     const rows = await inTenant(ORG, () =>
       db.execute<{ id: string }>(sql`
         INSERT INTO documents
           (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id,
-           upload_batch_id, content_hash)
+           upload_batch_id, content_hash, folder_id, metadata)
         VALUES
           (${ORG}, ${USER}, ${filename}, ${`k/${filename}`}, 'coll_uploads', ${status}, 'project', ${projectId}::uuid,
-           ${BATCH}::uuid, ${extra.hash ?? null})
+           ${extra.batch ?? BATCH}::uuid, ${extra.hash ?? null}, ${extra.folderId ?? null}::uuid, ${metadata}::jsonb)
         RETURNING id
       `)
     )
@@ -56,9 +68,11 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     process.env.GRID_APP_DATABASE_URL = url
     const context = await import('@/lib/db/tenant-context')
     withTenant = context.withTenant
+    withPlatformAccess = context.withPlatformAccess
     db = (await import('@/lib/db')).getDb()
     repo = await import('./repository')
     documentsRepo = await import('@/lib/documents/repository')
+    decisionsRepo = await import('@/lib/upload-screening/repository')
     const rows = await inTenant(ORG, () =>
       db.execute<{ id: string }>(sql`
         INSERT INTO projects (organization_id, name, created_by, collection_name)
@@ -102,13 +116,164 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     expect(await repo.sealUploadBatch(ORG, BATCH, USER, { unchanged: 1, failed: 0 }, new Date())).toBe(false)
     expect(await repo.completeSettledBatches(ORG, [BATCH], new Date())).toEqual([])
 
-    await documentsRepo.setDocumentReconciledStatus(reading, ORG, { status: 'quarantined', errorMessage: 'quarantined:{}' })
+    const quarantine = { status: 'quarantined', errorMessage: 'quarantined:{}' }
+    const seen = { status: 'pending', jobId: null }
+    expect(await documentsRepo.setDocumentReconciledStatus(reading, ORG, quarantine, seen)).toBe(true)
+    // A second read that saw the same `pending` lost the race: it moves
+    // nothing, so it settles nothing and the quarantine is audited once.
+    expect(await documentsRepo.setDocumentReconciledStatus(reading, ORG, quarantine, seen)).toBe(false)
     const completed = await repo.completeSettledBatches(ORG, [BATCH], new Date())
     expect(completed.map((batch) => batch.id)).toEqual([BATCH])
     expect(completed[0]?.excluded).toEqual([{ term: 'Rechnung', count: 1 }])
 
     expect(await repo.completeSettledBatches(ORG, [BATCH], new Date())).toEqual([])
     expect(await repo.batchIdsOfDocuments(ORG, [reading])).toEqual([BATCH])
+  })
+
+  it('settles a quarantine only on the dispatch it resolved, and records one decision per dispatch', async () => {
+    const verdict = 'quarantined:' + JSON.stringify({ reasons: [{ kind: 'term', term: 'Lohnzettel' }], checked: 'full' })
+    const quarantine = { status: 'quarantined', errorMessage: verdict, screeningOutcome: 'quarantined' as const }
+    const id = await insertDocument('lohn.pdf', 'pending', { jobId: 'job-1' })
+    const settle = (jobId: string) =>
+      documentsRepo.setDocumentReconciledStatus(id, ORG, quarantine, { status: 'pending', jobId })
+    const decisions = async () =>
+      Array.from(
+        await inTenant(ORG, () =>
+          db.execute<{
+            job_id: string
+            reasons: string
+            checked: string
+            filename: string
+            uploaded_by: string
+            folder_id: string | null
+          }>(sql`
+            SELECT job_id, reasons, checked, filename, uploaded_by, folder_id FROM document_quarantine_decisions
+            WHERE document_id = ${id}::uuid ORDER BY decided_at, job_id
+          `)
+        )
+      )
+
+    // A read that resolved another dispatch moves nothing.
+    expect(await settle('job-0')).toBe(false)
+    expect(await settle('job-1')).toBe(true)
+    expect(await decisions()).toEqual([
+      { job_id: 'job-1', reasons: 'term:Lohnzettel', checked: 'full', filename: 'lohn.pdf', uploaded_by: USER, folder_id: null },
+    ])
+
+    // A reviewer releases it: back in flight under a new job. A read that saw
+    // the row in flight before and resolved job-1 must not land on job-2's
+    // dispatch, though the status it saw is the row's status again. Through
+    // the release and the dispatch after it, the one way out of quarantine
+    // (migration 0122).
+    await inTenant(ORG, () => db.execute(sql`UPDATE documents SET content_hash = 'sha256:lohn' WHERE id = ${id}::uuid`))
+    expect(
+      await documentsRepo.markScreeningReleased(id, ORG, {
+        contentHash: 'sha256:lohn',
+        releasedBy: USER,
+        releasedAt: new Date(),
+      })
+    ).toBe(true)
+    expect(await documentsRepo.setDocumentIngestJob(id, ORG, 'job-2')).toBe(true)
+    expect(await settle('job-1')).toBe(false)
+    expect(await decisions()).toHaveLength(1)
+
+    // job-2 quarantines it again: a second decision, a second row.
+    expect(await settle('job-2')).toBe(true)
+    expect((await decisions()).map((row) => row.job_id)).toEqual(['job-1', 'job-2'])
+  })
+
+  it('keeps a decision owed until it is marked audited, once, and never rewritten', async () => {
+    const verdict = 'quarantined:' + JSON.stringify({ reasons: [{ kind: 'iban' }] })
+    const id = await insertDocument('konto.pdf', 'pending', { jobId: 'job-owed' })
+    const resolution = { status: 'quarantined', errorMessage: verdict }
+    await documentsRepo.setDocumentReconciledStatus(id, ORG, resolution, { status: 'pending', jobId: 'job-owed' })
+
+    const [owed] = await decisionsRepo.listOwedQuarantineDecisions(ORG, [id])
+    expect(owed).toMatchObject({ documentId: id, jobId: 'job-owed', reasons: 'iban', auditedAt: null })
+    expect(await decisionsRepo.listOwedQuarantineDecisions(OTHER_ORG, [id])).toEqual([])
+    // The sweep's discovery, across organizations.
+    const found = await withPlatformAccess('test: the quarantine audit sweep', () =>
+      decisionsRepo.listOwedQuarantineDecisionsBetween(new Date(Date.now() - 60_000), new Date(Date.now() + 60_000), 50)
+    )
+    expect(found.map((row) => row.id)).toContain(owed.id)
+
+    // The document goes; the decision it was stays owed.
+    await inTenant(ORG, () => db.execute(sql`DELETE FROM documents WHERE id = ${id}::uuid`))
+    expect(await decisionsRepo.listOwedQuarantineDecisions(ORG, [id])).toHaveLength(1)
+
+    expect(await decisionsRepo.markQuarantineDecisionAudited(OTHER_ORG, owed.id, new Date())).toBe(false)
+    expect(await decisionsRepo.markQuarantineDecisionAudited(ORG, owed.id, new Date())).toBe(true)
+    expect(await decisionsRepo.markQuarantineDecisionAudited(ORG, owed.id, new Date())).toBe(false)
+    expect(await decisionsRepo.listOwedQuarantineDecisions(ORG, [id])).toEqual([])
+
+    await expect(
+      inTenant(ORG, () => db.execute(sql`UPDATE document_quarantine_decisions SET reasons = 'x' WHERE id = ${owed.id}::uuid`))
+    ).rejects.toThrow()
+    await expect(
+      inTenant(ORG, () => db.execute(sql`DELETE FROM document_quarantine_decisions WHERE id = ${owed.id}::uuid`))
+    ).rejects.toThrow()
+  })
+
+  // Retention (0118): a decision holds the file's name, the uploader and the
+  // matched terms, and is kept only to reach the trail.
+  it('deletes the spent decisions, on the platform role only, and keeps what is still owed', async () => {
+    const decide = async (label: string, decidedAt: string, auditedAt: string | null): Promise<string> => {
+      const rows = await inTenant(ORG, () =>
+        db.execute<{ id: string }>(sql`
+          INSERT INTO document_quarantine_decisions
+            (organization_id, document_id, job_id, decided_at, scope, project_id, filename, uploaded_by, audited_at)
+          VALUES
+            (${ORG}, gen_random_uuid(), ${label}, ${decidedAt}::timestamptz, 'project', ${projectId}::uuid,
+             ${`${label}.pdf`}, ${USER}, ${auditedAt}::timestamptz)
+          RETURNING id
+        `)
+      )
+      return String(Array.from(rows)[0]?.id)
+    }
+    const now = Date.now()
+    const ago = (days: number) => new Date(now - days * 24 * 60 * 60_000).toISOString()
+    const owed = await decide('owed', ago(1), null)
+    const audited = await decide('audited', ago(0), ago(0))
+    const expired = await decide('expired', ago(8), null)
+    const window = new Date(now - 7 * 24 * 60 * 60_000)
+    const remaining = async () =>
+      Array.from(
+        await inTenant(ORG, () =>
+          db.execute<{ id: string }>(sql`
+            SELECT id FROM document_quarantine_decisions
+            WHERE id IN (${sql.join([owed, audited, expired].map((id) => sql`${id}::uuid`), sql`, `)})
+          `)
+        )
+      ).map((row) => String(row.id))
+
+    // A tenant session never deletes one, spent or not.
+    await expect(inTenant(ORG, () => decisionsRepo.deleteSpentQuarantineDecisions(window, 500))).rejects.toThrow()
+    expect((await remaining()).sort()).toEqual([owed, audited, expired].sort())
+
+    const deleted = await withPlatformAccess('test: the quarantine decisions retention', () =>
+      decisionsRepo.deleteSpentQuarantineDecisions(window, 500)
+    )
+    expect(deleted).toBeGreaterThanOrEqual(2)
+    expect(await remaining()).toEqual([owed])
+  })
+
+  it('reopens a completion its uploader was not told of, and only the one it wrote', async () => {
+    const batch = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a03'
+    await repo.insertUploadBatch({ id: batch, organizationId: ORG, createdBy: USER, scope: 'project', projectId, expectedCount: 1 })
+    await insertDocument('reopen.pdf', 'completed', { batch })
+    expect(await repo.sealUploadBatch(ORG, batch, USER, { unchanged: 0, failed: 0 }, new Date())).toBe(true)
+    const completedAt = new Date()
+    expect((await repo.completeSettledBatches(ORG, [batch], completedAt)).map((row) => row.id)).toEqual([batch])
+
+    // Another organization, or another completion time, reopens nothing.
+    await repo.reopenCompletedBatches(OTHER_ORG, [batch], completedAt)
+    await repo.reopenCompletedBatches(ORG, [batch], new Date(completedAt.getTime() + 1))
+    expect((await repo.findUploadBatch(ORG, batch))?.completedAt).not.toBeNull()
+
+    await repo.reopenCompletedBatches(ORG, [batch], completedAt)
+    expect((await repo.findUploadBatch(ORG, batch))?.completedAt).toBeNull()
+    // Open again, so the next settle completes it and tells the uploader.
+    expect((await repo.completeSettledBatches(ORG, [batch], new Date())).map((row) => row.id)).toEqual([batch])
   })
 
   it("tells when a job's batch last took a file in, and seals it announcing what it took", async () => {
@@ -163,7 +328,7 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     // No longer quarantined, so a second release takes nothing.
     expect(await release('sha256:seen')).toBe(false)
 
-    const row = await documentsRepo.findDocumentInOrg(id, ORG)
+    const row = await documentsRepo.findDocumentInOrg(id, ORG, internalRead('ingest'))
     expect(row).toMatchObject({
       status: 'uploaded',
       screeningOutcome: 'released',
@@ -207,5 +372,99 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
 
     expect([...seen].sort()).toEqual([...ids].sort())
     expect(seen[2]).toBe(ids[2])
+  })
+
+  it('records the folder a quarantined document was filed in, so the trail can withhold its name', async () => {
+    const folders = await inTenant(ORG, () =>
+      db.execute<{ id: string }>(sql`
+        INSERT INTO project_folders (organization_id, project_id, name, path)
+        VALUES (${ORG}, ${projectId}::uuid, 'Personal Quarantäne', 'Personal Quarantäne')
+        RETURNING id
+      `)
+    )
+    const folderId = String(Array.from(folders)[0]?.id)
+    const id = await insertDocument('gehalt.pdf', 'pending', { jobId: 'job-f', folderId })
+
+    const quarantine = { status: 'quarantined', errorMessage: 'quarantined:{}' }
+    expect(await documentsRepo.setDocumentReconciledStatus(id, ORG, quarantine, { status: 'pending', jobId: 'job-f' })).toBe(true)
+
+    const rows = await inTenant(ORG, () =>
+      db.execute<{ folder_id: string | null }>(sql`
+        SELECT folder_id FROM document_quarantine_decisions WHERE document_id = ${id}::uuid
+      `)
+    )
+    expect(Array.from(rows)).toEqual([{ folder_id: folderId }])
+  })
+
+  it("leaves a batch's documents in a hidden folder uncounted, with the listing's own predicate", async () => {
+    const batch = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a04'
+    await repo.insertUploadBatch({ id: batch, organizationId: ORG, createdBy: USER, scope: 'project', projectId, expectedCount: 3 })
+    const folders = await inTenant(ORG, () =>
+      db.execute<{ id: string }>(sql`
+        INSERT INTO project_folders (organization_id, project_id, name, path)
+        VALUES (${ORG}, ${projectId}::uuid, 'Honorare', 'Honorare')
+        RETURNING id
+      `)
+    )
+    const folderId = String(Array.from(folders)[0]?.id)
+    await insertDocument('root.pdf', 'completed', { batch })
+    await insertDocument('honorar-1.pdf', 'completed', { batch, folderId })
+    await insertDocument('honorar-2.pdf', 'quarantined', { batch, folderId })
+
+    const byStatus = (rows: Awaited<ReturnType<typeof repo.countBatchDocumentsByStatus>>) =>
+      Object.fromEntries(rows.map((row) => [row.status, row.count]))
+
+    expect(byStatus(await repo.countBatchDocumentsByStatus(ORG, [batch], { reader: REVIEWER_READER }))).toEqual({ completed: 2, quarantined: 1 })
+    expect(byStatus(await repo.countBatchDocumentsByStatus(ORG, [batch], { hiddenFolderIds: [folderId], reader: REVIEWER_READER }))).toEqual({
+      completed: 1,
+    })
+  })
+
+  it("pages a project's whole history newest first, ties broken by id, each upload once", async () => {
+    const rows = await inTenant(ORG, () =>
+      db.execute<{ id: string }>(sql`
+        INSERT INTO projects (organization_id, name, created_by, collection_name)
+        VALUES (${ORG}, 'Many uploads', ${USER}, 'coll_many_uploads')
+        RETURNING id
+      `)
+    )
+    const many = String(Array.from(rows)[0]?.id)
+    const total = repo.UPLOAD_HISTORY_LIMIT + 7
+    // One minute apart, except that the last upload of the first page and the
+    // first of the second share one timestamp: the tie a plain `created_at <`
+    // cursor would skip across the page boundary.
+    await inTenant(ORG, () =>
+      db.execute(sql`
+        INSERT INTO upload_batches (id, organization_id, created_by, scope, project_id, expected_count, created_at)
+        SELECT gen_random_uuid(), ${ORG}, ${USER}, 'project', ${many}::uuid, 1,
+               timestamptz '2026-10-01T12:00:00.123Z' - make_interval(mins => n - CASE WHEN n = ${repo.UPLOAD_HISTORY_LIMIT} THEN 1 ELSE 0 END)
+        FROM generate_series(0, ${total - 1}) AS n
+      `)
+    )
+
+    const seen: string[] = []
+    let cursor: Awaited<ReturnType<typeof repo.listProjectUploadBatchPage>>['nextCursor'] = null
+    let pages = 0
+    do {
+      const page: Awaited<ReturnType<typeof repo.listProjectUploadBatchPage>> = await repo.listProjectUploadBatchPage(
+        ORG,
+        many,
+        cursor ? { cursor } : {}
+      )
+      expect(page.batches.length).toBeLessThanOrEqual(repo.UPLOAD_HISTORY_LIMIT)
+      seen.push(...page.batches.map((batch) => batch.id))
+      cursor = page.nextCursor
+      pages += 1
+    } while (cursor && pages < 10)
+
+    expect(pages).toBe(2)
+    expect(seen).toHaveLength(total)
+    expect(new Set(seen).size).toBe(total)
+    const ordered = await inTenant(ORG, () =>
+      db.execute<{ id: string }>(sql`
+        SELECT id FROM upload_batches WHERE project_id = ${many}::uuid ORDER BY created_at DESC, id ASC
+      `)
+    )
+    expect(seen).toEqual(Array.from(ordered).map((row) => String(row.id)))
   })
 })

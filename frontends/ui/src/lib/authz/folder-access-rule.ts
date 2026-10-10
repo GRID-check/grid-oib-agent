@@ -10,35 +10,54 @@
 
 import { ForbiddenError } from '@/lib/api/errors'
 
-/** The reserved role slug of a grant to every member of the project. */
-export const EVERY_PROJECT_MEMBER = '*'
-
-/** What a grant lets a role do: read, or read and write. */
+/** What a folder role lets a person do: read (`folder-reader`), or read and write (`folder-editor`). */
 export type FolderGrantLevel = 'read' | 'write'
 
 /** What someone may do in a folder. */
 export type FolderLevel = 'none' | FolderGrantLevel
 
-/** One entry of a folder's own access list. */
-export interface FolderGrant {
-  role: string
-  level: FolderGrantLevel
-}
+/**
+ * Who sees what was derived from a folder once its purge has run, by the
+ * organization's „Inhalte aus gelöschten Ordnern" setting:
+ *
+ * - `unchanged` (default): whoever could read the folder, by its kept grants;
+ * - `project`: every project member;
+ * - `admins`: organization admins only;
+ * - `remove`: the purge removed it with the folder; anything that
+ *   survived is for admins only.
+ */
+export const DELETED_FOLDER_CONTENT_POLICIES = ['unchanged', 'project', 'admins', 'remove'] as const
+export type DeletedFolderContentPolicy = (typeof DELETED_FOLDER_CONTENT_POLICIES)[number]
 
 /** What the decision needs of a folder. */
 export interface AccessFolder {
   id: string
   parentId: string | null
   accessMode: 'inherit' | 'custom'
-  /** The folder's own list; read only when `accessMode` is `custom`. */
-  grants: readonly FolderGrant[]
-  /** A deleted folder's tombstone: hidden everywhere, still answered for. */
+  /**
+   * Every project member reads it, and the list decides only who may write.
+   * Read only when `accessMode` is `custom`. Who holds the folder's roles is
+   * WorkOS's (ADR-0097); this flag is the one part of a list that names no
+   * person, so it stays with the folder.
+   */
+  everyoneReads: boolean
+  /** Deleted: in the Papierkorb or a tombstone. Hidden everywhere, and so is what is filed in it; still answered for. */
   deleted?: boolean
+  /** When the purge ran: a permanent tombstone. Unset for a living folder and one in the bin. */
+  purgedAt?: Date | null
+  /** The organization's setting for content derived from a purged folder; read only with `purgedAt`. */
+  purgedContent?: DeletedFolderContentPolicy
 }
 
-/** Who is asking, reduced to what the grants are matched against. */
+/**
+ * Who is asking, reduced to what the folder lists are matched against: the
+ * level the person holds on each folder with its own list, by the folder roles
+ * WorkOS has assigned them there (ADR-0097). A folder absent from `levels` is
+ * one they hold no role on.
+ */
 export interface FolderClearance {
-  roles: readonly string[]
+  /** Folder id → the level their folder role gives. */
+  levels: Readonly<Record<string, FolderGrantLevel>>
   /** `org:projects:administer`: every folder, written. */
   seesEverything: boolean
 }
@@ -59,14 +78,10 @@ export function atLeast(level: FolderLevel, needed: FolderGrantLevel): boolean {
   return RANK[level] >= RANK[needed]
 }
 
-/** What one folder's own list grants a clearance: the best entry naming one of its roles, or `*`. */
-export function listLevel(grants: readonly FolderGrant[], clearance: FolderClearance): FolderLevel {
-  const held = new Set(clearance.roles)
-  let level: FolderLevel = 'none'
-  for (const grant of grants) {
-    if (grant.role === EVERY_PROJECT_MEMBER || held.has(grant.role)) level = higher(level, grant.level)
-  }
-  return level
+/** What one folder's own list grants a clearance: the folder role they hold on it, and read when everyone reads. */
+export function listLevel(folder: AccessFolder, clearance: FolderClearance): FolderLevel {
+  const held: FolderLevel = clearance.levels[folder.id] ?? 'none'
+  return folder.everyoneReads ? higher(held, 'read') : held
 }
 
 /** The folder tree keyed by id, for the walks below. */
@@ -85,12 +100,22 @@ export function folderTree(folders: readonly AccessFolder[]): FolderTree {
  * everywhere the folder exists. A folder this tree does not know, or a path
  * that breaks off (a parent the tree does not hold), is `none`: the safe
  * direction for a row that names it. A deleted folder's tombstone answers like
- * a living folder, from its stored parent and grants.
+ * a living folder, from its stored parent and grants, until it is purged: then
+ * the organization's {@link DeletedFolderContentPolicy} decides (`unchanged`
+ * keeps the grants, `project` lets every member read, `admins` and `remove`
+ * leave it to organization admins). A purged folder's WorkOS resource is kept
+ * for exactly that reason.
  */
 export function effectiveFolderLevel(tree: FolderTree, clearance: FolderClearance, folderId: string | null): FolderLevel {
   if (folderId === null) return 'write'
-  if (!tree.has(folderId)) return 'none'
+  const target = tree.get(folderId)
+  if (!target) return 'none'
   if (clearance.seesEverything) return 'write'
+  // A purged folder's derived content follows the organization's setting
+  // (ADR-0088); `unchanged` reads the kept grants below.
+  const purgedPolicy = target.purgedAt ? (target.purgedContent ?? 'unchanged') : 'unchanged'
+  if (purgedPolicy === 'project') return 'read'
+  if (purgedPolicy === 'admins' || purgedPolicy === 'remove') return 'none'
   let level: FolderLevel = 'write'
   // A cycle cannot exist (the parent FK is acyclic by construction), but the
   // guard keeps a corrupt row from hanging a request.
@@ -98,7 +123,7 @@ export function effectiveFolderLevel(tree: FolderTree, clearance: FolderClearanc
   for (let current = tree.get(folderId); current; ) {
     if (seen.has(current.id)) return 'none'
     seen.add(current.id)
-    if (current.accessMode === 'custom') level = lower(level, listLevel(current.grants, clearance))
+    if (current.accessMode === 'custom') level = lower(level, listLevel(current, clearance))
     if (level === 'none' || current.parentId === null) return level
     const parent = tree.get(current.parentId)
     if (!parent) return 'none'
@@ -133,35 +158,20 @@ export function withProjectCeiling(level: FolderLevel, projectMayWrite: boolean)
   return level === 'write' && !projectMayWrite ? 'read' : level
 }
 
-/** Whether a folder's own list leaves some project member unable to read it: `custom` without `*`. */
+/** Whether a folder's own list leaves some project member unable to read it: `custom`, and not everyone reads. */
 export function restrictsReading(folder: AccessFolder): boolean {
-  return folder.accessMode === 'custom' && !folder.grants.some((grant) => grant.role === EVERY_PROJECT_MEMBER)
+  return folder.accessMode === 'custom' && !folder.everyoneReads
 }
 
-/** Someone who holds no role and is not an admin: what every project member can do. */
-export const ANY_MEMBER: FolderClearance = { roles: [], seesEverything: false }
+/** Someone who holds no folder role and is not an admin: what every project member can do. */
+export const ANY_MEMBER: FolderClearance = { levels: {}, seesEverything: false }
+
+/** Whoever asks, cleared for everything: for the writers that place a document rather than read as someone. */
+export const EVERY_FOLDER: FolderClearance = { levels: {}, seesEverything: true }
 
 /** Whether every member of the project can read `folderId` (a tombstone included). False for an unknown id. */
 export function readableByEveryMember(tree: FolderTree, folderId: string): boolean {
   return atLeast(effectiveFolderLevel(tree, ANY_MEMBER, folderId), 'read')
-}
-
-/**
- * The living folders whose own list names no role that exists and not `*`:
- * the list matches nobody, so only organization admins read them (the rule
- * above gives a non-admin `none`). What is left of a folder when the role it
- * named is deleted in WorkOS; the project settings flag it so someone sets a
- * role again. A rename keeps the slug and so never lands a folder here.
- */
-export function foldersWithoutValidRole(folders: readonly AccessFolder[], existingRoles: ReadonlySet<string>): string[] {
-  return folders
-    .filter(
-      (folder) =>
-        !folder.deleted &&
-        folder.accessMode === 'custom' &&
-        !folder.grants.some((grant) => grant.role === EVERY_PROJECT_MEMBER || existingRoles.has(grant.role))
-    )
-    .map((folder) => folder.id)
 }
 
 /** The folders on `folderId`'s path, itself first, that restrict reading. Empty for the root or an unknown id. */
@@ -178,7 +188,7 @@ export function readRestrictingFoldersOnPath(tree: FolderTree, folderId: string 
 
 /**
  * Whether `folderId`, or an ancestor, has its own access list, whatever it
- * grants (`custom`, with or without `*`). The test the download log applies to
+ * grants (`custom`, whether or not everyone reads). The test the download log applies to
  * an OPEN: such a folder is one an office chose to treat apart. False for the
  * project root and for an id the tree does not hold.
  */
@@ -193,7 +203,10 @@ export function isUnderOwnList(tree: FolderTree, folderId: string | null): boole
 }
 
 export interface ProjectFolderAccess {
-  /** Living folders this clearance may not read: not listed, and nothing below them either. */
+  /**
+   * Folders this clearance may not read, and every deleted folder (in the
+   * Papierkorb or a tombstone): not listed, and nothing filed in them is either.
+   */
   readonly hiddenFolderIds: ReadonlySet<string>
   /** Whether a document filed in `folderId` (null: the project root) may be read. A tombstone never is. */
   isVisible(folderId: string | null): boolean
@@ -205,7 +218,7 @@ export interface ProjectFolderAccess {
   sourceFolderOf(collection: string): string | null
   /** The restricted collections this clearance may read: what its chat turns may search. */
   readonly clearedRestrictedCollections: readonly string[]
-  /** Whether any living folder of the project has its own list; false is the fast path. */
+  /** Whether a folder hides rows from someone: a living one with its own list, or one in the bin. False is the fast path. */
   readonly anyRestricted: boolean
 }
 
@@ -239,7 +252,7 @@ export function restrictedCollectionBase(collection: string): string | null {
 
 /** The open answer: no folder has its own list, so every folder is what the project makes it. */
 export const OPEN_ACCESS = (projectCollection: string, tree: FolderTree = new Map()): ProjectFolderAccess => ({
-  hiddenFolderIds: new Set(),
+  hiddenFolderIds: new Set([...tree.values()].filter((folder) => folder.deleted).map((folder) => folder.id)),
   isVisible: (folderId) => folderId === null || tree.size === 0 || (tree.has(folderId) && !tree.get(folderId)?.deleted),
   levelOf: (folderId) => (folderId === null || tree.size === 0 || tree.has(folderId) ? 'write' : 'none'),
   collectionFor: () => projectCollection,
@@ -256,12 +269,16 @@ export function computeFolderAccess(
 ): ProjectFolderAccess {
   const tree = folderTree(folders)
   const living = folders.filter((folder) => !folder.deleted)
-  if (!folders.some((folder) => folder.accessMode === 'custom')) return OPEN_ACCESS(projectCollection, tree)
+  if (!folders.some((folder) => folder.accessMode === 'custom' || folder.deleted)) return OPEN_ACCESS(projectCollection, tree)
   const levels = new Map(folders.map((folder) => [folder.id, effectiveFolderLevel(tree, clearance, folder.id)]))
   const levelOf = (folderId: string | null): FolderLevel =>
     folderId === null ? 'write' : (levels.get(folderId) ?? 'none')
 
-  const hidden = new Set(living.filter((folder) => !atLeast(levelOf(folder.id), 'read')).map((folder) => folder.id))
+  // A deleted folder hides what is filed in it from everyone, admins included:
+  // the Papierkorb is the one place it is seen.
+  const hidden = new Set(
+    folders.filter((folder) => folder.deleted || !atLeast(levelOf(folder.id), 'read')).map((folder) => folder.id)
+  )
   const nearestRestricting = new Map(living.map((folder) => [folder.id, readRestrictingFoldersOnPath(tree, folder.id)[0] ?? null]))
   const restricting = living.filter(restrictsReading)
   const bySourceCollection = new Map(
@@ -283,8 +300,19 @@ export function computeFolderAccess(
     clearedRestrictedCollections: restricting
       .filter((folder) => atLeast(levelOf(folder.id), 'read'))
       .map((folder) => restrictedCollectionName(projectCollection, folder.id)),
-    anyRestricted: living.some((folder) => folder.accessMode === 'custom'),
+    anyRestricted: living.some((folder) => folder.accessMode === 'custom') || folders.some((folder) => folder.deleted && !folder.purgedAt),
   }
+}
+
+/**
+ * The folders `access` hides because its clearance may not read them, tombstones
+ * included, as against the ones hidden from everyone only because they are in
+ * the Papierkorb ({@link ProjectFolderAccess.hiddenFolderIds} holds both). A
+ * reader who may read a binned folder learns nothing about it from a count that
+ * includes its files; one who may not would. Empty for an organization admin.
+ */
+export function unreadableFolderIds(access: ProjectFolderAccess): string[] {
+  return [...access.hiddenFolderIds].filter((folderId) => !atLeast(access.levelOf(folderId), 'read'))
 }
 
 /** The machine-readable reason a move is refused because the subtree holds a folder the mover cannot read. */

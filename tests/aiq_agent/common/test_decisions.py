@@ -281,3 +281,45 @@ class TestTheCostIsOnTheLedger:
         # internal endpoint refuse the whole batch. Read from the BFF schema.
         assert kwargs["cost_source"] == "usage_field"
         assert kwargs["cost_source"] in _bff_cost_sources()
+
+
+class TestLangfuseSeesEveryDecision:
+    """ADR-0089: a decision is a model call, so a generation; numbers, never the state."""
+
+    @pytest.fixture
+    def spans(self, monkeypatch):
+        seen: list[tuple[str, dict, dict]] = []
+        monkeypatch.setattr(
+            "aiq_agent.observability.decision_trace.emit_decision_span",
+            lambda slot, body_in, body_out: seen.append((slot, body_in, body_out)),
+        )
+        return seen
+
+    async def test_a_decision_is_one_observation_with_answers_usage_and_no_state(self, spans):
+        await decide({"message": "Wie haben wir die Traufe gelöst?"}, QUESTIONS, slot="turn", transport=_transport(_ok))
+
+        [(slot, body_in, body_out)] = spans
+        assert slot == "turn"
+        assert body_in == {"questions": ["needs_evidence", "corpus", "urgency"], "states": 1}
+        assert body_out["answers"][0]["needs_evidence"] == 0.93
+        assert body_out["model"] == "typesafe/jev-1.13-20260917"
+        assert body_out["usage"] == {
+            "prompt_tokens": 476,
+            "completion_tokens": 70,
+            "total_tokens": 546,
+            "cost": 0.00002,
+        }
+        assert "Traufe" not in json.dumps([body_in, body_out], ensure_ascii=False)
+
+    async def test_a_batch_is_one_observation_summed_over_its_states(self, spans):
+        await decide_many(["a", "b"], QUESTIONS, slot="reference_fit", transport=_transport(_ok))
+
+        [(slot, body_in, body_out)] = spans
+        assert slot == "reference_fit" and body_in["states"] == 2 and body_out["decided"] == 2
+        assert body_out["usage"]["prompt_tokens"] == 952 and body_out["usage"]["cost"] == pytest.approx(0.00004)
+
+    async def test_a_decision_that_did_not_run_says_why(self, spans):
+        await decide("s", QUESTIONS, slot="turn", transport=_transport(lambda request: httpx.Response(500)))
+
+        [(slot, _, body_out)] = spans
+        assert slot == "turn" and body_out == {"decided": 0, "skipped": "error"}

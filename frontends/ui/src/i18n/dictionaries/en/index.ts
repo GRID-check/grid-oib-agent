@@ -35,6 +35,7 @@ import { diagrams } from './diagrams'
 import { feedback } from './feedback'
 import { feedbackExport } from './feedback-export'
 import { uploadBatches } from './upload-batches'
+import { references } from './references'
 
 export const en = {
   common,
@@ -66,4 +67,5 @@ export const en = {
   feedback,
   feedbackExport,
   uploadBatches,
+  references,
 } as const

@@ -113,6 +113,13 @@ def _ingest(calls: dict, path, name: str, screening: dict | None, **config):
     raise AssertionError("ingestion job did not terminate in time")
 
 
+def _deleted_within(path, *, seconds: float) -> bool:
+    deadline = time.time() + seconds
+    while path.exists() and time.time() < deadline:
+        time.sleep(0.05)
+    return not path.exists()
+
+
 def _pdf(tmp_path, *lines: str):
     path = tmp_path / "upload.pdf"
     path.write_bytes(build_pdf([[("R", 11, line) for line in lines]]))
@@ -433,3 +440,161 @@ class TestTablesAndCapsAreScreened:
 
         assert detail.status == FileStatus.SUCCESS
         assert detail.screening == "clean"
+
+
+# =============================================================================
+# No derivative before the verdict (ADR-0086, 2026-10-08)
+# =============================================================================
+
+
+@pytest.fixture
+def thumbnails(monkeypatch, calls):
+    """Every thumbnail the job draws, by source path, in order with the screen."""
+    from knowledge_layer.llamaindex import screening
+
+    events: list[str] = []
+    screen = screening.screen_pages
+
+    def _screen(*args, **kwargs):
+        events.append("screen")
+        return screen(*args, **kwargs)
+
+    monkeypatch.setattr(screening, "screen_pages", _screen)
+    monkeypatch.setattr(
+        LlamaIndexIngestor,
+        "_generate_and_upload_thumbnail",
+        staticmethod(lambda path, url: events.append(f"thumbnail:{path}")),
+    )
+    return events
+
+
+_THUMB = {"thumbnail_upload_url": "http://seaweed/put/thumb"}
+
+
+class TestNoThumbnailBeforeTheVerdict:
+    def test_a_quarantined_pdf_gets_no_thumbnail(self, tmp_path, calls, thumbnails):
+        detail = _ingest(calls, _pdf(tmp_path, *_PAYSLIP), "Abrechnung.pdf", _TERMS, **_THUMB)
+
+        assert detail.screening == "quarantined"
+        assert thumbnails == ["screen"]
+
+    def test_a_clean_pdf_gets_its_thumbnail_after_the_screen(self, tmp_path, calls, thumbnails):
+        path = _pdf(tmp_path, "Brandschutzkonzept", "Fluchtweglaenge 40 m")
+
+        detail = _ingest(calls, path, "BSK.pdf", _TERMS, **_THUMB)
+
+        assert detail.screening == "clean"
+        assert thumbnails == ["screen", f"thumbnail:{path}"]
+
+    def test_an_unscreened_pdf_gets_its_thumbnail(self, tmp_path, calls, thumbnails):
+        path = _pdf(tmp_path, *_PAYSLIP)
+
+        _ingest(calls, path, "Abrechnung.pdf", None, **_THUMB)
+
+        assert thumbnails == [f"thumbnail:{path}"]
+
+    def test_an_image_passes_on_its_name_and_gets_its_thumbnail(self, tmp_path, calls, thumbnails):
+        path = tmp_path / "foto.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 64)
+
+        detail = _ingest(calls, path, "foto.png", _TERMS, **_THUMB)
+
+        assert detail.screening == "unchecked"
+        assert thumbnails == [f"thumbnail:{path}"]
+
+    def test_a_quarantined_spreadsheet_never_downloads_its_preview(self, tmp_path, calls, thumbnails):
+        openpyxl = pytest.importorskip("openpyxl")
+        workbook = openpyxl.Workbook()
+        workbook.active.append(["Gehaltsabrechnung", "4200"])
+        path = tmp_path / "lohn.xlsx"
+        workbook.save(path)
+        downloads: list[str] = []
+
+        def _preview():
+            downloads.append("preview")
+            return str(_pdf(tmp_path, "Gehaltsabrechnung"))
+
+        detail = _ingest(calls, path, "Lohn.xlsx", _TERMS, preview_paths=[_preview], **_THUMB)
+
+        assert detail.screening == "quarantined"
+        assert downloads == []
+        assert thumbnails == ["screen"]
+
+    def test_a_clean_spreadsheet_draws_its_thumbnail_from_the_preview_after_the_screen(
+        self, tmp_path, calls, thumbnails
+    ):
+        openpyxl = pytest.importorskip("openpyxl")
+        workbook = openpyxl.Workbook()
+        workbook.active.append(["Raum", "Flaeche"])
+        path = tmp_path / "raumliste.xlsx"
+        workbook.save(path)
+        preview = tmp_path / "preview.pdf"
+
+        def _preview():
+            preview.write_bytes(_pdf(tmp_path, "Raumliste").read_bytes())
+            return str(preview)
+
+        detail = _ingest(calls, path, "Raumliste.xlsx", _TERMS, preview_paths=[_preview], **_THUMB)
+
+        assert detail.screening == "clean"
+        assert thumbnails == ["screen", f"thumbnail:{preview}"]
+        # Downloaded by the job, so deleted by it: in its `finally`, which runs
+        # after the status turns terminal, so the deletion is waited for.
+        assert _deleted_within(preview, seconds=10)
+
+
+@pytest.fixture
+def permits(monkeypatch, calls):
+    """The permit ingest hook's two exits, recording: a record extracted and stored, a record dropped.
+
+    The tag decision types every document a Bescheid, and the job names a BFF row, so the hook
+    would read any file that reaches it.
+    """
+    from knowledge_layer.llamaindex import document_presence
+
+    seen: dict[str, list] = {"extracted": [], "dropped": []}
+    monkeypatch.setattr(
+        "aiq_agent.knowledge.permit_extraction.extract_and_store_permit_record",
+        lambda pages, llm, **kwargs: seen["extracted"].append(kwargs["file_name"]) or True,
+    )
+    monkeypatch.setattr(
+        "aiq_agent.knowledge.permit_records_client.store_permit_record",
+        lambda *args, **kwargs: seen["dropped"].append(args) or True,
+    )
+    monkeypatch.setattr(document_presence, "document_still_exists", lambda *args, **kwargs: True)
+    calls["summary_llm"].invoke.side_effect = lambda prompt: MagicMock(
+        content='["Bescheid"]' if "klassifizierst" in prompt else "Ok."
+    )
+    return seen
+
+
+_PERMIT_JOB = {"organization_id": "org_1", "document_id": "d1"}
+
+
+class TestAQuarantinedFileIsNoPermit:
+    """The permit hook runs after the screen's ``continue`` (ADR-0086): a held Bescheid is never read for a record."""
+
+    def test_a_quarantined_pdf_is_neither_extracted_nor_dropped(self, tmp_path, calls, permits):
+        detail = _ingest(calls, _pdf(tmp_path, "Baubescheid", *_PAYSLIP), "Bescheid.pdf", _TERMS, **_PERMIT_JOB)
+
+        assert detail.screening == "quarantined"
+        assert permits == {"extracted": [], "dropped": []}
+
+    def test_a_quarantined_text_file_is_neither_extracted_nor_dropped(self, tmp_path, calls, permits):
+        path = tmp_path / "bescheid.txt"
+        path.write_text(f"Baubescheid\n\nGebühren auf {_IBAN}.\n", encoding="utf-8")
+
+        detail = _ingest(calls, path, "bescheid.txt", _IBAN_ONLY, **_PERMIT_JOB)
+
+        assert detail.screening == "quarantined"
+        assert permits == {"extracted": [], "dropped": []}
+
+    def test_the_same_files_screened_clean_are_read_for_a_record(self, tmp_path, calls, permits):
+        # What proves the gate, not the stubs, kept the hook away above.
+        pdf = _ingest(calls, _pdf(tmp_path, "Baubescheid", "Auflage 1"), "Bescheid.pdf", _TERMS, **_PERMIT_JOB)
+        path = tmp_path / "bescheid.txt"
+        path.write_text("Baubescheid\n\nAuflage 1: Stellplaetze nachweisen.\n", encoding="utf-8")
+        text = _ingest(calls, path, "bescheid.txt", _IBAN_ONLY, **_PERMIT_JOB)
+
+        assert (pdf.screening, text.screening) == ("clean", "clean")
+        assert permits["extracted"] == ["Bescheid.pdf", "bescheid.txt"]

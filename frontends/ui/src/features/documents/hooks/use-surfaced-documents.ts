@@ -48,7 +48,7 @@ export interface ResolvedSurfacedDocument {
 interface SurfacedIndex {
   /** filename → row, project corpus. */
   projekt: Map<string, FileItem>
-  /** filename → row, Büroarchiv. */
+  /** filename → row, Büroablage. */
   buero: Map<string, FileItem>
   /**
    * filename → row, THIS conversation's private attachments (ADR-0047's
@@ -188,7 +188,7 @@ export interface StoredFile {
  * file reference is exactly the set of files the reader has.
  *
  * Precedence on a shared name is the shelf's own: the project's copy is the one
- * everybody on the project means, the Büroarchiv's the office-wide one, and a
+ * everybody on the project means, the Büroablage's the office-wide one, and a
  * private attachment is reached only when neither holds the name. Same order
  * the surfaced fallback above uses, for the same reason.
  */
@@ -224,7 +224,7 @@ function loadSurfacedIndex(
       projectId
         ? fetchCorpus(`/api/documents?projectId=${encodeURIComponent(projectId)}`, [])
         : Promise.resolve({ rows: null, failed: false }),
-      // Büroarchiv is org-scoped (no projectId) and feature-gated — a 403 (or a
+      // Büroablage is org-scoped (no projectId) and feature-gated — a 403 (or a
       // 404) is fail-open (no Archiv resolutions), NOT an error.
       fetchCorpus('/api/archiv/documents', [403, 404]),
       // This conversation's private attachments. A caller that names no

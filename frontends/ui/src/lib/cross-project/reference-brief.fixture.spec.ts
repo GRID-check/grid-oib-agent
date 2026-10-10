@@ -1,0 +1,138 @@
+/**
+ * @vitest-environment node
+ */
+/**
+ * The precedent eval's prompt texts, rendered by the production code
+ * (docs/roadmap/office-experience.md, step A). The fixture office
+ * (`tests/fixtures/precedent/office.json`) is the source; this writes what the
+ * real BFF would hand a turn in it — the reference catalog, the current
+ * project's PROJECT_CONTEXT, the order a `similar` search walks, and each
+ * project's brief — to `rendered.json`,
+ * which `scripts/turn_census/fixture_bff.py` serves. A change to how the
+ * catalog or a brief renders fails here until the fixture is regenerated, so
+ * the eval never measures a format production no longer sends:
+ *
+ *   UPDATE_FIXTURES=1 npx vitest run src/lib/cross-project/reference-brief.fixture.spec.ts
+ */
+
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
+import type { Project } from '@/lib/db/schema'
+
+vi.mock('server-only', () => ({}))
+vi.mock('@/lib/projects/repository', () => ({ listProjectsInOrg: vi.fn(), findProjectInOrg: vi.fn() }))
+
+import { projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
+import { buildProjectPromptView } from '@/lib/project-profile/prompt-view'
+import { renderReferenceBrief } from './reference-brief'
+import { rankBySimilarity } from './similarity'
+
+const DIR = join(process.cwd(), 'tests/fixtures/precedent')
+
+interface FixtureProject {
+  id: string
+  name: string
+  collection: string
+  status: 'active' | 'closed'
+  startedOn?: string
+  endedOn?: string
+  facts: Record<string, string | number | boolean | string[]>
+  summary: string | null
+}
+
+interface FixtureScenario {
+  /** The project the chat sits in; the office's own `current` when absent. */
+  current?: FixtureProject
+  /** The ids of the office's projects that exist in this scenario; all when absent. */
+  projects?: string[]
+}
+
+interface FixtureOffice {
+  organizationId: string
+  current: FixtureProject
+  projects: FixtureProject[]
+  /** Other offices made of the same projects, each rendered beside the default (`fixture_bff.py` picks per question). */
+  scenarios?: Record<string, FixtureScenario>
+}
+
+/**
+ * The facts the intake wizard asks per building, read off its definition: the
+ * wizard stores those under the building (`bauweise@bw1`), and the fixture
+ * office must be stored the same way, or the eval measures a profile shape
+ * production never has. `office.json` names facts plainly; this stores them.
+ */
+const PER_BUILDING: ReadonlySet<string> = new Set(
+  projectIntakeDefinitionV1.stages
+    .filter((stage) => stage.scope === 'bauwerk')
+    .flatMap((stage) => stage.questions)
+    .map((question) => /^\/facts\/([a-z_]+)\/value$/.exec(question.writesTo ?? '')?.[1])
+    .filter((key): key is string => Boolean(key))
+)
+
+function asProject(office: FixtureOffice, fixture: FixtureProject): Project {
+  const facts = Object.fromEntries(
+    Object.entries(fixture.facts).map(([key, value]) => [
+      PER_BUILDING.has(key) ? `${key}@bw1` : key,
+      { value, confidence: 'confirmed' as const, source: 'onboarding' as const, updatedAt: '2026-01-01T00:00:00.000Z' },
+    ])
+  )
+  const closed = fixture.status === 'closed'
+  return {
+    id: fixture.id,
+    organizationId: office.organizationId,
+    name: fixture.name,
+    createdBy: 'user_precedent_eval',
+    collectionName: fixture.collection,
+    workosResourceId: null,
+    profile: { facts, goals: {}, unknowns: [], assumptions: {} },
+    profileVersion: 1,
+    profilePromptView: null,
+    profileDisplay: fixture.summary ? { title: fixture.name, summary: fixture.summary, keyFacts: [], missingInfo: [] } : null,
+    profileUpdatedAt: null,
+    status: fixture.status,
+    closedAt: closed ? new Date(`${fixture.endedOn ?? '2013-01-01'}T00:00:00Z`) : null,
+    closedBy: closed ? 'user_precedent_eval' : null,
+    startedOn: fixture.startedOn ?? null,
+    endedOn: fixture.endedOn ?? null,
+    deletedAt: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+  }
+}
+
+function renderScenario(office: FixtureOffice, scenario: FixtureScenario) {
+  const current = asProject(office, scenario.current ?? office.current)
+  const kept = scenario.projects ? new Set(scenario.projects) : null
+  const projects = office.projects
+    .filter((fixture) => kept === null || kept.has(fixture.id))
+    .map((fixture) => asProject(office, fixture))
+  return {
+    referenceProjects: renderReferenceBrief(current, [current, ...projects]),
+    projectContext: buildProjectPromptView(current.profile),
+    // The order a `similar` search walks, as `projectsInScope` ranks it.
+    similarOrder: rankBySimilarity(current.profile, projects).map((project) => project.id),
+    briefs: Object.fromEntries(projects.map((project) => [project.id, buildProjectPromptView(project.profile)])),
+  }
+}
+
+function render(office: FixtureOffice): string {
+  const scenarios = { default: {}, ...(office.scenarios ?? {}) }
+  const rendered = {
+    $comment: 'Generated by reference-brief.fixture.spec.ts from office.json. Do not edit by hand.',
+    scenarios: Object.fromEntries(
+      Object.entries(scenarios).map(([name, scenario]) => [name, renderScenario(office, scenario)])
+    ),
+  }
+  return `${JSON.stringify(rendered, null, 2)}\n`
+}
+
+describe('the precedent eval fixture', () => {
+  it('is what the production renderers make of the fixture office', () => {
+    const office = JSON.parse(readFileSync(join(DIR, 'office.json'), 'utf8')) as FixtureOffice
+    const generated = render(office)
+    if (process.env.UPDATE_FIXTURES === '1') writeFileSync(join(DIR, 'rendered.json'), generated, 'utf8')
+    expect(generated, 'The renderers changed. Re-run with UPDATE_FIXTURES=1 and commit rendered.json.').toBe(
+      readFileSync(join(DIR, 'rendered.json'), 'utf8')
+    )
+  })
+})

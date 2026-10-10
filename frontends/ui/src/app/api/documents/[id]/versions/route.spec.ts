@@ -282,6 +282,17 @@ describe('the review verbs', () => {
     expect(transitionDocumentVersion).not.toHaveBeenCalled()
   })
 
+  it('changes hands the service the reader’s language, for a refusal of the revision task', async () => {
+    await client.requestChanges('doc_1', 'ver_1', 'Bitte neu rechnen', true)
+    expect(transitionDocumentVersion).toHaveBeenCalledWith(
+      expect.anything(),
+      'doc_1',
+      'ver_1',
+      'request_changes',
+      expect.objectContaining({ delegateRevision: true, locale: expect.stringMatching(/^(de|en)$/) }),
+    )
+  })
+
   it('publish asks for the publish op and nothing else', async () => {
     await client.publish('doc_1', 'ver_1')
     expect(transitionDocumentVersion).toHaveBeenCalledWith(

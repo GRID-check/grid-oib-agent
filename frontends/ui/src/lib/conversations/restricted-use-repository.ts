@@ -9,12 +9,17 @@
  */
 
 import 'server-only'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { DbExecutor } from '@/lib/db/executor'
 import {
   conversationRestrictedFolders,
+  conversationSourceProjects,
   conversations,
+  documents,
+  projectFolders,
+  projects,
   resourceShares,
+  taskRuns,
   type ResourceVisibility,
 } from '@/lib/db/schema'
 
@@ -23,6 +28,9 @@ import {
  * project has a handful of restricted folders; the bound is for the query.
  */
 export const RECORDED_FOLDERS_LIMIT = 200
+
+/** Rows read back for a whole list of conversations: a list is at most `CONVERSATION_LIST_LIMIT`, each with a handful of folders. */
+const RECORDED_FOLDERS_BATCH_LIMIT = 5_000
 
 /** How many grantees the audience read returns; the sharing roster cap is far below. */
 const AUDIENCE_GRANT_LIMIT = 500
@@ -49,7 +57,57 @@ export async function lockConversationAudience(
   )
 }
 
-/** The source folders this conversation recorded, sorted. */
+/**
+ * The subject id of a revision run, as a uuid when it is one, else null (a plan
+ * is jsonb). Built when asked rather than at import: narrow schema doubles in
+ * unit specs that import this module carry no `taskRuns`.
+ */
+function subjectDocumentId() {
+  return sql`case
+  when ${taskRuns.plan}->'subject'->>'documentId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  then (${taskRuns.plan}->'subject'->>'documentId')::uuid
+end`
+}
+
+/**
+ * The current folder of every document a revision task written into these
+ * conversations revises (ADR-0093). Read alongside the record: the thread holds
+ * the draft's text and the revised draft, so it is read as a conversation that
+ * drew on the folder the document is in NOW. Not stored: a document moved, or
+ * a folder loosened, changes the answer at the next read. A document that is
+ * gone, or that sits at a project's root, adds nothing.
+ */
+async function listRevisionSubjectFolders(
+  executor: DbExecutor,
+  organizationId: string,
+  conversationIds: readonly string[],
+): Promise<{ conversationId: string; folderId: string }[]> {
+  if (conversationIds.length === 0) return []
+  const rows = await executor
+    .select({ conversationId: taskRuns.conversationId, folderId: documents.folderId })
+    .from(taskRuns)
+    .innerJoin(
+      documents,
+      and(eq(documents.organizationId, taskRuns.organizationId), sql`${documents.id} = ${subjectDocumentId()}`),
+    )
+    .where(
+      and(
+        eq(taskRuns.organizationId, organizationId),
+        eq(taskRuns.kind, 'revision'),
+        inArray(taskRuns.conversationId, [...conversationIds]),
+        isNotNull(documents.folderId),
+      ),
+    )
+    .limit(RECORDED_FOLDERS_BATCH_LIMIT)
+  return rows.flatMap((row) =>
+    row.conversationId && row.folderId ? [{ conversationId: String(row.conversationId), folderId: String(row.folderId) }] : [],
+  )
+}
+
+/**
+ * The source folders this conversation recorded, sorted, with the current
+ * folders of the documents its revision tasks revise.
+ */
 export async function listRecordedSourceFolders(
   executor: DbExecutor,
   organizationId: string,
@@ -66,16 +124,17 @@ export async function listRecordedSourceFolders(
     )
     .orderBy(conversationRestrictedFolders.folderId)
     .limit(RECORDED_FOLDERS_LIMIT)
-  return rows.map((row) => String(row.folderId))
+  const subjects = await listRevisionSubjectFolders(executor, organizationId, [conversationId])
+  return [...new Set([...rows.map((row) => String(row.folderId)), ...subjects.map((row) => row.folderId)])]
+    .sort()
+    .slice(0, RECORDED_FOLDERS_LIMIT)
 }
 
-/** Rows read back for a whole list of conversations: a list is at most `CONVERSATION_LIST_LIMIT`, each with a handful of folders. */
-const RECORDED_FOLDERS_BATCH_LIMIT = 5_000
-
 /**
- * The source folders each of these conversations recorded, for the
- * conversations that recorded any: how a list asks "which of these did
- * restricted content enter" in one read. Absent from the map means none.
+ * The source folders each of these conversations recorded, and the current
+ * folders of the documents their revision tasks revise, for the conversations
+ * with any: how a list asks "which of these did restricted content enter" in
+ * one read per table. Absent from the map means none.
  */
 export async function listRecordedSourceFoldersFor(
   executor: DbExecutor,
@@ -97,9 +156,10 @@ export async function listRecordedSourceFoldersFor(
       ),
     )
     .limit(RECORDED_FOLDERS_BATCH_LIMIT)
-  for (const row of rows) {
+  const subjects = await listRevisionSubjectFolders(executor, organizationId, conversationIds)
+  for (const row of [...rows, ...subjects]) {
     const folders = recorded.get(String(row.conversationId)) ?? []
-    folders.push(String(row.folderId))
+    if (!folders.includes(String(row.folderId))) folders.push(String(row.folderId))
     recorded.set(String(row.conversationId), folders)
   }
   return recorded
@@ -126,6 +186,27 @@ export async function recordSourceFolders(
     })
 }
 
+/**
+ * Mark one answer of this conversation as drawing on a folder with restricted
+ * access, when the database's rule says the conversation does
+ * (`grid_conversation_restricted_use`, migration 0124, ADR-0093). Keyed by the
+ * answer's message id, which the agent mints for the turn and the vote names,
+ * so the mark exists whether or not the answer is ever persisted. Idempotent;
+ * the runtime role may insert marks and never lift one.
+ */
+export async function markAnswerRestrictedUse(
+  executor: DbExecutor,
+  organizationId: string,
+  conversationId: string,
+  messageId: string,
+): Promise<void> {
+  await executor.execute(sql`
+    INSERT INTO message_restricted_use (organization_id, message_id, conversation_id)
+    SELECT ${organizationId}, ${messageId}, ${conversationId}
+    WHERE grid_conversation_restricted_use(${organizationId}, ${conversationId})
+    ON CONFLICT DO NOTHING`)
+}
+
 /** Forget what a conversation drew on: its erasure. */
 export async function deleteRecordedSourceFolders(
   executor: DbExecutor,
@@ -140,6 +221,153 @@ export async function deleteRecordedSourceFolders(
         eq(conversationRestrictedFolders.conversationId, conversationId),
       ),
     )
+}
+
+/**
+ * How many other projects one conversation records at most, read back. The
+ * lookups search at most a page of projects per call; the bound is for the query.
+ */
+export const RECORDED_PROJECTS_LIMIT = 200
+
+/**
+ * Whether a recorded project still restricts who may read what came from it:
+ * every one except a project closed now, whose open folders every office member
+ * reads (ADR-0090). A deleted project, or one that is gone, still restricts.
+ * Judged at read time, so a reopened project restricts again. Its restricted
+ * folders are recorded by id and judged on their own, closed or not.
+ */
+function stillRestricts() {
+  return sql<boolean>`NOT EXISTS (
+    SELECT 1 FROM ${projects}
+    WHERE ${projects.id} = ${conversationSourceProjects.projectId}
+      AND ${projects.organizationId} = ${conversationSourceProjects.organizationId}
+      AND ${projects.status} = 'closed'
+      AND ${projects.deletedAt} IS NULL
+  )`
+}
+
+/**
+ * The other projects this conversation drew on (ADR-0094, migration 0125) that
+ * still restrict its readers ({@link stillRestricts}), sorted. Every judge of
+ * the record reads this, never the raw rows.
+ */
+export async function listRestrictingSourceProjects(
+  executor: DbExecutor,
+  organizationId: string,
+  conversationId: string,
+): Promise<string[]> {
+  const rows = await executor
+    .select({ projectId: conversationSourceProjects.projectId })
+    .from(conversationSourceProjects)
+    .where(
+      and(
+        eq(conversationSourceProjects.organizationId, organizationId),
+        eq(conversationSourceProjects.conversationId, conversationId),
+        stillRestricts(),
+      ),
+    )
+    .orderBy(conversationSourceProjects.projectId)
+    .limit(RECORDED_PROJECTS_LIMIT)
+  return rows.map((row) => String(row.projectId))
+}
+
+/**
+ * The names of these projects, by id; a project that is deleted or gone is
+ * absent. Bounded by the caller's list, which comes from a conversation's record.
+ */
+export async function listProjectNames(
+  executor: DbExecutor,
+  organizationId: string,
+  projectIds: readonly string[],
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>()
+  if (projectIds.length === 0) return names
+  const rows = await executor
+    .select({ id: projects.id, name: projects.name })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.organizationId, organizationId),
+        inArray(projects.id, [...projectIds]),
+        isNull(projects.deletedAt),
+      ),
+    )
+    .limit(RECORDED_PROJECTS_LIMIT)
+  for (const row of rows) names.set(String(row.id), String(row.name))
+  return names
+}
+
+/** {@link listRestrictingSourceProjects} for many conversations; absent from the map means none. */
+export async function listRestrictingSourceProjectsFor(
+  executor: DbExecutor,
+  organizationId: string,
+  conversationIds: readonly string[],
+): Promise<Map<string, string[]>> {
+  const recorded = new Map<string, string[]>()
+  if (conversationIds.length === 0) return recorded
+  const rows = await executor
+    .select({
+      conversationId: conversationSourceProjects.conversationId,
+      projectId: conversationSourceProjects.projectId,
+    })
+    .from(conversationSourceProjects)
+    .where(
+      and(
+        eq(conversationSourceProjects.organizationId, organizationId),
+        inArray(conversationSourceProjects.conversationId, [...conversationIds]),
+        stillRestricts(),
+      ),
+    )
+    .limit(RECORDED_FOLDERS_BATCH_LIMIT)
+  for (const row of rows) {
+    const found = recorded.get(String(row.conversationId)) ?? []
+    found.push(String(row.projectId))
+    recorded.set(String(row.conversationId), found)
+  }
+  return recorded
+}
+
+/** Record that the conversation drew on these other projects; a repeat bumps `last_at`. */
+export async function recordSourceProjects(
+  executor: DbExecutor,
+  organizationId: string,
+  conversationId: string,
+  projectIds: readonly string[],
+): Promise<void> {
+  if (projectIds.length === 0) return
+  await executor
+    .insert(conversationSourceProjects)
+    .values(projectIds.map((projectId) => ({ organizationId, conversationId, projectId })))
+    .onConflictDoUpdate({
+      target: [
+        conversationSourceProjects.organizationId,
+        conversationSourceProjects.conversationId,
+        conversationSourceProjects.projectId,
+      ],
+      set: { lastAt: sql`now()` },
+    })
+}
+
+/**
+ * The project each of these folders belongs to, for the folders of this
+ * organization that belong to one (an Archiv folder has none). How a record
+ * that names a folder of ANOTHER project (ADR-0094) finds the tree that judges
+ * it; a folder id not found stays unknown, which is a folder nobody may read.
+ */
+export async function projectsOfFolders(
+  executor: DbExecutor,
+  organizationId: string,
+  folderIds: readonly string[],
+): Promise<Map<string, string>> {
+  const found = new Map<string, string>()
+  if (folderIds.length === 0) return found
+  const rows = await executor
+    .select({ id: projectFolders.id, projectId: projectFolders.projectId })
+    .from(projectFolders)
+    .where(and(eq(projectFolders.organizationId, organizationId), inArray(projectFolders.id, [...folderIds])))
+    .limit(RECORDED_FOLDERS_BATCH_LIMIT)
+  for (const row of rows) if (row.projectId) found.set(String(row.id), String(row.projectId))
+  return found
 }
 
 /** Who can read a conversation: its row (absent before the first message) and its grants. */

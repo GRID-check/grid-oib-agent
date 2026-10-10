@@ -11,7 +11,7 @@ import { useSurfacedDocuments } from './use-surfaced-documents'
 
 /**
  * Open the chat peek when the current thread's latest finished answer cites
- * exactly one project or Büroarchiv document.
+ * exactly one project or Büroablage document.
  *
  * Mount once (project chat / MainLayout), never per card. A ref keyed by
  * message id is the hide-guard: hide() must not be undone by a later render

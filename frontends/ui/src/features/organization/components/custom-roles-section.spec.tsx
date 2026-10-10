@@ -31,8 +31,6 @@ interface Stub {
   roles: OrganizationRole[]
   assignable: AssignablePermission[] | null
   status?: { POST?: number; PATCH?: number; DELETE?: number }
-  /** What `GET …/usage` answers: the folders that name the role (ADR-0088). */
-  usage?: { total: number; folders: Array<{ folderId: string; folderName: string; projectId: string; projectName: string }> }
   /** The reason the DELETE refusal carries. */
   reason?: string
 }
@@ -46,7 +44,6 @@ function stubApi(stub: Stub): void {
       if (status) {
         return Response.json({ error: { message: 'no' }, details: stub.reason ? { reason: stub.reason } : undefined }, { status })
       }
-      if (url.endsWith('/usage')) return Response.json(stub.usage ?? { total: 0, folders: [] })
       if (method === 'POST' || method === 'PATCH') {
         const body = JSON.parse(String(init?.body)) as Partial<OrganizationRole>
         return Response.json({
@@ -76,7 +73,7 @@ describe('CustomRolesSection', () => {
     const own = await screen.findByTestId('custom-roles-own')
     const gf = within(own).getByTestId('role-row-org-geschaeftsfuehrung')
     expect(gf).toHaveTextContent('Geschäftsführung')
-    expect(gf).toHaveTextContent('Manage the Archiv')
+    expect(gf).toHaveTextContent('Manage Office filing')
     expect(gf).toHaveTextContent('Manage AI models')
 
     const platform = screen.getByTestId('custom-roles-environment')
@@ -84,7 +81,7 @@ describe('CustomRolesSection', () => {
     expect(within(platform).queryByRole('button')).toBeNull()
     // The copy says where roles are assigned and what they are for here.
     expect(screen.getByTestId('custom-roles')).toHaveTextContent(/People tab/)
-    expect(screen.getByTestId('custom-roles')).toHaveTextContent(/folder can be restricted/)
+    expect(screen.getByTestId('custom-roles')).toHaveTextContent(/set on the folder, under “Access…”, person by person/)
   })
 
   it('shows no editing controls to a reader who may not manage roles', async () => {
@@ -105,7 +102,7 @@ describe('CustomRolesSection', () => {
     expect(within(dialog).getByText(/do not hold this permission yourself/)).toBeInTheDocument()
 
     fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Projektleitung' } })
-    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Manage the Archiv' }))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Manage Office filing' }))
     fireEvent.click(within(dialog).getByTestId('custom-role-save'))
 
     await waitFor(() => expect(toast.success).toHaveBeenCalled())
@@ -151,14 +148,26 @@ describe('CustomRolesSection', () => {
     expect(await screen.findByText('Discard your changes?')).toBeInTheDocument()
   })
 
-  /** Open the delete dialog for Geschäftsführung and wait until the folders are known. */
+  /** Open the delete dialog for Geschäftsführung. */
   async function openDelete(): Promise<HTMLElement> {
     fireEvent.click(await screen.findByTestId('custom-role-delete-org-geschaeftsfuehrung'))
     expect(await screen.findByText('Delete the role “Geschäftsführung”?')).toBeInTheDocument()
-    const confirm = screen.getByTestId('custom-role-delete-confirm')
-    await waitFor(() => expect(confirm).toBeEnabled())
-    return confirm
+    return screen.getByTestId('custom-role-delete-confirm')
   }
+
+  it('deletes after a plain confirmation: no folder depends on a role (ADR-0097)', async () => {
+    stubApi({ roles: [ADMIN, GF], assignable: ASSIGNABLE })
+    render(<CustomRolesSection />)
+    const confirm = await openDelete()
+
+    expect(confirm).toBeEnabled()
+    expect(confirm).toHaveTextContent('Delete role')
+    fireEvent.click(confirm)
+    await waitFor(() => expect(toast.success).toHaveBeenCalled())
+    expect(calls('DELETE')[0][0]).toBe('/api/organization/roles/org-geschaeftsfuehrung')
+    // Nothing is read about the role before it goes.
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/usage'))).toHaveLength(0)
+  })
 
   it('deletes after confirmation, and explains a 409 as a role still held', async () => {
     stubApi({ roles: [ADMIN, GF], assignable: ASSIGNABLE, status: { DELETE: 409 }, reason: 'role-assigned' })
@@ -167,80 +176,5 @@ describe('CustomRolesSection', () => {
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/still holds this role/)))
     expect(calls('DELETE')[0][0]).toBe('/api/organization/roles/org-geschaeftsfuehrung')
-  })
-
-  describe('a role that folders name (ADR-0088)', () => {
-    const FOLDERS = [
-      { folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd' },
-      { folderId: 'f2', folderName: 'Verträge', projectId: 'p2', projectName: 'Halle 3' },
-    ]
-
-    it('names the folders in the confirmation, holds the button until they are known, and deletes only with the confirmation', async () => {
-      stubApi({ roles: [ADMIN, GF], assignable: ASSIGNABLE, usage: { total: 2, folders: FOLDERS } })
-      render(<CustomRolesSection />)
-      fireEvent.click(await screen.findByTestId('custom-role-delete-org-geschaeftsfuehrung'))
-
-      const notice = await screen.findByTestId('role-usage')
-      expect(notice).toHaveTextContent('2 folders name this role in its access list')
-      const lines = within(notice).getAllByTestId('role-usage-folder')
-      expect(lines[0]).toHaveTextContent('Honorare')
-      expect(lines[0]).toHaveTextContent('Schule Süd')
-      expect(lines[1]).toHaveTextContent('Verträge')
-      expect(notice).toHaveTextContent('only organization admins can read these folders')
-
-      const confirm = screen.getByTestId('custom-role-delete-confirm')
-      expect(confirm).toHaveTextContent('Delete anyway')
-      fireEvent.click(confirm)
-      await waitFor(() => expect(toast.success).toHaveBeenCalled())
-      expect(calls('DELETE')[0][0]).toBe('/api/organization/roles/org-geschaeftsfuehrung?confirmFolders=1')
-    })
-
-    it('tells a role manager who may not read the folders how many, and not which', async () => {
-      stubApi({ roles: [ADMIN, GF], assignable: ASSIGNABLE, usage: { total: 3, folders: [] } })
-      render(<CustomRolesSection />)
-      fireEvent.click(await screen.findByTestId('custom-role-delete-org-geschaeftsfuehrung'))
-
-      const notice = await screen.findByTestId('role-usage')
-      expect(notice).toHaveTextContent('3 folders name this role')
-      expect(notice).toHaveTextContent('Only organization admins see which folders these are.')
-      expect(within(notice).queryAllByTestId('role-usage-folder')).toHaveLength(0)
-    })
-
-    it('shows no folder notice, and a plain button, for a role nothing names', async () => {
-      stubApi({ roles: [ADMIN, GF], assignable: ASSIGNABLE })
-      render(<CustomRolesSection />)
-      const confirm = await openDelete()
-
-      expect(screen.queryByTestId('role-usage')).toBeNull()
-      expect(confirm).toHaveTextContent('Delete role')
-      fireEvent.click(confirm)
-      await waitFor(() => expect(toast.success).toHaveBeenCalled())
-      expect(calls('DELETE')[0][0]).toBe('/api/organization/roles/org-geschaeftsfuehrung')
-    })
-
-    it('does not let the deletion through when the folders could not be checked', async () => {
-      stubApi({ roles: [ADMIN, GF], assignable: ASSIGNABLE })
-      vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
-        const url = String(input)
-        if (url.endsWith('/usage')) return Response.json({ error: { message: 'down' } }, { status: 500 })
-        return Response.json({ roles: [ADMIN, GF], assignable: ASSIGNABLE })
-      })
-      render(<CustomRolesSection />)
-      fireEvent.click(await screen.findByTestId('custom-role-delete-org-geschaeftsfuehrung'))
-
-      expect(await screen.findByTestId('role-usage-error')).toBeInTheDocument()
-      expect(screen.getByTestId('custom-role-delete-confirm')).toBeDisabled()
-      expect(calls('DELETE')).toHaveLength(0)
-    })
-
-    it('asks again when folders started naming the role after the list was read', async () => {
-      stubApi({ roles: [ADMIN, GF], assignable: ASSIGNABLE, status: { DELETE: 409 }, reason: 'role-used-by-folders' })
-      render(<CustomRolesSection />)
-      fireEvent.click(await openDelete())
-
-      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/Folders now use this role/)))
-      const usageReads = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/usage'))
-      expect(usageReads).toHaveLength(2)
-    })
   })
 })

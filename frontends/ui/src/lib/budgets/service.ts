@@ -820,6 +820,68 @@ export async function getUsageOverview(
   }
 }
 
+export interface ProjectUsage {
+  /** The unit every amount and limit below is in. */
+  unit: BudgetUnit
+  day: TenantSpendWindow
+  month: TenantSpendWindow
+  perModel: Array<{ model: string; month: TenantSpendWindow }>
+  /** This project's own limit, or null when only the organization's applies. */
+  projectLimit: BudgetLimits | null
+  /** The ceiling a project limit may not exceed (validated on write). */
+  orgLimit: BudgetLimits
+  /** Which applicable scope is exhausted right now, if any. */
+  blockedScope: BudgetScope | null
+}
+
+/**
+ * One project's spend and limits, for its Settings page.
+ *
+ * Read by the same people who may write the project's limit: its admins
+ * (`project:manage`) and the organization's budget admins. The per-member
+ * breakdown is left out on purpose, because who spent what stays an org
+ * budget-admin view.
+ */
+export async function getProjectUsage(
+  session: AuthorizedSession,
+  projectId: string,
+): Promise<ProjectUsage> {
+  if (!canManageBudgets(session)) {
+    await requireProjectAccess(session, projectId, 'project:manage')
+  } else {
+    await requireProjectAccess(session, projectId, 'project:view')
+  }
+
+  const unit = await getOrgBudgetUnit(session.organizationId)
+  const project = toTenantWindow(unit)
+
+  const [summary, orgBudget, projectBudget, status] = await Promise.all([
+    getSpendSummary(session.organizationId, { projectId }),
+    getOrgBudget(session.organizationId, unit),
+    getScopedBudget(session.organizationId, 'project', projectId, unit),
+    getBudgetStatus(session.organizationId, null, projectId),
+  ])
+
+  const limits = (policy: BudgetLimits): BudgetLimits => ({
+    unit: policy.unit,
+    dailyLimit: policy.dailyLimit,
+    monthlyLimit: policy.monthlyLimit,
+  })
+
+  return {
+    unit,
+    day: project(summary.day),
+    month: project(summary.month),
+    perModel: summary.perModel
+      .map((entry) => ({ model: entry.model, month: project(entry.month) }))
+      .filter((entry) => entry.month.events > 0)
+      .sort((a, b) => b.month.amount - a.month.amount),
+    projectLimit: projectBudget ? limits(projectBudget) : null,
+    orgLimit: limits(orgBudget),
+    blockedScope: status.blockedScope,
+  }
+}
+
 /** Re-exported so platform surfaces can convert cost with the active rate. */
 export type { EffectivePricing }
 

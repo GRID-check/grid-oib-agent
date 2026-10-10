@@ -22,6 +22,7 @@ import {
 } from '@/lib/runs/run-ledger'
 import type { RunLedger, RunStep } from '@/lib/runs/run-ledger-types'
 import { RunBlock } from './RunBlock'
+import { CurrentProjectProvider } from '@/features/projects/lib/current-project'
 
 const T0 = new Date('2026-09-16T08:00:00.000Z')
 const at = (s: number): Date => new Date(T0.getTime() + s * 1000)
@@ -487,6 +488,16 @@ describe('RunBlock — stopping a run', () => {
 
     render(<RunBlock ledger={researching()} title={TITLE} onContinue={onContinue} />)
     expect(screen.queryByTestId('run-action-continue')).not.toBeInTheDocument()
+  })
+
+  it('in a closed project says there is no new research where „Bericht fortschreiben" would be (ADR-0090)', () => {
+    render(
+      <CurrentProjectProvider value={{ id: 'p1', name: 'Seestadt', status: 'closed' as const, closedAt: '2026-10-01T00:00:00Z', readsBecauseClosed: false }}>
+        <RunBlock ledger={finished('doc-9')} title={TITLE} onContinue={vi.fn()} />
+      </CurrentProjectProvider>
+    )
+    expect(screen.queryByTestId('run-action-continue')).not.toBeInTheDocument()
+    expect(screen.getByTestId('run-action-continue-closed')).toHaveTextContent('Closed project: no new research')
   })
 
   it('shows no stop at all when no caller offers one', () => {

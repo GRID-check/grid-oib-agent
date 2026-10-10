@@ -178,6 +178,20 @@ describe('listFeedbackTurns', () => {
   })
 
   /**
+   * Its question, answer, comment and expected answer may quote a restricted
+   * folder, and every reader of this list (platform staff, the CSV export, the
+   * digest's model) is outside that folder's audience. The SQL is checked
+   * against Postgres in `restricted-feedback.integration.spec.ts`.
+   */
+  it('leaves out votes the database\'s one rule answers yes for, asked of the whole vote', async () => {
+    const execute = capture()
+    await listFeedbackTurns(ALL)
+    expect(sqlOf(execute.mock.calls[0][0]).sql).toMatch(
+      /not grid_feedback_restricted_use\(f\.organization_id, f\.message_id, f\.conversation_id\)/
+    )
+  })
+
+  /**
    * The question used to be "the newest user message at or before the answer —
    * or ANY, when the answer row is missing", so an unpersisted answer was shown
    * under whatever was asked last. The behaviour is proven against Postgres in

@@ -8,7 +8,7 @@
  * recommending five documents in reading order is asking the reader to choose
  * one, and the facts that choice turns on are not in the filename: how big it
  * is, how many pages, whether Piloti has actually read it, and which shelf it
- * came from — a plan in the Büroarchiv is somebody else's project, a private
+ * came from — a plan in the Büroablage is somebody else's project, a private
  * attachment is one this conversation alone can see.
  *
  * Every fact here is read off the document row the chip already resolved.

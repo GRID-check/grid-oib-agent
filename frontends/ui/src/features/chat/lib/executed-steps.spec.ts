@@ -21,6 +21,8 @@ describe('stepNameLabel', () => {
     ['advanced_web_search_tool', 'thinking.stepName.webSearch'],
     ['ris_catalog_lookup_tool', 'thinking.stepName.ris'],
     ['knowledge_search', 'thinking.stepName.corpus'],
+    // ADR-0094: a settled Herleitung says the chat looked beyond its own project.
+    ['project_lookup', 'thinking.stepName.otherProjects'],
     ['read_passage', 'thinking.stepName.reading'],
     ['view_knowledge_image', 'thinking.stepName.drawing'],
     ['write_file', 'thinking.stepName.draft'],

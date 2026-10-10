@@ -170,7 +170,7 @@ export async function listFeedbackExportRows(
           where s->'is_cited' is distinct from 'false'::jsonb
         ) end                                          as sources_cited,
         ${ANSWER_JOB_ID}                               as job_id
-      ${voteScope(query, { question: true })}
+      ${voteScope(query, { question: true, contentBearing: true })}
       order by f.created_at desc, f.id
       limit ${bounded}
     ),

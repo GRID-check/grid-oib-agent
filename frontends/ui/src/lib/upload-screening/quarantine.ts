@@ -43,6 +43,18 @@ export function parseQuarantine(errorMessage: string | null | undefined): Quaran
   }
 }
 
+/**
+ * The reasons as the audit trail records them: kinds and terms only
+ * (`term:Lohnzettel,iban`), never a detector's masked sample or page text.
+ * Cut at 200 characters, inside WorkOS's metadata value limit.
+ */
+export function auditedQuarantineReasons(verdict: QuarantineVerdict | null): string {
+  return (verdict?.reasons ?? [])
+    .map((reason) => (reason.kind === 'term' ? `term:${reason.term ?? ''}` : reason.kind))
+    .join(',')
+    .slice(0, 200)
+}
+
 /** One reason, as a short phrase in the reader's language: `„Lohnzettel“ im Text · Seite 2`. */
 export function describeQuarantineReason(reason: QuarantineReason, t: Translator): string {
   const head =

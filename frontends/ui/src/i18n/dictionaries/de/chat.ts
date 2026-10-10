@@ -50,8 +50,10 @@ export const chat: typeof en.chat = {
     // knowledge-base copy of a legal text reads as project material.
     kinds: {
       baurecht: 'Baurecht & Richtlinien',
-      buero: 'Büroarchiv',
+      buero: 'Büroablage',
       projekt: 'Projektwissen',
+      // Eine Quelle aus einem anderen Projekt, die als Vorbild dient (ADR-0094); gleiche Farbe wie „Projektwissen“.
+      praezedenz: 'Präzedenzfall',
       web: 'Webquelle',
     },
     origins: {
@@ -60,7 +62,7 @@ export const chat: typeof en.chat = {
       web: 'Webquelle',
     },
   },
-  // Dokumentraster: echte Projekt-/Büroarchiv-Dateien, die der Assistent als
+  // Dokumentraster: echte Projekt-/Büroablage-Dateien, die der Assistent als
   // anklickbare Vorschaukarten anzeigt (`document_grid`-Karte / `surface_documents`).
   documentGrid: {
     countOne: '1 Dokument',
@@ -71,10 +73,10 @@ export const chat: typeof en.chat = {
       buero: 'Büro',
     },
     // Eine referenzierte Datei, die sich nicht mehr auf eine Dokumentzeile
-    // auflösen lässt — eine ehrliche, handlungsfähige Karte (im Archiv / in den
+    // auflösen lässt — eine ehrliche, handlungsfähige Karte (in der Büroablage / in den
     // Projektdateien öffnen) statt einer stummen toten Kachel.
     unresolvedHint: 'Der Assistent hat diese Datei referenziert.',
-    openInArchive: 'Im Archiv öffnen',
+    openInArchive: 'In der Büroablage öffnen',
     openInFiles: 'In den Projektdateien öffnen',
     // Der Auflösungs-Abruf ist fehlgeschlagen — eine Wiederholaktion statt einer
     // dauerhaft toten Kachel.
@@ -101,10 +103,10 @@ export const chat: typeof en.chat = {
     // Wenn die Antwort den Namen anders geschrieben hat als die Datei heißt.
     writtenAs: 'Im Text: {name}',
     // Regal, aus dem die Datei stammt — dieselbe Unterscheidung wie bei den
-    // Quellen: geteiltes Projektwissen, büroweites Archiv, private Beilage.
+    // Quellen: geteiltes Projektwissen, die Büroablage, private Beilage.
     shelf: {
       projekt: 'Projektdateien',
-      buero: 'Büroarchiv',
+      buero: 'Büroablage',
       session: 'Beilage in diesem Chat',
     },
     notIndexed:
@@ -157,11 +159,11 @@ export const chat: typeof en.chat = {
   sourceTabs: {
     law: 'Baurecht',
     project: 'Projektwissen',
-    office: 'Büroarchiv',
+    office: 'Büroablage',
     auto: 'Web',
     model: 'Modellmessung',
     shelves: {
-      archiv: 'Büroarchiv',
+      archiv: 'Büroablage',
       project: 'Projektwissen',
       session: 'Private Sitzung',
       base: 'Basiswissen',
@@ -173,7 +175,7 @@ export const chat: typeof en.chat = {
     presets: {
       law: 'Baurecht & Richtlinien',
       project: 'Projektunterlagen',
-      office: 'Büroarchiv',
+      office: 'Büroablage',
     },
   },
   greeting: {
@@ -222,6 +224,8 @@ export const chat: typeof en.chat = {
     // Ein offener Befund lässt sich als eigener Auftrag klären; der Lauf
     // erscheint als Block in diesem Verlauf.
     clarify: 'Klären',
+    /** Unter der Matrix in einem abgeschlossenen Projekt, wo „Klären“ stünde (ADR-0090). */
+    clarifyClosed: 'Abgeschlossenes Projekt: keine neue Recherche zu offenen Befunden.',
     commissioned: 'Auftrag angelegt',
     // Gegenüber dem vorigen Bericht zum selben Thema.
     change: {
@@ -243,6 +247,9 @@ export const chat: typeof en.chat = {
     sourceNumber: 'Quelle {number}',
     page: 'S. {page}',
     pages: 'S. {pages}',
+    // Die Meldezeile einer Präzedenz aus einem anderen Projekt: Projekt, Status, dann das Bundesland.
+    precedentProject: '{name} · {status}',
+    projectStatus: { active: 'laufend', closed: 'abgeschlossen' },
     // Quellen jenseits der acht Chips falten sich hinter denselben Auslöser wie
     // die gelesenen Quellen: die Zahl zuerst, jeder Name beim Aufklappen.
     more: '+{count} weitere',
@@ -781,20 +788,21 @@ export const chat: typeof en.chat = {
         web: 'im Web',
         documents: 'in Ihren Unterlagen',
         ifc: 'im Gebäudemodell',
+        otherProjects: 'in anderen Projekten',
       },
       // Verbindet zwei Korpora in einer Zeile. Grammatik, also auch hier.
       corpusJoin: ' und ',
       status: {
         // Welche der eigenen Unterlagen gerade gesichtet werden. Ein
         // Schlüssel pro Ebene statt einer Vorlage mit Platzhalter: Deutsch
-        // braucht den Dativ („aus dem Büroarchiv“), Englisch gar keinen
+        // braucht den Dativ („aus der Büroablage“), Englisch gar keinen
         // Artikel, also lässt sich der Name nicht in EINEN Satz einsetzen.
         // Jede Zeile nennt den Namen, den die Lesenden im Produkt sehen —
-        // Büroarchiv, Projekt, Unterhaltung. Für mehrere Ebenen zugleich gibt
+        // Büroablage, Projekt, Unterhaltung. Für mehrere Ebenen zugleich gibt
         // es keinen: der Sammelbegriff dafür ist unser Wort, nicht ihres, also
         // sagt `several` schlicht, WAS gelesen wird.
         documents: {
-          archiv: 'Unterlagen aus dem Büroarchiv werden gesichtet …',
+          archiv: 'Unterlagen aus der Büroablage werden gesichtet …',
           project: 'Unterlagen aus dem Projekt werden gesichtet …',
           session: 'Unterlagen aus dieser Unterhaltung werden gesichtet …',
           several: 'Ihre Unterlagen werden gesichtet …',
@@ -879,6 +887,9 @@ export const chat: typeof en.chat = {
       webSearch: 'Websuche',
       ris: 'RIS',
       corpus: 'Wissen',
+      // In anderen Projekten des Büros nachgeschlagen (ADR-0094), meist in den
+      // abgeschlossenen Referenzprojekten.
+      otherProjects: 'Andere Projekte',
       reading: 'Lesen',
       // Das Arbeitsverzeichnis der Unterhaltung: schreiben, lesen, ändern,
       // auflisten — ein Wort für alle vier. Was Lesende interessiert, ist dass
@@ -1274,6 +1285,13 @@ export const chat: typeof en.chat = {
    * Sensible Daten im Chat (ADR-0086): was der Composer vor dem Senden meldet.
    * Die Platzhalter selbst sind Fachdaten und kommen aus `content-screen.ts`.
    */
+  /** The notice once a chat's answers drew on another project (ADR-0094). */
+  otherProjects: {
+    chip: '{count, plural, one {Ein anderes Projekt} other {# andere Projekte}}',
+    title: 'Dieser Chat stützt sich auf andere Projekte: {projects}.',
+    gone: 'ein Projekt, das es nicht mehr gibt',
+    body: 'Er lässt sich nur mit Personen teilen, die diese Projekte öffnen dürfen. Aus ihm geht nichts ins Projektgedächtnis, in Aufträge, in eine Tiefenrecherche oder in die Projektablage.',
+  },
   screening: {
     title: 'Enthält {items} (Sensible Daten).',
     body: 'Piloti sendet sie nicht an das Antwortmodell.',

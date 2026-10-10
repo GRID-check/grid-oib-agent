@@ -2,7 +2,7 @@
  * Composer source-preset shortcuts (WS-3, click-dummy overhaul spec §1/§2.2).
  *
  * The shortcut chips ("Baurecht & Richtlinien" / "Projektunterlagen" /
- * "Büroarchiv") map onto whatever data sources the backend registry ACTUALLY
+ * "Büroablage") map onto whatever data sources the backend registry ACTUALLY
  * exposes (`GET /v1/data_sources`, e.g. `web_search`, `ris`). Nothing is
  * invented: each preset selects the subset of real sources whose id/name
  * matches its signal, and everything else is disabled.
@@ -10,7 +10,7 @@
  * Important honesty note: project documents and the org Archiv are retrieved
  * through the knowledge layer, which is NOT a toggleable data source (the API
  * client filters `knowledge_layer` out of the list). So the "Projektunterlagen"
- * and "Büroarchiv" presets resolve to an empty *external*-source subset
+ * and "Büroablage" presets resolve to an empty *external*-source subset
  * (RIS/web off). The chip itself (`source_preset`) is what the agent
  * maps to shelves via `shelves_for_turn` — otherwise both chips still
  * searched every corpus (#436). The TS twin lives in `lib/retrieval-scope.ts`.

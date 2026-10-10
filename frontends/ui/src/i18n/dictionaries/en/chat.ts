@@ -55,8 +55,9 @@ export const chat = {
     // knowledge-base copy of a legal text reads as project material.
     kinds: {
       baurecht: 'Building law & guidelines',
-      buero: 'Office archive',
+      buero: 'Office filing',
       projekt: 'Project knowledge',
+      praezedenz: 'Precedent',
       web: 'Web source',
     },
     // Origin line in the info popover (no openable document).
@@ -66,7 +67,7 @@ export const chat = {
       web: 'Web source',
     },
   },
-  // Document grid: real project/Büroarchiv files the assistant surfaced as
+  // Document grid: real project/Büroablage files the assistant surfaced as
   // clickable preview cards (the `document_grid` card / `surface_documents` tool).
   documentGrid: {
     // Count pill — singular/plural chosen in the component (no ICU in this i18n).
@@ -79,10 +80,10 @@ export const chat = {
       buero: 'Office',
     },
     // A surfaced file that no longer resolves to a live document row — an honest,
-    // actionable card (the assistant referenced it; open the archive / project
+    // actionable card (the assistant referenced it; open in Office filing / project
     // files) rather than a silent dead tile.
     unresolvedHint: 'The assistant referenced this file.',
-    openInArchive: 'Open in archive',
+    openInArchive: 'Open in Office filing',
     openInFiles: 'Open in project files',
     // The resolve fetch failed — a retry affordance, not a permanent dead tile.
     loadError: 'Documents couldn’t be loaded.',
@@ -109,10 +110,10 @@ export const chat = {
     // Shown when the answer spelled the name differently from the file itself.
     writtenAs: 'In the text: {name}',
     // Which shelf the file came from — the same distinction the sources draw:
-    // shared project knowledge, the office-wide archive, a private attachment.
+    // shared project knowledge, Office filing, a private attachment.
     shelf: {
       projekt: 'Project files',
-      buero: 'Office archive',
+      buero: 'Office filing',
       session: 'Attachment in this chat',
     },
     notIndexed: 'Filed, not read. You can open it, but Piloti does not cite it.',
@@ -162,11 +163,11 @@ export const chat = {
   sourceTabs: {
     law: 'Building law',
     project: 'Project knowledge',
-    office: 'Office archive',
+    office: 'Office filing',
     auto: 'Web',
     model: 'Model measurement',
     shelves: {
-      archiv: 'Office archive',
+      archiv: 'Office filing',
       project: 'Project knowledge',
       session: 'Private session',
       base: 'Base knowledge',
@@ -178,7 +179,7 @@ export const chat = {
     presets: {
       law: 'Building law & guidelines',
       project: 'Project documents',
-      office: 'Office archive',
+      office: 'Office filing',
     },
   },
   // Time-of-day greeting on the empty chat state.
@@ -230,6 +231,8 @@ export const chat = {
     },
     grounding: { belegt: 'sourced', abgeleitet: 'derived', offen: 'unsourced' },
     clarify: 'Clarify',
+    /** Under the matrix in a closed project, where „Clarify“ would be (ADR-0090). */
+    clarifyClosed: 'Closed project: no new research to clarify open findings.',
     commissioned: 'Run commissioned',
     change: {
       new: 'new',
@@ -250,6 +253,9 @@ export const chat = {
     sourceNumber: 'Source {number}',
     page: 'p. {page}',
     pages: 'pp. {pages}',
+    // The meta line of a precedent from another project: project, status, then the Land.
+    precedentProject: '{name} · {status}',
+    projectStatus: { active: 'active', closed: 'closed' },
     // Sources past the eight chips fold behind the same control the read
     // sources use: the count first, every name on expand.
     more: '+{count} more',
@@ -807,20 +813,21 @@ export const chat = {
         web: 'the web',
         documents: 'your documents',
         ifc: 'the building model',
+        otherProjects: 'other projects',
       },
       // Joins two corpora in one line. Grammar, so it lives here too.
       corpusJoin: ' and ',
       status: {
         // Which of the reader's OWN files are being read. One key per level
         // rather than one template with a slot: German needs the dative ("aus
-        // dem Büroarchiv") and English needs no article, so the level's name
+        // der Büroablage") and English needs no article, so the level's name
         // cannot be interpolated into one shared sentence. Every line names
-        // the level the way the product names it to the reader — office
-        // archive, project, conversation. There is no line for several at
+        // the level the way the product names it to the reader — Office
+        // filing, project, conversation. There is no line for several at
         // once, because the collective noun for them is OURS, not theirs, so
         // `several` states plainly WHAT is being read.
         documents: {
-          archiv: 'Reviewing documents from the office archive …',
+          archiv: 'Reviewing documents from Office filing …',
           project: 'Reviewing documents from the project …',
           session: 'Reviewing documents from this conversation …',
           several: 'Reviewing your documents …',
@@ -901,6 +908,8 @@ export const chat = {
       webSearch: 'Web search',
       ris: 'RIS',
       corpus: 'Knowledge',
+      /** Looked in the office's other projects (ADR-0094), mostly its closed reference projects. */
+      otherProjects: 'Other projects',
       reading: 'Reading',
       /** The conversation's working directory: write, read, edit, list — one word. */
       draft: 'Draft',
@@ -1256,6 +1265,13 @@ export const chat = {
    * Sensitive data in chat (ADR-0086): what the composer reports before sending.
    * The placeholders themselves are domain data and come from `content-screen.ts`.
    */
+  /** The notice once a chat's answers drew on another project (ADR-0094). */
+  otherProjects: {
+    chip: '{count, plural, one {One other project} other {# other projects}}',
+    title: 'This chat draws on other projects: {projects}.',
+    gone: 'a project that no longer exists',
+    body: 'It can be shared only with people who may open those projects. Nothing from it goes into project memory, tasks, deep research or the project’s files.',
+  },
   screening: {
     title: 'Contains {items} (Sensitive data).',
     body: 'Piloti does not send this to the answering model.',

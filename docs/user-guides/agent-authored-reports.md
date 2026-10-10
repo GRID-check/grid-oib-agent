@@ -146,6 +146,9 @@ that could never be pressed:
 - **Piloti überarbeiten lassen**, beside Änderungen anfordern and with the same
   reason required. Piloti drafts the next version from your comment and submits
   it, so the file comes back to your Postfach instead of to a colleague's desk.
+  Not for a file in a folder that not everyone in the project may read: Piloti
+  would have to quote it into an Auftrag the whole project sees. The button then
+  says why and changes nothing; Änderungen anfordern still works.
 - **Veröffentlichen** on a freigegebene Fassung. Approving on Tuesday and
   issuing with the Einreichung on Friday are two acts, so they are two buttons.
 - **Archivieren**, which takes the file out of the listings. The bytes and every

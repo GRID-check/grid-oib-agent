@@ -1,37 +1,41 @@
 'use client'
 
 /**
- * „Zugriff auf …": who may read and who may write one folder (ADR-0088).
+ * „Zugriff auf …": who may read and who may write one folder (ADR-0088, ADR-0097).
  *
  * Two answers: as the parent folder (the root folder's parent is the project:
  * everyone keeps what their project permissions allow), or an own list —
- * roles of the organization, and „Alle Projektmitglieder", each with „Lesen"
- * or „Bearbeiten". A role not on the list sees nothing of the folder. The
- * dialog says what the reader cannot see from here: a subfolder can only be
- * narrower than its parent, „Bearbeiten" never goes beyond what someone may do
- * in the project, saving a change of who may READ moves and re-reads the
- * folder's documents, a list without your roles hides the folder from you too,
- * and a building model cannot sit in a folder not everyone may read.
+ * people of the project, each with „Lesen" or „Bearbeiten", and optionally
+ * „Alle Projektmitglieder dürfen lesen", which leaves the list deciding only
+ * who may write. Someone not on a list nobody else reads sees nothing of the
+ * folder. The dialog says what the reader cannot see from here: a subfolder can
+ * only be narrower than its parent, „Bearbeiten" never goes beyond what someone
+ * may do in the project, saving a change of who may READ moves and re-reads
+ * the folder's documents, a list without yourself hides the folder from you
+ * too, and a building model cannot sit in a folder not everyone may read.
  *
- * The PUT is the authority. It answers 404 for a reader who may not manage the
- * project, refuses a role the organization does not have, and reports how many
- * documents moved and which did not.
+ * Who is on a list is not in the folder listing: it is read when the dialog
+ * opens, with the project's people to pick from. The PUT is the authority. It
+ * answers 404 for a reader who may not manage the project, refuses someone
+ * outside the organization, and reports how many documents moved and which did
+ * not.
  */
 
-import { type FC, useMemo, useState } from 'react'
+import { type FC, useEffect, useState } from 'react'
 import { AlertTriangle, FolderTree, Lock, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ApiRequestError } from '@/adapters/api/api-error'
 import {
-  EVERY_PROJECT_MEMBER,
+  getFolderAccess,
+  listProjectPeople,
   setFolderAccess,
   type FolderAccessResult,
-  type FolderGrantItem,
+  type FolderAccessSetting,
+  type FolderPersonItem,
+  type ProjectPerson,
 } from '@/adapters/api/folder-access-client'
-import type { OrganizationRoles } from '@/adapters/api/organization-roles-client'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ChoiceCard, ChoiceCardGroup } from '@/components/ui/choice-card'
 import {
@@ -42,17 +46,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useTranslations } from '@/i18n'
 import type { FolderItem } from './project-file-workspace'
 
 type Mode = 'inherit' | 'custom'
+type CustomAccess = Extract<FolderAccessSetting, { mode: 'custom' }>
 
-/** At most this many entries; the route and the 0110 trigger hold the same line. */
-const MAX_GRANTS = 20
+/** At most this many people; the route holds the same line (`FOLDER_ACCESS_MAX_PEOPLE`). */
+const MAX_PEOPLE = 50
 
 export interface FolderAccessDialogProps {
   open: boolean
@@ -60,24 +66,27 @@ export interface FolderAccessDialogProps {
   projectId: string
   /** The folder being changed; the dialog renders nothing without one. */
   folder: FolderItem | null
-  /** The organization's roles, or null while they load. */
-  roles: OrganizationRoles | null
-  rolesFailed?: boolean
-  onRetryRoles?: () => void
   onSaved: (result: FolderAccessResult) => void
 }
 
-const grantsKey = (grants: readonly FolderGrantItem[]): string =>
-  grants
-    .map((grant) => `${grant.role}:${grant.level}`)
-    .sort()
-    .join(',')
+const EMPTY_LIST: CustomAccess = { mode: 'custom', everyoneReads: false, people: [] }
+
+/** The whole list, for "did anything change". */
+const accessKey = (access: CustomAccess): string =>
+  [
+    access.everyoneReads ? '*' : '',
+    ...access.people.map((person) => `${person.userId}:${person.level}`).sort(),
+  ].join(',')
+
+/** Who may READ under a list: everyone, or exactly the people on it. Levels do not change it. */
+const readersKey = (access: CustomAccess): string =>
+  access.everyoneReads ? '*' : access.people.map((person) => person.userId).sort().join(',')
 
 export const FolderAccessDialog: FC<FolderAccessDialogProps> = ({ open, onOpenChange, folder, ...rest }) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     {folder && (
       <FolderAccessForm
-        key={`${folder.id}-${folder.grants ? grantsKey(folder.grants) : 'inherit'}-${open}`}
+        key={`${folder.id}-${folder.ownAccess ? `custom-${folder.ownAccess.everyoneReads}` : 'inherit'}-${open}`}
         folder={folder}
         onClose={() => onOpenChange(false)}
         {...rest}
@@ -86,61 +95,89 @@ export const FolderAccessDialog: FC<FolderAccessDialogProps> = ({ open, onOpenCh
   </Dialog>
 )
 
-interface RoleOption {
-  slug: string
-  name: string
-  custom: boolean
+interface Loaded {
+  /** The list as it is now: what an unchanged dialog would save. Null for a folder that inherits. */
+  current: CustomAccess | null
+  /** The project's people, to name and to add. */
+  people: ProjectPerson[]
+}
+
+/**
+ * What the dialog reads when it opens: the folder's list (a folder with its own
+ * only) and the project's people. `retry` reads both again.
+ */
+function useFolderAccessData(projectId: string, folderId: string, hasOwnList: boolean) {
+  const [loaded, setLoaded] = useState<Loaded | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    let live = true
+    setFailed(false)
+    Promise.all([hasOwnList ? getFolderAccess(projectId, folderId) : null, listProjectPeople(projectId)])
+      .then(([access, people]) => {
+        if (live) setLoaded({ current: access?.mode === 'custom' ? access : null, people })
+      })
+      .catch(() => {
+        if (live) setFailed(true)
+      })
+    return () => {
+      live = false
+    }
+  }, [projectId, folderId, hasOwnList, attempt])
+
+  return { loaded, failed, retry: () => setAttempt((count) => count + 1) }
 }
 
 const FolderAccessForm: FC<
   Omit<FolderAccessDialogProps, 'open' | 'onOpenChange' | 'folder'> & { folder: FolderItem; onClose: () => void }
-> = ({ folder, projectId, roles, rolesFailed = false, onRetryRoles, onSaved, onClose }) => {
+> = ({ folder, projectId, onSaved, onClose }) => {
   const t = useTranslations('files')
   const tc = useTranslations('common')
-  const initialGrants = useMemo(() => folder.grants ?? [], [folder.grants])
-  const [mode, setMode] = useState<Mode>(folder.grants ? 'custom' : 'inherit')
-  const [grants, setGrants] = useState<FolderGrantItem[]>(initialGrants)
+  const initialMode: Mode = folder.ownAccess ? 'custom' : 'inherit'
+  const { loaded, failed, retry } = useFolderAccessData(projectId, folder.id, Boolean(folder.ownAccess))
+  const [mode, setMode] = useState<Mode>(initialMode)
+  // The list as edited; until the first edit, the list as it is. A folder with
+  // its own list has none to show or save until that is read.
+  const [edited, setEdited] = useState<CustomAccess | null>(null)
   const [saving, setSaving] = useState(false)
 
-  // The organization's roles, „Alle Projektmitglieder", and any role the folder
-  // names that no longer exists (a deleted role): shown so it can be taken
-  // off, never offered fresh.
-  const options = useMemo(() => {
-    const rows: RoleOption[] = [
-      { slug: EVERY_PROJECT_MEMBER, name: t('folders.access.everyMember'), custom: false },
-      ...(roles?.roles ?? []).map((role) => ({ slug: role.slug, name: role.name, custom: role.custom })),
-    ]
-    for (const grant of initialGrants) {
-      if (!rows.some((row) => row.slug === grant.role)) rows.push({ slug: grant.role, name: grant.role, custom: true })
-    }
-    return rows
-  }, [roles, initialGrants, t])
-  const nameOf = (slug: string): RoleOption | undefined => options.find((option) => option.slug === slug)
-  const addable = options.filter((option) => !grants.some((grant) => grant.role === option.slug))
+  const current = loaded?.current ?? null
+  const draft: CustomAccess | null = edited ?? current ?? (folder.ownAccess && !loaded ? null : EMPTY_LIST)
+  const people = draft?.people ?? []
+  const everyoneReads = draft?.everyoneReads ?? false
+  const nameOf = (userId: string): string =>
+    loaded?.people.find((person) => person.userId === userId)?.name ?? t('folders.access.unknownPerson')
+  const addable = (loaded?.people ?? []).filter((person) => !people.some((entry) => entry.userId === person.userId))
 
-  const next: FolderGrantItem[] | null = mode === 'custom' ? grants : null
-  const changed =
-    (next === null) !== (folder.grants == null) || (next !== null && grantsKey(next) !== grantsKey(initialGrants))
-  const missingRole = mode === 'custom' && grants.length === 0
-  const canSave = !saving && changed && !missingRole
-  // A list without „Alle Projektmitglieder" is one not every member may read:
-  // its documents move into their own collection, and a model may not sit there.
-  const restrictsReading = mode === 'custom' && !grants.some((grant) => grant.role === EVERY_PROJECT_MEMBER)
+  const custom = mode === 'custom'
+  const comparable = custom && draft !== null && current !== null
+  const changed = mode !== initialMode || (comparable && accessKey(draft) !== accessKey(current))
+  const readersChange = mode !== initialMode || (comparable && readersKey(draft) !== readersKey(current))
+  const missingPerson = custom && (draft === null || (draft.people.length === 0 && !draft.everyoneReads))
+  const canSave = !saving && changed && !missingPerson
+  // A list not every member may read: its documents move into their own
+  // collection, and a model may not sit there.
+  const restrictsReading = custom && !everyoneReads
 
-  const setLevel = (role: string, level: FolderGrantItem['level']): void =>
-    setGrants((prev) => prev.map((grant) => (grant.role === role ? { ...grant, level } : grant)))
-  const remove = (role: string): void => setGrants((prev) => prev.filter((grant) => grant.role !== role))
-  const add = (role: string): void =>
-    setGrants((prev) => (prev.some((grant) => grant.role === role) ? prev : [...prev, { role, level: 'read' }]))
+  const edit = (change: (prev: CustomAccess) => CustomAccess): void => {
+    if (draft) setEdited(change(draft))
+  }
+  const updatePeople = (change: (prev: FolderPersonItem[]) => FolderPersonItem[]): void =>
+    edit((prev) => ({ ...prev, people: change(prev.people) }))
+  const setLevel = (userId: string, level: FolderPersonItem['level']): void =>
+    updatePeople((prev) => prev.map((entry) => (entry.userId === userId ? { ...entry, level } : entry)))
+  const remove = (userId: string): void => updatePeople((prev) => prev.filter((entry) => entry.userId !== userId))
+  const add = (userId: string): void =>
+    updatePeople((prev) => (prev.some((entry) => entry.userId === userId) ? prev : [...prev, { userId, level: 'read' }]))
+  const setEveryoneReads = (value: boolean): void => edit((prev) => ({ ...prev, everyoneReads: value }))
 
   const save = async (): Promise<void> => {
+    const next: FolderAccessSetting | null = custom ? draft : { mode: 'inherit' }
+    if (!next) return
     setSaving(true)
     try {
-      const result = await setFolderAccess(
-        projectId,
-        folder.id,
-        next ? { mode: 'custom', grants: next } : { mode: 'inherit' }
-      )
+      const result = await setFolderAccess(projectId, folder.id, next)
       const title =
         result.access.mode === 'custom'
           ? t('folders.access.savedCustom', { name: folder.name })
@@ -195,101 +232,120 @@ const FolderAccessForm: FC<
         />
       </ChoiceCardGroup>
 
-      {mode === 'custom' && (
-        <div role="group" aria-labelledby="folder-access-roles-label" className="flex flex-col gap-2.5">
-          <FieldLabel id="folder-access-roles-label">{t('folders.access.roles')}</FieldLabel>
-          {rolesFailed ? (
-            <Alert variant="destructive">
+      {custom && (
+        <div className="flex flex-col gap-3">
+          {failed ? (
+            <Alert variant="destructive" data-testid="folder-access-load-error">
               <AlertTriangle />
               <AlertDescription className="flex flex-wrap items-center gap-2">
                 {t('folders.access.loadError')}
-                {onRetryRoles && (
-                  <Button variant="outline" size="sm" onClick={onRetryRoles}>
-                    {tc('actions.retry')}
-                  </Button>
-                )}
+                <Button variant="outline" size="sm" onClick={retry}>
+                  {tc('actions.retry')}
+                </Button>
               </AlertDescription>
             </Alert>
-          ) : !roles ? (
-            <div className="flex flex-col gap-2" aria-busy="true" aria-label={tc('states.loading')}>
+          ) : !loaded || !draft ? (
+            <div
+              className="flex flex-col gap-2"
+              aria-busy="true"
+              aria-label={tc('states.loading')}
+              data-testid="folder-access-loading"
+            >
               <Skeleton className="h-8 w-full" />
               <Skeleton className="h-8 w-full" />
             </div>
           ) : (
             <>
-              {grants.length === 0 && (
-                <FieldDescription data-testid="folder-access-pick-one">{t('folders.access.pickOne')}</FieldDescription>
-              )}
-              <ul className="flex flex-col gap-2" data-testid="folder-access-grants">
-                {grants.map((grant) => {
-                  const option = nameOf(grant.role)
-                  const name = option?.name ?? grant.role
-                  return (
-                    <li
-                      key={grant.role}
-                      className="flex flex-wrap items-center gap-2"
-                      data-testid={`folder-access-grant-${grant.role === EVERY_PROJECT_MEMBER ? 'all' : grant.role}`}
-                    >
-                      <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
-                      {option?.custom && grant.role !== EVERY_PROJECT_MEMBER && (
-                        <Badge variant="secondary">{t('folders.access.customRole')}</Badge>
-                      )}
-                      <ToggleGroup
-                        type="single"
-                        size="sm"
-                        value={grant.level}
-                        onValueChange={(value) => {
-                          if (value === 'read' || value === 'write') setLevel(grant.role, value)
-                        }}
-                        aria-label={t('folders.access.levelFor', { role: name })}
-                        disabled={saving}
+              <Field orientation="horizontal">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <FieldLabel htmlFor="folder-access-everyone-reads">{t('folders.access.everyoneReads')}</FieldLabel>
+                  <FieldDescription>{t('folders.access.everyoneReadsHint')}</FieldDescription>
+                </div>
+                <Switch
+                  id="folder-access-everyone-reads"
+                  checked={everyoneReads}
+                  onCheckedChange={setEveryoneReads}
+                  disabled={saving}
+                  data-testid="folder-access-everyone-reads"
+                />
+              </Field>
+              <div role="group" aria-labelledby="folder-access-people-label" className="flex flex-col gap-2.5">
+                <FieldLabel id="folder-access-people-label">{t('folders.access.people')}</FieldLabel>
+                {missingPerson && (
+                  <FieldDescription data-testid="folder-access-pick-one">{t('folders.access.pickOne')}</FieldDescription>
+                )}
+                <ul className="flex flex-col gap-2" data-testid="folder-access-people">
+                  {people.map((entry) => {
+                    const name = nameOf(entry.userId)
+                    return (
+                      <li
+                        key={entry.userId}
+                        className="flex flex-wrap items-center gap-2"
+                        data-testid={`folder-access-person-${entry.userId}`}
                       >
-                        <ToggleGroupItem value="read">{t('folders.access.levelRead')}</ToggleGroupItem>
-                        <ToggleGroupItem value="write">{t('folders.access.levelWrite')}</ToggleGroupItem>
-                      </ToggleGroup>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        aria-label={t('folders.access.remove', { role: name })}
-                        onClick={() => remove(grant.role)}
-                        disabled={saving}
-                      >
-                        <X className="size-4" aria-hidden />
-                      </Button>
-                    </li>
-                  )
-                })}
-              </ul>
-              {addable.length > 0 && grants.length < MAX_GRANTS && (
-                <Select value="" onValueChange={add} disabled={saving}>
-                  <SelectTrigger size="sm" aria-label={t('folders.access.add')} data-testid="folder-access-add">
-                    <SelectValue placeholder={t('folders.access.add')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {addable.map((option) => (
-                      <SelectItem key={option.slug} value={option.slug}>
-                        {option.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+                        <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
+                        <ToggleGroup
+                          type="single"
+                          size="sm"
+                          value={entry.level}
+                          onValueChange={(value) => {
+                            if (value === 'read' || value === 'write') setLevel(entry.userId, value)
+                          }}
+                          aria-label={t('folders.access.levelFor', { name })}
+                          disabled={saving}
+                        >
+                          <ToggleGroupItem value="read">{t('folders.access.levelRead')}</ToggleGroupItem>
+                          <ToggleGroupItem value="write">{t('folders.access.levelWrite')}</ToggleGroupItem>
+                        </ToggleGroup>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          aria-label={t('folders.access.remove', { name })}
+                          onClick={() => remove(entry.userId)}
+                          disabled={saving}
+                        >
+                          <X className="size-4" aria-hidden />
+                        </Button>
+                      </li>
+                    )
+                  })}
+                </ul>
+                {addable.length > 0 && people.length < MAX_PEOPLE && (
+                  <Select value="" onValueChange={add} disabled={saving}>
+                    <SelectTrigger size="sm" aria-label={t('folders.access.add')} data-testid="folder-access-add">
+                      <SelectValue placeholder={t('folders.access.add')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {addable.map((person) => (
+                        <SelectItem key={person.userId} value={person.userId}>
+                          {person.name}
+                          {person.email && <span className="text-muted-foreground"> · {person.email}</span>}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
             </>
           )}
           <FieldDescription>{t('folders.access.nesting')}</FieldDescription>
           <FieldDescription>{t('folders.access.ceiling')}</FieldDescription>
-          <FieldDescription>{t('folders.access.lockout')}</FieldDescription>
+          <FieldDescription>
+            {everyoneReads ? t('folders.access.lockoutEveryoneReads') : t('folders.access.lockout')}
+          </FieldDescription>
         </div>
       )}
 
-      {changed && (
+      {readersChange && (
         <Alert variant="info" data-testid="folder-access-move-notice">
           <AlertDescription>{t('folders.access.moveNotice')}</AlertDescription>
         </Alert>
       )}
-      {restrictsReading && <FieldDescription>{t('folders.access.ifcNotice')}</FieldDescription>}
+      {restrictsReading && (
+        <FieldDescription data-testid="folder-access-ifc-notice">{t('folders.access.ifcNotice')}</FieldDescription>
+      )}
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose} disabled={saving}>

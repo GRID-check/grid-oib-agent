@@ -12,6 +12,7 @@ import 'server-only'
 import { and, asc, count, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
+import { documentVisibleTo, type DocumentReader } from '@/lib/documents/visibility'
 import {
   bimCheckConfirmations,
   bimElements,
@@ -95,9 +96,14 @@ const MODEL_COLUMNS = {
   updatedAt: bimModels.updatedAt,
 } as const
 
+/**
+ * One model by id, as `reader` may see its document (ADR-0086): an IFC is
+ * extracted before its digest is screened, so a held file has a model too.
+ */
 export async function findBimModelById(
   modelId: string,
-  organizationId: string
+  organizationId: string,
+  reader: DocumentReader
 ): Promise<BimModelHeader | null> {
   const db = getDb()
   const rows = await withTenant({ organizationId }, () =>
@@ -105,15 +111,17 @@ export async function findBimModelById(
       .select(MODEL_COLUMNS)
       .from(bimModels)
       .innerJoin(documents, eq(documents.id, bimModels.documentId))
-      .where(and(eq(bimModels.id, modelId), eq(bimModels.organizationId, organizationId)))
+      .where(and(eq(bimModels.id, modelId), eq(bimModels.organizationId, organizationId), documentVisibleTo(reader)))
       .limit(1)
   )
   return rows[0] ?? null
 }
 
+/** A document's model, as `reader` may see the document (ADR-0086). */
 export async function findBimModelByDocument(
   documentId: string,
-  organizationId: string
+  organizationId: string,
+  reader: DocumentReader
 ): Promise<BimModelHeader | null> {
   const db = getDb()
   const rows = await withTenant({ organizationId }, () =>
@@ -121,7 +129,9 @@ export async function findBimModelByDocument(
       .select(MODEL_COLUMNS)
       .from(bimModels)
       .innerJoin(documents, eq(documents.id, bimModels.documentId))
-      .where(and(eq(bimModels.documentId, documentId), eq(bimModels.organizationId, organizationId)))
+      .where(
+        and(eq(bimModels.documentId, documentId), eq(bimModels.organizationId, organizationId), documentVisibleTo(reader))
+      )
       .limit(1)
   )
   return rows[0] ?? null
@@ -160,7 +170,14 @@ export async function listBimModels(
      * not exist.
      */
     hiddenFolderIds?: readonly string[]
-  } = {}
+    /**
+     * Whose list (ADR-0086): a held document's model is its uploader's and its
+     * reviewers' only. A person's list asks each shelf its own reviewers
+     * (`shelves`, since it spans a project and the Büroablage); the agent's is
+     * `screened-only`, as it has no person to ask and never reads a held file.
+     */
+    reader: DocumentReader
+  }
 ): Promise<BimModelHeader[]> {
   const db = getDb()
   const limit = Math.min(Math.max(1, Math.trunc(options.limit ?? 50)), 200)
@@ -182,7 +199,14 @@ export async function listBimModels(
       .select(MODEL_COLUMNS)
       .from(bimModels)
       .innerJoin(documents, eq(documents.id, bimModels.documentId))
-      .where(and(eq(bimModels.organizationId, organizationId), scope, outsideHiddenFolders))
+      .where(
+        and(
+          eq(bimModels.organizationId, organizationId),
+          scope,
+          outsideHiddenFolders,
+          documentVisibleTo(options.reader)
+        )
+      )
       .orderBy(desc(bimModels.updatedAt))
       .limit(limit)
   )
@@ -1100,9 +1124,19 @@ export interface BimStoredConfirmation {
   confirmedAt: Date
 }
 
+/**
+ * The confirmations of a project's Prüfbuch this reader may see (ADR-0086).
+ *
+ * A confirmation names a model revision and carries a person's note about it,
+ * so it is a fact about that model's document: one recorded on a held revision
+ * (by its uploader or a reviewer) is not every viewer's to read, by note or by
+ * model id. Inner joins lose nothing: `model_id` and the model's `document_id`
+ * are both foreign keys that cascade.
+ */
 export async function listBimCheckConfirmations(
   organizationId: string,
-  projectId: string
+  projectId: string,
+  reader: DocumentReader
 ): Promise<BimStoredConfirmation[]> {
   const db = getDb()
   const rows = await withTenant({ organizationId }, () =>
@@ -1115,10 +1149,16 @@ export async function listBimCheckConfirmations(
         confirmedAt: bimCheckConfirmations.updatedAt,
       })
       .from(bimCheckConfirmations)
+      .innerJoin(
+        bimModels,
+        and(eq(bimModels.id, bimCheckConfirmations.modelId), eq(bimModels.organizationId, organizationId))
+      )
+      .innerJoin(documents, eq(documents.id, bimModels.documentId))
       .where(
         and(
           eq(bimCheckConfirmations.organizationId, organizationId),
-          eq(bimCheckConfirmations.projectId, projectId)
+          eq(bimCheckConfirmations.projectId, projectId),
+          documentVisibleTo(reader)
         )
       )
   )

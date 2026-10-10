@@ -407,6 +407,14 @@ export const documents = pgTable('documents', {
    */
   screeningOutcome: text('screening_outcome').$type<DocumentScreeningOutcome>(),
   /**
+   * The `content_hash` of the bytes `screening_outcome` judged (migration 0123):
+   * written with the verdict from the hash its dispatch recorded, or with a
+   * release. A person's upload passes the hold only while this equals
+   * `content_hash`, so a writer that swaps the bytes and leaves the verdict
+   * holds the file back instead of vouching for bytes nobody checked.
+   */
+  screenedHash: text('screened_hash'),
+  /**
    * A reviewer's release from quarantine, of the bytes whose `content_hash`
    * this names. A re-upload under the same id carries a different hash, so it
    * is screened again. All three or none (CHECK).

@@ -15,6 +15,7 @@ import { sourceTint } from '@/lib/ui/source-tint'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { AuthorshipLine } from './authorship-line'
+import { SourceDeletedNote } from '@/components/projects/source-deleted-note'
 import { DocumentVersionStateBadge } from './document-version-badge'
 import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './document-status'
 import { SemanticMatch } from './semantic-match'
@@ -115,7 +116,7 @@ function loadThumbnail(fileId: string, provisional = false): Promise<string | nu
  * soft tile + format chip, never a lone glyph that mimics a broken image. Only a
  * GENUINE failure (5xx / network / broken image url) shows a distinct
  * "couldn't load" treatment. The route is scope-aware, so this serves both
- * project uploads and Büroarchiv documents by id.
+ * project uploads and Büroablage documents by id.
  */
 export function ThumbnailWithFallback({ file }: { file: FileItem }) {
   const t = useTranslations('files')
@@ -212,7 +213,7 @@ export interface FileCardProps {
   locale: string
   /** Present on a semantic/surfaced result: the snippet + page + score to show WHY it matched. */
   match?: { snippet: string; page: number | null; score: number }
-  /** Coarse corpus for a provenance chip in the metadata row (project vs Büroarchiv). */
+  /** Coarse corpus for a provenance chip in the metadata row (project vs Büroablage). */
   source?: 'projekt' | 'buero' | null
   /** Localized label for the provenance chip. */
   sourceLabel?: string
@@ -377,6 +378,7 @@ export function FileCard({
                 `Unvergeben` live and that slot answers a different question:
                 who is responsible for it. */}
             <AuthorshipLine authoredBy={file.authoredBy} className="mt-0.5" />
+            {file.sourceDeletedAt && <SourceDeletedNote at={file.sourceDeletedAt} className="mt-0.5" />}
             {/* The editorial state, on the same side as the byline and nowhere
                 near the footer, for exactly that reason: „freigegeben" is a
                 statement about the CONTENT and „Unvergeben" one about

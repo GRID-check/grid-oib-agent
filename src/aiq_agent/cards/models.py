@@ -850,7 +850,7 @@ class CalculationCard(CardModel):
 
 # ── Document-surfacing card (system-emitted) ─────────────────────────────────
 # Surfaced by the `surface_documents` tool from a REAL vector search over the
-# project + Büroarchiv corpus — never fabricated by the model (it is a system
+# project + Büroablage corpus — never fabricated by the model (it is a system
 # card, so `emit_card` refuses it). Each entry names a real indexed file so the
 # frontend can resolve it to the live document row (id, thumbnail, preview) and
 # render the same rich file-explorer card the Files page uses.
@@ -865,12 +865,12 @@ class SurfacedDocument(CardModel):
     page: int | None = Field(default=None, description="1-based page the snippet came from, if known")
     score: float | None = Field(default=None, description="0..1 relevance score of the best chunk")
     source: Literal["projekt", "buero"] | None = Field(
-        default=None, description="Which corpus it came from: 'projekt' (project) or 'buero' (Büroarchiv)"
+        default=None, description="Which corpus it came from: 'projekt' (project) or 'buero' (Büroablage)"
     )
 
 
 class DocumentGridCard(CardModel):
-    """Project/Büroarchiv files the user asked to see.
+    """Project/Büroablage files the user asked to see.
 
     System-emitted by ``surface_documents``. One file or a short browse
     choice — same card, the list length is the difference. Never a

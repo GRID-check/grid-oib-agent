@@ -3,7 +3,7 @@
 The signed collection scope is an authorization ceiling. The inventory is how
 the agent *sees* that ceiling. ADR-0047 already travels the shelf as data on
 the wire; this module is the missing half: each listed file carries its shelf,
-the prompt is grouped by shelf, and a listing question about the Büroarchiv
+the prompt is grouped by shelf, and a listing question about the Büroablage
 cannot be answered with OIB or project files.
 
 Identity is ``(collection, filename)``. A 50-row cap that sorted the mixed
@@ -74,10 +74,12 @@ _IN_FLIGHT_MAX_NAMED = 5
 
 _SHELF_BLURBS: dict[Shelf, str] = {
     Shelf.BASE: (
-        "always on this request — platform OIB / law corpus. Every turn has this, project or not. Never the Büroarchiv."
+        "always on this request — platform OIB / law corpus. Every turn has this, project or not. Never the Büroablage."
     ),
-    Shelf.ARCHIV: ("on every project in this organization — office archive. NOT base/OIB, NOT this project's files."),
-    Shelf.PROJECT: ("on every session of this project — this project's files only. NOT the Büroarchiv, NOT base/OIB."),
+    Shelf.ARCHIV: (
+        "on every project in this organization — the office's own files. NOT base/OIB, NOT this project's files."
+    ),
+    Shelf.PROJECT: ("on every session of this project — this project's files only. NOT the Büroablage, NOT base/OIB."),
     Shelf.SESSION: ("only this chat — attachments uploaded here. Not visible in other sessions."),
 }
 
@@ -90,6 +92,7 @@ _LISTING_CUES = (
     "was hast du",
     "was liegt",
     "was ist im",
+    "was ist in der",
     "hast du was",
     "zeig mir die datei",
     "zeig die datei",
@@ -98,6 +101,7 @@ _LISTING_CUES = (
     "liste die",
     "liste ",
     "und im",
+    "und in der",
     "what files",
     "which files",
     "what's in",
@@ -106,9 +110,17 @@ _LISTING_CUES = (
     "what have you",
 )
 
-# Short follow-ups that name a shelf and nothing else ("und im archiv?").
+# Short follow-ups that name a shelf and nothing else ("und im archiv?"). The
+# shelf is called „Büroablage" since 6 Oct 2026; people still say „Archiv" and
+# „Büroarchiv", so the old names keep matching beside the new one.
 _SHELF_ONLY_FOLLOWUPS = frozenset(
     {
+        "bueroablage",
+        "buroablage",
+        "die bueroablage",
+        "in der bueroablage",
+        "und in der bueroablage",
+        "und die bueroablage",
         "im archiv",
         "ins archiv",
         "das archiv",
@@ -127,6 +139,10 @@ _SHELF_HINTS: tuple[tuple[Shelf, tuple[str, ...]], ...] = (
     (
         Shelf.ARCHIV,
         (
+            "büroablage",
+            "bueroablage",
+            "büro-ablage",
+            "office filing",
             "büroarchiv",
             "bueroarchiv",
             "büro archiv",
@@ -334,7 +350,7 @@ def _query_variants(query: str) -> tuple[str, str]:
 def shelf_hint_from_query(query: str) -> Shelf | None:
     """Shelf a *listing* question is about, or ``None`` for a content question.
 
-    "welche Dateien hast du im Büroarchiv" → ``archiv``.
+    "welche Dateien hast du in der Büroablage" → ``archiv``.
     "was sagt OIB-RL 2 zum Brandschutz" → ``None``.
     When both project and archiv are mentioned ("nicht im projekt … im archiv")
     the archive token wins — that is the clarification the user just made.
@@ -443,7 +459,7 @@ def _heading(shelf: Shelf) -> str:
 def _implied_shelves(groups: dict[Shelf, list[Any]]) -> list[Shelf]:
     """Shelves that must exist given the ones we already have files for.
 
-    Every request has Basiswissen. Every project has a Büroarchiv. A turn
+    Every request has Basiswissen. Every project has a Büroablage. A turn
     that already listed project or session files is therefore a project
     turn, even if the signed envelope did not arrive and the archive is
     empty — omitting the empty group is how the model fills it with OIB.
@@ -506,11 +522,11 @@ def render_inventory_block(
 ) -> str:
     """Markdown inventory grouped by shelf, including empty in-scope shelves.
 
-    An omitted empty Büroarchiv section is how the model fills the gap with
+    An omitted empty Büroablage section is how the model fills the gap with
     OIB. In-scope empty shelves therefore render as ``(empty)``.
 
     ``focus_shelf`` is a listing question about ONE shelf: only that group is
-    printed, so OIB filenames cannot be recited as Büroarchiv.
+    printed, so OIB filenames cannot be recited as Büroablage.
 
     ``in_flight`` names files whose ingestion has not finished. THE ABSENCE OF
     A FILE IS NOT THE SAME FACT AS ITS NON-EXISTENCE, and this inventory could
@@ -559,15 +575,15 @@ def render_inventory_block(
         "",
         "Files sit on four nested shelves. A wider shelf is NOT the narrower one:",
         "- **Basiswissen** (base) — always on this request. Platform OIB / law. Every turn has this.",
-        "- **Büroarchiv** (archiv) — on every project in this organization. "
-        "Office archive. NOT base/OIB, NOT this project.",
-        "- **Projektwissen** (project) — on every session of this project. This project's files. NOT the Büroarchiv.",
+        "- **Büroablage** (archiv) — on every project in this organization. "
+        "The office's own files. NOT base/OIB, NOT this project.",
+        "- **Projektwissen** (project) — on every session of this project. This project's files. NOT the Büroablage.",
         "- **Private Sitzung** (session) — only this chat. Attachments uploaded here.",
         "",
         'When the user asks which files you have on a shelf (e.g. "welche Dateien '
-        'hast du im Büroarchiv", "was liegt im Projekt", "welche OIB-Richtlinien '
+        'hast du in der Büroablage", "was liegt im Projekt", "welche OIB-Richtlinien '
         "hast du\"), answer ONLY from that shelf's files. If the group is empty, say "
-        "so. Never fill a gap with another shelf. Büroarchiv is never the OIB corpus. "
+        "so. Never fill a gap with another shelf. Büroablage is never the OIB corpus. "
         "When the group says it is incomplete, or the question narrows by folder, name, "
         "kind or date, `list_files` returns the complete, filtered list.",
         "",
@@ -646,7 +662,7 @@ def render_inventory_block(
 
     if unknown:
         lines.append("### Unattributed")
-        lines.append("Shelf was not stated for these files — do not assign them to Büroarchiv or Basiswissen.")
+        lines.append("Shelf was not stated for these files — do not assign them to Büroablage or Basiswissen.")
         for doc in unknown:
             summary = _summary_of(doc) or "No summary available"
             lines.append(f"- **{_file_name_of(doc)}**: {summary}")

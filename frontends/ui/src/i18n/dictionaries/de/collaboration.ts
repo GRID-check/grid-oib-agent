@@ -100,6 +100,14 @@ export const collaboration: typeof en.collaboration = {
         'Sie dürfen nicht jeden Ordner mit eingeschränktem Zugriff lesen, auf den sich dieser Chat stützt, und können ihn deshalb nicht übernehmen.',
       restrictedContentProject:
         'Dieser Chat stützt sich auf einen Ordner mit eingeschränktem Zugriff und kann deshalb nicht für das ganze Projekt sichtbar gemacht werden. Teilen Sie ihn mit einzelnen Personen, die den Ordner lesen dürfen.',
+      crossProjectContent:
+        '{name} darf nicht jedes andere Projekt öffnen, auf das sich dieser Chat stützt. Deshalb kann er nicht mit dieser Person geteilt werden.',
+      crossProjectContentSomeone:
+        'Diese Person darf nicht jedes andere Projekt öffnen, auf das sich dieser Chat stützt. Deshalb kann er nicht mit ihr geteilt werden.',
+      crossProjectContentSelf:
+        'Sie dürfen nicht jedes andere Projekt öffnen, auf das sich dieser Chat stützt, und können ihn deshalb nicht übernehmen.',
+      crossProjectContentProject:
+        'Dieser Chat stützt sich auf Inhalte aus anderen Projekten und kann deshalb nicht für das ganze Projekt sichtbar gemacht werden. Teilen Sie ihn mit einzelnen Personen, die diese Projekte öffnen dürfen.',
       loadFailed: 'Die Freigabe-Einstellungen konnten nicht geladen werden.',
       saveFailed: 'Die Änderung konnte nicht gespeichert werden.',
       tryAgain: 'Erneut versuchen',
@@ -283,6 +291,12 @@ export const collaboration: typeof en.collaboration = {
         titleMany: '{count} Dateien warten in der Quarantäne',
         titleNone: 'Dateien in der Quarantäne',
         body: 'Kein Modell hat sie gelesen. Geben Sie sie frei oder löschen Sie sie.',
+      },
+      // ADR-0086: wer eine Datei hochgeladen hat, die in der Quarantäne liegt,
+      // bittet um Freigabe. {subject} ist der Dateiname.
+      documentReleaseRequested: {
+        title: '{actor} bittet um Freigabe von „{subject}"',
+        body: 'Die Datei liegt in der Quarantäne. Sehen Sie sie an und geben Sie sie frei oder löschen Sie sie.',
       },
       jobCompleted: {
         title: '„{subject}" ist fertig',

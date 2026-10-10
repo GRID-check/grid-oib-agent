@@ -27,7 +27,18 @@ import { isValidCronExpression, isValidTimezone } from './schedule'
 
 export const MAX_JOB_NAME_LENGTH = 200
 /**
- * The prompt cap. Deliberately well under the backend's 48000-char ceiling for
+ * The longest prompt one agent run can be submitted with: the backend's ceiling
+ * on the composed `input` (`SUBMIT_INPUT_MAX_CHARS` in
+ * `frontends/aiq_api/src/aiq_api/routes/skills.py`), which answers anything
+ * longer with a 422. Every budget a composed prompt is cut to derives from this
+ * one number; `test_skill_submit.py` fails when the two sides disagree.
+ *
+ * Counted in UTF-16 code units here and in code points there, so a prompt that
+ * fits this count always fits the backend's.
+ */
+export const AGENT_RUN_INPUT_MAX_CHARS = 48_000
+/**
+ * The prompt cap. Deliberately well under {@link AGENT_RUN_INPUT_MAX_CHARS} for
  * the COMPOSED input (job prompt + the attached skill's 32000-char body), so a
  * job that attaches the largest legal skill still fits.
  */

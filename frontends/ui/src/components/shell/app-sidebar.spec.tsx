@@ -86,9 +86,10 @@ describe('AppSidebar - click-dummy IA (FB-9/FB-10)', () => {
     expect(screen.getAllByText('Files').length).toBeGreaterThan(0)
   })
 
-  test('Overview, Members, Research, Knowledge and History no longer appear in the nav', () => {
+  test('Members, Research, Knowledge and History no longer appear in the nav', () => {
     render(<AppSidebar {...baseProps} canAccessArchiv />)
-    expect(screen.queryByText('Overview')).not.toBeInTheDocument()
+    // "Overview" is back, but as the label of the pinned project hub (the
+    // settings segment), not the old top-level Overview route: see the next test.
     expect(screen.queryByText('Members')).not.toBeInTheDocument()
     expect(screen.queryByText('Research')).not.toBeInTheDocument()
     expect(screen.queryByText('Knowledge')).not.toBeInTheDocument()
@@ -96,9 +97,9 @@ describe('AppSidebar - click-dummy IA (FB-9/FB-10)', () => {
     expect(screen.queryByText('History')).not.toBeInTheDocument()
   })
 
-  test('renders a pinned Settings entry linking to the project settings page', () => {
+  test('renders the pinned Overview entry linking to the project hub', () => {
     render(<AppSidebar {...baseProps} />)
-    const links = screen.getAllByText('Settings').map((el) => el.closest('a'))
+    const links = screen.getAllByText('Overview').map((el) => el.closest('a'))
     expect(links.length).toBeGreaterThan(0)
     for (const link of links) {
       expect(link).toHaveAttribute('href', '/app/projects/p1/settings')
@@ -146,7 +147,7 @@ describe('AppSidebar - Automation nav item', () => {
 describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
   test('shows Archiv when canAccessArchiv is true, linking to the org Archiv', () => {
     render(<AppSidebar {...baseProps} canAccessArchiv />)
-    const links = screen.getAllByText('Archiv').map((el) => el.closest('a'))
+    const links = screen.getAllByText('Office filing').map((el) => el.closest('a'))
     expect(links.length).toBeGreaterThan(0)
     for (const link of links) {
       expect(link).toHaveAttribute('href', '/app/archiv')
@@ -155,7 +156,7 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
 
   test('hides Archiv by default (org feature flag off)', () => {
     render(<AppSidebar {...baseProps} />)
-    expect(screen.queryByText('Archiv')).not.toBeInTheDocument()
+    expect(screen.queryByText('Office filing')).not.toBeInTheDocument()
   })
 
   test('orders Ask Piloti first and Inbox last in the section nav', () => {
@@ -169,10 +170,10 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
     const labels = Array.from(navs)
       .flatMap((nav) => Array.from(nav.querySelectorAll('a span[data-slot="rail-nav-label"]')))
       .map((el) => el.textContent)
-    // Ask Piloti · Files · Automation* · Archiv* · Inbox*, per
-    // `project-sections.ts`. Automation is absent here because `showSkills`
+    // Ask Piloti · Files · Automation* · Archiv* · Inbox*,
+    // per `project-sections.ts`. Automation is absent here because `showSkills`
     // is off.
-    expect(labels).toEqual(['Ask Piloti', 'Files', 'Archiv', 'Inbox'])
+    expect(labels).toEqual(['Ask Piloti', 'Files', 'Office filing', 'Inbox'])
   })
 })
 
@@ -248,7 +249,7 @@ describe('AppSidebar - active state', () => {
     render(<AppSidebar {...baseProps} />)
     const chatLinks = screen.getAllByText('Ask Piloti').map((el) => el.closest('a'))
     expect(chatLinks.some((link) => link?.getAttribute('aria-current') === 'page')).toBe(true)
-    const settingsLinks = screen.getAllByText('Settings').map((el) => el.closest('a'))
+    const settingsLinks = screen.getAllByText('Overview').map((el) => el.closest('a'))
     for (const link of settingsLinks) {
       expect(link).not.toHaveAttribute('aria-current')
     }
@@ -301,7 +302,7 @@ describe('AppSidebar - the org doorways stay reachable from inside a project', (
     pathname = '/app/archiv'
     render(<AppSidebar {...baseProps} canAccessArchiv />)
     const archiv = screen
-      .getAllByText('Archiv')
+      .getAllByText('Office filing')
       .map((el) => el.closest('a'))
       .filter((link): link is HTMLAnchorElement => link !== null)
     expect(archiv.some((link) => link.getAttribute('aria-current') === 'page')).toBe(true)

@@ -475,15 +475,58 @@ def _record(slot: str, detail: dict[str, Any]) -> None:
     emit_technical(f"decision:{slot}", **detail)
 
 
-def record_skipped(slot: str, reason: str, detail: str | None = None) -> None:
+#: How many answer summaries one ``decide_many`` observation carries: a batch
+#: of passages or candidates is bounded, but an observation must stay small.
+_OBSERVED_ANSWERS_MAX = 24
+
+
+def _observe(
+    slot: str,
+    questions: Mapping[str, Any] | Sequence[str],
+    *,
+    states: int,
+    decisions: Sequence[Decision | None] = (),
+    latency_ms: int | None = None,
+    skipped: str | None = None,
+) -> None:
+    """The Langfuse generation for one call or batch (``decide.<slot>``). Never raises."""
+    try:
+        from aiq_agent.observability.decision_trace import decision_observation
+        from aiq_agent.observability.decision_trace import emit_decision_span
+
+        made = [decision for decision in decisions if decision is not None]
+        costs = [decision.cost_usd for decision in made if decision.cost_usd is not None]
+        body_in, body_out = decision_observation(
+            questions=list(questions),
+            states=states,
+            answers=[decision.summary() for decision in made[:_OBSERVED_ANSWERS_MAX]],
+            model=made[0].model if made else None,
+            latency_ms=latency_ms,
+            input_tokens=sum(decision.input_tokens for decision in made),
+            output_tokens=sum(decision.output_tokens for decision in made),
+            cost_usd=sum(costs) if costs else None,
+            decided=len(made),
+            skipped=skipped,
+        )
+        emit_decision_span(slot, body_in, body_out)
+    except Exception:  # noqa: BLE001 — telemetry never takes a decision down
+        logger.debug("Decision %s not observed", slot, exc_info=True)
+
+
+def record_skipped(
+    slot: str, reason: str, detail: str | None = None, *, questions: Mapping[str, Any] | Sequence[str] = ()
+) -> None:
     """Log and record a decision that did not run, and why.
 
     INFO, not DEBUG: a decision that silently misses its budget looks, in
     every log, exactly like a turn that never asked for one. A caller that
     chose not to ask records its own reason here, beside the endpoint's.
+    Langfuse sees it too, so a turn that prefetched nothing because the
+    decision timed out is told apart from one whose decision said no.
     """
     logger.info("Decision %s did not run: %s", slot, reason)
     _record(slot, {"skipped": reason, **({"detail": detail} if detail else {})})
+    _observe(slot, questions, states=1, skipped=reason)
 
 
 async def decide(
@@ -505,17 +548,18 @@ async def decide(
         return None
     endpoint, skipped = await _endpoint(organization_id)
     if endpoint is None:
-        record_skipped(slot, skipped or SKIPPED_ERROR)
+        record_skipped(slot, skipped or SKIPPED_ERROR, questions=questions)
         return None
     outcome = await _post(endpoint, state, questions, timeout=timeout, transport=transport)
     if outcome.decision is None:
-        record_skipped(slot, outcome.skipped or SKIPPED_ERROR, outcome.detail)
+        record_skipped(slot, outcome.skipped or SKIPPED_ERROR, outcome.detail, questions=questions)
         return None
     decision = outcome.decision
     _record(
         slot,
         {**decision.summary(), "latencyMs": decision.latency_ms, "inputTokens": decision.input_tokens},
     )
+    _observe(slot, questions, states=1, decisions=[decision], latency_ms=decision.latency_ms)
     return decision
 
 
@@ -563,6 +607,42 @@ def decide_blocking(
         return pool.submit(copy_context().run, _run).result()
 
 
+def decide_many_blocking(
+    states: Sequence[Any],
+    questions: Mapping[str, Mapping[str, Any]],
+    *,
+    slot: str,
+    timeout: float = DEFAULT_TIMEOUT_S,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    organization_id: str | None = None,
+) -> list[Decision | None]:
+    """:func:`decide_many` for synchronous code, as :func:`decide_blocking` is :func:`decide`'s."""
+    import httpx
+
+    def _run() -> list[Decision | None]:
+        return asyncio.run(
+            decide_many(
+                states,
+                questions,
+                slot=slot,
+                timeout=timeout,
+                concurrency=concurrency,
+                organization_id=organization_id,
+                transport=httpx.AsyncHTTPTransport(),
+            )
+        )
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return _run()
+    from concurrent.futures import ThreadPoolExecutor
+    from contextvars import copy_context
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(copy_context().run, _run).result()
+
+
 async def decide_many(
     states: Sequence[Any],
     questions: Mapping[str, Mapping[str, Any]],
@@ -586,6 +666,7 @@ async def decide_many(
     endpoint, skipped = await _endpoint(organization_id)
     if endpoint is None:
         _record(slot, {"skipped": skipped, "count": len(states)})
+        _observe(slot, questions, states=len(states), skipped=skipped)
         return [None] * len(states)
     gate = asyncio.Semaphore(max(1, concurrency))
 
@@ -607,4 +688,12 @@ async def decide_many(
     if failed:
         values["skipped"] = failed[0]
     _record(slot, values)
+    _observe(
+        slot,
+        questions,
+        states=len(states),
+        decisions=decided,
+        latency_ms=values["latencyMs"],
+        skipped=failed[0] if failed else None,
+    )
     return decided

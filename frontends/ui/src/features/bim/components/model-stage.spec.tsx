@@ -1207,7 +1207,7 @@ describe('ModelStage — the file operations on the building', () => {
   })
 })
 
-describe('ModelStage — a model from the Büroarchiv', () => {
+describe('ModelStage — a model from the Büroablage', () => {
   it('deletes it through the org-scoped route, not the project one', async () => {
     // The rail lists the Archiv's models beside the project's, and an Archiv
     // document is 404 on the project delete route by design.

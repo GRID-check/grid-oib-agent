@@ -1,6 +1,12 @@
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { NotFoundError } from '@/lib/api/errors'
 import { findProjectTenancy } from '@/lib/projects/repository'
+import {
+  isProjectClosed,
+  keptWhenClosed,
+  openToOrganizationWhenClosed,
+  projectClosedError,
+} from '@/lib/projects/project-status'
 import { hasPermission, ORG_PERMISSIONS } from './permissions'
 import { checkResourcePermission } from './resource-check'
 
@@ -30,6 +36,19 @@ export type ProjectPermission =
  */
 export type ProjectRole = 'project-viewer' | 'project-editor' | 'project-admin'
 
+/** What {@link requireProjectAccess} grants: the derived role, and how the project's status shaped it. */
+export interface ProjectAccess {
+  role: ProjectRole
+  /** The project is closed (ADR-0090): read-only, whatever the role. */
+  closed: boolean
+  /**
+   * The caller reads the project only because it is closed: they hold no FGA
+   * grant on it and are not an organization admin. Their folder clearance is a
+   * member's with no role (`clearanceOf`), so no restricted folder opens to them.
+   */
+  readsBecauseClosed: boolean
+}
+
 /**
  * Authorize a session against a project and derive its effective role.
  *
@@ -56,9 +75,16 @@ export async function requireProjectAccess(
    * that grant working while new roles can be given just the narrow one.
    */
   permission: ProjectPermission | readonly ProjectPermission[] = 'project:view',
-  options: { includeDeleted?: boolean } = {}
-): Promise<{ role: ProjectRole }> {
-  const accepted: readonly ProjectPermission[] = Array.isArray(permission)
+  options: {
+    includeDeleted?: boolean
+    /**
+     * Ask the permission as if the project were active. Only for the one write a
+     * closed project allows, reopening it (`project:manage`); never to read.
+     */
+    evenWhenClosed?: boolean
+  } = {}
+): Promise<ProjectAccess> {
+  const requested: readonly ProjectPermission[] = Array.isArray(permission)
     ? permission
     : [permission as ProjectPermission]
   // Verify the project belongs to the current org (and is not soft-deleted,
@@ -76,6 +102,15 @@ export async function requireProjectAccess(
     throw new NotFoundError()
   }
 
+  // A closed project is read-only (ADR-0090). Decided BEFORE the org-admin
+  // bypass below, or an admin would keep writing into it. A request whose every
+  // permission is a write is refused outright, with a reason the UI can name;
+  // an any-of list keeps only what a closed project still allows.
+  const closed = isProjectClosed(project)
+  const readOnly = closed && !options.evenWhenClosed
+  const accepted = readOnly ? keptWhenClosed(requested) : requested
+  if (accepted.length === 0) throw projectClosedError()
+
   // The org-wide project bypass (but never the tenancy check above).
   //
   // Gated on the PERMISSION `org:projects:administer`, not on the role slug
@@ -90,7 +125,7 @@ export async function requireProjectAccess(
   // Surfaced as the named `org-admin-bypass` rule when routed through
   // `./decide`, so the bypass is visible in a decision rather than implicit.
   if (hasPermission(session, ORG_PERMISSIONS.projectsAdminister)) {
-    return { role: 'project-admin' }
+    return { role: 'project-admin', closed, readsBecauseClosed: false }
   }
 
   const check = (permissionSlug: ProjectPermission) =>
@@ -114,6 +149,11 @@ export async function requireProjectAccess(
 
   // Any-of: holding the narrow permission OR the legacy umbrella is enough.
   if (!granted.some(Boolean)) {
+    // Every member of the organization reads a closed project and may chat
+    // about it (ADR-0090), as a viewer who clears no restricted folder.
+    if (readOnly && openToOrganizationWhenClosed(accepted)) {
+      return { role: 'project-viewer', closed, readsBecauseClosed: true }
+    }
     throw new NotFoundError()
   }
 
@@ -125,7 +165,8 @@ export async function requireProjectAccess(
   // comparing against `accepted[0]`, a different slug.
   const held = new Set(accepted.filter((_, index) => granted[index]))
 
-  if (extraManage ?? held.has('project:manage')) return { role: 'project-admin' }
+  const asMember = (role: ProjectRole): ProjectAccess => ({ role, closed, readsBecauseClosed: false })
+  if (extraManage ?? held.has('project:manage')) return asMember('project-admin')
 
   // The editor rung is "holds a WRITE permission", not "holds `project:edit`".
   // After the ADR-0038 split the umbrella is one of three ways to write, and a
@@ -134,7 +175,7 @@ export async function requireProjectAccess(
   // shared thread in a project whose corpus they can change.
   const writes = extraEdit ?? held.has('project:edit')
   if (writes || held.has('project:documents:write') || held.has('project:memory:write')) {
-    return { role: 'project-editor' }
+    return asMember('project-editor')
   }
-  return { role: 'project-viewer' }
+  return asMember('project-viewer')
 }

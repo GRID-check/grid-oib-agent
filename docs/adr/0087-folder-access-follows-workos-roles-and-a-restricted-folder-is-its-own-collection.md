@@ -8,6 +8,9 @@ informed: everyone working in this repo
 
 # Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection
 
+> **Who is on a list is superseded by [ADR-0097](0097-who-holds-a-folder-s-own-list-is-a-workos-folder-role.md)** (2026-10-09):
+> people holding a WorkOS folder role on the folder, not organization roles.
+
 > **Partly superseded by [ADR-0088](0088-folder-access-is-read-write-per-role.md)** (2026-10-06):
 > who may see a folder (a role list on `restricted_roles`, replaced by per-role read/write
 > grants that only narrow when nested), the per-conversation mark and the per-socket
@@ -30,7 +33,8 @@ Today access is per project and nothing finer. Roles are fixed in
 `lib/authz/catalog.ts` and provisioned into WorkOS; a custom role exists only if
 an operator creates it in the WorkOS dashboard; the session reads `role` and
 `permissions`, not `roles`. `documents.visibility = 'private'` can be set and
-nothing on the read side enforces it. Retrieval is scoped by the signed
+nothing on the read side enforces it (since 2026-10-07 the sharing registry
+refuses it on a document, until per-document access exists). Retrieval is scoped by the signed
 collection list the BFF puts in the request envelope (ADR-0047), and every
 Python read path — search, inventory, `read_passage`, browse, surfacing,
 `view_image` — stays inside that list. Chunks carry no folder or document id;
@@ -160,6 +164,29 @@ envelope is also refused on the envelope's own restricted collections:
   The async proxy does not forward `job/{id}/documents`, so `addRunDocument` is
   the only way a document reaches a running run.
 
+A revision task is the same door seen from a DOCUMENT: its goal (the reviewer's
+comment), its plan (the draft's text) and the filename it files are listed to
+every project member, and tasks carry no folder audience. So a draft in a
+folder some member may not read (`folderRestrictsReading`) gets none, whatever
+its conversation: „Piloti überarbeiten lassen" is refused before the swap with
+a typed 403 (`details.action: revision`), and the `openRevisionTask` effect
+opens none for the version nobody asked about. Giving tasks a folder audience
+instead would be a second visibility model for the task list, the inbox and the
+run thread, for one door. A task opened before its draft's folder was
+restricted is judged when read by the folder the document is in now, and so is
+its thread (ADR-0093).
+
+Answer feedback is read across tenants: by Piloti staff in the platform
+drill-in and its CSV export (which feeds `scripts/feedback_to_cases.py`), by
+the digest's model, and by the lessons distiller, whose lessons reach every
+organization's turns. A vote on an answer written while its conversation had
+a `conversation_restricted_folders` row is left out of all of them
+(`OUTSIDE_RESTRICTED_USE`); only the aggregate counts include it. The answer is
+marked by the server, keyed by its message id, and the mark outlives the chat
+(`message_restricted_use`, ADR-0093, which replaced 0120's mark on the vote by
+its client-sent conversation id). The digest's cache key was bumped with the
+filter, so a digest written from such a vote is not served.
+
 The agent does not offer what will be refused: a turn whose signed scope holds a
 restricted collection withdraws deep research and tasks for the turn, its
 prompt names the shut doors and the reason, the one validator of model-composed
@@ -197,6 +224,17 @@ session cleared for all of them is ever served it or shown it. Which collections
 - Every failure fails closed to every restricted collection in scope: no judge
   model, a timeout, a reply that does not parse strictly, an unknown inventory,
   more than 150 unread restricted entries.
+- Each judge verdict is audited. The writer sends it with the write
+  (`restrictionJudge`: `drawn`, `none` or `failed`, and the collections judged
+  and named), and the BFF records `project.memory.restriction_judged`, acted by
+  `system:memory_judge`, with the note's id and the folders, never its text. A
+  "none" is what leaves a note open, so it is the verdict the trail exists for.
+- A restricted note also keeps the verdict (`project_memory.restriction_judge`,
+  migration 0118), and its lock in the Projektspeicher says „von KI
+  mitbestimmt": a reader learns that a model helped decide who reads it. An
+  open note never carries it (CHECK): its readers may not know a restricted
+  folder exists, and the marker would tell them the chat could list one. Those
+  verdicts are in the audit trail only.
 
 Memory meant for the whole organization that depends on restricted content is
 kept as restricted project memory instead, and a restricted finding never
@@ -206,6 +244,28 @@ one function, `src/aiq_agent/memory/restriction.py`, shared by the `remember`
 tool and the reflection stage; the BFF stores only collections that are
 currently restricted collections of the project (as first designed; migration 0113
 ships the column keyed by folder, ADR-0088).
+
+**New audit events name no restricted document** (added 2026-10-07). The trail
+is read in the WorkOS audit portal with `org:audit:view`, which roles that are
+not organization admins hold. An event about a document filed, when it is
+emitted, under a folder not every project member may read leaves its name keys
+out and says `nameWithheld`; the target id still says which document
+(`lib/audit/document-names.ts`, `lib/audit/service.ts`). The compiler asks every
+call site of such an action where the document is filed. WorkOS events are
+immutable, so this holds from the release on and at emit time only: events
+emitted earlier, or while the folder was still open, or before a document was
+moved into a restricted folder, keep the name
+([`workos-provisioning.md`](../deployment/workos-provisioning.md)).
+
+"Restricted" here is a folder that some project member may not read: an own
+list that grants `*` read is not, because every member reads it anyway. The
+download log asks two other questions with two other answers. What it records:
+an open under any own list, `*` or not, because recording more is the safe
+direction. Whose names its view shows: those of folders the reader may read now,
+by their own roles, because `org:downloads:view` clears no folder (a row
+whose project is purged goes by the `own_list` it was recorded with). Both
+withholding rules therefore agree: a name is hidden from a reader who may not
+read its folder, and a `*` list hides it from nobody on either surface.
 
 **Re-classified here as "roles outside WorkOS"** and fixed: third-party
 permission checks (invitations, quarantine reviewers, storage alerts) consulted
@@ -290,7 +350,13 @@ to them. They now ask WorkOS for the organization's roles first.
   pins the `project:manage` rule for folder deletes and moves.
 * `test_chat_socket.py` and `test_internal_api_confinement.py` prove the per-turn confinement
   check closes a socket whose thread was shared, and fails closed.
-* `restricted-egress.spec.ts` pins which conversations are confined and each refusal;
+* `restricted-feedback.integration.spec.ts` proves against Postgres that a vote on a
+  conversation with a restricted-folder record is in the aggregate counts and in neither the
+  platform drill-in (view, export, digest) nor the lessons distiller's input, also after the
+  conversation is deleted.
+* `restricted-egress.spec.ts` pins which conversations are confined and each refusal, and
+  `folderRestrictsReading`; `lifecycle.spec.ts` proves a revision task is refused before the
+  swap when asked for, and not opened when not, for a draft in a restricted folder;
   `delegation.spec.ts` proves a run and a task are refused before any row exists (mark, cited
   restricted answer, signed scope); `generated.spec.ts` and `diagrams/filing.spec.ts` prove a
   filing into an open folder is refused before anything is rendered or written and one into a

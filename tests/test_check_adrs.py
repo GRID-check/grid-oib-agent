@@ -84,3 +84,20 @@ def test_the_superseding_record_must_cite_the_one_it_supersedes(checker, tmp_pat
     assert errors == [
         "docs/adr/README.md: 0010-old.md is superseded by 0011 in the index, but 0011-new.md never cites ADR-0010."
     ]
+
+
+def test_an_index_row_outside_the_table_or_out_of_order_fails(checker, tmp_path):
+    readme = _write(tmp_path, "Old", "ADR-0011")
+    table = readme.read_text(encoding="utf-8")
+    row = "| [0011](0011-new.md) | New | Accepted |\n"
+    readme.write_text("# ADRs\n" + row + "\nIntro.\n\n" + table.replace(row, ""), encoding="utf-8")
+    errors: list[str] = []
+    checker.index_rows(readme, errors)
+    assert errors == [
+        "docs/adr/README.md: the row for 0011-new.md stands outside the index table.",
+        "docs/adr/README.md: the row for 0010-old.md comes after 0011; keep the index in order.",
+    ]
+
+    errors.clear()
+    checker.index_rows(_write(tmp_path, "Old", "ADR-0011"), errors)
+    assert errors == []

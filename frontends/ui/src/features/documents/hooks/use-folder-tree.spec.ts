@@ -141,3 +141,66 @@ describe.each([
     expect(calls).toEqual([])
   })
 })
+
+/** A project's shelf has a Papierkorb (ADR-0088): a delete moves the folder there, with its contents. */
+describe('useFolderTree over a shelf with a Papierkorb', () => {
+  const foldersUrl = '/api/projects/proj-1/folders'
+  const binHref = '/app/projects/proj-1/files/bin'
+  const reloadFiles = vi.fn().mockResolvedValue(undefined)
+  const render = () =>
+    renderHook(() =>
+      useFolderTree({ foldersUrl, files: [], selectedFolderId: null, onSelectFolder: vi.fn(), reloadFiles, binHref })
+    )
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    server.use(http.get(foldersUrl, () => HttpResponse.json({ folders: FOLDERS })))
+  })
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('asks about the bin, not about re-filing, and the toast leads to it with the purge date', async () => {
+    const confirm = vi.fn().mockReturnValue(true)
+    vi.stubGlobal('confirm', confirm)
+    server.use(
+      http.delete(`${foldersUrl}/:id`, () =>
+        HttpResponse.json({ documentsBinned: 3, foldersBinned: 2, purgeAfter: '2026-10-20T03:00:00.000Z' })
+      )
+    )
+    const { result } = render()
+    await waitFor(() => expect(result.current.folders).toHaveLength(2))
+
+    let ok = false
+    await act(async () => {
+      ok = await result.current.remove('f-1')
+    })
+
+    expect(ok).toBe(true)
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/Papierkorb|bin/))
+    expect(confirm).not.toHaveBeenCalledWith(expect.stringMatching(/verschoben|move to/))
+    const [message, options] = toastSuccess.mock.calls[0] as [string, { action?: { label: string } }]
+    expect(message).toMatch(/2026/)
+    expect(options.action?.label).toMatch(/Papierkorb|Bin/)
+  })
+
+  it('names a refusal for a subtree holding content the reader may not delete', async () => {
+    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
+    server.use(
+      http.delete(`${foldersUrl}/:id`, () =>
+        HttpResponse.json(
+          { error: 'This folder holds content you may not delete.', details: { reason: 'folder-contents-protected' } },
+          { status: 403 }
+        )
+      )
+    )
+    const { result } = render()
+    await waitFor(() => expect(result.current.folders).toHaveLength(2))
+
+    await act(async () => {
+      await result.current.remove('f-1')
+    })
+
+    expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/nicht löschen dürfen|may not delete/))
+    expect(reloadFiles).not.toHaveBeenCalled()
+  })
+})
