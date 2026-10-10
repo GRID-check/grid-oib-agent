@@ -71,8 +71,10 @@ verdict.
 
 **Shelf**:
 Where a document lives, which decides who may read it and what a search reaches:
-the *Archiv* (the organization's shelf), a project, a single chat, or the shared
-OIB base every organization sees.
+the *Büroablage* (the organization's shelf, formerly „Archiv"; the code keeps
+`archiv`), a project, a single chat, or the shared OIB base every organization
+sees. The Büroablage can hold norms an office uploaded itself (ÖNORMEN,
+Weisungen) that the OIB base does not carry.
 _Avoid_: folder; folders organise documents within a shelf, a shelf decides who sees them.
 
 **Dokumentart** (document type):
