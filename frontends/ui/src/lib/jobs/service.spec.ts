@@ -122,6 +122,7 @@ import {
   submitAgentRun,
   updateJob,
 } from './service'
+import { AGENT_RUN_INPUT_MAX_CHARS } from './types'
 
 const emptySkill = {} as SkillSnapshot
 const skillSnapshot: SkillSnapshot = {
@@ -767,6 +768,18 @@ describe('submitAgentRun', () => {
     const submitted = vi.mocked(submitJob).mock.calls[0][0]
     expect(submitted).not.toHaveProperty('clarifier_result')
     expect(submitted).not.toHaveProperty('documents')
+  })
+
+  it('refuses a prompt over the backend ceiling in a sentence, before submitting', async () => {
+    const atCeiling = 'x'.repeat(AGENT_RUN_INPUT_MAX_CHARS)
+    await submitAgentRun({ ...spec, prompt: atCeiling })
+    expect(vi.mocked(submitJob).mock.calls[0][0].input).toBe(atCeiling)
+
+    vi.mocked(submitJob).mockClear()
+    const refusal = submitAgentRun({ ...spec, prompt: `${atCeiling}x` })
+    await expect(refusal).rejects.toBeInstanceOf(JobSubmitError)
+    await expect(refusal).rejects.toThrow(`at most ${AGENT_RUN_INPUT_MAX_CHARS}`)
+    expect(submitJob).not.toHaveBeenCalled()
   })
 
   it('never searches a restricted folder: its report is filed for the whole project (ADR-0087)', async () => {

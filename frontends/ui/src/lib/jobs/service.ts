@@ -64,6 +64,7 @@ import { taskThreadConversationId } from '@/lib/tasks/task-thread'
 import { isActiveTaskRunStatus, submittedRunStatus } from '@/lib/tasks/task-vocabulary'
 import { createRunMessage } from '@/lib/runs/service'
 import {
+  AGENT_RUN_INPUT_MAX_CHARS,
   emptySkillSnapshot,
   withAlwaysOnSources,
   type CreateJobInput,
@@ -581,6 +582,15 @@ export interface SubmittedAgentRun {
  * same fire left a whole empty conversation behind.
  */
 export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgentRun> {
+  // The backend refuses the same prompt with a 422 whose body is a validation
+  // dump, and that body is what the run row would show. Refused here first, in
+  // a sentence, before any context is built for a run that cannot start.
+  if (spec.prompt.length > AGENT_RUN_INPUT_MAX_CHARS) {
+    throw new JobSubmitError(
+      `The run's prompt is ${spec.prompt.length} characters; a run accepts at most ${AGENT_RUN_INPUT_MAX_CHARS}`,
+      422,
+    )
+  }
   const { organizationId, projectId, userId } = spec
   const [
     budgetSnapshot,
