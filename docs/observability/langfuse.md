@@ -17,7 +17,7 @@ the Fachbereich): [`analyst-guide.md`](analyst-guide.md).
 
 | Field in Langfuse | Where it comes from | Values |
 |---|---|---|
-| Trace name | `trace_context.trace_name_for_root` (NAT runs), `observed_generation` (auxiliary calls) | `chat-turn`, `research-job`, `conversation-title`, `project-summary`, `consistency-check`, `skill-review`, `lesson-distill`, `feedback-digest` |
+| Trace name | `trace_context.trace_name_for_root` (NAT runs), `observed_generation` (auxiliary calls) | `chat-turn`, `research-job`, `conversation-title`, `project-summary`, `consistency-check`, `skill-review`, `lesson-distill`, `feedback-digest`, `cleanup-proposal` |
 | Environment | `APP_ENV`, coerced to Langfuse's alphabet | `production`, … |
 | Release | `GRID_GIT_SHA`, the image's commit | the commit hash |
 | Session | the conversation id (NAT sets `session.id`) | one session per chat |
