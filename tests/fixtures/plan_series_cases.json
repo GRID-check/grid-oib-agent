@@ -1,0 +1,273 @@
+{
+  "_comment": "Plan names and what the Planstand parser must read from them. Shared by frontends/ui/src/features/documents/lib/plan-series.spec.ts and tests/knowledge_layer_tests/test_plan_series.py, so the UI and the agent cannot read the same name differently. index = [kind, value]; key is the series key both sides group by.",
+  "parse": [
+    {
+      "name": "EG_Grundriss_Index_C_2026-08-14.pdf",
+      "key": "eg grundriss",
+      "index": [
+        "letter",
+        "C"
+      ],
+      "date": "2026-08-14"
+    },
+    {
+      "name": "EG_Grundriss_Index_B_2026-07-02.pdf",
+      "key": "eg grundriss",
+      "index": [
+        "letter",
+        "B"
+      ],
+      "date": "2026-07-02"
+    },
+    {
+      "name": "A-101_C_Grundriss EG.pdf",
+      "key": "a-101 grundriss eg",
+      "index": [
+        "letter",
+        "C"
+      ],
+      "date": null
+    },
+    {
+      "name": "A-101_D_Grundriss EG.pdf",
+      "key": "a-101 grundriss eg",
+      "index": [
+        "letter",
+        "D"
+      ],
+      "date": null
+    },
+    {
+      "name": "260814_Schnitt_AA_idx-B.pdf",
+      "key": "schnitt aa",
+      "index": [
+        "letter",
+        "B"
+      ],
+      "date": "2026-08-14"
+    },
+    {
+      "name": "Schnitt AA idx C 20260901.pdf",
+      "key": "schnitt aa",
+      "index": [
+        "letter",
+        "C"
+      ],
+      "date": "2026-09-01"
+    },
+    {
+      "name": "Lageplan_v3.pdf",
+      "key": "lageplan",
+      "index": [
+        "number",
+        "3"
+      ],
+      "date": null
+    },
+    {
+      "name": "Lageplan Rev. 12.pdf",
+      "key": "lageplan",
+      "index": [
+        "number",
+        "12"
+      ],
+      "date": null
+    },
+    {
+      "name": "Ansicht Nord Stand 14.08.2026.pdf",
+      "key": "ansicht nord",
+      "index": null,
+      "date": "2026-08-14"
+    },
+    {
+      "name": "Detail_Attika_Rev02.dwg.pdf",
+      "key": "detail attika dwg",
+      "index": [
+        "number",
+        "2"
+      ],
+      "date": null
+    },
+    {
+      "name": "OG1_Grundriss_index-a.pdf",
+      "key": "og1 grundriss",
+      "index": [
+        "letter",
+        "A"
+      ],
+      "date": null
+    },
+    {
+      "name": "Baubeschreibung.pdf",
+      "key": null,
+      "index": null,
+      "date": null
+    },
+    {
+      "name": "Protokoll Baubesprechung.docx",
+      "key": null,
+      "index": null,
+      "date": null
+    },
+    {
+      "name": "IMG_4031.jpg",
+      "key": null,
+      "index": null,
+      "date": null
+    },
+    {
+      "name": "Statik_Vorbemessung_2026.pdf",
+      "key": null,
+      "index": null,
+      "date": null
+    },
+    {
+      "name": "Top 3 Wohnung.pdf",
+      "key": null,
+      "index": null,
+      "date": null
+    },
+    {
+      "name": "EG_03_B.pdf",
+      "key": null,
+      "index": null,
+      "date": null
+    }
+  ],
+  "series": [
+    {
+      "_comment": "Index outranks date; the newest index is current even when an older index was exported later.",
+      "files": [
+        {
+          "id": "a",
+          "name": "EG_Grundriss_Index_A_2026-06-01.pdf",
+          "createdAt": "2026-06-01T10:00:00Z"
+        },
+        {
+          "id": "b",
+          "name": "EG_Grundriss_Index_B_2026-07-02.pdf",
+          "createdAt": "2026-07-02T10:00:00Z"
+        },
+        {
+          "id": "c",
+          "name": "EG_Grundriss_Index_C_2026-08-14.pdf",
+          "createdAt": "2026-08-14T10:00:00Z"
+        },
+        {
+          "id": "x",
+          "name": "Baubeschreibung.pdf",
+          "createdAt": "2026-08-15T10:00:00Z"
+        }
+      ],
+      "expect": [
+        {
+          "key": "eg grundriss",
+          "current": "c",
+          "older": [
+            "b",
+            "a"
+          ]
+        }
+      ]
+    },
+    {
+      "_comment": "Dated only: the newest date is current.",
+      "files": [
+        {
+          "id": "n1",
+          "name": "Ansicht Nord Stand 14.08.2026.pdf",
+          "createdAt": "2026-08-20T10:00:00Z"
+        },
+        {
+          "id": "n2",
+          "name": "Ansicht Nord Stand 02.09.2026.pdf",
+          "createdAt": "2026-09-03T10:00:00Z"
+        }
+      ],
+      "expect": [
+        {
+          "key": "ansicht nord",
+          "current": "n2",
+          "older": [
+            "n1"
+          ]
+        }
+      ]
+    },
+    {
+      "_comment": "A single version is not a series, and two different plans are two series.",
+      "files": [
+        {
+          "id": "s1",
+          "name": "Schnitt AA idx C 20260901.pdf",
+          "createdAt": "2026-09-01T10:00:00Z"
+        },
+        {
+          "id": "l1",
+          "name": "Lageplan_v3.pdf",
+          "createdAt": "2026-09-01T10:00:00Z"
+        },
+        {
+          "id": "l2",
+          "name": "Lageplan Rev. 12.pdf",
+          "createdAt": "2026-09-02T10:00:00Z"
+        }
+      ],
+      "expect": [
+        {
+          "key": "lageplan",
+          "current": "l2",
+          "older": [
+            "l1"
+          ]
+        }
+      ]
+    },
+    {
+      "_comment": "Different formats of the same Planstand are not versions of each other.",
+      "files": [
+        {
+          "id": "p",
+          "name": "EG_Grundriss_Index_C_2026-08-14.pdf",
+          "createdAt": "2026-08-14T10:00:00Z"
+        },
+        {
+          "id": "d",
+          "name": "EG_Grundriss_Index_C_2026-08-14.dwg",
+          "createdAt": "2026-08-14T10:00:00Z"
+        }
+      ],
+      "expect": []
+    },
+    {
+      "_comment": "Mixed names (an index on some revisions, a date only on another): the date decides, so the order is total.",
+      "files": [
+        {
+          "id": "m1",
+          "name": "Ansicht Süd Index A 2026-08-13.pdf",
+          "createdAt": "2026-08-13T10:00:00Z"
+        },
+        {
+          "id": "m2",
+          "name": "Ansicht Süd Index B 2026-01-18.pdf",
+          "createdAt": "2026-08-14T10:00:00Z"
+        },
+        {
+          "id": "m3",
+          "name": "Ansicht Süd Stand 10.08.2026.pdf",
+          "createdAt": "2026-08-15T10:00:00Z"
+        }
+      ],
+      "expect": [
+        {
+          "key": "ansicht süd",
+          "current": "m1",
+          "older": [
+            "m3",
+            "m2"
+          ]
+        }
+      ]
+    }
+  ]
+}
