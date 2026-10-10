@@ -7,8 +7,8 @@
 # The registry lookup itself is `find-published-tag.sh` beside this, which the
 # staging resolver (`resolve-image-refs.sh`) shares.
 #
-# Both deploy jobs call this. Prod used not to: it pinned tags that
-# publish-images had never built (a changelog-only commit builds only
+# Both deploy jobs call this. Prod used not to: it pinned tags that the old
+# incremental publish had never built (a changelog-only commit built only
 # grid-oib-web), the new pods sat in ImagePullBackOff behind maxUnavailable: 0,
 # and the old pods kept serving a pre-fix image while the fixes were marked
 # shipped (#653's traceback on 09-18 and 09-21 still had the old line numbers).
@@ -29,7 +29,7 @@ for service in backend frontend web; do
   case "$rc" in
     0) ;;
     1)
-      echo "::error::image tag '${tag}' is not published for grid-oib-${service}. Pick a tag from a fully-built commit, or dispatch Publish Images for it."
+      echo "::error::image tag '${tag}' is not published for grid-oib-${service}. Pick the sha- tag of a develop commit whose CI run passed: CI tags all three images only then."
       exit 1
       ;;
     *)

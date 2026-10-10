@@ -2,7 +2,7 @@
 
 House rules that are not obvious from the code, each one written down because
 somebody already paid for it. Language defaults and formatting live in the
-tooling (`ruff`, `eslint`, `tsconfig`), not here.
+tooling (`ruff`, `oxlint`, `tsconfig`), not here.
 
 ## Python
 
@@ -50,8 +50,9 @@ change needs them.
 
 ### `any` is not a type we accept, in production code or in tests
 
-`@typescript-eslint/no-explicit-any` is an **error** in
-`frontends/ui/eslint.config.mjs`, and the suite is clean. Reach for the real
+`no-explicit-any` (typescript-eslint's rule, run by oxlint as
+`typescript/no-explicit-any`) is an **error** in `frontends/ui/.oxlintrc.json`,
+and the suite is clean. Reach for the real
 type, a `Partial<T>` or `Pick<T, …>` of it, `unknown`, or a deliberate
 `as unknown as T` at a single documented boundary.
 

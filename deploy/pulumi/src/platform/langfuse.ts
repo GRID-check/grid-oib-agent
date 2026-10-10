@@ -13,7 +13,7 @@ import {
   startupBudgetSeconds,
 } from "./rollout";
 import { GATEWAY_NAME } from "./gateway";
-import { platformOidcSecurityPolicySpec } from "./platform-oidc";
+import { OBSERVABILITY_VIEW_PERMISSION, platformOidcSecurityPolicySpec } from "./platform-oidc";
 import { EDGE_TIMEOUT, LANGFUSE, PORT } from "../constants";
 
 /** Secret name. A constant rather than `secret.metadata.name` because the
@@ -25,8 +25,9 @@ export const LANGFUSE_SECRETS_NAME = SECRETS_NAME;
 
 /**
  * The uid/gid both Langfuse images run as, verified against the pinned
- * revision's Dockerfiles (`ARG UID=1001` / `ARG GID=1001`, `USER nextjs` and
- * `USER expressjs`, with `/app` chowned to them).
+ * revision's Dockerfiles (4.56.0: `ARG UID=1001` / `ARG GID=1001`, the
+ * `nextjs` and `expressjs` users baked into the UBI 9 micro rootfs, `/app`
+ * chowned to them, and a numeric `USER ${UID}`).
  *
  * Named because it is a fact ABOUT THE IMAGE, not a preference: it must be
  * re-checked on an image bump, and it deliberately differs from the 1000 the
@@ -50,6 +51,37 @@ export function langfuseV4MigrationEnv(
       name: "LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL",
       value: String(historicBackfill),
     },
+  ];
+}
+
+/**
+ * Where a new Langfuse user lands: the seeded org and project, as
+ * `defaultRole` (upstream's automated access provisioning,
+ * https://langfuse.com/self-hosting/administration/automated-access-provisioning).
+ *
+ * Without it a first SSO sign-in creates an account that belongs to no
+ * organization: the edge admitted the person, Langfuse let them in, and they
+ * see an empty "create an organization" screen. Langfuse applies it when it
+ * creates the account and when it first links an SSO identity to an existing
+ * one, upserting with "keep the existing role", so a promotion made in the
+ * Langfuse UI is never reverted by it.
+ *
+ * `NONE` has no project counterpart (the project enum stops at VIEWER), and a
+ * project default with no org access would contradict it, so `NONE` sets the
+ * org alone.
+ */
+export function langfuseDefaultMembershipEnv(
+  lf: Pick<GridConfig["langfuse"], "orgId" | "projectId" | "defaultRole">,
+): k8s.types.input.core.v1.EnvVar[] {
+  const org: k8s.types.input.core.v1.EnvVar[] = [
+    { name: "LANGFUSE_DEFAULT_ORG_ID", value: lf.orgId },
+    { name: "LANGFUSE_DEFAULT_ORG_ROLE", value: lf.defaultRole },
+  ];
+  if (lf.defaultRole === "NONE") return org;
+  return [
+    ...org,
+    { name: "LANGFUSE_DEFAULT_PROJECT_ID", value: lf.projectId },
+    { name: "LANGFUSE_DEFAULT_PROJECT_ROLE", value: lf.defaultRole },
   ];
 }
 
@@ -149,12 +181,22 @@ export function frontendLangfuseEnv(cfg: GridConfig): k8s.types.input.core.v1.En
 }
 
 /**
- * The part of the frontend's rollout checksum that the Langfuse keys own, or
- * undefined without the tier. `secretKeyRef` is read once at container start, so
- * without this a key rotation would leave the BFF scoring with a retired key.
+ * A pod's rollout checksum with the Langfuse project keys folded in, for every
+ * app pod that reads them from the Langfuse Secret (`frontendLangfuseEnv`,
+ * `langfuseApiEnv`): the frontend and bff-jobs, the backend tiers that write
+ * scores, the purger and the scheduler.
+ *
+ * `secretKeyRef` is read once at container start, and the app checksum covers
+ * `grid-secrets` only, so without this a key rotation would leave each of them
+ * calling Langfuse with a retired key until something else restarted it.
+ * Unchanged without the tier, so a stack without Langfuse restarts nothing.
  */
-export function frontendLangfuseChecksumInput(cfg: GridConfig): pulumi.Output<string> | undefined {
-  return cfg.langfuse.enabled ? langfuseOtlpBasicAuth(cfg) : undefined;
+export function withLangfuseKeysChecksum(
+  cfg: GridConfig,
+  appChecksum: pulumi.Input<string>,
+): pulumi.Input<string> {
+  if (!cfg.langfuse.enabled) return appChecksum;
+  return secretChecksum({ app: appChecksum, langfuse: langfuseOtlpBasicAuth(cfg) });
 }
 
 /**
@@ -219,10 +261,14 @@ export interface LangfuseInputs {
  *
  *   1. The Envoy SecurityPolicy on the route (`platformOidcSecurityPolicySpec`)
  *      admits only WorkOS identities holding `platform:organizations:view` —
- *      the same rule that protects the Aspire dashboard, because the data is
- *      the same data: every tenant's prompts and model output.
+ *      the rule that protects the Aspire dashboard, because the data is the
+ *      same data: every tenant's prompts and model output — or the narrower
+ *      `platform:observability:view`, which the read-only
+ *      `platform-observability-analyst` role carries.
  *   2. Langfuse's own SSO (`AUTH_CUSTOM_*`) against that same issuer then
- *      establishes a real Langfuse session.
+ *      establishes a real Langfuse session. A first sign-in joins the seeded
+ *      org and project as `defaultRole` (VIEWER), so an analyst reads and an
+ *      owner promotes in the Langfuse UI.
  *
  * The second is not redundant. Unlike the Aspire dashboard, Langfuse cannot run
  * unauthenticated — it has users, projects and API keys of its own, and needs
@@ -479,9 +525,10 @@ export function installLangfuse(
                 image: lf.webImage,
                 imagePullPolicy: pullPolicyFor(lf.webImage),
                 securityContext: hardened,
-                // `"node"` because the runtime image is node:24-alpine — the
-                // hook is a `node -e setTimeout(...)`, and it has to be a
-                // binary the image actually ships.
+                // `"node"` because the hook is a `node -e setTimeout(...)` and
+                // it has to be a binary the image actually ships. Since 4.56.0
+                // the runtime is UBI 9 micro with the nodejs:24 RPM (it was
+                // node:24-alpine), and `node` is still on the PATH.
                 ...(webShutdown.lifecycle ? { lifecycle: webShutdown.lifecycle } : {}),
                 ports: [{ containerPort: PORT.langfuseWeb, name: "http" }],
                 env: [
@@ -512,6 +559,11 @@ export function installLangfuse(
                   // proved the identity: an unverified-email provider is what
                   // makes account linking dangerous, and WorkOS is not one.
                   { name: "AUTH_CUSTOM_ALLOW_ACCOUNT_LINKING", value: "true" },
+                  // A first SSO sign-in joins the seeded org and project as
+                  // `defaultRole` (VIEWER unless configured) instead of landing
+                  // in no organization. Web only: sign-up happens here, the
+                  // worker never creates a user.
+                  ...langfuseDefaultMembershipEnv(lf),
                   // TLS terminates at the Gateway; without this NextAuth builds
                   // its callback as http:// and the SSO hop fails.
                   { name: "AUTH_TRUST_HOST", value: "true" },
@@ -674,6 +726,10 @@ export function installLangfuse(
         routeName: LANGFUSE.routeName,
         domain: lf.domain,
         secretName: SECRETS_NAME,
+        // Read-only analysts reach Langfuse without the operator permission;
+        // inside it they land as `defaultRole` (VIEWER). The Aspire dashboard
+        // stays operator-only: it has no users of its own to scope them by.
+        alsoAdmit: [OBSERVABILITY_VIEW_PERMISSION],
       }),
     },
     { provider, dependsOn: [route, secret] },

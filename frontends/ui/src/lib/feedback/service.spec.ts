@@ -395,7 +395,22 @@ describe('submitAnswerFeedback -> Langfuse score', () => {
       reason: 'inaccurate',
       comment: 'R 60, nicht R 90',
       expectedAnswer: null,
+      previousVerdict: null,
     })
+  })
+
+  /** The review queue takes a down-vote once, not again for every edit of it. */
+  it('passes the verdict the row held before this vote', async () => {
+    vi.mocked(getAnswerTraceId).mockResolvedValueOnce('6135ac80f26d5f7dab0f1633fe313293')
+    mockGetPrior.mockResolvedValueOnce({ ...storedRow, verdict: 'down', reason: 'inaccurate' })
+    mockUpsert.mockResolvedValueOnce({ ...storedRow, verdict: 'down', reason: 'wrong_source' })
+
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'down', reason: 'wrong_source' })
+    await flush()
+
+    expect(upsertFeedbackScore).toHaveBeenCalledWith(
+      expect.objectContaining({ verdict: 'down', reason: 'wrong_source', previousVerdict: 'down' })
+    )
   })
 
   it('sends nothing when the answer row names no trace', async () => {

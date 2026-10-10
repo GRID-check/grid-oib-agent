@@ -689,7 +689,7 @@ describe('findRunMessageByBackendJobId', () => {
  * run's own stream once the worker has taken it.
  */
 /**
- * A closed project (ADR-0089): every member reads it and may chat about it, but
+ * A closed project (ADR-0090): every member reads it and may chat about it, but
  * someone who reads it only because it is closed does not steer another
  * person's run, and nobody hands a run a document, which files into it.
  */

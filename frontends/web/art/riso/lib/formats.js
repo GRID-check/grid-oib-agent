@@ -27,7 +27,7 @@
      use        where it goes; the pitch reasoning is in art/riso/README.md
 
    Adding a format: add it here, give the plates that should wear it a
-   composition of that name, then export and check. See the aiq-piloti-riso skill.
+   composition of that name, then export and check. See art/riso/README.md.
    ───────────────────────────────────────────────────────────────────────── */
 'use strict';
 

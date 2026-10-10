@@ -60,7 +60,7 @@ describe('ProjectMemoryPanel', () => {
     expect(screen.getByText('Flachdach extensiv begrünt.')).toBeInTheDocument()
   })
 
-  test('a closed project: the notes, and no control that would change them (ADR-0089)', async () => {
+  test('a closed project: the notes, and no control that would change them (ADR-0090)', async () => {
     render(<ProjectMemoryPanel projectId="p1" readOnly />)
 
     await screen.findByText('Flachdach extensiv begrünt.')

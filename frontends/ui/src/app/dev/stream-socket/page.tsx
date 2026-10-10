@@ -547,7 +547,7 @@ export default function StreamSocketPage() {
           {ready && (
             <>
               <ChatArea isAuthenticated />
-              <ComposerScrim threadEmpty={isThreadEmpty} />
+              <ComposerScrim />
               <motion.div
                 ref={composerRef}
                 className="absolute inset-x-0 z-10 flex flex-col"
