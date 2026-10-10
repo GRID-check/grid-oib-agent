@@ -1,6 +1,6 @@
 # Observability
 
-**Langfuse is Grid's observability platform, and everything the product does
+**Langfuse is Piloti's observability platform, and everything the product does
 is observable in it** ([ADR-0089](../adr/0089-langfuse-is-the-observability-platform-and-everything-is-observable.md)).
 This is a priority, not a nice-to-have: we improve Piloti from what Langfuse
 shows, so a model call, an agent step or a quality check that Langfuse does not

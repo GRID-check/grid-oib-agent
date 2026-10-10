@@ -279,4 +279,25 @@ been uploaded and read).
   exact mode's resolver), and only those are ranked. It used to filter the
   shelf's top `3 × top_k`, so a folder whose passages ranked lower came back
   empty while holding what was asked.
-
+- **Fassungen: marks in `list_files`, and older ones out of the ranking
+  (ADR-0097).** A row a PERSON confirmed as replaced reads `ersetzt durch <neuer>
+  (bestätigt)`; the newer one `ersetzt <älterer> (bestätigt)` and, when a change
+  line exists, `geändert: …` (at most 160 characters; `geändert (vorige Fassung):`
+  when it compares against the file's own previous upload). A confirmed mark beats
+  the reading of the names (`browse.confirmed_revision_marks`); an unconfirmed
+  series keeps `aktuelle` / `ältere Fassung … dem Namen nach`. The profile line
+  `Fassungen (bestätigt): n Datei(en) …` counts the confirmed ones and says an older
+  one stays readable with `file_name=`. The inventory block marks both sides of a
+  link the same way (`inventory._confirmed_revision_bit`), and says nothing about a
+  suggestion: a suggestion is advice to a person, not a fact.
+- **`knowledge_search` leaves out confirmed older Fassungen.** On the user shelves
+  (never the base corpus) the files with a `superseded_by` whose newer file still
+  has its row are read from `document_metadata` at search time
+  (`DocumentMetadataStore.get_superseded_files`) and sent as `file_name NOT IN`, so
+  a replaced file cannot outrank its replacement on similarity alone, and a link
+  made or lifted a minute ago applies to the next search. A call that names the file
+  (`file_name=`) hides nothing, and says nothing. When files were left out the result
+  opens with `Ältere Fassungen ausgeblendet: <Namen> — mit file_name=… gezielt
+  lesbar.` (five names, then „und n weitere“), through the notice slot so the
+  grounding block's hash still matches. `match="exact"` is a literal search and
+  reads older Fassungen too.

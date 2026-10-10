@@ -169,7 +169,7 @@ Grounding is correctly non-negotiable: “Jeder normative Wert, den Sie schreibe
 3. **Researched answer** — office knowledge, Baurecht, OIB, RIS, technical standards, **or the content of a file**. Retrieve first, then write. `confidence` required; `summary` “owed”; `verdict` earned.
 4. **Hand-off to deep research** — reports, Gutachten, “ausführliche Analyse”.
 
-There is no shape for: “help me file these plans”, “walk this drawing with me”, “what should we tell the Prüfingenieur”, “draft the next step on this project”. Those fall into (3) and inherit the ruling anatomy. “Writing code” is explicitly off-topic, which is consistent with a research assistant and inconsistent with an AI-native workspace that already has BIM tools, cards, skills, and agent-authored documents.
+There is no shape for: “help me file these documents”, “walk this drawing with me”, “what should we tell the Prüfingenieur”, “draft the next step on this project”. Those fall into (3) and inherit the ruling anatomy. “Writing code” is explicitly off-topic, which is consistent with a research assistant and inconsistent with an AI-native workspace that already has BIM tools, cards, skills, and agent-authored documents.
 
 The four examples in the prompt are: identity, cake, commission a Brandschutz report, “Was regelt die OIB-Richtlinie 2 grundsätzlich?”. Zero workspace examples.
 
@@ -464,7 +464,7 @@ A turn like “können wir den Fluchtweg so führen?” should be allowed to loo
 4. **Fan-out.** Storey, `ifc_measure` of the path.
 5. **Answer.** Prose, citations, and *if and only if* there is a copyable value, a verdict masthead. Otherwise a colleague paragraph: here is what the rule says, here is what the model measures, here is the one fact still missing.
 
-A turn like “ordne die Pläne in Ordnern” should never grow a verdict, a Das-Wichtigste block, or a Prüfreihenfolge. It should still be allowed to `surface_documents` and `remember`.
+A turn like “ordne die Dokumente in Ordnern” should never grow a verdict, a Das-Wichtigste block, or a Prüfreihenfolge. It should still be allowed to `surface_documents` and `remember`.
 
 A turn like “Soll-Ist über alle OIB-Richtlinien” should create a task of kind `compliance_check`, not pretend the chat envelope is that matrix.
 
@@ -472,7 +472,7 @@ A turn like “Soll-Ist über alle OIB-Richtlinien” should create a task of ki
 
 ## 9. Risks if we only change the prompt
 
-- **Two desired voices exist in the repo.** Marketing + 09-01 review + this report: colleague who designs with you and sometimes checks. `compliance-derivation-graph.md`: every legal answer *is* a verdict, drawn as a graph. Pick one for chat before rewriting `<stimme>`. The derivation graph is the right object for `compliance_check` / `einreichcheck` tasks, not for “ordne die Pläne”.
+- **Two desired voices exist in the repo.** Marketing + 09-01 review + this report: colleague who designs with you and sometimes checks. `compliance-derivation-graph.md`: every legal answer *is* a verdict, drawn as a graph. Pick one for chat before rewriting `<stimme>`. The derivation graph is the right object for `compliance_check` / `einreichcheck` tasks, not for “ordne die Dokumente”.
 - **Liability voice was load-bearing.** “Einschätzung, nicht Empfehlung” exists because someone did not want Piloti to look like it was performing a Planungsleistung. A voice change needs a product sentence that replaces it, not a deletion. Candidate: *Piloti cites the rule and can help you apply it to this project. It does not replace the Entwurfsverfasser or the Behörde.* The marketing site already says “Empfehlung”; the ToS still says research assistant. Those have to be made to agree.
 - **Truncation is already the worst failure on this surface.** The 7-call ceiling was calibrated so Lichteinfall / Fluchtweg chains finish the measurement. Checkpoints must not steal those calls. Follow the `emit_card` accounting.
 - **PF-12.** Stakeholders reverted visible search queries. Checkpoints are conclusions, not queries. Do not smuggle the reverted UI back in as “transparency”.

@@ -1022,7 +1022,7 @@
             }
           ],
           "default": null,
-          "description": "move: the destination folder PATH, e.g. 'Einreichung/Pl\u00e4ne'. Empty string is the project root",
+          "description": "move: the destination folder PATH, e.g. 'Einreichung/Akten'. Empty string is the project root",
           "title": "Target Folder"
         }
       },

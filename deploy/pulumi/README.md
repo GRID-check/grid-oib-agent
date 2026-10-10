@@ -1,6 +1,6 @@
-# Grid OIB — Kubernetes deployment (Pulumi)
+# Piloti — Kubernetes deployment (Pulumi)
 
-TypeScript Pulumi program that deploys the entire Grid OIB stack to a Kubernetes
+TypeScript Pulumi program that deploys the entire Piloti stack to a Kubernetes
 cluster: the `aiq-agent` backend, the Next.js frontend/BFF, the purger and
 skill-scheduler workers, plus CloudNativePG Postgres, a Dragonfly cache, and
 SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic Let's Encrypt TLS.

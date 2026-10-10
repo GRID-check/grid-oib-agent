@@ -251,9 +251,10 @@ The agent loads prompts from `src/aiq_agent/agents/deep_researcher/prompts/`:
 | `writer.j2` | Final synthesis and citation contract for the writer subagent |
 | `source_registry.j2` | Template for the verified source list shown to the writer |
 
-All prompts identify as Grid OIB (Austrian building regulations) and carry
-domain conventions for regulation-anchored citations, while remaining
-usable for general research requests.
+All prompts identify the agent as Piloti, a colleague in an Austrian planning
+office; the legal corpus (OIB, RIS) is one of its sources. They carry domain
+conventions for regulation-anchored citations, while remaining usable for
+general research requests.
 
 ## State and context
 
@@ -277,7 +278,7 @@ usable for general research requests.
   `aiq_api.jobs.worker`) rebuilds the agent from the NAT config and forwards
   `user_info`, `clarifier_result`, `project_context`, `available_documents`,
   and `data_sources` onto the state so both paths render identical prompts.
-  Grid response cards are generated post-hoc from the final report in the job
+  Response cards are generated post-hoc from the final report in the job
   runner (the `emit_card` tool used by the researcher requires the chat
   request's conversation-scoped card registry, which does not exist inside a
   worker).

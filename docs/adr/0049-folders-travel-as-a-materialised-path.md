@@ -18,7 +18,7 @@ of them things a user notices:
 
 - **Surfacing.** The knowledge-base inventory the agent answers listing
   questions from carried `(collection, file_name, summary, tags, shelf)` and
-  nothing about the filing. A user who put three plans in `Brandschutz` could
+  nothing about the filing. A user who put three documents in `Brandschutz` could
   not be told "die drei Dokumente in Brandschutz", because the agent could not
   see that the folder existed.
 - **Retrieval.** There was no way to scope a search to a folder. "Was steht in
@@ -43,7 +43,7 @@ folder rows themselves.
 
 The path needs none of that:
 
-- it **reads as itself** — the inventory line `**plan.pdf** (Ordner:
+- it **reads as itself** — the inventory line `**Brandschutznachweis.pdf** (Ordner:
   Brandschutz/Fluchtwege)` is the value, not a lookup of it;
 - a **prefix match is the subtree**, which is the entire reason the column was
   materialised in the first place. `folder=Brandschutz` covering

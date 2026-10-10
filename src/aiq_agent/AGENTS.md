@@ -1,6 +1,6 @@
 # The agent: `src/aiq_agent`
 
-The Python half of Grid: LangGraph agents on the NeMo Agent Toolkit (NAT), the
+The Python half of Piloti: LangGraph agents on the NeMo Agent Toolkit (NAT), the
 card surface, the post-answer stages, and the knowledge layer. Stateless per
 turn. Conversation state lives in Postgres and reaches this process in headers
 (ADR-0003, ADR-0013).

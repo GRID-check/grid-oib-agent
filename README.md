@@ -2,9 +2,9 @@
 
 # PILOTI
 
-### AI Compliance Assistant for Austrian Building Regulations
+### The workspace for architects
 
-Navigate the **OIB Richtlinien** — Austria's building-code framework — with a multi-agent AI that searches regulations, interprets requirements, and **cites its sources**. Project-centric: each building project has its own documents, chat history, and an evolving knowledge memory. Built on the **NVIDIA AI-Q Blueprint** / NeMo Agent Toolkit.
+A planning office runs its work in Piloti: every project, every process, the whole organization. **Piloti, the agent, is a colleague in that office**. It reads everything the office holds: the project's documents, the Büroablage, the building model, past projects. It takes part in the work, from the intake to the last report, and grounds every claim in a passage you can open. Building law (OIB-Richtlinien, laws via RIS, the office's own norms) is one of the things it knows well.
 
 [![Python 3.14](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)](https://python.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://typescriptlang.org)
@@ -23,23 +23,20 @@ Navigate the **OIB Richtlinien** — Austria's building-code framework — with 
 
 ---
 
-The OIB Richtlinien are Austria's core building-technical regulations — hundreds of pages covering fire safety, structural integrity, soundproofing, thermal insulation, and accessibility. Architects spend hours cross-referencing paragraphs and verifying compliance.
-
-**Piloti answers OIB questions in seconds** — and remembers what it learns about each project. Upload plans, complete a short intake, and get cited answers through a chat interface built for professionals.
+An architect's work is spread across a file server, a document-exchange portal, mail, CAD, a building model and the heads of the people who did the last project. Piloti puts that work in one place where an agent can read all of it and do part of it. **Read [`VISION.md`](VISION.md) first:** it says what the product is, and every other document describes Piloti that way.
 
 ## What It Does
 
-| Capability | For Architects |
+| The architect's work | What Piloti does there |
 |---|---|
-| **OIB Knowledge Base** | The full OIB Richtlinien (OIB 1–6) are pre-loaded into a vector index. Ask _"fire-resistance requirements for staircases in buildings over 22 m?"_ and get the exact paragraph, cited. |
-| **RAG over Your Documents** | Upload project PDFs (plans, specifications). They are ingested into a **project-scoped** collection and searched alongside the OIBs — never mixed across projects. |
-| **Project & Organization Memory** | Piloti records durable findings about a project (decisions, constraints, open questions) as it works, and carries them into every future conversation. Org-wide memory applies across all your projects. Everything is visible and editable on the project page. |
-| **Rich-UI Cards** | When a structured format helps, the agent answers with a typed **card** (legal-basis citation, summary, profile update) instead of plain prose. |
-| **Multi-Agent Research** | A **LangGraph** pipeline: Piloti answers every turn and decides for itself when a question needs deep research, clarifying the plan on the way — with inspectable thinking traces. Deep research runs as an async job with a live progress panel. |
-| **Web Search** | When the OIBs don't cover a topic, the agent can fall back to **Tavily** web search (a toggleable data source you control). |
-| **Project Lifecycle** | Organise documents and chats per project with **WorkOS FGA** access control, plus a grace-period **soft-delete → restore → hard-purge** pipeline with legal holds. |
-| **Real-Time Answers** | Chat streams over **WebSocket**; the agent's reasoning, sources, and cards appear as it works. |
-| **Enterprise Auth** | Optional **WorkOS AuthKit** SSO with organization-scoped, role-based access. |
+| **Projects and intake** | Each building project has its own documents, people, chats and an intake profile (building class, use, plot, authority). Piloti keeps the profile current as the project establishes new facts. |
+| **Files and the Büroablage** | Folders, uploads of whole folders and ZIPs, versions with Freigabe. Piloti reads every upload and says what it is, which of its Fassungen is current, and what is missing or could not be read. The office's own documents (Büroablage) are on every project. |
+| **The building model** | IFC models in the browser. Piloti reads and measures their elements, and confirmations go into the Prüfbuch. |
+| **Questions about the work** | About a document, a folder, a decision, the model, the law. Answers are grounded in the project's files, the Büroablage and the legal corpus, whichever the question needs, and every claim is cited. |
+| **Tasks and jobs** | Hand Piloti work: deep research, checks, drafted reports, scheduled jobs. Results come back as documents a person reviews and approves. |
+| **Team** | Shared projects and chats, mentions, an inbox, assignments, presence, organization-scoped roles (WorkOS). |
+| **Office knowledge** | Project and organization memory, similar past projects, and the office's conventions, carried into every conversation and visible and editable. |
+| **Building law and norms** | The OIB-Richtlinien, Austrian laws via RIS, and norms an office uploads itself, searched and cited at the passage. One capability among the others. |
 
 ## Architecture
 
@@ -138,14 +135,14 @@ The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-ini
 
 | Layer | Technology | Role |
 |---|---|---|
-| **Frontend** | Next.js 16, React 18, TypeScript, **shadcn/ui + Tailwind v4** | Project-centric chat UI |
+| **Frontend** | Next.js 16, React 18, TypeScript, **shadcn/ui + Tailwind v4** | The workspace UI: projects, files, model, chat, tasks |
 | **Backend** | Python 3.14, FastAPI, Uvicorn | AI endpoint server (`aiq_api` plugin) |
 | **AI Orchestration** | NeMo Agent Toolkit (NAT), LangGraph | Multi-agent pipeline + async jobs |
 | **RAG** | ChromaDB, LlamaIndex | Chunking · embeddings · scoped retrieval |
 | **LLM + Embeddings** | **Any OpenAI-compatible endpoint** — reference config: OpenAI GPT-5.6 Luna via OpenRouter | Reasoning, classification, cards, embeddings |
-| **Web Search** | Tavily | Context beyond the OIB corpus |
+| **Web Search** | Tavily | Context beyond the office's documents and the legal corpus |
 | **Database** | PostgreSQL, Drizzle ORM | Projects, conversations, documents, memory, deletion queue |
-| **Object Storage** | SeaweedFS (S3-compatible) | OIB PDFs + uploaded documents |
+| **Object Storage** | SeaweedFS (S3-compatible) | Project and office documents, the legal corpus |
 | **Auth** | WorkOS AuthKit + FGA | Organization-scoped SSO / access control |
 | **Infrastructure** | Docker Compose | Single-command deployment |
 

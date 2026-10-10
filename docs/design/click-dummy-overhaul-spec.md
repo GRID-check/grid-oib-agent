@@ -15,7 +15,7 @@ is fair game.
 
 ## 1. What the click dummy is
 
-A German-language, project-centric shell around one core surface ("Frag Piloti"):
+A German-language, project-centric workspace. The project shell's navigation holds Frag Piloti (chat), Workflows, Dateien, Archiv and Historie:
 
 - **Home = Projektübersicht** (no sidebar): project-card grid (name, address,
   Aktiv/Abgeschlossen chip, last activity, per-card settings) + a full-width

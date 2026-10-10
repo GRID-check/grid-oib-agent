@@ -1,6 +1,6 @@
 # Diagrams — drawn in the browser, filed by the BFF
 
-> How Piloti produces a diagram an architect can read in an answer, and then
+> How Piloti produces a diagram an architect can use in a conversation, and then
 > keep as a real file in the project. See also
 > [agent-authored documents](../superpowers/specs/2026-08-20-agent-authored-documents-design.md)
 > (the pipeline this is the second and third producer of),

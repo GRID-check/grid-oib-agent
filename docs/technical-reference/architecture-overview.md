@@ -2,7 +2,7 @@
 
 ## Two-Tier Architecture
 
-Grid AIQ uses a two-tier architecture consisting of a **Next.js Backend-for-Frontend (BFF)** on port 3000 and a **Python FastAPI backend** on port 8000.
+Piloti uses a two-tier architecture consisting of a **Next.js Backend-for-Frontend (BFF)** on port 3000 and a **Python FastAPI backend** on port 8000.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐

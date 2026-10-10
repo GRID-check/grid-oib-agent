@@ -35,7 +35,8 @@ CAUSES: dict[str, str] = {
     ),
     "no_source": "The answer gives no source, or a source the reader cannot check.",
     "not_found": (
-        "The assistant did not find or could not open a document the reader has (a project file, a Bescheid, a plan)."
+        "The assistant did not find or could not open a document the reader has "
+        "(a project file, a Bescheid, a drawing)."
     ),
     "form": (
         "The content may be right but the form is the problem: too long, unclear, badly structured, a table that "

@@ -1,12 +1,12 @@
-# IFC models — talking to your building
+# IFC models: the building in your project
 
-> For architects and Bauträger using GRID. What happens when you upload an IFC
-> file, what you can ask, and — just as important — what the answers do and do
-> not cover.
+> For architects and Bauträger using Piloti. What happens when you upload an IFC
+> file, what the model gives you, and — just as important — what it does not
+> cover.
 
 ## Uploading a model
 
-Drop a `.ifc` (or `.ifczip`) into **Files**, exactly like a PDF. GRID does not
+Drop a `.ifc` (or `.ifczip`) into **Files**, exactly like a PDF. Piloti does not
 treat it like a PDF: it reads the model, indexes every element with its
 properties, quantities, materials and classifications, and writes a summary of
 the building into the knowledge base.
@@ -146,7 +146,7 @@ Three details that matter in practice:
   open, and the comment says so — a signature does not silently follow the
   building into its next version.
 
-There is no snapshot image in the file. GRID renders your model in the
+There is no snapshot image in the file. Piloti renders your model in the
 browser, so the server has no camera to take one with, and a blank thumbnail
 would read as "nothing to see here".
 
@@ -358,7 +358,7 @@ silent. Elements assigned to no storey are missing from every per-storey figure.
 Rooms with no published area make an area total quietly short. None of that stops
 an answer from appearing; it stops the answer from being true.
 
-So GRID checks the model once and reports what it finds, grouped into five
+So Piloti checks the model once and reports what it finds, grouped into five
 stages:
 
 | Stage | Looks for |
@@ -382,7 +382,7 @@ it appears only when it applies.
 ## Revisions
 
 Upload `Haus-A_V2.ifc` next to `Haus-A.ifc` and the **Revisionen** tab shows them
-as one series rather than two files. GRID reads the revision marker out of the
+as one series rather than two files. Piloti reads the revision marker out of the
 file name — `_V2`, `-rev3`, `(2)`, a trailing date stamp — so the sequence
 appears without anyone maintaining it. Names that are merely similar are *not*
 merged: `Bauteil 2.ifc` and `Bauteil 3.ifc` stay two buildings, because reporting
@@ -416,10 +416,10 @@ every internal number in the file is different. What you get is:
   a fire rating that dropped from REI 90 to REI 30, an area that grew by 1.5 m²
 - **Unverändert** — the count
 
-This is the question two plan sets cannot answer: a drawing redone from a changed
+This is the question two file versions cannot answer: a drawing redone from a changed
 model looks different everywhere and identical where it matters.
 
-## What GRID does not do with your model
+## What Piloti does not do with your model
 
 - **It never changes it.** There is no authoring, no repair and no migration
   path. The file you uploaded is the file that stays.

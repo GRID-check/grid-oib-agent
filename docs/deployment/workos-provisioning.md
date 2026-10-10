@@ -1,6 +1,6 @@
 # WorkOS Provisioning Runbook
 
-> What must exist in a WorkOS environment for GRID's authorization model
+> What must exist in a WorkOS environment for Piloti's authorization model
 > (ADR-0016, ADR-0038) to work, what is already provisioned where, and how to
 > replay it (e.g. into Production). The app degrades gracefully when pieces are
 > missing (bounded `admin` back-compat, break-glass env allowlist), but this
@@ -625,7 +625,7 @@ Three things follow, and each has cost somebody an afternoon:
 9. BYOK (ADR-0022): WorkOS Vault needs no per-environment setup — objects
    are created lazily under each org's key context. Enterprise tenants
    wanting customer-managed KEKs (Vault BYOK: AWS KMS / Azure Key Vault /
-   GCP KMS) enable it per organization with WorkOS support; no Grid change
+   GCP KMS) enable it per organization with WorkOS support; no Piloti change
    is required.
 
 Still manual in every environment, summarized by every `provision:workos-env`

@@ -1,7 +1,7 @@
-# Reading Grid in Langfuse: a guide for analysts and the Fachbereich
+# Reading Piloti in Langfuse: a guide for analysts and the Fachbereich
 
-Langfuse is where we look at how Piloti actually behaves: what people ask,
-what the answers cost and how long they took, and how good they were, both by
+Langfuse is where we look at how Piloti actually behaves across chat and
+research runs: what each costs, how long it takes, and how good it is, both by
 the checks the system runs on every answer and by the people who use it. We
 improve the product from these numbers, so they are meant to be read by
 business analysts and domain experts, not only by engineers.
@@ -23,7 +23,7 @@ exports inside the company.
 
 ## The words you will see
 
-| Langfuse word | In Grid |
+| Langfuse word | In Piloti |
 |---|---|
 | **Trace** | One unit of work. A `chat-turn` trace is one question and its answer. A `research-job` is a long research run. `conversation-title`, `project-summary`, `feedback-digest` and the like are small background model calls |
 | **Session** | One chat. All turns of a conversation share it |
@@ -34,7 +34,7 @@ exports inside the company.
 | **Environment / release** | Which deployment, and which version of the software, produced the trace |
 | **Prompt version** | Which version of Piloti's instructions produced a model call |
 
-## Questions you can answer, and where
+## What you can measure, and where
 
 | Question | Where to look |
 |---|---|
@@ -47,6 +47,8 @@ exports inside the company.
 | Does the answer use what retrieval found? | Score `retrieval-precision` |
 | What does an answer cost, and which model? | Trace metadata `usage_cost_usd`; observations of type generation, grouped by model |
 | How long do answers take? | Trace latency, filtered by trace name and route tag |
+| How many research runs, and how long do they take? | Tracing → filter trace name `research-job`; count and latency, by day |
+| What does a research run cost? | Trace metadata `usage_cost_usd` on `research-job` traces |
 | Did the release on Tuesday make things better or worse? | Any score above, grouped by **release** |
 | Did the new prompt version make things better or worse? | Generations grouped by **prompt version**, joined with the trace's scores |
 | What did one customer's team experience? | Filter by tag `org:<id>` (only where identity attributes are on) |
@@ -112,7 +114,7 @@ dataset) when you find one the suite should always get right.
 ## Exporting
 
 Any trace list or score view can be exported as CSV or JSON from its menu.
-The platform page **Antwortqualität** in Grid also exports votes as an Excel
+The platform page **Antwortqualität** in Piloti also exports votes as an Excel
 workbook ([`answer-feedback-export.md`](../technical-reference/answer-feedback-export.md)).
 Exports stay internal.
 

@@ -8,12 +8,29 @@ features:
   - >
     Each folder shows the state of everything inside it, such as "2 failed" or
     "All read", so a problem is visible without opening every subfolder.
+  - >
+    Piloti recognises when a document is a newer version (Fassung) of another,
+    from the file names or by reading both, and asks before linking them.
+    Once you confirm, answers come from the newer version, and Piloti says what
+    changed between the two.
+  - >
+    Piloti adds its own topics to a document beside the fixed document types,
+    for example "Attika" or "Holzrahmenbau", when it is confident and no fixed
+    tag fits. You can correct them, and the file search finds them.
+  - >
+    Photos show when they were taken and with which camera, and link to where
+    they were taken. Piloti uses the date to describe a photo but never sends
+    its location to a model.
 improvements:
   - >
     The kind filter now offers spreadsheets and text notes.
   - >
-    A photograph is now recognised as a photo and tagged as one, whatever its
-    caption says.
+    A photograph is now tagged as a photo beside what it shows: a photo of a
+    floor plan is both "Foto" and "Grundriss".
+  - >
+    Piloti no longer calls a file a plan unless it knows the file is a
+    drawing. The folder overview and the agent say document, file or version
+    instead.
 fixes:
   - >
     A correction you make to a document's tags stays when Piloti reads the file

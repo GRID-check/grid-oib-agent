@@ -1,6 +1,6 @@
 # Document Management
 
-Upload your files to make them searchable by the AI. Documents are ingested into a vector knowledge base, allowing the AI to reference their content when answering your questions.
+Keep the office's files in folders and share them with everyone who has access to the project. Piloti reads each file, so its answers and tasks can cite it.
 
 ---
 
@@ -52,12 +52,23 @@ the choice is remembered in this browser.
   files but not read for answers, for example a report Piloti wrote and filed).
   Click a state to see those documents, across all subfolders, as one list.
 - „Worum es hier geht“ lists the document types and disciplines Piloti assigned,
-  with the number of documents that carry each. Click one to see them.
+  with the number of documents that carry each. Click one to see them. Below
+  them, „Themen, die Piloti erkannt hat“ lists the topics Piloti found in the
+  documents (see „Themen“ below), and for photos the days they were taken on,
+  as the camera recorded it.
 - „Braucht Sie“ lists what needs you: failed documents, documents the content
   check is holding, and documents Piloti could not assign a document type. For
   failed documents, „Alle N erneut lesen“ reads all of them again. With one
   document the button says „Erneut lesen“. Only people who may change files in
   the folder see it.
+- „Mehrere Fassungen“ lists the documents whose names say they exist in
+  several Fassungen, read from the index and date in the file name
+  (`EG_Grundriss_Index_C_2026-08-14.pdf` after `…_Index_B_…`), with the one
+  Piloti takes to be current. Older Fassungen in another folder, such as `alt/`,
+  count too. Until you confirm, this is only a suggestion. „Bestätigen“ links each
+  older Fassung to the current one: answers then come from the current one, and
+  the older ones stay where they are and stay readable. Only people who may
+  change files in the folder see the button.
 - „Wo es hakt“ names the subfolders where something is stuck. Click one to go
   straight there.
 
@@ -118,7 +129,7 @@ Spreadsheets index one chunk per worksheet (labelled by sheet name), so a citati
 
 ### File Size Limits
 
-The maximum upload size applies to **each file**, not to a batch: a folder of fifty 80 MB plans uploads into the Dateiablage under a 100 MB limit. It is your organization's own limit when Piloti has set one, otherwise the deployment default from `FILE_UPLOAD_MAX_SIZE_MB` (default: **100 MB**, decimal). The upload area shows the limit in force ("max. 100 MB per file"), and Organization → Storage lists it beside the storage quota. Only Piloti's platform staff can change it, between 1 MB and the largest request the deployment accepts. A file over the limit is refused with a message naming it. IFC models (`.ifc`, `.ifczip`) have their own, larger limit (`BIM_MAX_IFC_BYTES`, default 250 MB) that the organization limit does not change.
+The maximum upload size applies to **each file**, not to a batch: a folder of fifty 80 MB drawings uploads into the Dateiablage under a 100 MB limit. It is your organization's own limit when Piloti has set one, otherwise the deployment default from `FILE_UPLOAD_MAX_SIZE_MB` (default: **100 MB**, decimal). The upload area shows the limit in force ("max. 100 MB per file"), and Organization → Storage lists it beside the storage quota. Only Piloti's platform staff can change it, between 1 MB and the largest request the deployment accepts. A file over the limit is refused with a message naming it. IFC models (`.ifc`, `.ifczip`) have their own, larger limit (`BIM_MAX_IFC_BYTES`, default 250 MB) that the organization limit does not change.
 
 The total stored per organization is bounded separately by the storage quota.
 
@@ -208,7 +219,7 @@ File names in ZIPs made by very old Windows versions, which did not mark their
 names as UTF-8, can show garbled umlauts; renaming the folder in Piloti fixes it.
 
 **Re-uploading a file that is already there replaces it.** Dropping a corrected
-plan under the same name into the same project, the Büroablage, or the same chat
+document under the same name into the same project, the Büroablage, or the same chat
 points the existing document at the new bytes and re-indexes it: the document
 keeps its identity, so citations, chat subjects and folder placement all
 survive, and the organization is charged for one copy rather than two. The
@@ -313,6 +324,29 @@ showing what ingestion extracted from the document:
   so: „Ihre Zuordnung bleibt, auch wenn Piloti die Datei neu liest.“
 - **Photographs** that Piloti recognises as photos are tagged „Foto“, beside
   whatever else they show: a photo of a floor plan is „Foto“ and „Grundriss“. Phone photos taken in portrait are shown upright.
+- **Themen** are Piloti's own keywords for a document, such as „Attika“ or
+  „Holzrahmenbau“, beside the fixed document types and disciplines. Piloti adds
+  one only when it is confident and no fixed tag says the same, at most six per
+  document, and it reuses the spelling the project already uses. You can add or
+  remove topics with „Korrigieren“. Like a tag correction, your topics stay when
+  the file is read again. The file list's search and tag filter find topics too.
+- **When and where a photo was taken.** For a photo with camera data (EXIF),
+  the panel shows the day and time it was taken and the camera. If the photo
+  records a position, it also shows a „Standort“ link to the map. Piloti uses the
+  date and the camera to describe the photo, but never sends the position to a
+  model. Only people who may open the file see it.
+- **Fassungen.** When Piloti thinks a document is a newer Fassung of another
+  one, the panel asks „Ist das eine neuere Fassung von …?“ and says why: the
+  index and date in the names, or what it read in both documents. This works
+  when the names differ, too. „Ja, ersetzt sie“ links them, and „Nein“ is
+  remembered, so Piloti does not ask again. Once two documents are linked:
+  - the older one says it is replaced, and answers come from the newer one;
+  - Piloti reads the older one only when you ask for it or ask for a comparison;
+  - the newer one lists „Was sich geändert hat“, which Piloti reads from both
+    Fassungen. Check dimensions and values in the document itself.
+
+  „Verknüpfung lösen“ undoes a link. A corrected file re-uploaded under the
+  same name also gets a „Was sich gegenüber der vorigen Fassung geändert hat“.
 - **What the tags do.** They do not decide which documents answers draw on;
   answers are found from the text of a document. The tags are used in three
   places: the tag filter and the search field of the file list, the folder brief
@@ -358,7 +392,7 @@ What to expect:
   pane shows the placeholder and the Download button as before.
 
 **Pictures in Word and PowerPoint files are read.** Piloti indexes these files
-from the PDF, the same way it reads a PDF you upload: a photo, a pasted plan or
+from the PDF, the same way it reads a PDF you upload: a photo, a pasted drawing or
 a rendering on a slide gets a description, and a question about it can find it
 and cite it. PowerPoint speaker notes are still read from the original file,
 because the PDF leaves them out. Excel files keep being read sheet by sheet, as

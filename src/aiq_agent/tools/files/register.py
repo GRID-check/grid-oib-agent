@@ -195,7 +195,7 @@ _DESCRIPTION = (
     "Nur vorschlagen, wenn die Nutzerin darum bittet („leg die Einreichunterlagen in einen Ordner“, "
     "„benenn das um“, „gib das Anna“) oder ein Name nachweislich falsch ist.\n"
     "`operation` und was sie braucht:\n"
-    "- `move`: `document` in den vorhandenen Ordner `target_folder` (Pfad wie 'Einreichung/Pläne', "
+    "- `move`: `document` in den vorhandenen Ordner `target_folder` (Pfad wie 'Einreichung/Akten', "
     "leer = oberste Ebene).\n"
     "- `rename`: `document` bekommt den Anzeigenamen `new_name` (der gespeicherte Dateiname bleibt).\n"
     "- `create_folder`: neuer Ordner `new_name` (EIN Segment, keine Schrägstriche) unter "

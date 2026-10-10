@@ -1063,7 +1063,7 @@ class FileOperationItem(CardModel):
     )
     target_folder: str | None = Field(
         default=None,
-        description="move: the destination folder PATH, e.g. 'Einreichung/Pläne'. Empty string is the project root",
+        description="move: the destination folder PATH, e.g. 'Einreichung/Akten'. Empty string is the project root",
     )
     new_display_name: str | None = Field(default=None, description="rename: the new display name")
     folder_name: str | None = Field(default=None, description="create_folder: the new folder's own name (one segment)")

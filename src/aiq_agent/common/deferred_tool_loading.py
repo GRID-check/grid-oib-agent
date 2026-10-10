@@ -483,9 +483,9 @@ class DeferredToolLoadingSettings(BaseModel):
     )
     namespace_description: str = Field(
         default=(
-            "Werkzeuge dieses Agenten: IFC-Modellabfragen und -Messungen, "
-            "österreichisches Baurecht und OIB-Richtlinien, Wissensbasis, "
-            "Websuche, Projektgedächtnis und UI-Karten."
+            "Werkzeuge dieses Agenten: Projektdateien und Büroablage, IFC-Modellabfragen "
+            "und -Messungen, österreichisches Baurecht und OIB-Richtlinien, Websuche, "
+            "Projektgedächtnis und UI-Karten."
         ),
         description=(
             "Description of the namespace. This is the ONLY tool text sent up front, so "

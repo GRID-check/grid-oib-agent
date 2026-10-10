@@ -46,8 +46,8 @@ may defer with a written reason; MAYs are explicitly optional.
 
 ## 1. Purpose & the product idea in one page
 
-Today Piloti is a **single-player tool**. One person asks the agent a question, the
-agent answers, and the conversation belongs — in every practical sense — to that
+Today Piloti is a **single-player tool**. One person works with the agent in their own chat, and the
+conversation belongs — in every practical sense — to that
 person's browser. Everything the product knows about "working together" is
 inherited from the fact that colleagues happen to be in the same organisation.
 

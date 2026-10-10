@@ -88,7 +88,7 @@ SOURCE_KINDS: dict[str, SourceKind] = {
     "projekt": SourceKind(
         key="projekt",
         label="Projektwissen",
-        description="Pläne, Bescheide und Unterlagen dieses Projekts.",
+        description="Unterlagen, Bescheide und Dateien dieses Projekts.",
         css_token="projekt",
     ),
     "web": SourceKind(

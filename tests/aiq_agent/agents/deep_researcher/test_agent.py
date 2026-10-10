@@ -713,7 +713,7 @@ class TestDeepResearcherAgent:
         real_tool,
         mock_create_deep_agent,
     ):
-        """All deep research prompts identify as Grid OIB and anchor regulation citations."""
+        """Every deep research prompt names Piloti, a colleague in a planning office, and anchors citations."""
         with (
             patch(
                 "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
@@ -733,14 +733,15 @@ class TestDeepResearcherAgent:
 
             kwargs = create.call_args.kwargs
             subagents = {subagent["name"]: subagent for subagent in kwargs["subagents"]}
-            assert "Grid OIB" in kwargs["system_prompt"]
+            assert "Piloti — a colleague in an Austrian architecture and planning office" in kwargs["system_prompt"]
+            assert "Grid OIB" not in kwargs["system_prompt"]
             assert "Austrian building regulations" in kwargs["system_prompt"]
-            assert "Grid OIB" in subagents["planner-agent"]["system_prompt"]
+            assert "planning office" in subagents["planner-agent"]["system_prompt"]
             assert "Bundesland" in subagents["planner-agent"]["system_prompt"]
-            assert "Grid OIB" in subagents["writer-agent"]["system_prompt"]
+            assert "planning office" in subagents["writer-agent"]["system_prompt"]
             assert "edition/year" in subagents["writer-agent"]["system_prompt"]
             researcher_prompt = create_researcher.call_args.kwargs["system_prompt"]
-            assert "Grid OIB" in researcher_prompt
+            assert "planning office" in researcher_prompt
             assert "regulatory anchor" in researcher_prompt
 
     def test_build_orchestrator_omits_skills_when_disabled(

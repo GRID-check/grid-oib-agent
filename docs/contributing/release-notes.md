@@ -117,7 +117,7 @@ features:
 fixes:
   # Good: the effect, then why it matters.
   - >
-    Uploading a corrected plan under the same name now replaces the old one
+    Uploading a corrected document under the same name now replaces the old one
     instead of adding a second copy that Piloti could no longer find.
 
   # Bad: the mechanism, and a module name.

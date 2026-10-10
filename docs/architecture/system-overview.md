@@ -14,16 +14,21 @@
 
 ## 1. Executive summary
 
-Piloti is the **workspace in which a planning office runs a building project**.
-Piloti the agent is a **member of that office**. Architects work inside
-**projects**; chat is how they talk to the agent, and **tasks** (Aufgaben)
-are how they hand it work — a task is the work object, a job the recurring
-schedule behind it (§5.12). Every **normative claim** is grounded in a passage retrieved this
-turn from the project, the Büroablage, or the Austrian building-regulation
-corpus. Not every answer is a ruling. Piloti does not replace the
-Entwurfsverfasser or the Behörde.
+Piloti is the **workspace in which a planning office runs its work**: every
+project, every process, the whole organization. Architects work inside
+**projects**. A project holds its intake (the facts that decide the rest of
+it), its files and the office's Büroablage, its building model (IFC, opened in
+the browser), its tasks and research, and its team. What the office knows
+carries from one project to the next, through project and organization memory.
 
-Architecturally, GRID is a **two-tier system**:
+Piloti, the agent, is a **member of that office**. Chat is how people talk to
+it, and **tasks** (Aufgaben) are how they hand it work: a task is the work
+object, a job the recurring schedule behind it (§5.12). Building law is one
+capability in this workspace, not the frame around it. Legal claims cite the
+passage they rest on (§5.2). Not every answer is a ruling. Piloti does not
+replace the Entwurfsverfasser or the Behörde.
+
+Architecturally, Piloti is a **two-tier system**:
 
 - A **stateful BFF** (Next.js) owns identity, the application database, file
   storage, and access control — everything tenant-specific and durable.
@@ -65,9 +70,10 @@ flowchart TB
     SYS -->|pre-loaded corpus| OIB
 ```
 
-**Actors:** architects/planners (ask questions, upload documents, manage a
-project's knowledge) and organization admins (projects, members, org-wide
-memory). **External dependencies:** WorkOS (identity + fine-grained
+**Actors:** the people of a planning office (architects, project leads,
+drafters, site supervision, specialist consultants), who work in projects,
+upload documents, hand tasks to the agent and ask it questions; and organization
+admins, who manage projects, members and org-wide memory. **External dependencies:** WorkOS (identity + fine-grained
 authorization), an OpenAI-compatible LLM/embeddings provider, Tavily (web
 search), and the OIB corpus (ingested once into the vector store).
 
@@ -159,6 +165,17 @@ or security, and every tenant-data mutation goes through one audited layer.
 
 ## 5. Major subsystems
 
+The workspace surfaces, each with its own doc:
+
+- **Projects and intake:** [projects guide](../user-guides/projects.md)
+- **Files, Büroablage and document roles:** [documents guide](../user-guides/documents.md), [Piloti in the file system](piloti-filesystem-design.md), [document roles](document-roles.md)
+- **Building model (IFC):** [IFC models guide](../user-guides/bim-models.md)
+- **Tasks and jobs:** §5.12 below, and [projects guide, Jobs](../user-guides/projects.md#jobs-feature-flagged)
+- **Research and reports:** [reports Piloti writes](../user-guides/agent-authored-reports.md), [deep research report](deep-research-report.md)
+- **Team and access:** [collaboration lifecycle](collaboration-lifecycle.md), [sensitive data and access](../user-guides/sensitive-data-and-access.md)
+- **Office knowledge:** [project memory design](project-memory-design.md)
+- **Mail import:** [Outlook archive import](mail-import.md)
+
 ### 5.1 Chat & the agent pipeline
 Chat is **WebSocket-only** (ADR 0009). A turn runs through a LangGraph workflow
 (`chat_deepresearcher_agent`): **one answering agent on every turn, with its
@@ -171,6 +188,10 @@ NAT WebSocket handler that lifts structured fields (cards, deep-research job id)
 onto the message. → `docs/architecture/backend-deep-dive.md` §2.
 
 ### 5.2 The two knowledge systems
+Every normative claim is grounded in a passage retrieved this turn from the
+project, the Büroablage, or the Austrian building-regulation corpus. Not every
+answer is a ruling.
+
 GRID deliberately separates **retrieval** from **memory** — they answer
 different questions and reach the agent differently:
 
@@ -397,8 +418,8 @@ frontend start). → `docs/database/`.
 Seven Compose services on one bridge network: `postgres`, `seaweedfs` (+ `seaweedfs-init`),
 `aiq-agent` (+ one-shot `chroma-data-permissions`), `frontend`, and `purger`.
 Frontend on `:3000` (the only public port for the app), backend on `:8000`,
-Postgres `:5432`, SeaweedFS `:8333/:8888`. Migrations run on frontend start; OIB
-the OIB corpus is uploaded after first boot (admin UI or `scripts/upload_oib_corpus.py`) and ingested by the ingest workers, from jobs the upload and the base-corpus housekeeping queue. → `docs/deployment/`.
+Postgres `:5432`, SeaweedFS `:8333/:8888`. Migrations run on frontend start; the
+OIB corpus is uploaded after first boot (admin UI or `scripts/upload_oib_corpus.py`) and ingested by the ingest workers, from jobs the upload and the base-corpus housekeeping queue. → `docs/deployment/`.
 
 ---
 

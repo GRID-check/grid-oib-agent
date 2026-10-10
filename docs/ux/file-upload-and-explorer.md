@@ -91,7 +91,7 @@ decorated afterwards. Where each one landed:
    per-second byte counter never is.
 2. **Match between the system and the real world.** "Waiting", "Sending",
    "Reading", "Citable" — not `pending`, `ingesting`, `success`. "Citable"
-   answers the question a compliance user is actually asking. Sizes, speeds and
+   tells a planner whether Piloti can use the file in an answer, which is what they check first. Sizes, speeds and
    durations are formatted in the app's locale, not the runtime's.
 3. **User control and freedom.** Cancel one file, cancel the batch, retry one,
    retry all failed, dismiss. Before this change there was **no way to cancel an
@@ -172,7 +172,7 @@ Same lens, applied to the surface that opens when a document is clicked:
   desk looks like, and the reason this column exists rather than a download link.
 - **The fake page is gone.** The "no inline preview" state used to draw skeleton
   paragraph bars — permanently, for a file whose contents cannot be shown at all.
-  That is decoration pretending to be content; on a compliance surface a reader
+  That is decoration pretending to be content; on a file surface a reader
   glancing at it sees "a document" and moves on. Skeleton bars now appear only
   while a preview is genuinely loading.
 
@@ -272,8 +272,9 @@ its fold is remembered per browser, as the card and list choice is.
 | Part | What it says | Each count opens |
 |---|---|---|
 | Bar and legend | How many documents in the subtree Piloti can cite, and where the rest stand: citable, being read, failed, held back, not in the knowledge base. The headline gives the same answer in words. | The flat list of that state, across all subfolders |
-| What it is about | The document types and disciplines Piloti assigned to the citable documents, most frequent first, and the kinds of content it found. „Sonstiges“ always comes last. | The flat list of documents with that tag |
+| What it is about | The document types and disciplines Piloti assigned to the citable documents, most frequent first, and the kinds of content it found. „Sonstiges“ always comes last. Then the topics Piloti recognised (up to twelve), and for photos the span of days the camera says they were taken on. | The flat list of documents with that tag or topic, or of the dated photos |
 | What needs a person | Failed documents, with one button to read all of them again. Documents held back by the content check. Citable documents Piloti placed in no document type. | The flat list of those documents |
+| Several Fassungen | Documents whose names say they exist in several Fassungen (`revision-series.ts`), each with the one that looks current and its older ones by index and date. A person confirms a series with „Bestätigen“, which links every older Fassung to the current one. Links a person made across different names count in one line. | The flat list of every older Fassung, by name or confirmed |
 | Where it sticks | Up to four subfolders, worst first, whose own documents need attention or are being read. Each is named by its path, so the reader lands on the folder with the trouble and not on an ancestor. | Walks into that folder |
 
 At the project root only, a fifth part, „Was Piloti noch fehlt“, lists the
@@ -308,12 +309,52 @@ back, still being read, or not in the knowledge base is counted. Its tags,
 disciplines, content kinds and summary stay out of the brief. A document the
 content check has not released cannot reach the reader through the brief.
 
+## Fassungen: a suggestion, then a person's link
+
+feld72 asked for „eine Logik wie bei Planfred“: only the newest state of a
+document is the basis, the older ones only on request, and any automation only
+as a suggestion a person confirms, also when a new state does not carry the
+old file name. ADR-0097 records why this is a link between two documents and
+not a merge.
+
+Piloti suggests in two ways:
+
+- **By name.** The brief and the agent's `list_files` read index and date from
+  file names with one grammar, twins held to one fixture
+  (`tests/fixtures/revision_series_cases.json`).
+- **By reading.** After a new document is read, a model compares its summary
+  with the documents it could replace, name matches first, and keeps a
+  suggestion only above a confidence threshold. The preview names the basis:
+  the name, or what Piloti read.
+
+The preview's Fassungen panel (`fassung-panel.tsx`) asks the question. „Ja,
+ersetzt sie“ links the two, and „Nein“ is remembered, so the same pair is not
+suggested again. Once linked:
+
+- the older document says it is replaced;
+- the agent's search leaves it out unless a turn asks for it by name;
+- the newer document shows „Was sich geändert hat“, a model's reading of both
+  summaries, with the caveat that dimensions are checked in the document.
+
+A same-name re-upload (ADR-0054's version chain) gets the same change line
+against its previous version.
+
+**Names are never more than the reader may see.** The BFF resolves each linked
+name to a document the reader can open. A reference to a held, restricted or
+archived document is dropped, not shown (`lib/documents/fassung.ts`).
+
+**Naming.** No surface calls a file a plan. A name with an index says a file
+has Fassungen, not that it is a drawing (CONTEXT.md, „Fassung“), and
+`src/i18n/forbidden-file-words.spec.ts` holds the copy to it.
+
 ## Where the code lives
 
 | Concern | Module |
 |---|---|
 | Byte-level upload transport (the only XHR in the app) | `src/lib/http/xhr-upload.ts` |
 | The folder brief: a folder's subtree tally, the brief, what each count selects | `src/features/documents/lib/folder-knowledge.ts`; `src/features/documents/components/folder-brief.tsx` |
+| Revision series read from file names (TS twin of `sources/knowledge_layer/src/revision_series.py`) | `src/features/documents/lib/revision-series.ts` |
+| The preview's Fassungen panel; the link request | `src/features/documents/components/fassung-panel.tsx`; `src/features/documents/lib/fassung-request.ts` |
 | A folder's read state on its tile or row | `src/features/documents/components/folder-read-state.tsx` |
 | Bulk re-read, four requests at a time, and the one request each sends | `src/features/documents/hooks/use-bulk-reingest.ts`; `src/features/documents/lib/reingest-request.ts` |
 | The missing list, shared with the agent's prompt | `src/lib/document-roles/prompt-loader.ts` (`loadMissingDocuments`); `src/features/documents/hooks/use-missing-documents.ts` |

@@ -1,6 +1,6 @@
 # Kubernetes deployment (Pulumi)
 
-This is the operator guide for running the full Grid OIB stack on a Kubernetes
+This is the operator guide for running the full Piloti stack on a Kubernetes
 cluster. The infrastructure is defined as code in
 [`deploy/pulumi`](../../deploy/pulumi) (Pulumi / TypeScript); this document
 explains the architecture, the storage/SeaweedFS decisions, how to deploy, and

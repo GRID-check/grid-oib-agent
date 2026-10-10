@@ -12,9 +12,9 @@ Grid already has two document tiers:
 1. **Per-project documents** — uploaded on a project's Files tab, ingested into
    that project's `proj_<uuid>` RAG collection, and retrieved only for that
    project (`lib/documents/*`, `/api/documents/*`).
-2. **The OIB base corpus** — the shared regulatory knowledge every project is
-   grounded on, managed by the *platform owner* and ingested into
-   `oib_knowledge` (`lib/knowledge/*`, `/v1/admin/oib/*`).
+2. **The OIB base corpus** — the shared regulatory knowledge that every project's
+   retrieval layers in beside its own documents, managed by the *platform owner*
+   and ingested into `oib_knowledge` (`lib/knowledge/*`, `/v1/admin/oib/*`).
 
 There was no tier in between: a place where **one organization** can keep
 documents that every one of *its* projects should see, without the platform

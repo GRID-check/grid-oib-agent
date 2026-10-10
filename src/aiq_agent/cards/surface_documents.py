@@ -411,7 +411,7 @@ async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builde
             subject = filename or query
             return (
                 f"No project or Büroablage file matched {subject!r}. "
-                "Try a narrower `query` (a filename fragment, a plan type, a project name) "
+                "Try a narrower `query` (a filename fragment, a Dokumentart, a project name) "
                 "or check the knowledge-base inventory for the exact `filename` spelling."
             )
 

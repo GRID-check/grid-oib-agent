@@ -1,5 +1,7 @@
 # From compliance assistant to agentic workspace
 
+> **Read with [VISION.md](../../VISION.md).** This review predates it; where it calls Piloti a compliance product, the vision's frame holds: the workspace for architects, building law as one capability.
+
 > **Status:** Product and architecture review, 2026-09-01. Not an implementation
 > plan and not a feature list. It says what the product is becoming, which of
 > the existing parts already carry that, where they stop, and in what order to

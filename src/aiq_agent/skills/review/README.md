@@ -1,6 +1,6 @@
 # Vendored review rulebooks
 
-This directory holds third-party rulebooks that GRID's own reviewers *read*. It
+This directory holds third-party rulebooks that Piloti's own reviewers *read*. It
 is deliberately **not** `../builtin/`: `discover_builtin_skills` globs
 `builtin/*/*/SKILL.md` and hands everything it finds to agents as an invocable
 skill. What lives here is a rulebook for a reviewer, not a capability any agent

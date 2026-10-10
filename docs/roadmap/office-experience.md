@@ -425,7 +425,7 @@ months and euros, and its value is not a promise about the future.
 
 | Horizon | What Piloti is to the office |
 |---|---|
-| **Now (Oct 2026)** | A careful researcher that can look into past projects safely, if they are in Piloti |
+| **Now (Oct 2026)** | A colleague that reads the office's past projects safely, where they are held in Piloti |
 | **Next (3–6 months)** | The office's archive, read and annotated. Precedent and permitting memory in answers and in the Einreichcheck. A closing debrief that captures the why |
 | **Later (6–18 months)** | The colleague who has worked on every project: at project start, in drafting, in plan and model review, in tenders. Office standards emerge from repeated solutions, and contradictions surface |
 | **Future** | Permitting becomes a data exchange. Vienna's BIM-based permit work (BRISE-Vienna) and the Länder's digital Einreichung point to authorities answering in structured form. An office whose Nachforderungen are already structured data learns from every procedure automatically. An opt-in, anonymised Verfahrensdauer benchmark per Behörde across offices becomes possible. It is the only pooled signal, and never content |

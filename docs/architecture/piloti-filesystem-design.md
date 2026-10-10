@@ -676,7 +676,7 @@ compatible with this design and is the right shape if execution is wanted later.
 **Make it a git.** Rejected as the *interface*, kept as the *idea*: content
 addressing, immutable history and refs are all here. Branches and merges are
 not, because an LLM resolving a merge conflict inside a Brandschutzkonzept is a
-liability, and because linear per-node history is what a revision-stamped plan
+liability, and because linear per-node history is what a revision-stamped document
 set actually is.
 
 **Let the agent write as the user.** **[CORRECTED — the premise was false.]**
@@ -694,7 +694,7 @@ give the agent a write path at all. The BFF already proxies the finished report
 commissioning user's own session, gated on `project:documents:write` — and, as
 built, on `project:documents:generate` beside it, so that "Piloti may write
 here" is a capability an organization can withhold without also stopping its own
-architects uploading plans. That removes the confused deputy instead of
+architects uploading documents. That removes the confused deputy instead of
 reasoning about it — see the build spec's decision 4 and
 [ADR-0047's third addendum](../adr/0059-assignment-is-not-access.md).
 

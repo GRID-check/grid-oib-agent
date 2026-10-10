@@ -1,6 +1,6 @@
 # The Langfuse contract
 
-**Langfuse is Grid's observability platform** ([ADR-0089](../adr/0089-langfuse-is-the-observability-platform-and-everything-is-observable.md)).
+**Langfuse is Piloti's observability platform** ([ADR-0089](../adr/0089-langfuse-is-the-observability-platform-and-everything-is-observable.md)).
 Everything the product does with a model, every agent step and every quality
 check lands there, and we improve the product from what it shows. This page is
 the contract: what every trace carries, which scores exist, what Langfuse
@@ -17,7 +17,7 @@ the Fachbereich): [`analyst-guide.md`](analyst-guide.md).
 
 | Field in Langfuse | Where it comes from | Values |
 |---|---|---|
-| Trace name | `trace_context.trace_name_for_root` (NAT runs), `observed_generation` (auxiliary calls) | `chat-turn`, `research-job`, `conversation-title`, `project-summary`, `consistency-check`, `skill-review`, `lesson-distill`, `feedback-digest`, `cleanup-proposal` |
+| Trace name | `trace_context.trace_name_for_root` (NAT runs), `observed_generation` (auxiliary calls) | `chat-turn`, `research-job`, `conversation-title`, `project-summary`, `consistency-check`, `skill-review`, `lesson-distill`, `feedback-digest`, `cleanup-proposal`, `change-summary` |
 | Environment | `APP_ENV`, coerced to Langfuse's alphabet | `production`, … |
 | Release | `GRID_GIT_SHA`, the image's commit | the commit hash |
 | Session | the conversation id (NAT sets `session.id`) | one session per chat |
@@ -58,7 +58,7 @@ exception of the tenant tag.
 
 ## Scores
 
-Every score Grid, a reviewer or a judge writes is declared once in
+Every score Piloti, a reviewer or a judge writes is declared once in
 `aiq_agent.observability.langfuse_scores.SCORE_DEFINITIONS`. A test fails when
 a name is written but not declared, or declared but not listed here.
 

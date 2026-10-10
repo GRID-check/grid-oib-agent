@@ -208,7 +208,7 @@ Internal endpoint that:
 - Reads `projectId` and `conversationId` from query params
 - Asks for an interactive chat scope (`interactiveChat: true`), the only scope that may carry
   restricted-folder collections
-- Resolves the Grid session from the encrypted WorkOS cookie
+- Resolves the Piloti session from the encrypted WorkOS cookie
 - Enforces project access if auth is required
 - Returns JSON with `{ scope, header, organizationId, userId, accessToken }`
 

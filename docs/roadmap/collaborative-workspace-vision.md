@@ -1,4 +1,6 @@
-# Vision: The Compliance Workspace (collaborative, internal-team)
+# Vision: The Collaborative Project Workspace (internal-team)
+
+> **Read with [VISION.md](../../VISION.md).** This sketch predates it and is revised by [agentic-workspace-architecture.md](agentic-workspace-architecture.md). Where it calls Piloti a compliance workspace, the vision's frame holds: the workspace for architects, building law as one capability.
 
 > Forward-looking product sketch — **not scoped for implementation.** Captured so
 > the thinking isn't lost. Sibling to `cross-project-rag-vision.md`.
@@ -13,18 +15,19 @@
 
 ## Thesis
 
-The next evolution of GRID is not "cloud storage with comments." It is a
-**compliance workspace**: a project's hero view is a **compliance board** — the
-applicable OIB standards GRID already derives — and files are the *evidence*
-underneath, joined to standards by a first-class link. Collaboration is what makes
+The next evolution of Piloti is not "cloud storage with comments." It is a
+**project workspace** for the team: a project's files, building model and tasks sit
+in one place, and a **compliance board** over the applicable OIB standards Piloti
+already derives is the first lens on them. Files are the *evidence* underneath,
+joined to standards by a first-class link. Collaboration is what makes
 it multiplayer; the compliance board + the agent-as-reviewer is the wedge.
 
 ## Why not file-first
 
-File-first competes with Dropbox / Drive / Bau-doc tools on features GRID will
+File-first competes with Dropbox / Drive / Bau-doc tools on features Piloti will
 lose. Leading with the compliance board answers the firm's real anxiety — *"will
 this Einreichung pass, on what, who owns it, where's the evidence"* — which no
-generic tool does.
+generic tool does. Files stay the spine underneath: the board is a lens over them, not a replacement.
 
 ## The model
 
@@ -38,8 +41,8 @@ generic tool does.
 
 ## The differentiator: the agent as a review participant
 
-The agent already derives applicable standards and reads the plans (RAG), so it can:
-- **propose the evidence links** (this plan is evidence for OIB 2 & 4),
+The agent already derives applicable standards and reads the project's documents (RAG), so it can:
+- **propose the evidence links** (this document is evidence for OIB 2 and 4),
 - **pre-assess each lane** (OIB 4 looks unmet — WC door < 80 cm; OIB 6 has no
   evidence yet),
 - draft the **gap list** humans then resolve, every claim grounded in the OIB corpus.

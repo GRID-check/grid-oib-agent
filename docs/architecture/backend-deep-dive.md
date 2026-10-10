@@ -55,10 +55,9 @@ Browser WebSocket
     the model's own clause). A commissioned report escalates immediately,
     without a retrieval first.
 
-    Note: Piloti doubles as the conversational assistant, so the UI
-    presents it neutrally as "Assistant" (getDisplayName in
-    intermediate-step-parser.ts), not "Research Agent" — a greeting is
-    not a research run.
+    Note: The answering agent is one surface of Piloti. The UI presents it
+    neutrally as "Assistant" (getDisplayName in intermediate-step-parser.ts),
+    not "Research Agent" — a greeting is not a research run.
   → the turn's wire bodies, stamped and sent by the chat socket (wire v2, ADR-0068)
       frontends/aiq_api/src/aiq_api/chat_socket.py
   → the UI's turn socket and fold (docs/api/websocket-protocol.md, "The client")
@@ -671,9 +670,9 @@ is `includeShelvesForTurn` in `frontends/ui/src/features/layout/lib/retrieval-sc
 
 **A subject file never subtracts `base`.** A subject narrows which *documents*
 a turn reads, which is what #429 and #436 asked for; neither was about the
-building-code corpus. Dropping it made the product unable to answer its own
-central question — bind a plan, ask whether it meets the escape-route
-requirement, and retrieval held the plan and no OIB. The asymmetry that exposed
+building-code corpus. Dropping it left a turn about one document without the
+building-code corpus that must sit beside it — bind a document, ask whether it
+meets the escape-route requirement, and retrieval held that document and no OIB. The asymmetry that exposed
 it: the `project` PRESET kept `base` and the `project` SHELF did not, although a
 reader reaches for either to say the same thing. `law` is the one branch that
 still subtracts everything else, because there the reader asked for the law

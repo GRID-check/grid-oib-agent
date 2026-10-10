@@ -1,4 +1,6 @@
-# GRID — Feature & Improvement Opportunities
+# Piloti — Feature & Improvement Opportunities
+
+> **Read with [VISION.md](../../VISION.md).** This menu predates it; where it calls Piloti a compliance product, the vision's frame holds: the workspace for architects, building law as one capability.
 
 Scouted across the codebase after the stabilization + premium-redesign work. Prioritized by value × (1/effort), with risk noted. The first item is **shipped on this branch**; the rest are a menu.
 
@@ -8,13 +10,13 @@ Legend — Effort: S (hours) / M (day) / L (multi-day). Risk: how likely it need
 
 ## ✅ 1. Applicable OIB Standards panel — SHIPPED (this branch)
 
-From the project brief (main use, building class, floors, escape level) GRID now derives which OIB-Richtlinien are relevant, with a reason drawn from the project's own facts (e.g. *escape level > 22 m → Hochhaus → OIB 2.3*), a source link, and an "Ask Grid" action that seeds a grounded question. Turns the Overview into a compliance cockpit and makes the domain expertise visible on day one. Pure-function applicability engine with unit tests. **Value: high. Effort: M. Risk: low (additive, tested).**
+From the project brief (main use, building class, floors, escape level) Piloti now derives which OIB-Richtlinien are relevant, with a reason drawn from the project's own facts (e.g. *escape level > 22 m → Hochhaus → OIB 2.3*), a source link, and an "Ask Piloti" action that seeds a grounded question. Turns the Overview into a project cockpit that shows which standards apply, and why, and makes the domain expertise visible on day one. Pure-function applicability engine with unit tests. **Value: high. Effort: M. Risk: low (additive, tested).**
 
 ---
 
 ## 2. "Run a compliance check" — one-click deep research over applicable standards
 **Value: very high. Effort: M. Risk: medium.**
-Natural next step on top of #1. A button on the Applicable Standards panel that launches a deep-research job whose plan is *"check this project against each applicable Richtlinie and report gaps."* The intake already captures `output_format: compliance_checklist | full_report` — wire it. This is the single most differentiating thing GRID could do: it closes the loop intake → applicable standards → grounded multi-Richtlinie analysis → report. Ties directly into the existing deep-research + research-runs machinery.
+Natural next step on top of #1. A button on the Applicable Standards panel that launches a deep-research job whose plan is *"check this project against each applicable Richtlinie and report gaps."* The intake already captures `output_format: compliance_checklist | full_report` — wire it. This is one of the most differentiating things Piloti could do: it closes the loop intake → applicable standards → grounded multi-Richtlinie analysis → report. Ties directly into the existing deep-research + research-runs machinery.
 
 ## 3. Compliance report export (PDF / DOCX)
 **Value: very high. Effort: L. Risk: medium.**
@@ -22,7 +24,7 @@ Architects must produce submission documentation. `@react-pdf/renderer` is alrea
 
 ## 4. Seed-chat everywhere (`?ask=`) — extend the pattern
 **Value: medium. Effort: S. Risk: low.**
-The `?ask=` composer-prefill wired for #1 should also power: "ask a follow-up" on every LegalBasisCard, the Overview "Grid still doesn't know: …" prompts, and the missing-info items. Cheap, makes the whole app feel connected — every fact becomes a launch point into grounded chat.
+The `?ask=` composer-prefill wired for #1 should also power: "ask a follow-up" on every LegalBasisCard, the Overview "Piloti still doesn't know: …" prompts, and the missing-info items. Cheap, makes the whole app feel connected — every fact becomes a launch point into grounded chat.
 
 ## 5. Project-scoped chat sessions
 **Value: high. Effort: M. Risk: medium.**
@@ -30,7 +32,7 @@ CX finding (cx-03): file uploads are project-scoped but chat sessions are global
 
 ## 6. Cross-project RAG — "Ask the portfolio"
 **Value: very high (strategic). Effort: L+. Risk: high.**
-The existing vision doc (`2026-07-03-cross-project-rag-vision.md`): every project enriches a cross-project embedding index (pgvector, respecting org boundaries) so the agent can say *"3 similar projects — the Hochhaus in Q2 had the same sprinkler-riser conflict."* Network effects: 100 projects become more valuable than 1. The platform bet. Needs infra (pgvector) and careful tenant isolation — do it deliberately, not quickly.
+The earlier vision doc (`cross-project-rag-vision.md`, superseded by `office-experience.md`): every project enriches a cross-project embedding index (pgvector, respecting org boundaries) so the agent can say *"3 similar projects — the Hochhaus in Q2 had the same sprinkler-riser conflict."* Network effects: 100 projects become more valuable than 1. The platform bet. Needs infra (pgvector) and careful tenant isolation — do it deliberately, not quickly.
 
 ## 7. Backend DB migration mechanism
 **Value: medium (hygiene). Effort: M. Risk: low.**
@@ -47,4 +49,4 @@ The chat redesign kept the deep-research input hard-lock + auto-open panel as in
 ---
 
 ### Recommended sequence
-**2 → 3 → 4** is the highest-ROI thread: it makes GRID *produce the compliance deliverable*, which is the product's reason to exist. **5** is a coherence win to slot in alongside. **6** is the strategic platform bet for when the core loop is proven. **7/9** are stability hygiene to schedule opportunistically.
+**2 → 3 → 4** is the highest-ROI thread: it makes Piloti *produce the compliance deliverable*, one of several workflows a planning office runs in the workspace. **5** is a coherence win to slot in alongside. **6** is the strategic platform bet for when the core loop is proven. **7/9** are stability hygiene to schedule opportunistically.

@@ -18,7 +18,7 @@ permission decide what must not be uploaded:
   a Mac spells „ä" do not matter.
 - **Terms for the content**, such as „Lohnzettel" or „Honorarvereinbarung".
 - **Checks for numbers**: IBANs, Austrian social security numbers and card
-  numbers, each validated by its check digit, so a plan number that merely
+  numbers, each validated by its check digit, so a reference number that merely
   looks like one does not match.
 
 An office that never saved a list works with Piloti's suggested one. The list
@@ -46,7 +46,7 @@ can be switched off.
    match ends there: the file is stored, read by no model, and waits in
    quarantine. If the list cannot be read at that moment, the file is not read
    at all; it is marked as failed and can be retried.
-3. A file whose text cannot be read locally (a scan, a plan without a text
+3. A file whose text cannot be read locally (a scan, a PDF without a text
    layer, a photo) is **checked by name only**. The summary says so, so nobody
    takes „nothing found" for „nothing there".
 

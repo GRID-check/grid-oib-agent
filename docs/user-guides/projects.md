@@ -1,6 +1,6 @@
 # Projects
 
-Projects group related documents and chat conversations under a shared context. A project has its own document collection, and conversations created within a project are automatically scoped to query only that project's documents.
+A project groups one building's files, folders, chats, research runs and building model under one shared context. Everyone with access works in it, and a chat started in a project searches that project's documents.
 
 ## The projects home
 
@@ -112,8 +112,7 @@ Source: `frontends/ui/src/features/skills/`, service in
 
 The **Jobs** tab (`/app/projects/{id}/jobs`) is where a prompt is put on a
 timer. **A job is a prompt** — the question you would have typed into a new
-chat — that runs on demand or on a schedule. Nothing else is required: "check
-the current OIB-RL 6 requirements for this project every Monday" is a complete
+chat — that runs on demand or on a schedule. Nothing else is required: "summarise what changed in this project's folders every Monday" is a complete
 job.
 
 Managing jobs needs `project:skills:manage`; anyone with `project:view` can

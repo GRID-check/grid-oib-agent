@@ -150,6 +150,7 @@ class TestPrompts:
     def test_prompts_are_loaded(self):
         assert "research clarification assistant" in CLARIFICATION_PROMPT
         assert "research planning assistant" in PLAN_GENERATION_PROMPT
+        assert "Einreichplan" not in PLAN_GENERATION_PROMPT
 
     def test_the_turn_limit_is_single_sourced(self):
         """The prompt used to hard-code TWO while the config said three."""

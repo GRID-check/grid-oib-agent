@@ -1,6 +1,6 @@
 # Working practices
 
-How we work on Grid: the conventions, obligations and quirks that are not
+How we work on Piloti: the conventions, obligations and quirks that are not
 visible from the code. [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md) is the
 entry point for setup, branching, commits and the merge gate. This directory
 holds the depth behind it.

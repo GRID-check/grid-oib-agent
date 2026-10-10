@@ -133,7 +133,7 @@ The init script is idempotent (`IF NOT EXISTS`) and runs automatically when the 
 
 ## Related docs
 
-- [Architecture Overview](overview.md) — container/topology diagram showing the three databases.
+- [System overview](system-overview.md#3-container-view) — container view showing the three databases.
 - [Multitenancy & Auth Spec](multitenancy-and-auth-spec.md) — data model and ownership rules.
 - [Row-level security](../database/row-level-security.md) — the tenant boundary this database enforces, and how to add a table to it.
 - ADR-0003 — Next.js BFF + stateless Python agent.

@@ -1,9 +1,10 @@
 # Piloti
 
-Piloti is the workspace in which an Austrian planning office runs a building
-project, and the colleague in it who answers questions about building law, the
-office's own knowledge and the project's documents, with a source for every
-claim. This file is its domain language: what the words mean, in the product and
+Piloti is the workspace for architects: an Austrian planning office runs its
+work in it, every project and every process, and Piloti, the agent, is a
+colleague in that office who does part of the work, with a source for every
+claim. Building law is one of the things it knows, not the frame around it
+([`VISION.md`](VISION.md)). This file is its domain language: what the words mean, in the product and
 in conversation about it. The engineering vocabulary (tenancy helpers, CI,
 deploys, tooling) is in [`docs/glossary.md`](docs/glossary.md).
 
@@ -13,7 +14,7 @@ term.
 ## The office and its work
 
 **Piloti**:
-The product, and the colleague persona that answers in it. The name users see.
+The product, and the colleague persona that works in it. The name users see.
 _Avoid_: GRID in anything a user reads; GRID is the repository's and the code's name.
 
 **Organization** (Büro):
@@ -65,7 +66,7 @@ into laws and ordinances.
 The coarse family every source belongs to, which decides how it is shown:
 *Baurecht & Richtlinien* (building law and guidelines), *Büroarchiv* (the
 office's own standards, details and experience), *Projektwissen* (this project's
-plans, Bescheide and uploads) and *Web*. A *Modellmessung* (a value measured off
+documents, Bescheide and uploads) and *Web*. A *Modellmessung* (a value measured off
 the project's BIM model) is shown beside them but is never a source for a legal
 verdict.
 

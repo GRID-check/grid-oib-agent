@@ -163,7 +163,7 @@ database, not the screen, decides who was first.
 Under the controls, every version: its number and state, who submitted, approved
 and published it and when, the reviewer's words, and **Öffnen** for that
 version's own bytes — including the superseded ones. Re-uploading a corrected
-plan under the same name no longer throws the old file away; it becomes version
+file under the same name no longer throws the old file away; it becomes version
 N+1 and the previous one stays readable. „Was stand im März drin" is a question
 with an answer.
 

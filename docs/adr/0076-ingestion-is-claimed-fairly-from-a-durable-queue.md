@@ -13,7 +13,7 @@ informed: everyone working in this repo
 Every ingestion job ran in one in-memory `ThreadPoolExecutor` per backend
 process: `AIQ_INGEST_MAX_WORKERS=2`, FIFO across every tenant. Prod runs one
 backend replica, so the platform indexed two documents at a time, in arrival
-order. One office's folder upload or project reindex of a few hundred plan sets
+order. One office's folder upload or project reindex of a few hundred document sets
 put every other office's single upload behind it for hours. A restart lost the
 whole queue: each job was settled `failed: interrupted` and had to be re-sent.
 Nothing could add capacity except a bigger backend pod, which is also the chat

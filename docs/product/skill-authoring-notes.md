@@ -86,7 +86,7 @@ vs Nachweis, geschätztes Maß in einer Karte, Neubau-Klausel auf Bestand).
 A number that belongs in Richtlinie 2 does not belong in a SKILL.md.
 
 Most questions are not about an IFC model. They are about the Richtlinie, the
-Bauordnung, and what is on the plan or in the question. An OIB genre skill
+Bauordnung, and what is in the project's documents or in the question. An OIB genre skill
 answers from those. It does not send the agent to measure the model. That
 method lives in `ifc-spatial-reasoning` and fires from its own description
 when the question is actually about the model.

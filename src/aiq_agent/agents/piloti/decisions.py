@@ -125,7 +125,7 @@ CORPUS_OPTIONS: Mapping[str, str] = {
         "a Verordnung — a requirement, a limit, a class, a procedure, or what a regulation says."
     ),
     "projekt": (
-        "The files of THIS project: a plan, a Bescheid, a report, a model, a submission, or what the "
+        "The files of THIS project: a drawing, a Bescheid, a report, a model, a submission, or what the "
         "project's own documents contain, show or require."
     ),
     "buero": "The office's archive: templates, standard details, house documents, office guidelines.",

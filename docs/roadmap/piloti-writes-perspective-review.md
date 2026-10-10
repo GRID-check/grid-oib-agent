@@ -1,5 +1,7 @@
 # Piloti writes: a product perspective on what this branch delivers
 
+> **Read with [VISION.md](../../VISION.md).** This review predates it; where it calls traceability the product, the vision's frame holds: the product is the workspace for architects, and traceability is one of its principles.
+
 > **Status:** Product review for the owner, 2026-09-10. Written against the
 > branch at HEAD (431 files, 28 349 insertions over `ee7ce67`) and its eleven
 > release notes. Not an engineering assessment. Every "exists" claim names a

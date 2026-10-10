@@ -1,6 +1,6 @@
-# Deploying Grid on Coolify (with per-PR preview environments)
+# Deploying Piloti on Coolify (with per-PR preview environments)
 
-This guide covers deploying the Grid OIB Agent to [Coolify](https://coolify.io)
+This guide covers deploying Piloti to [Coolify](https://coolify.io)
 using its **Docker Compose** build pack, and turning on **per-PR preview
 deployments** so every pull request gets its own throwaway environment.
 
@@ -413,7 +413,7 @@ redeploys of the same environment; each preview gets its own set.
 - [ ] Upload a PDF → it stores and the preview/download link (presigned SeaweedFS
       URL) opens in the browser. If the link 403s, check `SEAWEED_PUBLIC_ENDPOINT`
       resolves to SeaweedFS's public domain and the signature host matches.
-- [ ] Ask an OIB question → knowledge results appear (confirms embeddings +
+- [ ] Ask one question about an uploaded project document and one about an OIB-Richtlinie → knowledge results appear for both (confirms embeddings +
       ingestion). If empty, revisit §6 and §7.
 - [ ] (WorkOS environments) `grid-audit-schemas` exited 0 in the deploy log, and
       a filed report produces a `document.generated` event in the org's audit

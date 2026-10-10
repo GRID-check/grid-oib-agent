@@ -32,7 +32,7 @@ the synthesis follows below them.
 
 ---
 
-# Piloti answers: the plan for richer blocks
+# Answers: the plan for richer blocks
 
 ## 1. The vision
 

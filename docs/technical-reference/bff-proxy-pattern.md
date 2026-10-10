@@ -5,7 +5,7 @@ The Next.js app acts as a BFF layer between the browser and the Python FastAPI b
 ## Why BFF
 
 - **Avoid CORS issues**: Browser requests stay on the same origin (`localhost:3000` in dev, single domain in production).
-- **Centralize auth**: The BFF resolves Grid sessions (WorkOS AuthKit) and forwards credentials as `Authorization` headers. Anonymous mode skips auth entirely.
+- **Centralize auth**: The BFF resolves Piloti sessions (WorkOS AuthKit) and forwards credentials as `Authorization` headers. Anonymous mode skips auth entirely.
 - **Inject collection scope**: Every upstream request gets an `X-Grid-Collection-Scope` header that tells the Python backend which knowledge collections to query.
 - **Normalize errors**: Authz errors from FGA are translated to `403`/`404` HTTP responses. Backend errors are wrapped in a consistent `{ error: { code, message } }` envelope.
 
