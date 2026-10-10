@@ -443,8 +443,11 @@ directly while the old operator is still authoritative.
    record, the old operator signs the zone, and Cloudflare cannot sign with the
    same key. Moving the nameservers while that DS record stands makes every
    validating resolver answer SERVFAIL for the whole zone. Remove the DS record
-   at the registrar (or turn DNSSEC off at the old operator, which does it), and
-   wait out the DS record's TTL until `dig DS <zone> +short` comes back empty.
+   at the registrar, and wait out the DS record's TTL until
+   `dig DS <zone> +short` comes back empty. Turning DNSSEC off at the old
+   operator removes it only when that operator is also the registrar; anywhere
+   else it unsigns the zone while the DS record still stands, which is the same
+   SERVFAIL.
 7. Point the nameservers at Cloudflare at the registrar, having lowered any TTL
    still at an hour and waited out the *old* value first.
 8. Re-verify without the `@` override once `dig NS <zone>` shows Cloudflare.
