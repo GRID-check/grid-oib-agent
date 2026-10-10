@@ -209,7 +209,7 @@ async def _draft(path: str) -> tuple[DraftBackend, DraftUsage]:
             f"`{DRAFT_ROOT}` geschrieben wurde."
         )
     backend = await get_draft_backend(_conversation_id())
-    usage = await backend.aread(path)
+    usage = await backend.ausage(path)
     if usage.content is None:
         raise _Refused(
             f"Fehler: Unter `{path}` gibt es keinen Entwurf. Mit `ls` nachsehen, wie der Entwurf wirklich heißt."

@@ -331,7 +331,19 @@ class DraftBackend(StoreBackend):
         items = self._search_store_paginated(store, namespace, page_size=_PAGE_SIZE)
         return usage_from_items(items, file_path)
 
-    async def _ausage(self, file_path: str) -> DraftUsage:
+    async def ausage(self, file_path: str) -> DraftUsage:
+        """This path's stored state: its content, its version and its filing.
+
+        The one read `file_draft` and the subject hand-off need, and
+        deliberately the same :class:`DraftUsage` the write guards use rather
+        than a second shape — both questions are "what does the store hold for
+        this path".
+
+        Not ``aread``: that name is the backend protocol's, and the stock
+        ``read_file`` tool awaits it as ``aread(path, offset=, limit=)`` for a
+        ``ReadResult``. Shadowing it once turned every ``read_file`` of a draft
+        into a ``TypeError`` the model read as "the file cannot be opened".
+        """
         store = self._get_store()
         namespace = self._get_namespace()
         items: list[Item] = []
@@ -386,15 +398,6 @@ class DraftBackend(StoreBackend):
 
     # -- what the filing tool reads and writes ---------------------------------
 
-    async def aread(self, file_path: str) -> DraftUsage:
-        """This path's stored state: its content, its version and its filing.
-
-        The one read `file_draft` needs, and deliberately the same
-        :class:`DraftUsage` the write guards use rather than a second shape —
-        both questions are "what does the store hold for this path".
-        """
-        return await self._ausage(file_path)
-
     async def arecord_filing(
         self,
         file_path: str,
@@ -438,7 +441,7 @@ class DraftBackend(StoreBackend):
 
     async def awrite(self, file_path: str, content: str) -> WriteResult:
         text = normalize_draft_text(content)
-        usage = await self._ausage(file_path)
+        usage = await self.ausage(file_path)
         refusal = write_refusal(usage, file_path, text)
         if refusal is not None:
             return WriteResult(error=refusal)
@@ -474,7 +477,7 @@ class DraftBackend(StoreBackend):
     ) -> EditResult:
         old_text = normalize_draft_text(old_string)
         new_text = normalize_draft_text(new_string)
-        usage = await self._ausage(file_path)
+        usage = await self.ausage(file_path)
         refusal = edit_refusal(usage, file_path, old_text, new_text, replace_all=replace_all)
         if refusal is not None:
             return EditResult(error=refusal)

@@ -660,7 +660,7 @@ class TestFilingAndSubmittingInOneCall:
         assert _stored(_one_store)[FILED_AT_DRAFT_VERSION_KEY] == 1
 
         await _edit(_one_store, "42 m", "38 m")
-        usage = await DraftBackend(store=_one_store, conversation_id=CONVERSATION).aread(DRAFT)
+        usage = await DraftBackend(store=_one_store, conversation_id=CONVERSATION).ausage(DRAFT)
         assert usage.filing[FILED_DOCUMENT_KEY] == "doc-1"
         assert not usage.filed_unchanged
 
