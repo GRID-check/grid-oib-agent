@@ -39,6 +39,38 @@ moving a folder updates what the assistant sees too; it may take one more
 question before a very recent rename shows up in its answers. Documents that were
 never filed simply have no folder, and the assistant says nothing about one.
 
+### What Piloti knows about a folder
+
+Every folder opens with a box titled „Was Piloti hier weiß“. It covers the folder
+and everything inside it, subfolders included, so you can see what has been read
+without opening each folder. The box is open by default. The arrow folds it, and
+the choice is remembered in this browser.
+
+- The bar counts the documents by state: „zitierbar“ (Piloti can cite them),
+  „wird gelesen“, „fehlgeschlagen“, „zurückgehalten“ (the content check holds
+  them until someone releases them) and „nicht in der Wissensbasis“ (kept in the
+  files but not read for answers, for example a report Piloti wrote and filed).
+  Click a state to see those documents, across all subfolders, as one list.
+- „Worum es hier geht“ lists the document types and disciplines Piloti assigned,
+  with the number of documents that carry each. Click one to see them.
+- „Braucht Sie“ lists what needs you: failed documents, documents the content
+  check is holding, and documents Piloti could not assign a document type. For
+  failed documents, „Alle N erneut lesen“ reads all of them again. With one
+  document the button says „Erneut lesen“. Only people who may change files in
+  the folder see it.
+- „Wo es hakt“ names the subfolders where something is stuck. Click one to go
+  straight there.
+
+At the top level of a project, „Was Piloti noch fehlt“ lists the documents the
+project's intake answers say it should have, and that no file is linked to yet.
+Being read is not the same as being known to be a particular document. A file
+you uploaded but have not yet linked to its role still appears here, because
+Piloti cannot tell that it is the Energieausweis until you link it.
+
+Folder tiles and rows carry the same state in short form: „2 fehlgeschlagen“,
+„3 werden gelesen“, or „Alles gelesen“ when everything Piloti is meant to read is
+ready. A folder with nothing Piloti reads shows no state.
+
 ### The file card grid
 
 Files render as cards in a responsive grid. Each card shows:
@@ -268,13 +300,24 @@ showing what ingestion extracted from the document:
   document-type tag), **project**, **pages**, **passages** (retrieval chunks),
   **contents** (when the document holds more than plain text), and the
   **updated** timestamp
-- **editable tags**: remove a tag via its ×, add one through the inline input
-  (Enter commits, Escape clears, clicking a suggestion adds it). Tags come from
-  a controlled vocabulary (document types + OIB disciplines), so the input
-  suggests the allowed labels and free-form values are rejected. Each change
-  saves immediately.
-- the caption "Automatically detected on upload — your corrections improve
-  future answers": tag corrections feed back into retrieval quality.
+- **„Piloti ordnet ein als“**: the document type and disciplines Piloti assigned
+  when it read the file, or „Piloti hat keine Dokumentart erkannt.“ when it found
+  no type. You do not enter tags. Piloti assigns them on every upload, so there
+  is nothing to fill in.
+- **„Korrigieren“** opens the tag editor. Add or remove types and disciplines
+  from the controlled vocabulary (document types and OIB disciplines). Free-form
+  labels are refused, and each change saves at once. A document with no type
+  shows „Zuordnen“ instead.
+- **Your correction stays.** A correction is stored as yours. Reading the file
+  again („Erneut lesen“) keeps it, and so does a backfill of tags. The editor says
+  so: „Ihre Zuordnung bleibt, auch wenn Piloti die Datei neu liest.“
+- **Photographs** that Piloti recognises as photos are tagged „Foto“, whatever
+  their caption says. Phone photos taken in portrait are shown upright.
+- **What the tags do.** They do not decide which documents answers draw on;
+  answers are found from the text of a document. The tags are used in three
+  places: the tag filter and the search field of the file list, the folder brief
+  (see above), and the file list Piloti works from for each question, where each
+  file name is followed by its tags.
 
 With the flag off, the preview pane shows only the ungated status/type/size
 rows, the raw preview, and download — unchanged behavior.

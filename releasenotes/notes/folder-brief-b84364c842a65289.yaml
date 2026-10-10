@@ -1,0 +1,24 @@
+---
+features:
+  - >
+    Every folder now opens with what Piloti knows about it and everything below
+    it: how many documents it can cite, what they are about, and which ones
+    need you. Failed documents can be read again together with "Read all again",
+    and the top level of a project lists the documents Piloti still expects.
+  - >
+    Each folder shows the state of everything inside it, such as "2 failed" or
+    "All read", so a problem is visible without opening every subfolder.
+improvements:
+  - >
+    The kind filter now offers spreadsheets and text notes.
+  - >
+    A photograph is now recognised as a photo and tagged as one, whatever its
+    caption says.
+fixes:
+  - >
+    A correction you make to a document's tags stays when Piloti reads the file
+    again. Before, re-reading the file replaced it.
+  - >
+    A phone photo taken in portrait is now shown upright and read upright.
+  - >
+    The summary of an image no longer starts with "[IMAGE from page 1]".
