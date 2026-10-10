@@ -3,7 +3,7 @@
 > **Status:** product direction, 7 Oct 2026. It replaces
 > [`cross-project-rag-vision.md`](cross-project-rag-vision.md) (July 2026). That
 > document named the goal, but it had no access model, no data, and a readiness
-> gate nobody owned. The first layer is built: ADR-0093 and
+> gate nobody owned. The first layer is built: ADR-0094 and
 > [`../design/cross-project-escalation.md`](../design/cross-project-escalation.md).
 
 ## The pure intent
@@ -24,7 +24,7 @@ that never meets data delivers nothing.
 | The planner's moment | What they should get | Today | Why |
 |---|---|---|---|
 | „Wie haben wir das gelöst?" | The comparable projects' solutions, cited, as precedent | **Built, barely delivered** | Search, catalog and access work; the turn decision prefetches the reference projects when a precedent is likely; other projects' recorded decisions come first, found by meaning in any language. The ranking reads every building of a project as the wizard stores it (until 8 Oct it read only Bundesland and kind of work). But the catalog lists only CLOSED projects that live in Piloti, and closing only arrived with ticket 1. The Gebäudeklasse is left open in the wizard on purpose (a wrong class is a wrong requirement); only an agent proposal a person accepts writes it. In a real office today the catalog is empty or thin |
-| „Fragt die Behörde das wieder nach?" | The office's past Nachforderungen and Auflagen for this Behörde | **Built, not delivered** | A document a person or the classifier tagged „Bescheid" is read once at ingest into a permit record: the Behörde, the Gemeinde from the letterhead, the date, each Auflage or Nachforderung with its evidence (ADR-0094). The record carries the document's folder restriction and is found by meaning in the cross-project lookup. In the eval every permit question cites the right project in every run; one English run left a dimension out. It delivers only what lies in Piloti and is tagged: `scripts/backfill_permit_records.py` reads Bescheide already ingested, and an archive is slice E. The Gemeinde is read off the letterhead, not matched to a register |
+| „Fragt die Behörde das wieder nach?" | The office's past Nachforderungen and Auflagen for this Behörde | **Built, not delivered** | A document a person or the classifier tagged „Bescheid" is read once at ingest into a permit record: the Behörde, the Gemeinde from the letterhead, the date, each Auflage or Nachforderung with its evidence (ADR-0095). The record carries the document's folder restriction and is found by meaning in the cross-project lookup. In the eval every permit question cites the right project in every run; one English run left a dimension out. It delivers only what lies in Piloti and is tagged: `scripts/backfill_permit_records.py` reads Bescheide already ingested, and an archive is slice E. The Gemeinde is read off the letterhead, not matched to a register |
 | Starting a project | Similar projects, typical Auflagen, Gutachten, durations | **Not built** | Depends on the two rows above |
 | A tender | Reference sheets | **Not built** | No Bausumme or BGF fields |
 | A colleague leaves | Their projects' lessons stay | **Built, not drafted** | The close dialog carries the closing debrief: the fingerprint with its open facts named, the project's decisions to confirm, a lesson to record. Confirmed ones are cited elsewhere as a person's. Piloti does not yet DRAFT the debrief (what went wrong, the Auflagen and their outcome); a person reviews what the memory already holds |
@@ -113,7 +113,7 @@ Sources: `docs/design/cross-project-escalation.md` (agent patterns) and the
 research notes behind this document. Bauwelt 1.2025 (Staab), the derPlan 58
 survey PDF (ZT-Kammer), and FHNW (GKS).
 
-## What exists after ADR-0093, and what it is worth
+## What exists after ADR-0094, and what it is worth
 
 | Layer | State | What it gives |
 |---|---|---|
@@ -217,7 +217,7 @@ the tender's, as a document the office checks and files.
 
 *Needs:* Bausumme and BGF as fields (ÖNORM B 1801-1), the fingerprint, and the
 Steckbrief. People reach the document through its form fields, never through
-the model's context (ADR-0090).
+the model's context (ADR-0091).
 
 ### 6. Erfahrung wird Standard: the compounding loop
 
@@ -304,7 +304,7 @@ blocks a step, and always names its project, year and edition.
 * **A new colleague** asks „Wie macht unser Büro das?" and gets the office's
   answer with its projects, not the internet's.
 * **Who knows** stays a link to the Steckbrief, never model context
-  (ADR-0090). The office can see who solved what. The model cannot use it to
+  (ADR-0091). The office can see who solved what. The model cannot use it to
   profile people.
 
 ## Where Jev fits
@@ -384,14 +384,14 @@ in smarter retrieval but in **turning an office's archive into experience**:
   under which. The norm stays the authority.
 * **One access model.** Every new object (decision, Auflage, fingerprint,
   standard) carries its project's readers. A closed project's are the office.
-  A restricted folder's stay restricted. ADR-0093's label rule applies
+  A restricted folder's stay restricted. ADR-0094's label rule applies
   unchanged; no layer gets its own.
 * **Confirmed beats suggested, and the difference is visible.** Extracted facts
   and drafted decisions are suggestions until a person confirms them, and
   similarity weighs confirmed facts more.
 * **Never across offices.** The office's experience is its own. Platform
   lessons stay anonymized agent-behaviour lessons, never building knowledge.
-* **People stay out of the prompt** (ADR-0090). "Who solved this" is a UI link
+* **People stay out of the prompt** (ADR-0091). "Who solved this" is a UI link
   to the Steckbrief, never model context.
 * **Measure the cause.** Similarity weights are learned from which references
   readers open and cite, not tuned by feel.

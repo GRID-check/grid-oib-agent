@@ -6,7 +6,7 @@
  *
  * The same access as the person already has, with no second rule. The listing
  * is `listProjects` (the projects the reader may view, a closed project open to
- * every member, ADR-0089); a project not in it never reaches this file's output.
+ * every member, ADR-0090); a project not in it never reaches this file's output.
  * A project's decisions are `getProjectMemory`'s, so a restricted item shows
  * only to a reader cleared for every folder it came from; its permit records
  * are `listPermitRecordsForPerson`, the same clearance. A project whose read is

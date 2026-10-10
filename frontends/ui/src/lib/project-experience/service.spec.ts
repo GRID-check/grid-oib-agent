@@ -350,7 +350,7 @@ describe('extractProjectExperience', () => {
     expect(createProjectMemoryItemForProject).not.toHaveBeenCalled()
   })
 
-  describe('only from files every member may open (ADR-0089, ADR-0095)', () => {
+  describe('only from files every member may open (ADR-0090, ADR-0096)', () => {
     it('names the files the backend may read, asked for the project’s main collection', async () => {
       answerWith(backendAnswer())
 

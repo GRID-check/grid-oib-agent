@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class CrossProjectMemoryRefusedError(RuntimeError):
-    """The frontend refused a write from a conversation that drew on another project (ADR-0093).
+    """The frontend refused a write from a conversation that drew on another project (ADR-0094).
 
     Raised when ``POST /api/internal/memory`` answers 409 ``CROSS_PROJECT_MEMORY``.
     Nothing is remembered from such a conversation, at any scope and by any
@@ -257,7 +257,7 @@ def fetch_memory_digest(
     use = current_restricted_use()
     if restricted and use is not None and use.answer_message_id:
         # The answer this turn writes: marked when a restricted note is
-        # admitted, in the same transaction (ADR-0092).
+        # admitted, in the same transaction (ADR-0093).
         params["answerMessageId"] = use.answer_message_id
     query_string = urllib.parse.urlencode(params)
 

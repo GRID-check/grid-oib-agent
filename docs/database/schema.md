@@ -70,10 +70,10 @@ export const projects = pgTable('projects', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID of creator |
 | `collection_name` | `text` | NOT NULL | Milvus collection name for this project's knowledge base |
 | `workos_resource_id` | `text` | UNIQUE | Optional WorkOS FGA resource ID |
-| `status` | `text` | NOT NULL, default `active`, CHECK `IN ('active','closed')` | ADR-0089, migration 0116. A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it |
+| `status` | `text` | NOT NULL, default `active`, CHECK `IN ('active','closed')` | ADR-0090, migration 0116. A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it |
 | `closed_at` | `timestamptz` | set exactly when `status = 'closed'` | When it was closed; cleared on reopen |
 | `closed_by` | `text` | set exactly when `status = 'closed'` | WorkOS user id of whoever closed it |
-| `started_on` | `date` | first of a month, CHECK | Steckbrief Beginn (ADR-0090, migration 0117) |
+| `started_on` | `date` | first of a month, CHECK | Steckbrief Beginn (ADR-0091, migration 0117) |
 | `ended_on` | `date` | first of a month, not before `started_on` | Steckbrief Abschluss; closing fills it with the month of the close when unset |
 | `deleted_at` | `timestamptz` | | Soft delete (ADR-0011) |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
@@ -86,7 +86,7 @@ export const projects = pgTable('projects', {
 
 ---
 
-## project_people (migration 0117, ADR-0090)
+## project_people (migration 0117, ADR-0091)
 
 Everyone who worked on a project, with or without a Piloti account: the Steckbrief's people.
 Personal data of people who mostly never gave it, so: name, function, company, months, an
@@ -802,7 +802,7 @@ every message the conversation holds and every vote naming it, and from then on
 every message written into the conversation is marked too, in
 `message_restricted_use` (below); the marks stay when the chat goes.
 `listRecordedSourceFolders` also returns the current folder of each document a
-revision task written into the conversation revises (ADR-0092), so the thread is
+revision task written into the conversation revises (ADR-0093), so the thread is
 judged like a chat that drew on that folder; nothing of that is stored here.
 Repository: `lib/conversations/restricted-use-repository.ts`; proven against
 Postgres in `restricted-use.integration.spec.ts`; its CHECK and down in
@@ -810,14 +810,14 @@ Postgres in `restricted-use.integration.spec.ts`; its CHECK and down in
 a conversation with a row here keeps its card decisions out of the
 project-wide `PROPOSAL_DECISIONS` block.
 
-A cross-project lookup (ADR-0093) may record a folder of ANOTHER project here;
+A cross-project lookup (ADR-0094) may record a folder of ANOTHER project here;
 it is judged in the tree of the project it belongs to (through
 `projectsOfFolders`, in `lib/conversations/restricted-use.ts`), so the
 conversation's creator keeps reading it.
 
 ---
 
-## conversation_source_projects (migration 0125, ADR-0093)
+## conversation_source_projects (migration 0125, ADR-0094)
 
 Another project whose content a chat drew on through a cross-project lookup:
 written by the BFF BEFORE a lookup answers (`recordCrossProjectHandOut`, called
@@ -828,7 +828,7 @@ folder of that project is recorded beside it, in
 `conversation_restricted_folders`; this row covers what every member of the
 project reads, the root included. Judged at read time through
 `listRestrictingSourceProjects`, which leaves out a project that is CLOSED now
-(every office member reads it, ADR-0089): for the rest, only a person who may
+(every office member reads it, ADR-0090): for the rest, only a person who may
 open every such project may read the conversation, it cannot be made visible to
 the project, nothing leaves it into what a whole project reads, and nothing is
 remembered from it. A reopened project restricts again.
@@ -850,7 +850,7 @@ Repository: `lib/conversations/restricted-use-repository.ts`; proven in
 
 ---
 
-## permit_records / permit_requirements (migration 0126, ADR-0094)
+## permit_records / permit_requirements (migration 0126, ADR-0095)
 
 Permitting memory (`docs/design/permitting-memory.md`): what a Bescheid or
 Nachforderung demanded, read once at ingest by the platform summary model and
@@ -1407,7 +1407,7 @@ declares it. `grid_tenant_isolation` is untouched.
 ## message_restricted_use (migration 0124)
 
 A message id whose conversation drew on a folder with restricted access
-(ADR-0092). Written by the SERVER, from one rule,
+(ADR-0093). Written by the SERVER, from one rule,
 `grid_conversation_restricted_use(organization, conversation)`: the
 conversation has a `conversation_restricted_folders` row, or it is the thread
 of a revision task whose document sits in another project than the task, or in

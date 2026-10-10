@@ -26,7 +26,7 @@ export { databaseUnavailableCode }
  * is refused by lint, because every copy of it was compared against the wrong
  * object (see {@link isUniqueViolation}).
  */
-// eslint-disable-next-line no-restricted-syntax -- the one place the SQLSTATE is spelled
+// oxlint-disable-next-line grid/no-restricted-syntax -- the one place the SQLSTATE is spelled
 export const UNIQUE_VIOLATION = '23505'
 
 /**

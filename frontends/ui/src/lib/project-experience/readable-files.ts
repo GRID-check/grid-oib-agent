@@ -1,10 +1,10 @@
 /**
- * Which of a project's files the closing extraction may read (ADR-0095).
+ * Which of a project's files the closing extraction may read (ADR-0096).
  *
  * What the extraction reads becomes the project's fingerprint and decisions:
  * profile assumptions every member reads and memory rows written without a
  * folder restriction. So it reads only what every member may open and a model
- * may read (ADR-0089: a restricted folder stays restricted on a closed
+ * may read (ADR-0090: a restricted folder stays restricted on a closed
  * project too):
  *
  *   - filed in the project's main collection (a restricted folder has its own);

@@ -1931,7 +1931,7 @@ class TestSourceLane:
 
 
 class TestPrecedentLandOnTheWire:
-    """A source from another project says which Land it is in, as the producer stated it (ADR-0093)."""
+    """A source from another project says which Land it is in, as the producer stated it (ADR-0094)."""
 
     LAND_NOTE = "Steiermark — nicht das Bundesland dieses Projekts: dort gilt eine andere Bauordnung"
     PROJECT_LINE = "Projekt: Wohnbau Graz — abgeschlossen (project_id 22222222-0000-4000-8000-000000000002)\n"

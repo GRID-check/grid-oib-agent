@@ -1,5 +1,5 @@
 /**
- * The Steckbrief's own rows (ADR-0090): a project's period on `projects`, and
+ * The Steckbrief's own rows (ADR-0091): a project's period on `projects`, and
  * its people in `project_people`. Every query names the organization and runs
  * in its tenant context; the people list of one project is bounded.
  */

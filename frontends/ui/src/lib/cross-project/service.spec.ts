@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * The cross-project lookups (ADR-0093), with the audience's reach, the
+ * The cross-project lookups (ADR-0094), with the audience's reach, the
  * project's own search and the stores mocked: a project out of reach is
  * invisible (the reach decides, and the search never reaches it); a shared
  * chat gets no restricted folder; the record is checked against the audience

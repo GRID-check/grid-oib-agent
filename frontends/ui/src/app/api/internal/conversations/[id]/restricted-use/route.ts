@@ -21,7 +21,7 @@
  * Both carry `answerMessageId`, the id of the answer the turn is writing (the
  * agent derives it from the conversation and the turn, and streams and persists
  * the answer under it). The server marks that id (`message_restricted_use`,
- * ADR-0092) when the conversation drew on a restricted folder: at admission, in
+ * ADR-0093) when the conversation drew on a restricted folder: at admission, in
  * the transaction that records the folder, and at turn start when an earlier
  * turn already had. So a vote on the answer is judged by the server's own
  * record even when the answer is never persisted and whatever conversation id
@@ -62,7 +62,7 @@ const restrictedUseSchema = z.object({
   admit: collectionList,
   // The answer this turn writes (`answer_message_id(conversation, turn)` on the
   // agent's side): marked here when the conversation drew on a restricted
-  // folder, before the model reads anything (ADR-0092).
+  // folder, before the model reads anything (ADR-0093).
   answerMessageId: z.string().uuid().nullish(),
 })
 

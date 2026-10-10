@@ -1018,7 +1018,7 @@ check_in grid_cross_project "SELECT count(*) FROM permit_records" "0" "0126 re-a
 echo "==> 0126 permit records and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0127: the evidence a drafted decision was read from (ADR-0095),
+# Migration 0127: the evidence a drafted decision was read from (ADR-0096),
 # and its DOWN.
 #
 # On grid_cross_project, after 0126: project_memory is already secured, so the

@@ -19,7 +19,7 @@ export const nav: typeof en.nav = {
     research: 'Recherche',
     /** Automatisierung — Tasks und Skills als Tabs in einem Bereich. */
     automation: 'Automatisierung',
-    // Ähnliche abgeschlossene Projekte, für dieses gelesen (ADR-0093).
+    // Ähnliche abgeschlossene Projekte, für dieses gelesen (ADR-0094).
     referenzen: 'Ähnliche Projekte',
     skills: 'Skills',
     jobs: 'Jobs',

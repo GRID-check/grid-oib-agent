@@ -32,7 +32,7 @@ agent's side of that, and the one place it is decided:
 Every failure fails closed: no drawable collection, the conversation counted
 as confined, a result withheld.
 
-Content from OTHER projects (ADR-0093) takes a different road to the same
+Content from OTHER projects (ADR-0094) takes a different road to the same
 record. A cross-project lookup is answered by the BFF, which records the
 projects and restricted folders an answer draws on before it returns it,
 searching only what every reader of the conversation may open (its audience)
@@ -98,7 +98,7 @@ class RestrictedUse:
     #: The id of the answer this turn writes (``turn.response.answer_message_id``).
     #: Sent with every question, so the BFF marks that answer when the
     #: conversation drew on a restricted folder, before the model reads anything
-    #: (ADR-0092). ``None`` when the caller has no turn to name.
+    #: (ADR-0093). ``None`` when the caller has no turn to name.
     answer_message_id: str | None = None
 
     def allows(self, collection: str) -> bool:
@@ -133,7 +133,7 @@ def reset_restricted_use(token: contextvars.Token) -> None:
 
 @dataclass
 class CrossProjectTurn:
-    """What one chat turn knows about the conversation's use of OTHER projects (ADR-0093).
+    """What one chat turn knows about the conversation's use of OTHER projects (ADR-0094).
 
     Bound for every turn (:func:`bind_cross_project_turn`), so a tool can note
     a hand-out on the one object every reader of the turn sees: ContextVar
@@ -190,7 +190,7 @@ def note_cross_project_hand_out(collections: Iterable[str | None], *, restrictin
     ``restricting`` says whether any of it narrows who may read the
     conversation: content from an ACTIVE other project, or from a restricted
     folder. Content from a closed project's open folders does not (every office
-    member reads it, ADR-0089), so it is admitted without shutting a door.
+    member reads it, ADR-0090), so it is admitted without shutting a door.
     """
     turn = current_cross_project_turn()
     if turn is None:
@@ -435,7 +435,7 @@ async def admit_tool_results(messages: list[Any]) -> list[Any]:
     use = current_restricted_use()
     cross = current_cross_project_turn()
     # Another project's collection the BFF recorded and handed to this turn
-    # (ADR-0093): admitted already; nothing to ask.
+    # (ADR-0094): admitted already; nothing to ask.
     handed = {name for name in wanted if cross is not None and name in cross.admitted}
     admissible = [name for name in wanted if name not in handed and use is not None and use.allows(name)]
     admitted = await asyncio.to_thread(admit, use, admissible) if use is not None and admissible else set()

@@ -132,7 +132,7 @@ describe('AnswerSourcesRow lane tints', () => {
   })
 })
 
-describe('AnswerSourcesRow in a closed project (ADR-0089)', () => {
+describe('AnswerSourcesRow in a closed project (ADR-0090)', () => {
   const projectDoc: CitedDocument = {
     id: 'doc-plan',
     title: 'Einreichplan EG',
@@ -164,7 +164,7 @@ describe('AnswerSourcesRow in a closed project (ADR-0089)', () => {
     expect(screen.queryByText(/closed/)).toBeNull()
   })
 
-  test('judges a file from another project by that project’s status, not the chat’s (ADR-0093)', async () => {
+  test('judges a file from another project by that project’s status, not the chat’s (ADR-0094)', async () => {
     const { CurrentProjectProvider } = await import('@/features/projects/lib/current-project')
     const fromClosed: CitedDocument = { ...projectDoc, id: 'doc-ref', project: { id: 'p9', name: 'Wohnbau Graz', status: 'closed' } }
     const fromRunning: CitedDocument = { ...projectDoc, id: 'doc-run', project: { id: 'p8', name: 'Schule Linz', status: 'active' } }
@@ -179,7 +179,7 @@ describe('AnswerSourcesRow in a closed project (ADR-0089)', () => {
   })
 })
 
-describe('AnswerSourcesRow precedents from another project (ADR-0093)', () => {
+describe('AnswerSourcesRow precedents from another project (ADR-0094)', () => {
   const traufe: CitedDocument = {
     id: 'doc-traufe',
     title: 'Detail Traufe',

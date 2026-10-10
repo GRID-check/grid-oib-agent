@@ -2,7 +2,7 @@
 
 Status: building (ticket 3, slice F). Roadmap: `docs/roadmap/office-experience.md`.
 
-Every other project can be searched safely (ADR-0093), but what a closed project
+Every other project can be searched safely (ADR-0094), but what a closed project
 *knows about itself* is thin: its fingerprint comes only from the intake wizard,
 its decisions only from what somebody wrote to memory while it ran, and nobody
 knows under which OIB edition it was planned. This slice reads that from the

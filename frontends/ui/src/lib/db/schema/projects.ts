@@ -22,13 +22,13 @@ export const projects = pgTable(
     profilePromptView: text('profile_prompt_view'),
     profileDisplay: jsonb('profile_display').$type<ProjectProfileDisplay>(),
     profileUpdatedAt: timestamp('profile_updated_at', { withTimezone: true }),
-    /** `active` or `closed` (ADR-0089, migration 0116). A closed project is read-only and open to every member. */
+    /** `active` or `closed` (ADR-0090, migration 0116). A closed project is read-only and open to every member. */
     status: text('status').$type<ProjectStatus>().notNull().default('active'),
     /** When it was closed; set exactly when `status` is `closed`. */
     closedAt: timestamp('closed_at', { withTimezone: true }),
     /** Who closed it (WorkOS user id); set exactly when `status` is `closed`. */
     closedBy: text('closed_by'),
-    /** Beginn, month precision: the first of its month (migration 0117, ADR-0090). */
+    /** Beginn, month precision: the first of its month (migration 0117, ADR-0091). */
     startedOn: date('started_on', { mode: 'string' }),
     /** Abschluss, month precision: the first of its month. Closing fills it when unset. */
     endedOn: date('ended_on', { mode: 'string' }),

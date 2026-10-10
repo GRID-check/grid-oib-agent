@@ -684,7 +684,7 @@ describe('a document read at several pages', () => {
   })
 })
 
-describe('a source from another project (ADR-0093)', () => {
+describe('a source from another project (ADR-0094)', () => {
   // The chat's own project is 'project-1' (the store mock above).
   const traufe = {
     kind: 'projekt' as const,

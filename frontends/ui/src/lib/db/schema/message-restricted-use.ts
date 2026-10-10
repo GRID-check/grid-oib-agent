@@ -2,7 +2,7 @@ import { index, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core
 
 /**
  * `message_restricted_use` — a message id whose conversation drew on a folder
- * with restricted access (ADR-0092, migration 0124).
+ * with restricted access (ADR-0093, migration 0124).
  *
  * Written by the SERVER, never by a client, from one rule
  * (`grid_conversation_restricted_use`): the BFF marks the id of the answer a
@@ -19,7 +19,7 @@ import { index, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core
  *
  * `conversation_id` is the conversation that answered yes when the mark was
  * written ('' when unknown), and the rule asks it: once marked, a conversation
- * keeps answering yes (sticky, ADR-0092).
+ * keeps answering yes (sticky, ADR-0093).
  *
  * Keyed by (organization, message id), because a vote names its answer by
  * message id. No foreign key: deleting the chat deletes its messages and its

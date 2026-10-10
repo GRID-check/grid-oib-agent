@@ -1,5 +1,5 @@
 /**
- * The projects list's status filter (ADR-0089): active, closed, or all.
+ * The projects list's status filter (ADR-0090): active, closed, or all.
  *
  * Every member reads every closed project, so an office's list grows by every
  * project it ever finished. The list opens on the active ones; the closed ones

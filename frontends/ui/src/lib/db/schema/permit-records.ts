@@ -5,7 +5,7 @@ import { documents } from './documents'
 import { projects } from './projects'
 
 /**
- * Permitting memory (migration 0126, ADR-0094, docs/design/permitting-memory.md):
+ * Permitting memory (migration 0126, ADR-0095, docs/design/permitting-memory.md):
  * what a Bescheid says, read once at ingest by a model with a strict schema and
  * kept as rows, so „Fragt die Behörde das wieder nach?" is answered from what
  * the office's own past procedures went through.

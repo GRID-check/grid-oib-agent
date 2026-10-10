@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The other projects that restrict the open chat NOW (ADR-0093), read from the
+ * The other projects that restrict the open chat NOW (ADR-0094), read from the
  * server, for the composer's notice.
  *
  * Not derived from the answers' citations. A citation carries the project's

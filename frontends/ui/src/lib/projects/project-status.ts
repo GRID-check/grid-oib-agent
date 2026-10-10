@@ -1,5 +1,5 @@
 /**
- * A project's lifecycle (ADR-0089): active, or closed. The pure rule, with no
+ * A project's lifecycle (ADR-0090): active, or closed. The pure rule, with no
  * I/O, so the authorization seam, the agent's service-token paths and the UI
  * read one answer.
  *

@@ -1,5 +1,5 @@
 /**
- * Change or delete one person of a project's Steckbrief (ADR-0090). Deleting
+ * Change or delete one person of a project's Steckbrief (ADR-0091). Deleting
  * is the erasure, and stays possible in a closed project for whoever manages
  * it. Thin handlers; the rules live in `steckbrief-service`.
  */

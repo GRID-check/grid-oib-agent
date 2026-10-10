@@ -1,5 +1,5 @@
 /**
- * The composer's notice about other projects (ADR-0093), through the real
+ * The composer's notice about other projects (ADR-0094), through the real
  * composer and the real chat store.
  *
  * The notice lists what the SERVER says restricts the open chat now

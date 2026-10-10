@@ -57,7 +57,7 @@ describe('citation persistence', () => {
     expect(doc!.loci[0]!.regions).toEqual(regions)
   })
 
-  it('keeps a precedent’s Land across a reload, so the reloaded chip still says where it applies (ADR-0093)', () => {
+  it('keeps a precedent’s Land across a reload, so the reloaded chip still says where it applies (ADR-0094)', () => {
     const project = {
       id: 'p9',
       name: 'Wohnbau Graz',

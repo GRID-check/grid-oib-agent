@@ -293,7 +293,7 @@ def api_routers(llm_configs: Mapping[str, Any]) -> tuple[Callable[[APIRouter], N
         add_lesson_distill_routes,
         add_note_embedding_routes,
         # A project's fingerprint and decisions read from its own documents, for
-        # the close dialog's suggestions (ADR-0095). Internal-token only.
+        # the close dialog's suggestions (ADR-0096). Internal-token only.
         add_project_experience_routes,
         add_ingest_routes,
         # Reads an Outlook archive the BFF staged, for its mail import (ADR-0085).

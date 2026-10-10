@@ -379,7 +379,7 @@ functions:
           # The file browser reads the same files through the same scope, so
           # switching the knowledge base off must take it too.
           - list_files
-          # Other projects' uploaded documents (ADR-0093). Without this line
+          # Other projects' uploaded documents (ADR-0094). Without this line
           # nothing the lookup returns is captured as a citable source, and a
           # turn whose only finding was a precedent was replaced by the canned
           # "search unavailable" reply (found by the precedent eval).
@@ -702,7 +702,7 @@ functions:
     _type: create_task
 
   # Cross-project lookups for a chat, shared or solo (src/aiq_agent/tools/cross_project,
-  # ADR-0093): search other projects' documents, find projects, read a brief.
+  # ADR-0094): search other projects' documents, find projects, read a brief.
   # Chat only: deep research gets no admission round, so it must never be
   # handed another project's content.
   project_lookup:

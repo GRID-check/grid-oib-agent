@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Closing a project, with „Ausmisten" first (ADR-0091).
+ * Closing a project, with „Ausmisten" first (ADR-0092).
  *
  * The dialog asks the server for Piloti's proposal, shows every item with its
  * reason and the mark that it is an AI proposal (EU AI Act Art. 50), all

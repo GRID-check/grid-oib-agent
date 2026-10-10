@@ -1,5 +1,5 @@
 /**
- * What the composer says while a chat is narrowed by other projects (ADR-0093):
+ * What the composer says while a chat is narrowed by other projects (ADR-0094):
  * which projects, and what that closes. The list is the server's CURRENT record
  * of the projects that restrict the chat (`restrictingOtherProjects` on the
  * conversation), not what the answers' citations said when they were written: a

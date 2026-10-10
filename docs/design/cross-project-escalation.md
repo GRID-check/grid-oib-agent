@@ -1,6 +1,6 @@
 # Searching beyond the project: an escalation ladder
 
-Status: built, 7 Oct 2026. The decision record is ADR-0093.
+Status: built, 7 Oct 2026. The decision record is ADR-0094.
 
 ## What the user should get
 
@@ -53,7 +53,7 @@ Every source passage has a set of readers:
 |---|---|
 | this project, open folder | the project's members |
 | this project, restricted folder | members cleared for that folder (ADR-0088) |
-| **closed** project, open folder | **every office member** (ADR-0089) |
+| **closed** project, open folder | **every office member** (ADR-0090) |
 | active other project, open folder | that project's members |
 | any project, restricted folder | members cleared in **that** project |
 

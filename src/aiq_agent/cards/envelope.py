@@ -170,7 +170,7 @@ def _turn_is_confined() -> bool:
         use = current_restricted_use()
         if use is not None and use.confined:
             return True
-        # A conversation that drew on another project (ADR-0093) is confined the same way.
+        # A conversation that drew on another project (ADR-0094) is confined the same way.
         if drew_on_other_projects():
             return True
         return bool(restricted_collections_in(get_collection_scope_from_context()))
