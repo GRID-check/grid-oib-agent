@@ -260,6 +260,14 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "Similar projects now shows what the comparison rests on and which facts in your brief would sharpen it, sets projects with nothing in common apart, and lets you ask Piloti about any of them in this project's chat.",
+              "de": "Ähnliche Projekte zeigt jetzt, worauf der Vergleich basiert und welche Angaben in Ihrem Briefing ihn präzisieren würden, hebt Projekte ohne Gemeinsamkeiten hervor und ermöglicht es Ihnen, Piloti im Chat dieses Projekts zu jedem davon zu befragen."
+            },
+            {
+              "en": "When Piloti looked into other projects for an answer, the steps above the answer now keep saying so after it is done, and the banner above the message field is a small chip that explains itself when clicked.",
+              "de": "Wenn Piloti für eine Antwort andere Projekte durchsucht hat, zeigen die Schritte oberhalb der Antwort dies jetzt auch nach Abschluss weiterhin an. Das Banner über dem Nachrichtenfeld ist nun ein kleiner Chip, der beim Anklicken erklärt, worum es geht."
+            },
+            {
               "en": "After a thumbs-down, the note field now opens straight away, so you can say what went wrong without first picking a reason.",
               "de": "Wenn Sie auf den Daumen nach unten klicken, öffnet sich das Notizfeld jetzt sofort. So können Sie beschreiben, was schiefgelaufen ist, ohne zuerst einen Grund auszuwählen."
             },
@@ -324,6 +332,10 @@
         {
           "key": "fixes",
           "notes": [
+            {
+              "en": "When Piloti looks into past projects on its own, it now starts with the ones most like yours, not the most recent ones.",
+              "de": "Wenn Piloti selbstständig frühere Projekte durchsucht, beginnt es jetzt mit den Projekten, die Ihren am ähnlichsten sind, statt mit den neuesten."
+            },
             {
               "en": "When Piloti finds nothing to answer from, it no longer advises you to stop narrowing the question to one file unless you had actually chosen a file or shelf. If a search function is unavailable, it now says that instead.",
               "de": "Wenn Piloti keine Antwort findet, rät es Ihnen nicht mehr, die Frage auf eine einzelne Datei einzugrenzen, es sei denn, Sie haben tatsächlich eine Datei oder Ablage ausgewählt. Ist eine Suchfunktion nicht verfügbar, weist Piloti jetzt darauf hin."

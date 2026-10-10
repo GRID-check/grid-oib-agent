@@ -1948,6 +1948,10 @@
     "de": "Die Anmeldung über die Piloti-Website funktioniert wieder. Besucherinnen und Besucher, die auf piloti.at „Anmelden“ gewählt haben, sahen statt der Login-Seite einen Fehlerbildschirm und konnten die App nicht erreichen. Jetzt gelangen sie wie vorgesehen zum regulären Login-Ablauf."
   },
   {
+    "en": "Similar projects now shows what the comparison rests on and which facts in your brief would sharpen it, sets projects with nothing in common apart, and lets you ask Piloti about any of them in this project's chat.",
+    "de": "Ähnliche Projekte zeigt jetzt, worauf der Vergleich basiert und welche Angaben in Ihrem Briefing ihn präzisieren würden, hebt Projekte ohne Gemeinsamkeiten hervor und ermöglicht es Ihnen, Piloti im Chat dieses Projekts zu jedem davon zu befragen."
+  },
+  {
     "en": "Sketches are legible on a phone, and diagrams stay dark in dark mode instead of switching to the light palette from the third one on.",
     "de": "Skizzen sind am Telefon lesbar, und Diagramme bleiben im dunklen Modus dunkel, statt ab dem dritten in die helle Palette zu wechseln."
   },
@@ -2586,6 +2590,14 @@
   {
     "en": "When Piloti hands a question to deep research, it now says why in its own words, shown in the Herleitung.",
     "de": "Übergibt Piloti eine Frage an die Tiefenrecherche, sagt es jetzt in eigenen Worten, warum; der Grund steht in der Herleitung."
+  },
+  {
+    "en": "When Piloti looked into other projects for an answer, the steps above the answer now keep saying so after it is done, and the banner above the message field is a small chip that explains itself when clicked.",
+    "de": "Wenn Piloti für eine Antwort andere Projekte durchsucht hat, zeigen die Schritte oberhalb der Antwort dies jetzt auch nach Abschluss weiterhin an. Das Banner über dem Nachrichtenfeld ist nun ein kleiner Chip, der beim Anklicken erklärt, worum es geht."
+  },
+  {
+    "en": "When Piloti looks into past projects on its own, it now starts with the ones most like yours, not the most recent ones.",
+    "de": "Wenn Piloti selbstständig frühere Projekte durchsucht, beginnt es jetzt mit den Projekten, die Ihren am ähnlichsten sind, statt mit den neuesten."
   },
   {
     "en": "When Piloti looks into the office's past projects, it now quotes the decisions and requirements those projects wrote down in their project memory first, named by project, and then the documents. Restricted notes show up only in a chat that is yours alone and only if you may read the folder they came from.",
