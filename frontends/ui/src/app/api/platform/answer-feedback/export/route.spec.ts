@@ -167,7 +167,10 @@ describe('GET /api/platform/answer-feedback/export', () => {
   describe('?format=xlsx', () => {
     it('is a workbook with the four sheets, in the requester’s language', async () => {
       isOwner.value = true
-      const res = await GET(request('?format=xlsx'))
+      // No range given: the last 30 days up to today, so today is pinned.
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-10-09T15:00:00Z'))
+      const res = await GET(request('?format=xlsx')).finally(() => vi.useRealTimers())
       const workbook = new Workbook()
       await workbook.xlsx.load(Buffer.from(await bytesOf(res)) as unknown as ArrayBuffer)
 
