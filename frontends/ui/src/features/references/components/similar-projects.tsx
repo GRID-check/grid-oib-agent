@@ -65,10 +65,16 @@ function ComparedBy({ projectId, basis }: { projectId: string; basis: ReferenceB
       </ul>
       {basis.missing > 0 && (
         <p className="text-sm text-muted-foreground">
-          {t('basis.missing', { count: basis.missing })}{' '}
-          <Link href={`/app/projects/${projectId}/intake`} className="text-foreground underline underline-offset-2">
-            {tp('lifecycle.debrief.fingerprint.edit')}
-          </Link>
+          {t('basis.missing', { count: basis.missing })}
+          {/* A closed project's briefing is read-only, and so is it for a reader without `project:edit`. */}
+          {basis.editable && (
+            <>
+              {' '}
+              <Link href={`/app/projects/${projectId}/intake`} className="text-foreground underline underline-offset-2">
+                {tp('lifecycle.debrief.fingerprint.edit')}
+              </Link>
+            </>
+          )}
         </p>
       )}
     </section>

@@ -41,6 +41,10 @@ export function SimilarProjectsTile({
   const tRefs = useTranslations('references')
   const alike = page.projects.filter((project) => project.alike)
   const anyClosed = page.projects.length > 0
+  // The ranking is by score, so a listed project that is not alike means none
+  // beyond the cap is; only a list alike to the last, with more left out, may
+  // be short of the true count.
+  const counted = page.more === 0 || alike.length < page.projects.length
 
   return (
     <BentoTile
@@ -49,9 +53,11 @@ export function SimilarProjectsTile({
       span={span}
       href={anyClosed ? href : undefined}
       linkLabel={
-        alike.length > 0
-          ? t('project.overview.similar.open', { count: alike.length })
-          : t('project.overview.similar.openOthers')
+        alike.length === 0
+          ? t('project.overview.similar.openOthers')
+          : counted
+            ? t('project.overview.similar.open', { count: alike.length })
+            : t('project.overview.similar.openMore')
       }
       data-testid="overview-similar"
     >

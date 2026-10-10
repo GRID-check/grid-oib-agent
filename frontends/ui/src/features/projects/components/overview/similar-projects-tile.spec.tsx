@@ -10,6 +10,7 @@ const HREF = '/app/projects/p1/settings/references'
 const many: SimilarProjectsPage = {
   ...SIMILAR_PAGE,
   projects: Array.from({ length: 5 }, (_, i) => ({ ...SIMILAR_PROJECTS[0], id: `p-${i}`, name: `Projekt ${i + 1}` })),
+  more: 0,
 }
 
 describe('SimilarProjectsTile', () => {
@@ -20,6 +21,17 @@ describe('SimilarProjectsTile', () => {
     expect(within(tile).getByRole('link', { name: 'Projekt 1' })).toHaveAttribute('href', '/app/projects/p-0')
     expect(within(tile).queryByRole('link', { name: 'Projekt 4' })).not.toBeInTheDocument()
     expect(within(tile).getByRole('link', { name: /All 5 similar projects/ })).toHaveAttribute('href', HREF)
+  })
+
+  test('claims no total when every listed project is alike and more were left out', () => {
+    render(<SimilarProjectsTile page={{ ...many, more: 4 }} href={HREF} />)
+
+    const tile = screen.getByTestId('overview-similar')
+    expect(within(tile).queryByRole('link', { name: /All 5/ })).not.toBeInTheDocument()
+    expect(within(tile).getByRole('link', { name: en.settings.project.overview.similar.openMore })).toHaveAttribute(
+      'href',
+      HREF
+    )
   })
 
   test('never names a closed project that shares nothing as similar', () => {

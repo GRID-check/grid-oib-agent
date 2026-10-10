@@ -59,6 +59,7 @@ export const settings: typeof en.settings = {
         label: 'Ähnliche Projekte',
         open: '{count, plural, one {Ähnliches Projekt öffnen} other {Alle # ähnlichen Projekte}}',
         openOthers: 'Abgeschlossene Projekte ansehen',
+        openMore: 'Weitere ähnliche Projekte ansehen',
         empty: 'Noch kein abgeschlossenes Projekt im Büro. Es erscheint hier, sobald eines abgeschlossen ist.',
       },
       usage: {

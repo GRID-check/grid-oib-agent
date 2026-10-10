@@ -40,6 +40,9 @@ const state = vi.hoisted(() => ({
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn(async () => ({})),
 }))
+vi.mock('@/lib/authz/decide', () => ({
+  can: vi.fn(async () => true),
+}))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectInOrg: vi.fn(async (id: string) => state.inOrg.find((project) => project.id === id) ?? null),
   listProjectsInOrg: vi.fn(async () => state.inOrg),
@@ -65,6 +68,7 @@ vi.mock('@/lib/permits/repository', () => ({
   listPermitRecordsForProject: vi.fn(async (_org: string, projectId: string) => state.permits.get(projectId) ?? []),
 }))
 
+import { can } from '@/lib/authz/decide'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getProjectMemory, listProjects, memoryClearance } from '@/lib/projects/service'
 import { listPermitRecordsForProject } from '@/lib/permits/repository'
@@ -239,6 +243,14 @@ describe('getSimilarProjects: what each project shares and records', () => {
     expect(page.basis.facts.find((fact) => fact.key === 'bauweise')?.value).toBe('Holzbau')
     // Only the kind of work is open and the briefing's to fill; HOLZBAU answers the rest.
     expect(page.basis.missing).toBe(1)
+    expect(page.basis.editable).toBe(true)
+  })
+
+  it('offers the briefing only to a reader who may edit it, which nobody may on a closed project', async () => {
+    vi.mocked(can).mockResolvedValueOnce(false)
+    const page = await getSimilarProjects(session, 'current')
+    expect(page.basis.editable).toBe(false)
+    expect(vi.mocked(can)).toHaveBeenCalledWith(session, 'project:edit', { type: 'project', id: 'current' })
   })
 
   it('reads the Bundesland and the period, and ends a closed project without an end date on its closing day', async () => {
