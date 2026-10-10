@@ -110,7 +110,7 @@ Source: `frontends/ui/src/app/api/v1/[...path]/route.ts:119`
 
 ## Streaming routes
 
-Chat and generation routes (`/api/chat`, `/api/generate`, `/api/generate/respond`, `/api/jobs/async/[...path]`) proxy SSE streams without buffering:
+The job proxy (`/api/jobs/async/[...path]`) passes a run's SSE stream through without buffering. There is no HTTP chat route: a chat turn runs on the WebSocket alone (ADR-0068).
 
 ```typescript
 return new NextResponse(response.body, {

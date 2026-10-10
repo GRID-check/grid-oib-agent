@@ -18,7 +18,7 @@ their own namespaces.
 
 | Workload | k8s object | Replicas | Storage | Scales by |
 |---|---|---|---|---|
-| `aiq-agent` (the **`chat` role**, `GRID_ROLE=chat`: the chat socket and NAT's own routes, ADR-0082) | **StatefulSet** | N (default 2) | none (no PVC; ADR-0082 step A2) | Horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
+| `aiq-agent` (the **`chat` role**, `GRID_ROLE=chat`: the chat socket, the only route a turn runs through, ADR-0082) | **StatefulSet** | N (default 2) | none (no PVC; ADR-0082 step A2) | Horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
 | `aiq-api` (the **`api` role**, `GRID_ROLE=api`: every other backend HTTP route; `BACKEND_URL` names its Service, ADR-0082) | Deployment + HPA + PDB | `apiMinReplicas`→`apiMaxReplicas` (default 2→4; prod 1→3, dev 1→2) | — | Horizontally (CPU HPA, `apiHpaCpuTargetPercent`). Stateless: no volume. Drains for 60 s (the SSE close and short requests), not for a chat turn |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | `frontendMinReplicas`→`frontendMaxReplicas` (default 2→6; prod and dev 1→3) | — | Horizontally (CPU HPA) |
 | `agent-worker` (research) | Deployment + KEDA ScaledObject | `agentWorkerMinReplicas`→`agentWorkerMaxReplicas` (default 1→8; prod 1→3, dev 0→3) | — | Horizontally, on `research_job_queue` depth (§6.3) |
@@ -436,11 +436,23 @@ directly while the old operator is still authoritative.
 5. Verify against Cloudflare directly, bypassing the delegation —
    `dig @<assigned-cloudflare-ns> <host>` for every host. This is the step that
    makes the cutover safe, and it has no equivalent in the other ordering.
-6. Point the nameservers at Cloudflare at the registrar, having lowered any TTL
+6. Check the parent zone for DNSSEC: `dig DS <zone> +short`. If it returns a
+   record, the old operator signs the zone, and Cloudflare cannot sign with the
+   same key. Moving the nameservers while that DS record stands makes every
+   validating resolver answer SERVFAIL for the whole zone. Remove the DS record
+   at the registrar, and wait out the DS record's TTL until
+   `dig DS <zone> +short` comes back empty. Turning DNSSEC off at the old
+   operator removes it only when that operator is also the registrar; anywhere
+   else it unsigns the zone while the DS record still stands, which is the same
+   SERVFAIL.
+7. Point the nameservers at Cloudflare at the registrar, having lowered any TTL
    still at an hour and waited out the *old* value first.
-7. Re-verify without the `@` override once `dig NS <zone>` shows Cloudflare.
+8. Re-verify without the `@` override once `dig NS <zone>` shows Cloudflare.
+9. To sign the zone again, enable DNSSEC in Cloudflare and enter the DS record
+   it shows at the registrar. Do this only after step 8, never in the same
+   change as the nameserver move.
 
-Abandonable up to step 6: everything before it is invisible to the internet, and
+Abandonable up to step 7: everything before it is invisible to the internet, and
 reverting is deleting a Cloudflare zone nobody is pointed at.
 
 ---

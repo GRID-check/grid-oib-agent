@@ -449,3 +449,133 @@ class TestTheCli:
 
         assert loop_eval.main(["--compare", str(before), str(after)]) == 0
         assert "rounds" in capsys.readouterr().out
+
+
+WIRE = REPO_ROOT / "shared" / "wire" / "v2"
+
+
+def _recorded(name: str) -> list[dict]:
+    """A recorded wire v2 turn (`shared/wire/v2/`), one event per line."""
+    import json
+
+    return [json.loads(line) for line in (WIRE / name).read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+class TestTheSocket:
+    """A turn runs on the chat socket alone (ADR-0068), so the eval reads wire v2.
+
+    The recorded turns are the ones both sides of the contract test against, so
+    a change to the wire that this reader does not follow fails here and not on
+    an operator's run.
+    """
+
+    def _fold(self, name: str):
+        from aiq_agent.common import wire_v2
+
+        events = [wire_v2.WIRE_EVENT.validate_python(raw) for raw in _recorded(name)]
+        turn = loop_eval.SocketTurn(message_id=events[0].turn_id)
+        replies = [reply for event in events if (reply := loop_eval.read_event(turn, event)) is not None]
+        return turn, replies
+
+    def test_an_answered_turn_becomes_a_row(self):
+        turn, replies = self._fold("turn-answered.jsonl")
+        question = loop_eval.Question(id="q", question="Fluchtweg GK 4?", family="OIB-RL 2", punkt=None, kind="ruling")
+
+        row = loop_eval.observe(question, loop_eval.step_records(turn), turn.result.text, turn.result.answer_meta)
+
+        assert replies == []
+        assert (row.rounds, row.checkpoint_sources, row.kind, row.verdict) == ("1", "argument", "ruling", "yes")
+        assert (row.repeat_query, row.cross_turn, row.ris_calls) == ("no", "no", "0")
+
+    def test_a_retrieval_step_carries_its_query_and_tools(self):
+        turn, _ = self._fold("turn-answered.jsonl")
+
+        retrieval = next(r for r in loop_eval.step_records(turn) if r["name"] == "status:retrieval:0")
+
+        assert retrieval["payload"]["tools"] == ["knowledge_search"]
+        assert retrieval["payload"]["values"]["query"] == "Fluchtweglänge GK 4"
+
+    def test_a_question_the_turn_stops_to_ask_is_skipped_in_a_valid_client_message(self):
+        from aiq_agent.common import wire_v2
+
+        turn, replies = self._fold("turn-hitl-handoff.jsonl")
+
+        assert len(replies) == 1
+        frame = replies[0].model_dump(mode="json", exclude_defaults=True)
+        assert wire_v2.CLIENT_MESSAGE.validate_python(frame) == replies[0]
+        assert (frame["type"], frame["turn_id"], frame["answer"]) == (
+            "interaction_response",
+            turn.message_id,
+            {"text": loop_eval.CLARIFICATION_ANSWER},
+        )
+
+    def test_a_failed_turn_raises_rather_than_writing_an_empty_row(self):
+        with pytest.raises(RuntimeError, match="workflow_error"):
+            self._fold("turn-error.jsonl")
+
+    def test_an_event_of_another_turn_is_not_folded(self):
+        from aiq_agent.common import wire_v2
+
+        other = loop_eval.SocketTurn(message_id="someone-else")
+        for raw in _recorded("turn-answered.jsonl"):
+            loop_eval.read_event(other, wire_v2.WIRE_EVENT.validate_python(raw))
+
+        assert other.steps == {}
+        assert other.result is None
+
+    def test_a_round_that_reached_a_passage_an_earlier_round_had_is_a_cross_round_fetch(self):
+        from aiq_agent.common import wire_v2
+
+        turn = loop_eval.SocketTurn(message_id="t")
+        for index in (0, 1):
+            turn.steps[f"status:retrieval:{index}"] = wire_v2.RetrievalStep(
+                id=f"status:retrieval:{index}", round=index, key="status.retrieval", tools=["knowledge_search"]
+            )
+        doc = {"name": "oib-rl_2.pdf", "detail": "Pkt. 5.1"}
+        turn.result = wire_v2.TurnResult(
+            message_id="m",
+            text="",
+            retrieval_ledger=[{"index": 0, "docs": [doc]}, {"index": 1, "docs": [doc]}],
+        )
+        payloads = loop_eval._status_payloads(loop_eval.step_records(turn))
+
+        assert loop_eval.flag_cross_turn(payloads) == "yes"
+
+    def test_the_socket_url_asks_for_wire_v2_on_one_conversation(self):
+        assert (
+            loop_eval.socket_url("https://chat.example/", "c1") == "wss://chat.example/websocket?v=2&conversationId=c1"
+        )
+        assert loop_eval.socket_url("http://localhost:8001", "c1").startswith("ws://localhost:8001/websocket?v=2")
+
+    def test_one_turn_over_a_served_socket(self):
+        """The transport end to end, against a socket that replays a recorded turn."""
+        import json
+        import threading
+
+        from websockets.sync.server import serve
+
+        from aiq_agent.common import wire_v2
+
+        received: list[object] = []
+
+        def handler(ws) -> None:
+            # hello.jsonl holds one recorded hello per line (its variants); a
+            # server sends exactly one, so send the first, not the whole file.
+            ws.send(json.dumps(_recorded("hello.jsonl")[0]))
+            question = wire_v2.CLIENT_MESSAGE.validate_json(ws.recv())
+            received.append(question)
+            for event in _recorded("turn-answered.jsonl"):
+                event.update(conversation_id=question.conversation_id, turn_id=question.message_id)
+                ws.send(json.dumps(event))
+
+        with serve(handler, "127.0.0.1", 0) as server:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            port = server.socket.getsockname()[1]
+            steps, answer, envelope = loop_eval._socket_turn(f"http://127.0.0.1:{port}", "Fluchtweg GK 4?", 10)
+            server.shutdown()
+
+        assert received[0].text == "Fluchtweg GK 4?"
+        assert received[0].data_sources == list(loop_eval.DATA_SOURCES)
+        assert answer.startswith("Für **Gebäudeklasse 4**")
+        assert envelope["kind"] == "ruling"
+        assert any(step["name"] == "status:retrieval:0" for step in steps)

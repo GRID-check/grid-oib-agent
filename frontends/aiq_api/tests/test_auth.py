@@ -307,7 +307,7 @@ class TestAuthMiddlewareAuthFlow:
         async def send(msg):
             messages.append(msg)
 
-        scope = _http_scope("/chat", host=external_host)
+        scope = _http_scope("/v1/jobs/async/submit", host=external_host)
         await mw(scope, AsyncMock(), send)
 
         assert messages[0]["status"] == 401
@@ -331,7 +331,7 @@ class TestAuthMiddlewareAuthFlow:
             messages.append(msg)
 
         scope = _http_scope(
-            "/chat",
+            "/v1/jobs/async/submit",
             host=external_host,
             extra_headers=[(b"authorization", b"Bearer badtoken")],
         )
@@ -361,7 +361,7 @@ class TestAuthMiddlewareAuthFlow:
             messages.append(msg)
 
         scope = _http_scope(
-            "/chat",
+            "/v1/jobs/async/submit",
             host=external_host,
             extra_headers=[
                 (b"authorization", b"Bearer good"),
@@ -393,7 +393,7 @@ class TestAuthMiddlewareAuthFlow:
             pass  # not used — success path hits app
 
         scope = _http_scope(
-            "/chat",
+            "/v1/jobs/async/submit",
             host=external_host,
             extra_headers=[(b"authorization", b"Bearer t")],
         )
@@ -493,7 +493,7 @@ class TestAuthMiddlewareInternal:
             pass
 
         scope = _http_scope(
-            "/chat",
+            "/v1/jobs/async/submit",
             extra_headers=[(b"authorization", b"Bearer eyJhbGciOiJIUzI1NiJ9.x.y")],
         )
         with (
@@ -544,7 +544,7 @@ class TestAuthMiddlewareInternal:
             pass
 
         scope = _http_scope(
-            "/chat",
+            "/v1/jobs/async/submit",
             extra_headers=[(b"authorization", b"Bearer eyJhbGciOiJIUzI1NiJ9.x.y")],
         )
         with (
@@ -596,7 +596,7 @@ class TestAuthMiddlewareInternal:
             pass
 
         scope = _http_scope(
-            "/chat",
+            "/v1/jobs/async/submit",
             extra_headers=[(b"authorization", b"Bearer eyJhbGciOiJIUzI1NiJ9.x.y")],
         )
         with (
@@ -637,7 +637,7 @@ class TestAuthMiddlewareInternal:
             pass
 
         scope = _http_scope(
-            "/chat",
+            "/v1/jobs/async/submit",
             extra_headers=[(b"authorization", b"Bearer eyJhbGciOiJIUzI1NiJ9.x.y")],
         )
         with (
@@ -678,7 +678,7 @@ class TestAuthMiddlewareInternal:
             pass
 
         scope = _http_scope(
-            "/chat",
+            "/v1/jobs/async/submit",
             extra_headers=[(b"authorization", b"Bearer eyJhbGciOiJIUzI1NiJ9.x.y")],
         )
         with (
@@ -719,7 +719,7 @@ class TestAuthMiddlewareInternal:
             pass
 
         scope = _http_scope(
-            "/chat",
+            "/v1/jobs/async/submit",
             extra_headers=[
                 (b"authorization", b"Bearer eyJhbGciOiJIUzI1NiJ9.x.y"),
                 (b"x-aiq-access-channel", b"headless"),
@@ -840,7 +840,7 @@ class TestAuthMiddlewareInternal:
             pass
 
         scope = _http_scope(
-            "/chat",
+            "/v1/jobs/async/submit",
             extra_headers=[(b"authorization", b"Bearer badtoken")],
         )
         with (
@@ -882,6 +882,14 @@ class TestAuthMiddlewareHelpers:
         assert mw._path_allowed("/v1/jobs/async/job/abc/result") is True
         assert mw._path_allowed("/v1/jobs/async/job") is True
         assert mw._path_allowed("/nope") is False
+
+    @pytest.mark.parametrize(
+        "path", ["/chat", "/chat/stream", "/v1/chat", "/v1/chat/completions", "/generate", "/v1/workflow"]
+    )
+    def test_no_http_turn_route_is_reachable_from_outside(self, path: str) -> None:
+        # A turn runs on the chat socket alone (ADR-0068); these are NAT's HTTP turn routes.
+        mw = AuthMiddleware(MagicMock(), external_hostnames=set())
+        assert mw._path_allowed(path) is False
 
     @pytest.mark.asyncio
     async def test_non_http_passthrough(self) -> None:
@@ -1049,7 +1057,7 @@ class TestMiddlewareErrorCodes:
         async def send(msg):
             messages.append(msg)
 
-        scope = _http_scope("/chat", host=external_host)
+        scope = _http_scope("/v1/jobs/async/submit", host=external_host)
         await mw(scope, AsyncMock(), send)
 
         body = json.loads(messages[1]["body"].decode())
@@ -1074,7 +1082,7 @@ class TestMiddlewareErrorCodes:
             messages.append(msg)
 
         scope = _http_scope(
-            "/chat",
+            "/v1/jobs/async/submit",
             host=external_host,
             extra_headers=[(b"authorization", b"Bearer expired.token.here")],
         )
