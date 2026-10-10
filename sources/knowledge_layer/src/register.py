@@ -268,7 +268,8 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "Who answers the judge's yes/no (llm|jev). `jev` asks the decision model one noul per "
             "passage of the head first (ADR-0064, ~300 ms, a fraction of a cent): a head it finds "
             "sufficient costs no judge call, and only an insufficient head runs requery_llm, for the "
-            "phrasings. A decision that cannot run (no key, ZDR, breaker open) falls back to the judge."
+            "phrasings. A decision that cannot run (no key, a BYOK key on another host, breaker open) falls "
+            "back to the judge."
         ),
     )
     decision_sufficiency_threshold: float = Field(

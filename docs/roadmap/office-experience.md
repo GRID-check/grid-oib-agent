@@ -328,14 +328,19 @@ a second, with a probability, for almost nothing. That is the exact shape of
 most of the augmentation work, which is why it matters more here than anywhere
 else in Piloti. Its documented limits decide what it may NOT do.
 
-| Use | Jev's question | Rule it obeys |
-|---|---|---|
-| **The archive sieve** (above) | Per page: Bescheid? Auflage? Nachforderung? Gutachten verdict? Detail? Document role? | Labels only, acted on at 0.8 or above, like ingestion tags (ADR-0064 use 4). The pen and the person decide content |
-| **Closed vocabularies of a project** | Choice: Bundesland, Bauweise, use, kind of work, a Bescheid's outcome (bewilligt / mit Auflagen / abgewiesen) | Writes *suggested* facts, never confirmed ones |
-| **The turn decision** | Add `referenz` to the corpus choice of ADR-0064 use 1, plus a noul: "has a comparable project likely faced this decision?" | Only ADDS a round-0 prefetch of the similar projects' search beside the project's own. The tool stays bound whatever it says |
-| **Precedent verdicts** | Per hit: "does this passage show how a comparable decision was solved?" | The same sufficiency judge as use 2, over reference hits. It decides whether to page on, never what the reader may see |
-| **Fit of a reference to a question** | Rank by fingerprint, then one "fits this question" noul per candidate (TypeSafe's own rank-then-verify cookbook) | Reorders the catalog and the `similar` scope; drops nothing |
-| **The compounding loop** | Are these two decisions the same solution? Does this Bescheid contradict that office standard? | Proposes a promotion or flags a conflict for a person; never promotes itself |
+| Use | Jev's question | Rule it obeys | State (10 Oct) |
+|---|---|---|---|
+| **The archive sieve** (above) | Per page: Bescheid? Auflage? Nachforderung? Gutachten verdict? Detail? Document role? | Labels only, acted on at 0.8 or above, like ingestion tags (ADR-0064 use 4). The pen and the person decide content | **Precursor only**: the per-document type choice (Bescheid, Gutachten, Detail…) of use 4. No per-page call, no archive import, no German sieve golden set |
+| **Closed vocabularies of a project** | Choice: Bundesland, Bauweise, use, kind of work, a Bescheid's outcome (bewilligt / mit Auflagen / abgewiesen) | Writes *suggested* facts, never confirmed ones | **Verifies, does not choose** (use 12): the pen proposes with a quote, Jev drops a value its quote clearly contradicts (below 0.1). Choosing needs the quote Jev cannot give, and Bundesland from a letterhead needs knowledge it lacks („Mödling" → NÖ scored 0.24) |
+| **The turn decision** | Add `referenz` to the corpus choice of ADR-0064 use 1, plus a noul: "has a comparable project likely faced this decision?" | Only ADDS a round-0 prefetch of the similar projects' search beside the project's own. The tool stays bound whatever it says | **Built and measured**: 59 German rows, a two-signal bar (0.7 beside a law answer, else 0.55): 24/24 looked, 1-2/35 rule questions searched (the single 0.6 had 23/24 and 8/35) |
+| **Precedent verdicts** | Per hit: "does this passage show how a comparable decision was solved?" | The same sufficiency judge as use 2, over reference hits. It decides whether to page on, never what the reader may see | **Built** (use 11): reorders the passages, says when to page on, and names another project's instruction-like passage. Evidence first in 13-15/19 pools (11/19 without), 7/7 planted instructions flagged, 0/184 false |
+| **Fit of a reference to a question** | Rank by fingerprint, then one "fits this question" noul per candidate (TypeSafe's own rank-then-verify cookbook) | Reorders the catalog and the `similar` scope; drops nothing | **Built** (use 10), as a partition at 0.6: the cited project first in 16/19 questions (10/19 by fingerprint), none worse. The turn's `similar` and `closed` searches walk it |
+| **The compounding loop** | Are these two decisions the same solution? Does this Bescheid contradict that office standard? | Proposes a promotion or flags a conflict for a person; never promotes itself | Not built: needs the decision schema (step 4) |
+
+Every Jev call is a Langfuse generation (`decide.<slot>`) since 10 Oct, so a
+trace shows what it decided and what it cost. The measurements are
+`scripts/decision_eval_office.py`'s (`task be:eval:decisions:office`),
+committed as `tests/fixtures/decisions/office_eval_2026-10-10.json`.
 
 What Jev must never do here:
 * **Decide access.** The BFF does, by the audience rule.

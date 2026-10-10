@@ -89,6 +89,14 @@
         },
         "openFoldersOnly": {
           "type": "boolean"
+        },
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "maxItems": 20
         }
       },
       "required": [

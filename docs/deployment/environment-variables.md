@@ -363,7 +363,7 @@ Read by `frontends/ui/workers/jobs/index.js`, the entry point of the `bff-jobs` 
 | `GRID_DECISIONS_ENABLED` | No | `true` | Whether the decision model (TypeSafe Jev via OpenRouter's alpha Decisions endpoint) is consulted at all: the turn-start decision, the retrieval judge's yes/no, the `jev` reranker. `false` runs every turn exactly as before the decisions existed. Every use is fail-open; this is the one switch that turns them all off. |
 | `GRID_DECISIONS_MODEL` | No | `typesafe/jev-1.13` | The decision model id on the Decisions endpoint. |
 | `GRID_DECISIONS_URL` | No | derived | The Decisions endpoint (`<openrouter origin>/api/alpha/decisions`). Only for a mock or a proxy. |
-| `GRID_DECISIONS_API_KEY` | No | — | A dedicated key for the endpoint; falls back to `OPENROUTER_API_KEY` through the shared credential resolver, BYOK first. A BYOK org whose key points anywhere but `openrouter.ai`, and a ZDR-only org, skip every decision. |
+| `GRID_DECISIONS_API_KEY` | No | — | A dedicated key for the endpoint; falls back to `OPENROUTER_API_KEY` through the shared credential resolver, BYOK first. A BYOK org whose key points anywhere but `openrouter.ai` skips every decision. A ZDR-only org is decided for: every call is pinned to zero-data-retention endpoints (ADR-0074). |
 
 ## Application
 

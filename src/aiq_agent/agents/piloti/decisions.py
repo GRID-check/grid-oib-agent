@@ -95,10 +95,21 @@ MAX_CARD_SHAPES = 2
 #: The chosen corpus must reach this before its prefetch runs.
 CORPUS_THRESHOLD = 0.5
 #: p(precedent) at or above which the reference projects are prefetched beside
-#: the corpus's own search. Higher than the corpus's: a precedent prefetch is a
-#: search over several projects, and the precedent eval
-#: (`suite.py --set precedent`) is what should move it.
-PRECEDENT_THRESHOLD = 0.6
+#: the corpus's own search, when the decision placed the answer anywhere but
+#: in the law. Measured (`scripts/decision_eval_office.py precedent`, 10 Oct
+#: 2026, 59 German rows: 24 that must look, 35 that must not, two runs, mean
+#: drift 0.013): the noul alone does not separate a practice question from a
+#: rule question well — at the old single 0.6 it caught 23/24 and fired on
+#: 8/35 rule questions (sommerlicher Wärmeschutz 0.75, Tragwerk 0.66) — but
+#: the corpus choice does: every rule question put the answer in `baurecht`
+#: at ~1.00. So the bar depends on where the answer lives.
+PRECEDENT_THRESHOLD = 0.55
+#: The bar when the decision put the answer in the law (`baurecht`): a
+#: precedent search beside a rule question needs a strong signal. With
+#: PRECEDENT_THRESHOLD the eval read 24/24 caught and 1-2/35 fired on rule
+#: rows over two runs. Read off the same rows: the next labelled precedent
+#: questions are the held-out check.
+PRECEDENT_THRESHOLD_LAW = 0.7
 #: The cross-project tool the reference prefetch calls (ADR-0094). A wire name.
 PROJECT_LOOKUP = "project_lookup"
 #: A skill's body and shapes ride the turn when the choice lands on it at
@@ -210,8 +221,11 @@ class TurnDecisions:
 
         Read only behind ``wants_evidence`` (``prefetch_calls``), which is the gate.
         """
-        chosen = self.corpus == "referenz" and self.corpus_p >= CORPUS_THRESHOLD
-        return chosen or (self.precedent or 0.0) >= PRECEDENT_THRESHOLD
+        confident = self.corpus_p >= CORPUS_THRESHOLD
+        if self.corpus == "referenz" and confident:
+            return True
+        law = self.corpus == "baurecht" and confident
+        return (self.precedent or 0.0) >= (PRECEDENT_THRESHOLD_LAW if law else PRECEDENT_THRESHOLD)
 
     @property
     def searchable(self) -> bool:
@@ -248,6 +262,9 @@ class TurnFacts:
     #: How many reference projects the turn's catalog lists (``<referenzprojekte>``):
     #: none, and the precedent question is not asked and nothing is prefetched.
     reference_projects: int = 0
+    #: The catalog itself, for the reference fit (``reference_fit``); never part
+    #: of the decision's state, which knows only the count.
+    reference_catalog: str | None = None
 
     def state(self) -> dict[str, Any]:
         state: dict[str, Any] = {"message": self.question[:1000], "language": "de"}

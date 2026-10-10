@@ -44,6 +44,7 @@ from pydantic import field_validator
 from aiq_agent.common.json_utils import extract_json
 from aiq_agent.common.llm_factory import strict_json_response_format
 from aiq_agent.common.message_utils import content_to_text
+from aiq_agent.knowledge.fingerprint_verify import verify_fingerprint
 from aiq_agent.knowledge.permit_extraction import llm_model_name
 from aiq_agent.knowledge.permit_extraction import pages_with_markers
 from aiq_agent.knowledge.schema import AvailableDocument
@@ -441,10 +442,14 @@ def _read(
     text = _joined(read)
     fingerprint = extract_fingerprint(text, request.vocabulary, request.known_facts, llm)
     decisions = draft_decisions(text, request.known_decisions, llm)
+    # The quote is in the text (code); whether it SAYS the value is the decision model's (ADR-0064 use 12).
+    fingerprint = verify_fingerprint(
+        _evidence_within(fingerprint, read), request.vocabulary, organization_id=request.organization_id
+    )
     return ProjectExperienceResponse(
         model=model,
         documents_read=list(read),
-        fingerprint=_evidence_within(fingerprint, read),
+        fingerprint=fingerprint,
         decisions=_evidence_within(decisions, read),
     )
 

@@ -187,17 +187,21 @@ function listed(project: Project, currentProjectId: string | null): CrossProject
  */
 export function projectsInScope(
   reachable: readonly Project[],
-  request: Pick<CrossProjectSearchRequest, 'scope' | 'projectIds' | 'from' | 'to'>,
+  request: Pick<CrossProjectSearchRequest, 'scope' | 'projectIds' | 'from' | 'to'> &
+    Partial<Pick<CrossProjectSearchRequest, 'order'>>,
   current: { id: string; profile: Project['profile'] | null } | null
 ): Project[] {
   const others = reachable.filter(
     (project) => project.id !== current?.id && periodOverlaps(projectPeriodOf(project), request.from, request.to)
   )
-  if (request.scope === 'similar') return rankBySimilarity(current?.profile ?? null, others)
+  if (request.scope === 'similar') return fitFirst(rankBySimilarity(current?.profile ?? null, others), request.order)
   if (request.scope === 'closed') {
-    return rankBySimilarity(
-      current?.profile ?? null,
-      others.filter((project) => projectStatusOf(project) === 'closed')
+    return fitFirst(
+      rankBySimilarity(
+        current?.profile ?? null,
+        others.filter((project) => projectStatusOf(project) === 'closed')
+      ),
+      request.order
     )
   }
   if (request.scope === 'named') {
@@ -205,6 +209,19 @@ export function projectsInScope(
     return others.filter((project) => named.has(project.id))
   }
   return others
+}
+
+/**
+ * `ranked` with the projects `order` names walked first, in its order: the
+ * turn's reference fit. Only a reorder of what the scope already holds; an id
+ * it does not hold is ignored.
+ */
+function fitFirst(ranked: Project[], order: readonly string[] | undefined): Project[] {
+  if (!order?.length) return ranked
+  const position = new Map(order.map((id, index) => [id, index]))
+  const first = ranked.filter((project) => position.has(project.id))
+  first.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0))
+  return [...first, ...ranked.filter((project) => !position.has(project.id))]
 }
 
 /** The current project, for the similarity order; null outside every project or when it is gone. */

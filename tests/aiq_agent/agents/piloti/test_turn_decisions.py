@@ -12,6 +12,8 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 
+import pytest
+
 from aiq_agent.agents.piloti.decisions import TurnDecisions
 from aiq_agent.agents.piloti.decisions import TurnFacts
 from aiq_agent.agents.piloti.decisions import attached_card_types
@@ -157,6 +159,27 @@ class TestTheReferenceProjects:
             calls = prefetch_calls(self._decided(corpus, precedent), "Wie war das?", reference_projects=3)
             lookups = [call["args"] for call in calls if call["name"] == "project_lookup"]
             assert lookups and all(args.get("open_folders_only") is True for args in lookups)
+
+    @pytest.mark.parametrize(
+        ("corpus", "corpus_p", "precedent", "looks"),
+        [
+            # Measured (decision_eval_office.py precedent): a rule question puts the answer in
+            # the law at ~1.00 and still scores 0.6-0.75 on precedent; the bar there is higher.
+            ("baurecht", 1.0, 0.66, False),
+            ("baurecht", 1.0, 0.75, True),
+            # Placed in the project or the archive, a moderate precedent is enough.
+            ("projekt", 0.9, 0.58, True),
+            ("projekt", 0.9, 0.5, False),
+            # An unsure law placement is no placement: the ordinary bar holds.
+            ("baurecht", 0.4, 0.58, True),
+            # Chosen as the corpus, the reference projects are searched whatever the noul says.
+            ("referenz", 0.6, None, True),
+        ],
+    )
+    def test_the_bar_for_a_precedent_search_depends_on_where_the_answer_lives(self, corpus, corpus_p, precedent, looks):
+        decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus=corpus, corpus_p=corpus_p, precedent=precedent)
+
+        assert decided.wants_reference is looks
 
     async def test_the_precedent_answer_is_read_back(self):
         decision = Decision(

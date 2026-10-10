@@ -717,3 +717,15 @@ def test_ingest_reports_a_file_whose_job_failed_instead_of_waiting_for_it(monkey
 
     assert suite._ingest_corpus(poll_seconds=0) == "1 file(s) could not be ingested"
     assert needs_ingestion()
+
+
+def test_the_turn_decisions_precedent_is_read_off_its_log_line():
+    """Beside the lookups a run made, p(precedent) calibrates the prefetch threshold (ADR-0064)."""
+    line = (
+        "INFO aiq_agent.agents.piloti.decisions: Turn decision in 431 ms: evidence=0.97 corpus=referenz(0.92) "
+        "families=[] skill=None cards=[] self_contained=0.9 precedent=0.83\n"
+    )
+
+    assert suite.precedent_of(line) == 0.83
+    assert suite.precedent_of(line.replace("precedent=0.83", "precedent=None")) is None
+    assert suite.precedent_of("") is None

@@ -49,6 +49,7 @@ Trace metadata on the root:
 | `ifc_op`, `ifc_outcome`, `ifc_model`, … | what a building-model tool did (`tools/bim/trace.py`) |
 | `answer_precedent_sources`, `answer_precedent_projects` | cited sources from another project (ADR-0094), and from how many projects: the office's experience reaching the answer |
 | `reference_projects_offered`, `precedent_p`, `reference_prefetch` | the turn's start: how many reference projects the catalog listed, the decision's p(precedent), and whether round 0 searched them on its own (`agents/piloti/register.py`) |
+| `reference_fit_scored`, `reference_fit_top`, `reference_fit_fitting` | the reference fit (ADR-0064 use 10): how many catalog lines it scored, the best p(fits), how many moved ahead |
 | `organization_id`, `project_id` | the tenant, only with identity attributes on |
 
 Tags, the trace list's fast filter: `outcome:<…>`, `route:<…>`,
@@ -66,8 +67,23 @@ body sent (`scope`, `query`, `offset`, `openFoldersOnly`), its output what came
 back as data, never passage text: `projects_in_scope`, `projects_searched`,
 `next_offset`, the counts of passages, decisions and permit records, each
 project named by id and status, and the picked passages by project, file, page
-and score. A refusal is `{"refused": <code>}`: `no_envelope`, `not_found`,
+and score, with each pick's `solved` and the pool's `solved_any` and
+`injection_flagged` when the hit judge ran (ADR-0064 use 11; `judged: false`
+when it did not). A refusal is `{"refused": <code>}`: `no_envelope`, `not_found`,
 `audience_changed`, `invalid`, `unreachable` or `invalid_arguments`.
+
+### The decision model
+
+Every call of the decision model (Jev, ADR-0064) is a generation named
+`decide.<slot>`, nested under whatever step is open (`observability/decision_trace.py`):
+`turn`, `reference_fit`, `reference_hits`, `passages`, `rerank`, `plan`,
+`document_tags`, `doc_class`, `feedback_causes`, `experience_verify`. Its input
+is the question names and how many states were asked, never a state (a state
+carries the reader's words); its output is the answers as numbers (one summary
+per state, at most 24), the served model, the latency and the provider's usage,
+which `UsageAttributeProcessor` stamps as the generation's tokens and cost. A
+call that did not run is `{"decided": 0, "skipped": <reason>}`. A `decide_many`
+batch is one generation, its usage summed.
 
 ## Scores
 

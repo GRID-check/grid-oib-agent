@@ -88,6 +88,14 @@ it.
   where none exists; the agent sees which is which.
 * The edition is read as the edition a project was *planned under*, from its
   own documents, not looked up.
+* *Amended 2026-10-10:* code finds a value's quote in the text; whether the
+  quote SAYS the value is now asked of the decision model, one `stated` noul
+  per proposed token (ADR-0064 use 12, `knowledge/fingerprint_verify.py`).
+  A token it scores below 0.1 is not suggested; one it could not judge stays.
+  Only a clear contradiction drops: measured on 32 hand-labelled quotes, a
+  value stated only through what a reader knows (a Mödling letterhead for
+  Niederösterreich) scores 0.14-0.24, so a higher bar would drop correct
+  suggestions. The Gebäudeklasse is not asked, since the pen may derive it.
 
 ### Consequences
 
