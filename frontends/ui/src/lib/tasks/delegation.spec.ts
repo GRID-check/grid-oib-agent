@@ -37,6 +37,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import type { TaskDefinition, TaskRun } from '@/lib/db/schema'
 import { JobSubmitError } from '@/lib/jobs/backend-client'
 import { AGENT_RUN_INPUT_MAX_CHARS } from '@/lib/jobs/types'
+import { formatCount } from '@/lib/format'
 import { createTaskThread, submitAgentRun } from '@/lib/jobs/service'
 import { resolveSkillSnapshot } from '@/lib/skills/service'
 import * as repository from './repository'
@@ -45,6 +46,7 @@ import {
   delegateTask,
   isDelegatableTaskKind,
   TASK_GOAL_MAX_CHARS,
+  type DelegateTaskInput,
 } from './delegation'
 
 const session = {
@@ -217,6 +219,77 @@ describe('delegateTask', () => {
     expect(resolveSkillSnapshot).not.toHaveBeenCalled()
   })
 
+  it('names the besprechungsprotokoll skill for a `protokoll` task and states its grounding rules', async () => {
+    await delegateTask(session, {
+      projectId: PROJECT,
+      kind: 'protokoll',
+      goal: 'Mach das Protokoll aus den Notizen vom Jour fixe',
+      documents: { grundlage: [{ name: 'Notizen JF 12.pdf' }], ausgeschlossen: [] },
+    })
+
+    const prompt = insertedDefinition.plan.prompt
+    expect(prompt).toContain('/besprechungsprotokoll')
+    // Named, never pasted: the body is the skill's, and the model loads it.
+    expect(resolveSkillSnapshot).not.toHaveBeenCalled()
+    // The rules a Protokoll cannot ship without ride the instruction too, so a
+    // run whose organization switched the skill off still invents nobody.
+    expect(prompt).toContain('Unklar in den Notizen')
+    expect(prompt).toContain('# Besprechungsprotokoll')
+    expect(prompt).toContain('schreibe KEIN Protokoll')
+    expect(prompt).toContain('ENTWURF')
+    // And the notes it is to be drafted from.
+    expect(prompt).toContain('- `Notizen JF 12.pdf`')
+    expect(insertedDefinition.title).toBe('Protokoll: Mach das Protokoll aus den Notizen vom Jour fixe')
+    expect(insertedRun.kind).toBe('protokoll')
+  })
+
+  it('takes pasted notes as the whole of what a `protokoll` is drafted from', async () => {
+    await delegateTask(session, {
+      projectId: PROJECT,
+      kind: 'protokoll',
+      goal: 'Protokoll vom Jour fixe',
+      material: 'TOP 1 Fenster: Huber bestellt Muster bis 17.10.',
+    })
+    expect(insertedDefinition.plan.prompt).toContain('Huber bestellt Muster bis 17.10.')
+  })
+
+  it('refuses a `protokoll` with no notes, and creates nothing', async () => {
+    // A Protokoll drafted from no notes is a Protokoll of nothing. The tool
+    // refuses first; this is the contract it leans on.
+    await expect(
+      delegateTask(session, { projectId: PROJECT, kind: 'protokoll', goal: 'Mach das Protokoll' }),
+    ).rejects.toThrow(UnprocessableError)
+    await expect(
+      delegateTask(session, {
+        projectId: PROJECT,
+        kind: 'protokoll',
+        goal: 'Mach das Protokoll',
+        // Only an exclusion is still nothing to draft from.
+        documents: { grundlage: [], ausgeschlossen: [{ name: 'Notizen JF 11.pdf' }] },
+        material: '  ',
+      }),
+    ).rejects.toThrow(UnprocessableError)
+    expect(repository.insertDefinitionWithRun).not.toHaveBeenCalled()
+    expect(submitAgentRun).not.toHaveBeenCalled()
+  })
+
+  it('refuses a `protokoll` with a cadence before asking for the schedule permission', async () => {
+    // One meeting, one Protokoll: a schedule would redraft the same notes and
+    // file last week's minutes again every Monday.
+    await expect(
+      delegateTask(session, {
+        projectId: PROJECT,
+        kind: 'protokoll',
+        goal: 'Protokoll jeden Montag',
+        documents: { grundlage: [{ name: 'Notizen JF 12.pdf' }], ausgeschlossen: [] },
+        cadence: { cron: '0 8 * * 1' },
+      }),
+    ).rejects.toThrow(/takes no cadence/)
+    expect(requireProjectAccess).not.toHaveBeenCalledWith(session, PROJECT, 'project:skills:manage')
+    expect(repository.insertDefinition).not.toHaveBeenCalled()
+    expect(repository.insertDefinitionWithRun).not.toHaveBeenCalled()
+  })
+
   it('freezes no snapshot, so nothing can be delivered without the model asking', async () => {
     await delegateTask(session, { projectId: PROJECT, kind: 'einreichcheck', goal: 'Prüf die Einreichung' })
 
@@ -225,6 +298,47 @@ describe('delegateTask', () => {
     // beside a null `skill_name`.
     expect(insertedDefinition.plan.skill).toEqual({})
     expect(insertedRun.skillSnapshot).toEqual({})
+  })
+
+  // A delegated run is one message with the composed prompt and nothing before
+  // it: whatever the person handed over in the conversation has to be IN that
+  // prompt, or the run works from a sentence about notes it cannot see.
+  it('names the documents it was handed in the prompt and keeps them on the plan', async () => {
+    const documents = {
+      grundlage: [{ name: 'Notizen JF 12.pdf', title: 'Jour fixe 12' }],
+      ausgeschlossen: [{ name: 'Notizen JF 11.pdf' }],
+    }
+    await delegateTask(session, { projectId: PROJECT, kind: 'document', goal: 'Schreib das', documents })
+
+    expect(insertedDefinition.plan.prompt).toContain('- `Notizen JF 12.pdf` („Jour fixe 12“)')
+    expect(insertedDefinition.plan.prompt).toContain('ausgeschlossen')
+    expect(insertedDefinition.plan.prompt).toContain('- `Notizen JF 11.pdf`')
+    // On the plan, so the run's block lists them as its Grundlage.
+    expect(insertedRun.plan.documents).toEqual(documents)
+    expect(vi.mocked(submitAgentRun).mock.calls[0][0]).toMatchObject({ documents })
+  })
+
+  it('quotes pasted text verbatim, in a fence the text itself cannot close', async () => {
+    const material = 'TOP 1\n```\nHuber bestellt Muster bis 17.10.'
+    await delegateTask(session, { projectId: PROJECT, kind: 'document', goal: 'Schreib das', material })
+
+    expect(insertedDefinition.plan.prompt).toContain(`\`\`\`\`text\n${material}\n\`\`\`\``)
+    // Text is not a document: nothing is listed as a Grundlage for it.
+    expect(insertedDefinition.plan.documents).toBeUndefined()
+  })
+
+  it('adds neither block when nothing was handed over', async () => {
+    await delegateTask(session, {
+      projectId: PROJECT,
+      kind: 'document',
+      goal: 'Schreib das',
+      documents: { grundlage: [], ausgeschlossen: [] },
+      material: '   ',
+    })
+
+    expect(insertedDefinition.plan.prompt).not.toContain('Unterlagen')
+    expect(insertedDefinition.plan.prompt).not.toContain('übergeben hat')
+    expect(insertedDefinition.plan.documents).toBeUndefined()
   })
 
   it('quotes the version being revised into the prompt, fenced and bounded', async () => {
@@ -250,13 +364,14 @@ describe('delegateTask', () => {
   })
 
   describe('a document longer than one run can carry', () => {
-    const revise = (sourceText: string) =>
+    const revise = (sourceText: string, handedOver: Pick<DelegateTaskInput, 'documents' | 'material'> = {}) =>
       delegateTask(session, {
         projectId: PROJECT,
         kind: 'revision',
         goal: 'Abschnitt 3 präzisieren',
         subject: { documentId: 'doc-3', versionId: 'ver-1', comment: 'Abschnitt 3 präzisieren' },
         sourceText,
+        ...handedOver,
       })
 
     it('never hands the submit route a prompt over its input ceiling', async () => {
@@ -298,6 +413,40 @@ describe('delegateTask', () => {
 
       const { run: over } = await revise(`${document}!`)
       expect(over?.status).toBe('failed')
+    })
+
+    it('counts the handed-over text and the named documents against the budget too', async () => {
+      // Everything before the version is the overhead, not the instruction
+      // alone: a budget that forgot the notes would pass a prompt the backend
+      // refuses, by exactly the notes' length.
+      const handedOver = {
+        material: 'TOP 1 Fenster: Huber bestellt Muster bis 17.10.\n'.repeat(400),
+        documents: { grundlage: [{ name: 'Notizen JF 12.pdf' }], ausgeschlossen: [] },
+      }
+      await revise('x')
+      const bareBudget = AGENT_RUN_INPUT_MAX_CHARS - (insertedDefinition.plan.prompt.length - 1)
+      await revise('x', handedOver)
+      const budget = AGENT_RUN_INPUT_MAX_CHARS - (insertedDefinition.plan.prompt.length - 1)
+      expect(budget).toBeLessThan(bareBudget - handedOver.material.length)
+      vi.mocked(submitAgentRun).mockClear()
+
+      const document = '# Bericht\n\n' + 'y'.repeat(budget - '# Bericht\n\n'.length - 1) + 'Z'
+      const { run } = await revise(document, handedOver)
+
+      const submitted = vi.mocked(submitAgentRun).mock.calls[0][0].prompt
+      expect(submitted.length).toBe(AGENT_RUN_INPUT_MAX_CHARS)
+      expect(submitted).toContain(document)
+      expect(submitted).toContain(handedOver.material.trim())
+      expect(submitted).toContain('- `Notizen JF 12.pdf`')
+      expect(run?.status).toBe('running')
+      vi.mocked(submitAgentRun).mockClear()
+
+      // One character over, still refused in words rather than cut, and the
+      // refusal names the budget that is left once the notes are in.
+      const { run: over } = await revise(`${document}!`, handedOver)
+      expect(submitAgentRun).not.toHaveBeenCalled()
+      expect(over?.status).toBe('failed')
+      expect(over?.error).toContain(`höchstens ${formatCount(budget, 'de-AT')} Zeichen`)
     })
   })
 
@@ -366,8 +515,8 @@ describe('delegateTask', () => {
 })
 
 describe('isDelegatableTaskKind', () => {
-  it('accepts the four engines and refuses the two job outputs', () => {
-    for (const kind of ['compliance_check', 'einreichcheck', 'document', 'revision']) {
+  it('accepts the five engines and refuses the two job outputs', () => {
+    for (const kind of ['compliance_check', 'einreichcheck', 'document', 'protokoll', 'revision']) {
       expect(isDelegatableTaskKind(kind)).toBe(true)
     }
     // `chat` and `deep-research` describe how a definition delivers a result;
@@ -747,5 +896,36 @@ describe('a run’s Unterlagen never name a document from a restricted folder (A
       reader: { kind: 'internal', why: 'identity' },
     })
     expect(submitAgentRun).toHaveBeenCalled()
+  })
+
+  it('refuses one handed to a delegated task too, on either list, before any row exists', async () => {
+    for (const documents of [
+      { grundlage: [{ name: 'Abmahnung_Meier_2026.pdf' }], ausgeschlossen: [] },
+      { grundlage: [{ name: 'Einreichplan.pdf' }], ausgeschlossen: [{ name: 'Abmahnung_Meier_2026.pdf' }] },
+    ]) {
+      const error = await delegateTask(session, {
+        projectId: PROJECT,
+        kind: 'protokoll',
+        goal: 'Protokoll der Baubesprechung',
+        conversationId: THREAD,
+        documents,
+      }).catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(ConversationConfinedError)
+      expect((error as ConversationConfinedError).action).toBe('planDocument')
+    }
+    expect(repository.insertDefinitionWithRun).not.toHaveBeenCalled()
+    expect(submitAgentRun).not.toHaveBeenCalled()
+  })
+
+  it('delegates a task whose Unterlagen sit in open folders', async () => {
+    await delegateTask(session, {
+      projectId: PROJECT,
+      kind: 'protokoll',
+      goal: 'Protokoll der Baubesprechung',
+      conversationId: THREAD,
+      documents: { grundlage: [{ name: 'Einreichplan.pdf' }], ausgeschlossen: [] },
+    })
+    expect(repository.insertDefinitionWithRun).toHaveBeenCalled()
   })
 })

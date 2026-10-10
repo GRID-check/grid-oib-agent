@@ -54,7 +54,8 @@ import { JobSubmitError, JobSubmitSkippedError } from '@/lib/jobs/backend-client
 import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/jobs/schedule'
 import { AGENT_RUN_INPUT_MAX_CHARS, emptySkillSnapshot } from '@/lib/jobs/types'
 import { formatCount } from '@/lib/format'
-import { isEmptyPlanDocuments, type PlanDocuments } from '@/lib/runs/plan-documents'
+import { isEmptyPlanDocuments, type PlanDocument, type PlanDocuments } from '@/lib/runs/plan-documents'
+import { fencedBlock } from '@/lib/text/code-fence'
 import {
   AGENT_REFUSAL_LOCALE,
   requireMayLeaveConversation,
@@ -98,6 +99,22 @@ interface TaskEngine {
   readonly instruction: (goal: string) => string
   /** What the row is called in the inbox and in the task list. */
   readonly title: (goal: string) => string
+  /**
+   * The work has nothing to be done FROM unless the person handed it over: a
+   * Protokoll drafted from no notes is a Protokoll of nothing, and the run would
+   * either invent one or spend its budget saying so hours later. Set, a
+   * delegation that names no document and carries no text is refused here,
+   * where the person is still in the conversation to supply them.
+   */
+  readonly requiresHandedOver?: true
+  /**
+   * The work is done once, on what it was handed, and never on a cadence. A
+   * Protokoll is the minutes of ONE meeting: a schedule would redraft the same
+   * notes every week and file a fresh draft of last week's meeting each time.
+   * Set, a delegation with a cadence is refused here, before the
+   * `project:skills:manage` check, so the reason given is the real one.
+   */
+  readonly oneOff?: true
 }
 
 const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
@@ -161,6 +178,38 @@ const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
     title: (goal) => `Dokument: ${goal}`,
   },
   /**
+   * Draft the Besprechungsprotokoll from the notes the person handed over.
+   *
+   * The builtin `besprechungsprotokoll` skill is the method, NAMED as
+   * `einreichcheck` is; the grounding rules a Protokoll cannot ship without are
+   * also stated here, because an organization can switch the skill off and the
+   * run must not then invent attendees. Filed like `document` — a draft,
+   * submitted to the requester — unless the run found nothing to draft from, in
+   * which case its answer says so in the thread and nothing is filed
+   * (`answerIsTheDocument` in `./service`).
+   */
+  protokoll: {
+    instruction: (goal) =>
+      [
+        'Erstelle das Besprechungsprotokoll aus den übergebenen Notizen — /besprechungsprotokoll.',
+        'Schreibe es VOLLSTÄNDIG als deine Antwort, in Markdown, beginnend mit der Überschrift',
+        '`# Besprechungsprotokoll …`. Die Antwort IST das Protokoll: keine Zusammenfassung davor,',
+        'keine Rückfrage. Nur was in den Notizen steht: Jeder Beschluss und jeder offene Punkt nennt',
+        'die Notizstelle, aus der er stammt. Teilnehmende, Datum, Ort, Zuständige und Fristen, die die',
+        'Notizen nicht nennen, bleiben „—“ und stehen unter „Unklar in den Notizen“.',
+        'Lassen sich die Notizen nicht lesen, schreibe KEIN Protokoll und keine Überschrift, sondern',
+        'sage in zwei Sätzen, welche Notizen fehlen.',
+        'Piloti legt das Protokoll danach als ENTWURF im Projekt ab und legt es zur Freigabe vor —',
+        'behaupte nicht, es sei freigegeben.',
+        '',
+        'Der Auftrag, wörtlich:',
+        goal,
+      ].join('\n'),
+    title: (goal) => `Protokoll: ${goal}`,
+    requiresHandedOver: true,
+    oneOff: true,
+  },
+  /**
    * Revise a version a reviewer sent back.
    *
    * Its prompt carries the reviewer's words AND the prior version's own text,
@@ -215,6 +264,18 @@ export interface DelegateTaskInput {
   cadence?: DelegateTaskCadence | null
   /** The version a `revision` task is about, and the reviewer's words. */
   subject?: TaskPlan['subject']
+  /**
+   * The project documents the work is to be done from, as the inventory names
+   * them. Their names are written into the prompt — the run reads them itself —
+   * and the plan keeps them, so the run's block shows them as its Grundlage.
+   */
+  documents?: PlanDocuments | null
+  /**
+   * Text the person pasted into the conversation and handed over, verbatim.
+   * Quoted into the prompt, because a delegated run has no conversation to
+   * read it back from.
+   */
+  material?: string | null
   /**
    * The text the run is revising, already read in the caller's own session and
    * bounded here. Quoted into the prompt rather than fetched by the worker,
@@ -298,6 +359,9 @@ export async function delegateTask(
   if (input.cadence && input.dueAt) {
     throw new UnprocessableError('A task is either one-off (due) or recurring (cadence), never both')
   }
+  if (input.cadence && TASK_ENGINES[input.kind].oneOff) {
+    throw new UnprocessableError(`A ${input.kind} task runs once, on what it was handed, and takes no cadence`)
+  }
 
   // Permissions attach to the TRIGGER, the same rule the definition editor
   // uses: asking for work is `project:edit`; asking for it every Monday,
@@ -323,10 +387,33 @@ export async function delegateTask(
     }
   }
 
+  const documents = input.documents && !isEmptyPlanDocuments(input.documents) ? input.documents : null
+  const material = input.material?.trim() || null
+
   const engine = TASK_ENGINES[input.kind]
-  const instruction = engine.instruction(goal)
-  const source = quoteSource(instruction, input.sourceText)
-  const prompt = source.block ? `${instruction}${PROMPT_SEPARATOR}${source.block}` : instruction
+  if (engine.requiresHandedOver && !documents?.grundlage.length && !material) {
+    throw new UnprocessableError(
+      `A ${input.kind} task needs what it is to be done from: name the documents or pass the text`,
+    )
+  }
+  // The named Unterlagen go into the prompt and the plan, both listed to the
+  // whole project: a document from a restricted folder is refused on either
+  // list, the rule `commissionResearchRun` applies to its own (ADR-0087).
+  if (documents) {
+    await requirePlanDocumentsOpen(
+      session.organizationId,
+      input.projectId,
+      [...documents.grundlage, ...documents.ausgeschlossen],
+      input.locale ?? AGENT_REFUSAL_LOCALE,
+    )
+  }
+  // Everything before the quoted version, so its budget is what the whole
+  // prompt leaves: the named documents and the handed-over text count too.
+  const head = [engine.instruction(goal), documentsBlock(documents), materialBlock(material)]
+    .filter(Boolean)
+    .join(PROMPT_SEPARATOR)
+  const source = quoteSource(head, input.sourceText)
+  const prompt = source.block ? `${head}${PROMPT_SEPARATOR}${source.block}` : head
   // A schedule has no run yet to carry the refusal, so the caller gets it.
   if (source.refusal && input.cadence) throw new UnprocessableError(source.refusal)
   const requester = input.requester ?? { userId: session.userId, email: session.email }
@@ -358,6 +445,7 @@ export async function delegateTask(
       dataSources: null,
       goal,
       subject: input.subject ?? null,
+      ...(documents ? { documents } : {}),
     },
     requesterUserId: requester.userId,
     requesterEmail: requester.email,
@@ -702,7 +790,48 @@ async function recordRun(run: TaskRun, patch: Partial<TaskRun>): Promise<TaskRun
   }
 }
 
-/** Between the instruction and the quoted document. */
+/**
+ * The documents the person named, as a list the run can open by name.
+ *
+ * Names only, never contents: the run reads them with its own tools, in its own
+ * budget, and cites what it read — a body pasted here would be text with no
+ * Citation key behind it, and nothing in the answer could point back at it.
+ * `ausgeschlossen` is said as plainly, because a run that does not know a file
+ * was excluded will find it with a search and use it.
+ */
+function documentsBlock(documents: PlanDocuments | null): string {
+  if (!documents) return ''
+  const line = (doc: PlanDocument) =>
+    doc.title && doc.title !== doc.name ? `- \`${doc.name}\` („${doc.title}“)` : `- \`${doc.name}\``
+  const sections: string[] = []
+  if (documents.grundlage.length > 0) {
+    sections.push(
+      ['Die Unterlagen, aus denen gearbeitet wird — öffne jede selbst und lies sie ganz:', ...documents.grundlage.map(line)].join('\n'),
+    )
+  }
+  if (documents.ausgeschlossen.length > 0) {
+    sections.push(
+      ['Diese Unterlagen sind ausgeschlossen und werden nicht verwendet:', ...documents.ausgeschlossen.map(line)].join('\n'),
+    )
+  }
+  return sections.join('\n\n')
+}
+
+/**
+ * The text the person pasted and handed over, quoted verbatim.
+ *
+ * Fenced for the reason {@link quoteSource} fences the version, with a fence
+ * the text cannot close (pasted notes carry backticks as often as anything
+ * else), and never cut: the wire bounds it and refuses a longer one, so
+ * whatever arrives here is the whole of it. It counts against the version's
+ * budget, because it comes before the version in the prompt.
+ */
+function materialBlock(material: string | null): string {
+  if (!material) return ''
+  return ['Der Text, den die Person übergeben hat, wörtlich:', '', fencedBlock(material)].join('\n')
+}
+
+/** Between the blocks of a delegated run's prompt. */
 const PROMPT_SEPARATOR = '\n\n'
 
 /** The version being revised as the prompt quotes it, or why it cannot be quoted. */
@@ -717,11 +846,12 @@ interface QuotedSource {
  * The document being revised, quoted into the prompt whole, or refused.
  *
  * Fenced, so the model can tell the document from the instruction around it.
- * Its budget is what {@link AGENT_RUN_INPUT_MAX_CHARS} leaves after the
- * instruction and the fence, so the backend can never be handed a prompt it
- * rejects. It used to have a ceiling of its own (60,000 characters) above the
- * backend's (48,000), and every document between the two failed at submission
- * with a validation dump on the run.
+ * Its budget is what {@link AGENT_RUN_INPUT_MAX_CHARS} leaves after `head`,
+ * which is everything the prompt says before it (the instruction, the named
+ * documents and the handed-over text), and after the fence, so the backend can
+ * never be handed a prompt it rejects. It used to have a ceiling of its own
+ * (60,000 characters) above the backend's (48,000), and every document between
+ * the two failed at submission with a validation dump on the run.
  *
  * Whole or not at all, never cut: the run's answer REPLACES the open version's
  * bytes (`fileResultFor` → `replaceVersionContent`), and the run has no other
@@ -730,11 +860,11 @@ interface QuotedSource {
  * handed the first part files the first part, and the rest is gone from the
  * version the reviewer sent back.
  */
-function quoteSource(instruction: string, text: string | null | undefined): QuotedSource {
+function quoteSource(head: string, text: string | null | undefined): QuotedSource {
   const body = (text ?? '').trim()
   if (!body) return { block: '', refusal: null }
   const block = ['Die bisherige Fassung, wörtlich:', '', '```markdown', body, '```'].join('\n')
-  const room = AGENT_RUN_INPUT_MAX_CHARS - instruction.length - PROMPT_SEPARATOR.length
+  const room = AGENT_RUN_INPUT_MAX_CHARS - head.length - PROMPT_SEPARATOR.length
   if (block.length <= room) return { block, refusal: null }
   const budget = Math.max(0, room - (block.length - body.length))
   return { block: '', refusal: tooLongToRevise(body.length, budget) }

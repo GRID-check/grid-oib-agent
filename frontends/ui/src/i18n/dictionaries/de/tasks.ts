@@ -111,6 +111,7 @@ export const tasks: typeof en.tasks = {
     compliance_check: 'Normprüfung',
     einreichcheck: 'Einreichcheck',
     document: 'Dokument',
+    protokoll: 'Protokoll',
     revision: 'Überarbeitung',
   },
   status: {

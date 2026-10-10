@@ -157,8 +157,9 @@ CI by `markdown-link-check`, so:
 - Heading anchors must match GitHub's generated slug (lowercase, spaces →
   hyphens, punctuation dropped). Do **not** use non-breaking hyphens (U+2011) in
   headings — they silently break `#anchor` links written with a normal hyphen.
-- **Internal** links and anchors are enforced in CI. **External** (`http(s)://`)
+- **Internal** links and anchors are enforced in CI. **External** (`http(s)://`, `mailto:`)
   links are intentionally *not* validated — `ci/markdown-link-check-config.json`
   ignores them, because third-party sites move, rate-limit, and block link
-  checkers, which used to break CI on unrelated PRs. Keep external links correct
+  checkers, which used to break CI on unrelated PRs, and a `mailto:` is checked
+  by an MX lookup that fails on any machine without one. Keep external links correct
   anyway, but a stale external link will not fail the build.

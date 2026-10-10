@@ -1,0 +1,8 @@
+---
+features:
+  - >
+    Piloti now drafts the Besprechungsprotokoll from the notes of a meeting:
+    hand it the notes as a file or as pasted text, and the minutes arrive as a
+    draft for your approval. Every decision and open point names the place in
+    the notes it came from, and what the notes leave open is listed under
+    „Unklar in den Notizen“ instead of being filled in.

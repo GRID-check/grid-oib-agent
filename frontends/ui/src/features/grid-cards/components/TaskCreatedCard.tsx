@@ -47,11 +47,12 @@ import { useLocale, useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { CARD_SHELL } from './card-chrome'
 
-/** The four delegatable kinds, as the dictionary names them. */
+/** The five delegatable kinds, as the dictionary names them. */
 const KIND_LABEL = {
   compliance_check: 'complianceCheck',
   einreichcheck: 'einreichcheck',
   document: 'document',
+  protokoll: 'protokoll',
   revision: 'revision',
 } as const
 

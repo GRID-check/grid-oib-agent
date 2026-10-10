@@ -1,4 +1,4 @@
-# Thirty-one questions a Wiener Planungsbüro actually asks, for the loop eval and the answer suite.
+# Thirty-two questions a Wiener Planungsbüro actually asks, for the loop eval and the answer suite.
 #
 # WHAT THIS SET IS FOR
 # --------------------
@@ -63,7 +63,12 @@
 #                           prescribes is a walkthrough AND a ruling); the
 #                           other evals keep reading `kind` alone
 #           Same discipline as `punkt`: a value is one read off the corpus
-#           (the PDF, a retrieved passage), never one remembered.
+#           (the PDF, a retrieved passage), never one remembered. For a
+#           self-contained question the "corpus" is the question's own text.
+# `self_contained`  Optional, `true` on a family-less question whose material
+#           is in the question itself (meeting notes to make a Protokoll of).
+#           The answer suite skips every other family-less question as one that
+#           needs a project; this one needs none, so it runs (not in `core`).
 #
 # Adding a question: give it an id nobody else has, and leave `punkt` and
 # `paragraph` null unless you looked them up in the index / read them off a
@@ -376,3 +381,28 @@ questions:
       # read off the corpus, so there is none.
       not_mentions: ["OIB-RL 5", "Schallschutz"]
       kind_also: [ruling]
+
+  # The besprechungsprotokoll skill, on the notes-in-the-message path. Not a
+  # down-vote: the case the `protokoll` task kind shipped with. The notes name
+  # no date, no place and no year, and TOP 2 names an owner and no deadline, so
+  # every expectation below is read off the question itself. A year anywhere in
+  # the answer is a date somebody invented; „Unklar in den Notizen" is where
+  # the missing ones must go instead. Run it with `--only protokoll-aus-notizen`.
+  - id: protokoll-aus-notizen
+    question: |-
+      Mach aus diesen Notizen ein Besprechungsprotokoll:
+
+      Jour fixe Haus Lindengasse
+      Anwesend: Huber (Bauherr), Maier (Statik), wir
+      TOP 1 Fenster: Holz-Alu bemustert, Entscheidung für Holz-Alu. Huber bestellt Farbmuster bis 17.10.
+      TOP 2 Statik: Deckendurchbruch Bad OG prüfen – Maier
+      TOP 3 Termine: nächster Jour fixe nächste Woche
+    family: null
+    punkt: null
+    kind: direct
+    self_contained: true
+    expect:
+      mentions: ["Unklar in den Notizen", "Holz-Alu", "Huber", "17.10.", "Maier"]
+      not_mentions: ["2025", "2026", "2027"]
+      shape: table
+      kind_also: [walkthrough]

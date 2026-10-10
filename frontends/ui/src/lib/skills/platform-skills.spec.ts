@@ -40,7 +40,7 @@ describe('sync-platform-skills --check', () => {
  * known agent, not that every builtin is deep-research-only.
  */
 describe('architect job playbooks are offers', () => {
-  it.each(['einreichcheck', 'bestand'] as const)(
+  it.each(['einreichcheck', 'bestand', 'besprechungsprotokoll'] as const)(
     '%s declares grid-catalog curated',
     (name) => {
       const skill = listPlatformSkills().find((row) => row.name === name)

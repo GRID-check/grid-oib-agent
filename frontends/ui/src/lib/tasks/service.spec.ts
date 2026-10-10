@@ -532,6 +532,53 @@ describe('completeRunForOutcome, by kind', () => {
     expect(closed.filingStatus).toBe('failed')
   })
 
+  it('files a `protokoll` run as a new draft and submits it to the requester for approval', async () => {
+    vi.mocked(fileAgentDocumentDraft).mockResolvedValue({
+      documentId: 'doc-9',
+      version: { id: 'ver-1' } as never,
+      alreadyFiled: false,
+    })
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ filename: 'protokoll-jour-fixe-12.md' } as never)
+    const report = '# Besprechungsprotokoll Jour fixe 12\n\n## Beschlüsse\n\n| Beschluss | Quelle |'
+    const protokoll = delegated({
+      kind: 'protokoll',
+      plan: { prompt: 'Erstelle …', skill: emptySkill, dataSources: null, goal: 'Protokoll vom Jour fixe 12' },
+    })
+
+    const { run: closed, filed } = await completeRunForOutcome(protokoll, { status: 'success', report })
+
+    expect(vi.mocked(fileAgentDocumentDraft).mock.calls[0][0]).toMatchObject({
+      ref: 'task-run-1',
+      title: 'Protokoll vom Jour fixe 12',
+      content: report,
+      actingHuman: false,
+    })
+    // A draft until the person who asked for it approves it: the Protokoll is
+    // Piloti's reading of the notes, and only a person makes it the record.
+    expect(transitionDocumentVersion).toHaveBeenCalledWith(expect.anything(), 'doc-9', 'ver-1', 'submit', {
+      reviewerUserIds: ['user_owner'],
+      actingHuman: false,
+    })
+    expect(filed).toEqual({ documentId: 'doc-9', filename: 'protokoll-jour-fixe-12.md' })
+    expect(closed.filingStatus).toBe('filed')
+  })
+
+  it('files nothing when a `protokoll` run found no notes to draft from and said so', async () => {
+    // The run is told to write no Protokoll, and no title, when the notes cannot
+    // be read. That answer belongs in the thread, not in Berichte as a draft
+    // somebody is asked to approve.
+    const protokoll = delegated({ kind: 'protokoll' })
+    const report = 'Die Notizen „Notizen JF 12.pdf“ ließen sich nicht lesen. Bitte lade sie erneut hoch.'
+
+    const { run: closed, filed } = await completeRunForOutcome(protokoll, { status: 'success', report })
+
+    expect(filed).toBeNull()
+    // Nothing to file, not a filing that failed: the row carries no status.
+    expect(closed.filingStatus ?? null).toBeNull()
+    expect(fileAgentDocumentDraft).not.toHaveBeenCalled()
+    expect(transitionDocumentVersion).not.toHaveBeenCalled()
+  })
+
   it('files nothing for a `compliance_check` or an `einreichcheck`', async () => {
     // Their result IS the conversation the run wrote into; filing the prose as
     // a second document would put a copy of the thread in Berichte.

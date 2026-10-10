@@ -967,7 +967,7 @@ class DocumentDraftCard(CardModel):
 #: same parse-independently rule `DocumentVersionState` follows one screen up,
 #: for the same reason: the contract crosses a language boundary, and a shared
 #: schema between the two would be a build step neither tier wants.
-TaskKind = Literal["compliance_check", "einreichcheck", "document", "revision"]
+TaskKind = Literal["compliance_check", "einreichcheck", "document", "protokoll", "revision"]
 
 
 class TaskCreatedCard(CardModel):

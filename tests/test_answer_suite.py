@@ -126,6 +126,25 @@ def test_the_core_set_needs_no_project():
     assert "ordner-brandschutz-listing" in skipped
 
 
+def test_a_self_contained_question_runs_without_a_family(tmp_path):
+    """Notes in the question are the whole of its material: no project, no skip."""
+    path = tmp_path / "questions.yaml"
+    path.write_text(
+        "questions:\n"
+        "  - id: ordner\n    question: Was liegt im Ordner\n    family: null\n    kind: direct\n"
+        "  - id: notizen\n    question: Protokoll aus diesen Notizen\n    family: null\n    kind: direct\n"
+        "    self_contained: true\n",
+        encoding="utf-8",
+    )
+    questions, skipped = suite.load_questions(path, core_only=False)
+    assert [q["id"] for q in questions] == ["notizen"]
+    assert skipped == ["ordner"]
+    # And the shipped case is one of them, outside the paid core set.
+    runnable, _ = suite.load_questions(core_only=False)
+    assert "protokoll-aus-notizen" in {q["id"] for q in runnable}
+    assert "protokoll-aus-notizen" not in {q["id"] for q in suite.load_questions()[0]}
+
+
 def test_a_value_inside_a_tab_counts(tmp_path):
     # Seen in the first baseline: REI 60 stood in the variant tab's table, and a
     # check that read only the prose called the answer wrong.

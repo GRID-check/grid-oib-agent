@@ -176,7 +176,7 @@ correctness of its answer: how many retrieval rounds it took, whether the
 locator (`read_passage`) was used instead of a second search, whether the cited
 Punkt is the one the question is about, whether the Herleitung checkpoint came
 from the tool argument or from prose or from nowhere, and whether the research
-budget ran out. Thirty-one realistic German questions from a Wiener Planungsbüro
+budget ran out. Thirty-two realistic German questions from a Wiener Planungsbüro
 live in [`tests/fixtures/herleitung/loop_eval_questions.yaml`](../../tests/fixtures/herleitung/loop_eval_questions.yaml)
 — every expected Punkt in it is read off the committed structural index rather
 than remembered — and [`scripts/loop_eval.py`](../../scripts/loop_eval.py) runs
@@ -328,7 +328,9 @@ its passage; this asks what the reader waited for and what they got.
 
 - **Questions:** the loop eval's set, the ones tagged `suite: core` by
   default (`--all` for every question without a project; a question about an
-  office's own files needs a project and is skipped, and the report says so;
+  office's own files needs a project and is skipped, and the report says so,
+  unless it is `self_contained: true` because its material is in its own text,
+  as the Protokoll-from-notes case is;
   so is one about a Richtlinie the ingested corpus lacks, since the corpus is
   the operator's and a missing OIB-RL 5 is not the agent's failure).
   A question's optional `expect` block names values that must appear, claims

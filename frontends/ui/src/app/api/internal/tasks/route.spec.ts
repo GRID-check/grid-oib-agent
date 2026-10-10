@@ -32,7 +32,7 @@ import {
 } from '@/lib/request-context'
 import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
 import { commissionResearchRun, delegateTask } from '@/lib/tasks/delegation'
-import { internalTaskRequestSchema, parseTaskDue } from '@/lib/tasks/wire'
+import { internalTaskRequestSchema, parseTaskDue, TASK_MATERIAL_MAX_CHARS } from '@/lib/tasks/wire'
 import { POST } from './route'
 
 const SECRET = 'internal-token-for-tests' // pragma: allowlist secret
@@ -242,6 +242,27 @@ describe('the answer', () => {
 
   it('refuses a cadence with an empty string rather than sending it', async () => {
     expect((await call({ ...CREATE, cadence: '   ' })).status).toBe(400)
+  })
+})
+
+describe('what a task is handed', () => {
+  it('passes the named documents and the pasted text to the service', async () => {
+    const documents = { grundlage: [{ name: 'Notizen JF 12.pdf' }], ausgeschlossen: [] }
+    const material = 'TOP 1 Fenster\n- Huber bestellt Muster'
+
+    expect((await call({ ...CREATE, documents, material })).status).toBe(201)
+    expect(vi.mocked(delegateTask).mock.calls[0][1]).toMatchObject({ documents, material })
+  })
+
+  it('passes null for both when the body names neither', async () => {
+    await call(CREATE)
+    expect(vi.mocked(delegateTask).mock.calls[0][1]).toMatchObject({ documents: null, material: null })
+  })
+
+  it('refuses pasted text over the bound rather than cutting it', async () => {
+    const material = 'x'.repeat(TASK_MATERIAL_MAX_CHARS + 1)
+    expect((await call({ ...CREATE, material })).status).toBe(400)
+    expect(delegateTask).not.toHaveBeenCalled()
   })
 })
 

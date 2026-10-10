@@ -24,7 +24,9 @@ Per run it records what the provider billed and what the reader got:
   question set's header says why.
 
 No backend, no BFF: a question about an office's own files needs a project and
-is skipped, and says so. Needs OPENROUTER_API_KEY and the corpus ingested into
+is skipped, and says so. A family-less question that carries its material in
+the question itself (`self_contained: true`, such as notes to make a Protokoll
+of) needs none and runs. Needs OPENROUTER_API_KEY and the corpus ingested into
 AIQ_CHROMA_DIR (`--ingest` queues the corpus's ingest jobs from the table in
 AIQ_SUMMARY_DB and the object store, and claims and runs them in this process). Every run costs model calls.
 
@@ -182,13 +184,18 @@ def load_precedent_questions(path: Path = PRECEDENT_QUESTIONS) -> list[dict]:
 
 
 def load_questions(path: Path = QUESTIONS, *, core_only: bool = True) -> tuple[list[dict], list[str]]:
-    """The runnable questions and the ids skipped because they need a project."""
+    """The runnable questions and the ids skipped because they need a project.
+
+    A question with no ``family`` is about the office's own files, so it needs a
+    project, which the suite has none of. ``self_contained`` is the exception
+    the question states itself: everything it is about is in its own text.
+    """
     import yaml
 
     rows = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("questions") or []
     runnable, skipped = [], []
     for row in rows:
-        if row.get("family") is None:
+        if row.get("family") is None and not row.get("self_contained"):
             skipped.append(str(row["id"]))
         elif not core_only or row.get("suite") == "core":
             runnable.append(row)

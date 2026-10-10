@@ -20,6 +20,7 @@ EXPECTED = {
     ("oib", "hygiene"),
     ("oib", "nutzungssicherheit"),
     ("oib", "waermeschutz"),
+    ("project", "besprechungsprotokoll"),
     ("research", "data-table-analysis"),
     ("research", "forecast-analysis"),
     ("research", "lightweight-calculation"),
@@ -92,7 +93,7 @@ def test_builtin_frontmatter_declares_only_its_audience() -> None:
 
     # Job playbooks are offers: on the Skills tab, chat-usable files start ON.
     # Genre methods stay machinery so a fire question still auto-loads.
-    for name in ("einreichcheck", "bestand"):
+    for name in ("einreichcheck", "bestand", "besprechungsprotokoll"):
         assert by_name[name].metadata.get("grid-catalog") == "curated", name
     for name in (
         "forecast-analysis",

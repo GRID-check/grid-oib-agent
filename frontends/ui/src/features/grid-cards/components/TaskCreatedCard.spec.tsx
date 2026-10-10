@@ -47,6 +47,20 @@ describe('TaskCreatedCard — what it reports', () => {
     expect(screen.queryByTestId('task-created-status')).not.toBeInTheDocument()
   })
 
+  it('names a Protokoll task as meeting minutes, not as a document', () => {
+    // The fifth kind. Without its label the dictionary lookup returns the key
+    // itself and the receipt reads „cards.taskCreated.kind.protokoll".
+    render(
+      <TaskCreatedCard
+        {...TASK}
+        kind="protokoll"
+        title="Protokoll: Jour fixe 12"
+        goal="Mach das Protokoll aus den Notizen vom Jour fixe"
+      />,
+    )
+    expect(screen.getByTestId('task-created-kind')).toHaveTextContent('Meeting minutes')
+  })
+
   it('says nothing about a deadline nobody named', () => {
     render(<TaskCreatedCard {...TASK} dueAt={null} />)
     expect(screen.queryByTestId('task-created-due')).not.toBeInTheDocument()

@@ -122,6 +122,9 @@ async function afterClose(run: TaskRun, closed: TaskRun, outcome: TaskOutcome): 
   if (status !== 'succeeded' || !outcome.report || !FILES_ITS_RESULT[run.kind]) {
     return { run: closed, filed: null }
   }
+  if (!answerIsTheDocument(run.kind, outcome.report)) {
+    return { run: closed, filed: null }
+  }
   // The PDF of a research report is rendered off this pod and retried by the
   // queue; the row says `queued` until the job has an answer.
   if (run.kind === 'deep-research') {
@@ -151,7 +154,24 @@ const FILES_ITS_RESULT: Record<TaskKind, boolean> = {
   compliance_check: false,
   einreichcheck: false,
   document: true,
+  protokoll: true,
   revision: true,
+}
+
+/**
+ * Whether a finished run's answer is the document its kind files.
+ *
+ * Only a `protokoll` can succeed without one, and it does so on purpose: its run
+ * is told to draft NOTHING when the notes cannot be read, and to say in the
+ * thread which ones are missing. That sentence is an answer, not a Protokoll,
+ * and filing it would put a draft „Protokoll" in Berichte and ask somebody to
+ * approve it. The engine has the run open a Protokoll with its Markdown title
+ * (`# Besprechungsprotokoll …`) and the refusal without one, so the first line
+ * is what tells them apart.
+ */
+function answerIsTheDocument(kind: TaskKind, report: string): boolean {
+  if (kind !== 'protokoll') return true
+  return /^#\s/.test(report.trimStart())
 }
 
 interface FilingResult {
@@ -343,7 +363,7 @@ async function fileResultFor(
     return { documentId: subject.documentId, filename: draft.filename }
   }
 
-  // `document`: a new item, version 1, submitted to the requester.
+  // `document` and `protokoll`: a new item, version 1, submitted to the requester.
   const filed = await fileAgentDocumentDraft({
     session,
     projectId: run.projectId,

@@ -1,7 +1,9 @@
 """Resolving what the reader said to what the turn can see.
 
 The four write-side tools take NAMES — a file name, a folder path, a person —
-because that is what the conversation contains. None of them may guess: a
+because that is what the conversation contains. ``create_task`` resolves the
+documents a task is to be done FROM through :func:`resolve_document` too, for
+the same reason: a run told to read a file nobody has fails hours later. None of them may guess: a
 proposal card that names a file the reader does not have is a decision they
 cannot make, and one that names the WRONG file is worse than no card at all.
 
@@ -132,8 +134,8 @@ def resolve_document(name: str) -> ResolvedDocument | Refusal:
     rows = _rows()
     if not rows:
         return Refusal(
-            "Fehler: Diese Unterhaltung sieht keine Projekt- oder Büroablage-Dateien, also gibt es nichts "
-            "zu ordnen. Sage das, statt einen Vorschlag zu machen."
+            "Fehler: Diese Unterhaltung sieht keine Projekt- oder Büroablage-Dateien, also auch keine, die "
+            "gemeint sein könnte. Sage das, statt einen Dateinamen zu raten."
         )
 
     for candidates in (
@@ -153,6 +155,26 @@ def resolve_document(name: str) -> ResolvedDocument | Refusal:
         f"Nicht gefunden: „{_nfc(name)}“ steht nicht in der Dateiübersicht dieser Unterhaltung. Nenne den "
         "genauen Dateinamen aus der Übersicht oder frage die Nutzerin danach — rate nicht."
     )
+
+
+def is_conversation_attachment(name: str) -> bool:
+    """Whether ``name`` is one of this conversation's own attachments (the ``session`` shelf).
+
+    :func:`resolve_document` never offers one, and rightly: it is no project
+    document, and a delegated run cannot read it either, because a run's
+    collection scope is the project's and never the conversation's. But the
+    reader can SEE the file, so a caller that answers „not found" for it sends
+    the model hunting for a spelling that was right all along. This is how the
+    caller tells the two apart and says what is actually the matter.
+    """
+    wanted = _key(name)
+    for row in get_turn_documents():
+        if parse_shelf(_attr(row, "shelf")) is not Shelf.SESSION:
+            continue
+        file_name = _key(str(_attr(row, "file_name") or ""))
+        if wanted in (file_name, file_name.rsplit(".", 1)[0]):
+            return True
+    return False
 
 
 def known_folders() -> list[str]:
