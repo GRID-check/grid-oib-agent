@@ -1100,6 +1100,10 @@
     "de": "Jedes Projekt hat jetzt in seinen Einstellungen einen Steckbrief: die Adresse, den Zeitraum vom Beginn bis zur Fertigstellung und alle, die daran mitgearbeitet haben, auch ehemalige Mitarbeitende und externe Planerinnen und Planer ohne Piloti-Konto."
   },
   {
+    "en": "Each project now opens its Overview on a dashboard: this month's activity, documents, memory, members and the most similar past projects at a glance, each one click from where you change it. Project admins can set a usage limit for the project.",
+    "de": "Jedes Projekt öffnet seine Übersicht jetzt in einem Dashboard: Aktivitäten dieses Monats, Dokumente, Memory, Mitglieder und die ähnlichsten früheren Projekte auf einen Blick – jeweils mit einem Klick zur Bearbeitung. Projektadmins können ein Nutzungslimit für das Projekt festlegen."
+  },
+  {
     "en": "Each search step of the Herleitung can now be folded. With three or more steps it arrives folded with only the latest open, so the conclusion stays in view.",
     "de": "Jeder Suchschritt der Herleitung lässt sich jetzt zuklappen. Ab drei Schritten kommt sie zugeklappt und zeigt nur den jüngsten offen, damit das Ergebnis sichtbar bleibt."
   },
@@ -1558,6 +1562,10 @@
   {
     "en": "Opening a project's Automation tab no longer crashes.",
     "de": "Beim Öffnen des Automation-Tabs eines Projekts kommt es zu keinem Absturz mehr."
+  },
+  {
+    "en": "Opening a project's settings without permission to manage members no longer shows an error, and buttons you are not allowed to use are no longer shown.",
+    "de": "Wenn Sie die Projekteinstellungen ohne Berechtigung zur Verwaltung von Mitgliedern öffnen, wird kein Fehler mehr angezeigt. Schaltflächen, die Sie nicht verwenden dürfen, werden nicht mehr angezeigt."
   },
   {
     "en": "Opening a shared link that asks about a project file works again when the link carries the file's name. The chat now finds the file and shows its status instead of failing.",

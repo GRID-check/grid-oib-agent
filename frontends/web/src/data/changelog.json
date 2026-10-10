@@ -179,6 +179,10 @@
               "de": "Eine Quelle aus einem anderen Projekt ist jetzt als Präzedenzfall gekennzeichnet und enthält den Projektstatus sowie das Bundesland. Verwendet eine Antwort einen solchen Präzedenzfall, unterscheidet sie zwischen den geltenden Vorgaben, der üblichen Vorgehensweise des Büros und dem Projekt, in dem etwas bereits umgesetzt wurde, und weist darauf hin, wenn sich Vorschriften oder Bundesland unterscheiden."
             },
             {
+              "en": "Each project now opens its Overview on a dashboard: this month's activity, documents, memory, members and the most similar past projects at a glance, each one click from where you change it. Project admins can set a usage limit for the project.",
+              "de": "Jedes Projekt öffnet seine Übersicht jetzt in einem Dashboard: Aktivitäten dieses Monats, Dokumente, Memory, Mitglieder und die ähnlichsten früheren Projekte auf einen Blick – jeweils mit einem Klick zur Bearbeitung. Projektadmins können ein Nutzungslimit für das Projekt festlegen."
+            },
+            {
               "en": "Each project now has a Steckbrief in its settings: the address, the period from start to completion, and everyone who worked on it, including former staff and external planners without a Piloti account.",
               "de": "Jedes Projekt hat jetzt in seinen Einstellungen einen Steckbrief: die Adresse, den Zeitraum vom Beginn bis zur Fertigstellung und alle, die daran mitgearbeitet haben, auch ehemalige Mitarbeitende und externe Planerinnen und Planer ohne Piloti-Konto."
             },
@@ -395,6 +399,10 @@
             {
               "en": "Scheduled research reports are filed into the project again in organizations whose features are switched on individually; they had been held back.",
               "de": "Geplante Rechercheberichte werden in Organisationen, in denen Funktionen individuell aktiviert werden, wieder im Projekt abgelegt; bisher wurden sie zurückgehalten."
+            },
+            {
+              "en": "Opening a project's settings without permission to manage members no longer shows an error, and buttons you are not allowed to use are no longer shown.",
+              "de": "Wenn Sie die Projekteinstellungen ohne Berechtigung zur Verwaltung von Mitgliedern öffnen, wird kein Fehler mehr angezeigt. Schaltflächen, die Sie nicht verwenden dürfen, werden nicht mehr angezeigt."
             },
             {
               "en": "A file cannot be uploaded over one waiting in quarantine, not even by its uploader, so the held-back version never becomes part of its history. Delete the quarantined file first, or have it released.",
