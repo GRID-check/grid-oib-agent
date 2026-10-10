@@ -63,6 +63,10 @@
               "de": "Der Effort-Slider warnt jetzt, wenn er auf Maximum eingestellt ist, und der Level-Chip im Composer wird währenddessen bernsteinfarben. Maximum rechnet deutlich länger und verbraucht wesentlich mehr Tokens, ist aber nur selten intelligenter als High."
             },
             {
+              "en": "When you close a project, Piloti now proposes which files it no longer needs, such as working copies, older versions, duplicates and temporary files. It is marked as an AI proposal, you decide about every file, and what you confirm goes to the Papierkorb for 14 days.",
+              "de": "Wenn Sie ein Projekt abschließen, schlägt Piloti jetzt vor, welche Dateien es nicht mehr braucht, etwa Arbeitskopien, ältere Fassungen, Duplikate und temporäre Dateien. Der Vorschlag ist als KI-Vorschlag gekennzeichnet, Sie entscheiden über jede Datei, und was Sie bestätigen, kommt für 14 Tage in den Papierkorb."
+            },
+            {
               "en": "Teammates can now follow and steer deep research runs in the projects they work in, including the runs of scheduled and shared tasks, not only their own. Anyone who can view a chat can follow a run in it, while stopping a run or adding a document to it still needs permission to chat in the project.",
               "de": "Teammitglieder können Deep-Research-Läufe in den Projekten, in denen sie arbeiten, jetzt verfolgen und steuern – auch Läufe geplanter und geteilter Aufgaben, nicht nur ihre eigenen. Wer einen Chat ansehen kann, kann darin einen Lauf verfolgen. Um einen Lauf zu stoppen oder ein Dokument hinzuzufügen, ist weiterhin die Berechtigung erforderlich, im Projekt zu chatten."
             },
@@ -190,6 +194,10 @@
             {
               "en": "The Archiv's file list now offers the same filters as a project's, so archived files can be shown again and files written by Piloti can be told apart from your team's.",
               "de": "Die Dateiliste im Archiv bietet jetzt dieselben Filter wie die eines Projekts. So können Sie archivierte Dateien wieder anzeigen und von Piloti erstellte Dateien von denen Ihres Teams unterscheiden."
+            },
+            {
+              "en": "Your office's shared documents now have one name everywhere: Büroablage, in the navigation, on source chips, in upload messages and in Piloti's answers. The English interface calls it Office filing.",
+              "de": "Die gemeinsamen Unterlagen Ihres Büros heißen jetzt überall gleich: Büroablage – in der Navigation, auf den Quellen-Chips, in den Upload-Meldungen und in den Antworten von Piloti. Die englische Oberfläche nennt sie „Office filing“."
             },
             {
               "en": "An answer now writes itself in calmly where you are reading: the Herleitung folds away before the first word, nothing above the line you are on moves, and the sources, actions and cards arrive together when the answer is done.",
