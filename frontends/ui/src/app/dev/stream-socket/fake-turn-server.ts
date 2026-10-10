@@ -10,87 +10,256 @@
  * frame with its send time on the shared epoch clock (`timeOrigin + now()`),
  * and the page records when the client's `onmessage` returned.
  *
+ * Like the real one (`docs/api/websocket-protocol.md`), the server keeps every
+ * frame of a turn it sent, and a turn runs on whether or not a socket follows
+ * it. So it answers what a client sends after an interruption:
+ *
+ * - `user_message` starts the next scripted turn on the socket that asked; a
+ *   resend of a question it already holds is ignored.
+ * - `attach{turn_id, after_seq}` replays the turn's frames after `after_seq`
+ *   to the asking socket, which then follows the turn live. After a reload the
+ *   page names the turn it was in (`resume`): the server takes it up on its
+ *   original clock, so the replay holds every frame sent while the page was
+ *   gone. A turn it never heard of is `rejected{turn_not_found}`.
+ * - `cancel_turn` stops the turn and ends it `cancelled`, as `ChatSocket` does:
+ *   cut to `shown`, the text the reader had on screen, by the rule the agent
+ *   tier applies (`stopped-answer.ts`), or with the text sent so far when the
+ *   cancel names no position. The hello says it reads `shown`. A Stop of a
+ *   turn that has already ended is `rejected{turn_not_found}`, as the real
+ *   server answers a Stop that crossed its finished answer.
+ *
+ * `drop()` closes the chat socket the way a lost network does (code 1006),
+ * and the client's own ladder reconnects and re-attaches.
+ *
  * Only the chat socket (`…/websocket`) is faked; any other `WebSocket` (the
  * dev server's HMR) is the real one.
  */
 
+import { parseWireEvent, type ShownAnswer, type WireEvent } from '@/adapters/api/wire-v2'
+import { foldTurnEvents } from '@/features/chat/lib/turn-fold'
+import { stoppedAnswer } from '@/features/chat/lib/stopped-answer'
 import { CONVERSATION_PLACEHOLDER, TURN_PLACEHOLDER, type FrameKind, type TurnScript } from './turn-script'
 
 export interface SocketProbeSink {
   onOpen: () => void
-  onUserMessage: (at: number) => void
+  /** A new question reached the server; `index` is its scripted turn. */
+  onUserMessage: (at: number, index: number) => void
   onFrameHandled: (kind: FrameKind, sentAt: number, handledAt: number) => void
   onHeartbeat: () => void
+  /** The server answered an `attach`, replaying `frames` frames. */
+  onAttach?: (afterSeq: number, frames: number) => void
+}
+
+/** A turn the page was in when it reloaded: the server picks it up on its original clock. */
+export interface ResumeTurn {
+  index: number
+  turnId: string
+  conversationId: string
+  /** Epoch ms the turn started at, on the server's clock. */
+  startedAtEpoch: number
+}
+
+export interface FakeTurnServer {
+  uninstall: () => void
+  /** Close the chat socket as a lost network does. */
+  drop: () => void
+  /** The turn running now, for the page to resume after a reload. */
+  running: () => ResumeTurn | null
 }
 
 /**
- * The worker: holds the frames, and once told the ids, posts each at its
- * time. Plain JS in a string, so it needs no bundler support for workers.
+ * The worker: holds every turn's frames, and once told a turn's ids, posts
+ * each of its frames at its time, from the turn's start epoch (in the past
+ * after a reload, which sends the frames already due at once).
+ * Plain JS in a string, so it needs no bundler support for workers.
  */
 const WORKER_SOURCE = `
-let frames = []
+let turns = []
+const timers = new Map()
 const now = () => performance.timeOrigin + performance.now()
 self.onmessage = (event) => {
   const message = event.data
-  if (message.type === 'load') { frames = message.frames; return }
+  if (message.type === 'load') { turns = message.turns; return }
+  if (message.type === 'stop') { clearTimeout(timers.get(message.index)); timers.set(message.index, -1); return }
   if (message.type !== 'start') return
+  const frames = turns[message.index] || []
   const fill = (data) => data.split(${JSON.stringify(TURN_PLACEHOLDER)}).join(message.turnId)
     .split(${JSON.stringify(CONVERSATION_PLACEHOLDER)}).join(message.conversationId)
     .replace('"ts":0', '"ts":' + Math.round(now()))
-  const started = now()
+  const started = message.startedAtEpoch
   let index = 0
   const tick = () => {
+    if (timers.get(message.index) === -1) return
     const elapsed = now() - started
     while (index < frames.length && frames[index].at <= elapsed) {
       const frame = frames[index++]
-      self.postMessage({ kind: frame.kind, sentAt: now(), data: fill(frame.data) })
+      self.postMessage({ index: message.index, seq: index, kind: frame.kind, sentAt: now(), data: fill(frame.data) })
     }
-    if (index < frames.length) setTimeout(tick, Math.max(0, frames[index].at - (now() - started)))
-    else self.postMessage({ kind: 'end', sentAt: now() })
+    if (index < frames.length) timers.set(message.index, setTimeout(tick, Math.max(0, frames[index].at - (now() - started))))
+    else self.postMessage({ index: message.index, kind: 'end', sentAt: now() })
   }
   tick()
 }
 `
 
 interface WorkerFrame {
+  index: number
+  seq?: number
   kind: FrameKind | 'end'
   sentAt: number
   data?: string
 }
 
+interface LoggedFrame {
+  seq: number
+  kind: FrameKind
+  data: string
+}
+
+interface ServerTurn extends ResumeTurn {
+  log: LoggedFrame[]
+  follower: FakeTurnSocket | null
+  ended: boolean
+}
+
 /** Epoch milliseconds on the page's own `performance.now()` clock. */
 const pageTime = (epoch: number): number => epoch - performance.timeOrigin
+const epochNow = (): number => performance.timeOrigin + performance.now()
 
 const OPEN = 1
 const CLOSED = 3
 
+/** The answer text a turn's log adds up to, as the fold reads it: deltas, reset by a retraction. */
+const sentText = (log: readonly LoggedFrame[]): string => {
+  let text = ''
+  for (const { data } of log) {
+    const frame = JSON.parse(data) as { type?: string; name?: string; delta?: string; snapshot?: { text?: string } }
+    if (frame.type === 'TEXT_MESSAGE_CONTENT') text += frame.delta ?? ''
+    if (frame.type === 'STATE_SNAPSHOT') text = frame.snapshot?.text ?? text
+    if (frame.name === 'answer_retracted') text = ''
+  }
+  return text
+}
+
 /**
- * Install the fake server as `window.WebSocket`. Returns the uninstaller.
- * `onScriptEnd` fires once the worker has sent its last frame.
+ * What a stopped turn keeps when the cancel said what was on screen: the
+ * frames through `shown.seq` folded as the client folds them, cut to
+ * `shown.chars` by the agent tier's rule (`TurnTextFold.stopped`).
+ */
+const stoppedResult = (log: readonly LoggedFrame[], shown: ShownAnswer, messageId: string): Record<string, unknown> => {
+  const events = log
+    .filter((frame) => frame.seq <= shown.seq)
+    .map((frame) => parseWireEvent(JSON.parse(frame.data)))
+    .filter((event): event is WireEvent => event !== null)
+  const view = foldTurnEvents(undefined, events)
+  if (!view) return { message_id: messageId, text: '' }
+  const kept = stoppedAnswer(
+    { text: view.text, settled: view.settled, sources: view.sources, cards: view.cards },
+    shown.chars
+  )
+  return {
+    message_id: messageId,
+    text: kept.text,
+    ...(kept.sources.length > 0 && { sources: kept.sources }),
+    ...(kept.cards.length > 0 && { cards: kept.cards }),
+    ...(view.answerMeta && { answer_meta: view.answerMeta }),
+  }
+}
+
+/** Declared here so `ServerTurn` can name it; the class is built inside the installer. */
+interface FakeTurnSocket {
+  readonly conversationId: string
+  readyState: number
+  deliver: (data: string) => void
+  drop: () => void
+}
+
+/**
+ * Install the fake server as `window.WebSocket`. `onScriptEnd` fires once the
+ * worker has sent the last frame of the last scripted turn.
  */
 export const installFakeTurnServer = (
   script: TurnScript,
   sink: SocketProbeSink,
-  onScriptEnd: (lastSentAt: number) => void
-): (() => void) => {
+  onScriptEnd: (lastSentAt: number) => void,
+  options: { resume?: ResumeTurn } = {}
+): FakeTurnServer => {
   const RealWebSocket = window.WebSocket
   const workerUrl = URL.createObjectURL(new Blob([WORKER_SOURCE], { type: 'text/javascript' }))
   // Loaded now, not at send: cloning megabytes of frames into the worker is
   // main-thread work that belongs to no turn.
   const worker = new Worker(workerUrl)
-  worker.postMessage({ type: 'load', frames: script.frames })
-  let started = false
-  // The chat's socket: the latest one the client opened.
-  const chat: { socket: FakeTurnSocket | null } = { socket: null }
-  worker.onmessage = (event: MessageEvent<WorkerFrame>) => chat.socket?.receive(event.data)
+  worker.postMessage({ type: 'load', turns: script.turns.map((turn) => turn.frames) })
+  const turns: ServerTurn[] = []
+  const sockets = new Set<FakeTurnSocket>()
 
-  class FakeTurnSocket {
+  /** Hand one frame to the turn's follower, if it has one that is open. */
+  const forward = (turn: ServerTurn, frame: LoggedFrame, sentAt: number): void => {
+    const socket = turn.follower
+    if (!socket || socket.readyState !== OPEN) return
+    socket.deliver(frame.data)
+    if (frame.kind === 'heartbeat') sink.onHeartbeat()
+    else sink.onFrameHandled(frame.kind, sentAt, performance.now())
+  }
+
+  worker.onmessage = (event: MessageEvent<WorkerFrame>) => {
+    const message = event.data
+    const turn = turns[message.index]
+    if (!turn || turn.ended) return
+    if (message.kind === 'end') {
+      turn.ended = true
+      if (message.index === script.turns.length - 1) onScriptEnd(pageTime(message.sentAt))
+      return
+    }
+    if (!message.data || message.seq === undefined) return
+    const frame = { seq: message.seq, kind: message.kind, data: message.data }
+    turn.log.push(frame)
+    forward(turn, frame, pageTime(message.sentAt))
+  }
+
+  const start = (turn: ServerTurn): void => {
+    turns[turn.index] = turn
+    const { index, turnId, conversationId, startedAtEpoch } = turn
+    worker.postMessage({ type: 'start', index, turnId, conversationId, startedAtEpoch })
+  }
+
+  /** Stop: no more scripted frames, and the cancelled terminal with what was shown, or else what was sent. */
+  const cancel = (turn: ServerTurn, shown: ShownAnswer | undefined): void => {
+    if (turn.ended) return
+    worker.postMessage({ type: 'stop', index: turn.index })
+    turn.ended = true
+    const seq = turn.log.length + 1
+    const terminal = {
+      v: 2,
+      conversation_id: turn.conversationId,
+      turn_id: turn.turnId,
+      seq,
+      ts: Date.now(),
+      type: 'RUN_FINISHED',
+      outcome: 'cancelled',
+      result: shown
+        ? stoppedResult(turn.log, shown, messageIdOf(turn))
+        : { message_id: messageIdOf(turn), text: sentText(turn.log) },
+    }
+    const frame = { seq, kind: 'terminal' as const, data: JSON.stringify(terminal) }
+    turn.log.push(frame)
+    forward(turn, frame, performance.now())
+  }
+
+  /** The answer id the turn's `RUN_STARTED` named. */
+  const messageIdOf = (turn: ServerTurn): string => {
+    const started = turn.log[0] && (JSON.parse(turn.log[0].data) as { message_id?: string })
+    return started?.message_id ?? ''
+  }
+
+  class Socket implements FakeTurnSocket {
     static readonly CONNECTING = 0
     static readonly OPEN = OPEN
     static readonly CLOSING = 2
     static readonly CLOSED = CLOSED
 
     readonly url: string
+    readonly conversationId: string = ''
     readonly protocol = ''
     readonly extensions = ''
     binaryType: BinaryType = 'blob'
@@ -102,21 +271,28 @@ export const installFakeTurnServer = (
     onerror: ((event: Event) => void) | null = null
 
     constructor(url: string | URL, protocols?: string | string[]) {
-      const href = String(url)
-      this.url = href
+      const href = new URL(String(url), window.location.href)
+      this.url = String(url)
       // Not the chat socket: hand back a real one (the constructor's return value wins).
-      if (!new URL(href, window.location.href).pathname.endsWith('/websocket')) {
-        return new RealWebSocket(url, protocols) as unknown as FakeTurnSocket
+      if (!href.pathname.endsWith('/websocket')) {
+        return new RealWebSocket(url, protocols) as unknown as Socket
       }
-      chat.socket = this
+      // One socket per conversation, as the real URL names it.
+      this.conversationId = href.searchParams.get('conversationId') ?? ''
+      sockets.add(this)
       window.setTimeout(() => {
+        if (this.readyState === CLOSED) return
         this.readyState = OPEN
         this.onopen?.(new Event('open'))
         // The server's first frame, as `ChatSocket.serve` sends it: the client
         // sends nothing on a socket that has not said hello.
-        this.onmessage?.(
-          new MessageEvent('message', {
-            data: JSON.stringify({ v: 2, type: 'CUSTOM', name: 'hello', ts: Date.now(), value: { build: 'dev' } }),
+        this.deliver(
+          JSON.stringify({
+            v: 2,
+            type: 'CUSTOM',
+            name: 'hello',
+            ts: Date.now(),
+            value: { build: 'dev', accepts: ['cancel_turn.shown'] },
           })
         )
         sink.onOpen()
@@ -124,32 +300,87 @@ export const installFakeTurnServer = (
     }
 
     send(raw: string): void {
-      const message = JSON.parse(raw) as { type?: string; message_id?: string; conversation_id?: string }
-      // One scripted turn per page load; `attach` and `cancel_turn` are not scripted.
-      if (message.type !== 'user_message' || !message.message_id || started) return
-      started = true
-      sink.onUserMessage(performance.now())
-      worker.postMessage({ type: 'start', turnId: message.message_id, conversationId: message.conversation_id ?? '' })
+      const message = JSON.parse(raw) as {
+        type?: string
+        message_id?: string
+        turn_id?: string
+        after_seq?: number
+        shown?: ShownAnswer
+      }
+      if (message.type === 'user_message') return this.ask(message.message_id)
+      const turnId = message.turn_id ?? ''
+      if (message.type === 'attach') return this.attach(turnId, message.after_seq ?? 0)
+      if (message.type === 'cancel_turn') {
+        const turn = turns.find((candidate) => candidate?.turnId === turnId)
+        if (turn && !turn.ended) cancel(turn, message.shown)
+        else this.reject('cancel_turn', turnId)
+      }
     }
 
-    receive(frame: WorkerFrame): void {
-      if (frame.kind === 'end') {
-        onScriptEnd(pageTime(frame.sentAt))
+    private ask(messageId: string | undefined): void {
+      // A resend of a question the server holds: it is already running.
+      if (!messageId || turns.some((turn) => turn?.turnId === messageId)) return
+      const index = turns.length
+      if (index >= script.turns.length) return
+      sink.onUserMessage(performance.now(), index)
+      start({ index, turnId: messageId, conversationId: this.conversationId, startedAtEpoch: epochNow(), log: [], follower: this, ended: false })
+    }
+
+    private attach(turnId: string, afterSeq: number): void {
+      const turn = turns.find((candidate) => candidate?.turnId === turnId)
+      if (turn) {
+        const replay = turn.log.filter((frame) => frame.seq > afterSeq)
+        turn.follower = this
+        sink.onAttach?.(afterSeq, replay.length)
+        replay.forEach((frame) => forward(turn, frame, performance.now()))
         return
       }
-      if (this.readyState !== OPEN || !frame.data) return
-      this.onmessage?.(new MessageEvent('message', { data: frame.data }))
-      if (frame.kind === 'heartbeat') {
-        sink.onHeartbeat()
+      const resume = options.resume
+      if (resume?.turnId === turnId) {
+        // The turn the page reloaded out of: the worker sends what is already
+        // due at once, which is the replay from seq 1.
+        sink.onAttach?.(afterSeq, 0)
+        start({ ...resume, log: [], follower: this, ended: false })
         return
       }
-      sink.onFrameHandled(frame.kind, pageTime(frame.sentAt), performance.now())
+      this.reject('attach', turnId)
+    }
+
+    /** `rejected{turn_not_found}`: the server holds no running turn by that id. */
+    private reject(of: 'attach' | 'cancel_turn', turnId: string): void {
+      this.deliver(
+        JSON.stringify({
+          v: 2,
+          conversation_id: this.conversationId,
+          turn_id: turnId,
+          seq: 0,
+          ts: Date.now(),
+          type: 'CUSTOM',
+          name: 'rejected',
+          value: { of, code: 'turn_not_found', message: null },
+        })
+      )
+    }
+
+    deliver(data: string): void {
+      if (this.readyState === OPEN) this.onmessage?.(new MessageEvent('message', { data }))
+    }
+
+    /** The network went away: closed without a close frame. */
+    drop(): void {
+      this.shut(1006, false)
     }
 
     close(): void {
+      this.shut(1000, true)
+    }
+
+    private shut(code: number, wasClean: boolean): void {
       if (this.readyState === CLOSED) return
       this.readyState = CLOSED
-      this.onclose?.(new CloseEvent('close', { code: 1000, wasClean: true }))
+      sockets.delete(this)
+      for (const turn of turns) if (turn?.follower === this) turn.follower = null
+      this.onclose?.(new CloseEvent('close', { code, wasClean }))
     }
 
     addEventListener(): void {}
@@ -159,10 +390,17 @@ export const installFakeTurnServer = (
     }
   }
 
-  window.WebSocket = FakeTurnSocket as unknown as typeof WebSocket
-  return () => {
-    window.WebSocket = RealWebSocket
-    worker.terminate()
-    URL.revokeObjectURL(workerUrl)
+  window.WebSocket = Socket as unknown as typeof WebSocket
+  return {
+    uninstall: () => {
+      window.WebSocket = RealWebSocket
+      worker.terminate()
+      URL.revokeObjectURL(workerUrl)
+    },
+    drop: () => [...sockets].forEach((socket) => socket.drop()),
+    running: () => {
+      const turn = turns.findLast((candidate) => candidate && !candidate.ended)
+      return turn ? { index: turn.index, turnId: turn.turnId, conversationId: turn.conversationId, startedAtEpoch: turn.startedAtEpoch } : null
+    },
   }
 }

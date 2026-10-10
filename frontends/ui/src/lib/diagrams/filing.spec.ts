@@ -18,6 +18,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 
+// An open project: no folder of it is restricted (ADR-0087).
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('server-only', () => ({}))
 
 const s3Send = vi.fn()
@@ -60,7 +62,15 @@ vi.mock('@/lib/projects/repository', () => ({
 const getOrCreateProjectFolderByName = vi.fn()
 vi.mock('@/lib/projects/folder-service', () => ({
   getOrCreateProjectFolderByName: (...args: unknown[]) => getOrCreateProjectFolderByName(...args),
+  findRootProjectFolderByName: vi.fn(async () => null),
 }))
+
+// The conversation's record of restricted source folders (ADR-0087, ADR-0088).
+const recordedRestrictedFolders = vi.fn(async (): Promise<string[]> => [])
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  recordedRestrictedFolders: (...args: unknown[]) => recordedRestrictedFolders(...(args as [])),
+}))
+vi.mock('@/lib/authz/folder-access-repository', () => ({ listProjectFolderTree: vi.fn(async () => []) }))
 
 const findDocumentAuthoredByRef = vi.fn()
 const deleteProjectDocument = vi.fn()
@@ -437,5 +447,19 @@ describe('a partial filing is recoverable rather than rolled back', () => {
     expect(filed.svg.alreadyFiled).toBe(true)
     expect(pdf.alreadyFiled).toBe(false)
     expect(admitted().map((row) => row.authoredByProducer)).toEqual(['diagram_pdf'])
+  })
+})
+
+describe('a diagram drawn in a conversation that drew on a restricted folder (ADR-0087, ADR-0088)', () => {
+  it('files neither half into an open folder', async () => {
+    const { ConversationConfinedError } = await import('@/lib/api/errors')
+    recordedRestrictedFolders.mockResolvedValue(['folder-vertraege'])
+
+    await expect(file({ origin: { conversationId: 's_conv_1', locale: 'de' } })).rejects.toBeInstanceOf(
+      ConversationConfinedError,
+    )
+    expect(recordedRestrictedFolders).toHaveBeenCalledWith('s_conv_1', 'org-1')
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+    expect(s3Send).not.toHaveBeenCalled()
   })
 })

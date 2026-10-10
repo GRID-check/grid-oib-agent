@@ -25,7 +25,11 @@ export interface FolderObjectMenuProps {
   onNewInside?: () => void
   onRename: () => void
   onMove?: (parentId: string | null, parentName: string) => void
+  /** „Zugriff…" (ADR-0088); absent for a reader who may not manage the project. */
+  onAccess?: () => void
   onDelete: () => void
+  /** The reader may only read this folder: its write entries are left out (ADR-0088). */
+  readOnly?: boolean
   children: ReactNode
 }
 
@@ -37,7 +41,9 @@ export function FolderObjectMenu({
   onNewInside,
   onRename,
   onMove,
+  onAccess,
   onDelete,
+  readOnly = false,
   children,
 }: FolderObjectMenuProps): ReactNode {
   const t = useTranslations('files')
@@ -52,6 +58,8 @@ export function FolderObjectMenu({
           move: t('folders.move'),
           delete: t('folders.delete'),
           allFiles: t('folders.allFiles'),
+          access: t('folders.access.menu'),
+          readOnly: t('folders.access.readOnlyMenu'),
         },
         folders,
         canAcceptMove,
@@ -59,9 +67,12 @@ export function FolderObjectMenu({
         onNewInside,
         onRename,
         onMove,
+        onAccess,
         onDelete,
+        readOnly,
       }),
     [
+      readOnly,
       folder,
       folders,
       canAcceptMove,
@@ -69,6 +80,7 @@ export function FolderObjectMenu({
       onNewInside,
       onRename,
       onMove,
+      onAccess,
       onDelete,
       t,
     ],

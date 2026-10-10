@@ -18,12 +18,25 @@ import {
   type ReactNode,
   memo,
   useCallback,
-  useEffect,
   useId,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
+import { animate } from 'motion/react'
+import {
+  AnimatePresence,
+  motion,
+  motionBase,
+  motionInstant,
+  motionQuick,
+  motionQuickExit,
+  useIconSwapTransition,
+  useMotionToken,
+} from '@/components/motion'
+import { HeightArrival, HeightExpand } from '@/components/motion/height-arrival'
+import { cn } from '@/lib/utils'
 import { Check, ChevronDown, FileText, MessageCircle } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -36,7 +49,7 @@ import { remarkCitationMarkers } from '@/features/layout/lib/citation-markers'
 import { remarkFileReferences } from '@/features/layout/lib/file-reference-markers'
 import { formatTime } from '@/shared/utils/format-time'
 import { formatDurationElapsed } from '@/lib/format'
-import { GridCardItem, GridCards } from '@/features/grid-cards/components/GridCards'
+import { GridCardItem } from '@/features/grid-cards/components/GridCards'
 import {
   CALLOUT_SLOT_INDEX,
   hasPlacedCalloutMarker,
@@ -51,7 +64,7 @@ import { ANSWER_DEGRADED_REASONS, TRUNCATION_REASONS } from '@/lib/conversations
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
-import { useAnswerRevealStore } from '../stores/answer-reveal-store'
+import { registerShownText, useAnswerRevealStore } from '../stores/answer-reveal-store'
 import { useAnswerFileReferences } from '../hooks/use-answer-file-references'
 import { usePacedText } from '../hooks/use-paced-text'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -62,6 +75,7 @@ import {
   buildCitationModel,
   proseLength,
   splitAnswerBody,
+  type CitedDocument,
 } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
 import { DiagramFilingProvider } from '@/features/diagrams/diagram-filing-context'
@@ -71,7 +85,7 @@ import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { turnMemoryItems, type TurnMemoryItem } from '../lib/turn-memory'
 import { answerMetaToAnatomy, summaryDuplicatesBody } from '../lib/answer-meta-cards'
-import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
+import { AnatomyBlock, AnatomyMasthead, mastheadShows } from './AnswerAnatomy'
 import { FindingsMatrix } from './FindingsMatrix'
 import type { AnswerKind, AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import type { Finding, Findings } from '@/lib/conversations/message-findings'
@@ -79,7 +93,7 @@ import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { RetryThoroughButton } from './RetryThoroughButton'
 import { AnswerActions } from './AnswerActions'
-import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
+import { CardSlot, CardSlotLiveProvider, forgetArrivals } from './CardSlotArrival'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { QuoteStamp } from '@/lib/conversations/message-quote-stamps'
 import { projectKeysIn } from '@/lib/text/answer-directives'
@@ -108,25 +122,52 @@ const LEDE_CLASS =
   '[&>.markdown-content>p:first-child]:leading-[1.65] ' +
   '[&>.markdown-content>p:first-child]:mb-4'
 
-/** The prose wrapper's classes: the caret's inline run while streaming, and the lede. */
-const proseClass = (streaming: boolean, lede: string): string | undefined => {
-  const caret = streaming
-    ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-    : ''
-  return [caret, lede].filter(Boolean).join(' ') || undefined
-}
+/**
+ * The prose wrapper's classes: the lede. Nothing for the caret: it is placed
+ * inside the block being written (`MarkdownRenderer`'s `caret`), so every
+ * block keeps its own display while it streams. Forcing the last block inline
+ * to trail the caret behind its last glyph made it ignore its measure, its
+ * list indent and its margins until the next block began (stream audit
+ * 2026-10, A1).
+ */
+const proseClass = (lede: string): string | undefined => lede || undefined
 
 /**
- * What lands below the prose once the answer is final (the unplaced legal
- * basis, the takeaways, the unplaced cards) rises into place instead of
- * appearing: it is below the reading point, so it moves nothing the reader is
- * on, and the entrance says it is new.
+ * What separates a written summary from the prose in the one text the pace
+ * reveals: a paragraph break, so neither side's markup reaches into the other
+ * when the reveal judges a clean cut.
  */
-const LATE_BLOCK_ENTER =
-  'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance motion-reduce:animate-none'
+const SUMMARY_GAP = '\n\n'
 
-/** Below this, the answer is short enough to read whole — no lede. */
-const LEDE_MIN_CHARS = 600
+/** What the copy actions are handed while the answer is still arriving. */
+const NO_DOCUMENTS: CitedDocument[] = []
+
+/**
+ * The mark on the role tab. A check says the answer is complete, so it is
+ * held back while the answer arrives (and after Stop, which leaves it
+ * incomplete): a quiet dot stands in its place at the same size, and at the
+ * settle the check lands on `iconSwapTransition` (scale on `springSnap`,
+ * opacity on a tween), the turn's one small moment of arrival, and simply
+ * appears under reduced motion. A restored answer shows its check at once.
+ */
+const RoleTabMark: FC<{ complete: boolean; arrived: boolean }> = ({ complete, arrived }) => {
+  const swap = useIconSwapTransition()
+  return (
+    <span className="inline-flex size-2.5 items-center justify-center" aria-hidden="true">
+      {complete ? (
+        <motion.span
+          className="inline-flex"
+          initial={arrived ? { opacity: 0, scale: 0.6 } : false}
+          animate={{ opacity: 1, scale: 1, transition: swap.enter }}
+        >
+          <Check className="size-2.5" strokeWidth={2.6} />
+        </motion.span>
+      ) : (
+        <span className="size-1 rounded-full bg-current opacity-60" data-testid="role-tab-pending" />
+      )}
+    </span>
+  )
+}
 
 /**
  * A lede only makes sense when the answer opens with prose. An answer that
@@ -136,24 +177,18 @@ const LEDE_MIN_CHARS = 600
  */
 const NON_PROSE_OPENER = /^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|\[\[card:)/
 
+/** Enough of the opening to tell every opener above from prose (`[[card:` is the longest). */
+const OPENER_DECIDABLE_CHARS = 8
+
 /**
- * The lede is decided while the answer streams, the moment it has earned one,
- * not flipped on at the end: decided only once the answer was complete, it
- * reflowed the top of an answer the reader was already halfway down, in the
- * same frame as everything else the terminal frame changes (ADR-0066). Not
- * eased: font size is a layout property, and the motion vocabulary animates
- * none (`grid/motion-vocabulary`).
+ * Whether the answer opens with prose, or `null` while too little of it has
+ * arrived to say (a lone `#` may yet be a heading).
  */
-function opensWithLede(body: string): boolean {
-  // Not withheld while streaming. Deltas only grow the body, but a settled
-  // snapshot (ADR-0066) can shorten it and a retraction empties it, so the
-  // snapshot can take a lede back; it then follows the settled prose.
-  if (body.length < LEDE_MIN_CHARS) return false
-  const trimmed = body.trimStart()
+function opensWithProse(text: string, final: boolean): boolean | null {
+  const trimmed = text.trimStart()
+  if (!final && trimmed.length < OPENER_DECIDABLE_CHARS && !trimmed.includes('\n')) return null
   const firstLine = trimmed.split('\n', 1)[0]
-  if (!firstLine || NON_PROSE_OPENER.test(firstLine)) return false
-  // Two blocks minimum: a lede needs something to lead into.
-  return trimmed.split(/\n{2,}/).length >= 2
+  return Boolean(firstLine) && !NON_PROSE_OPENER.test(firstLine)
 }
 
 export interface AgentResponseProps {
@@ -224,7 +259,7 @@ export interface AgentResponseProps {
   /**
    * Citation-verification result: how many citations were removed as
    * unverifiable, with de-duplicated reasons. Renders a muted note inside the
-   * answer details, which open on their own when it is present.
+   * answer details, whose trigger carries a warning dot when it is present.
    */
   citationsRemoved?: { count: number; reasons: string[] }
   /**
@@ -237,8 +272,8 @@ export interface AgentResponseProps {
   /**
    * The turn's research was cut off at its budget ceiling: this answer rests on
    * the evidence gathered up to that point rather than on a finished search.
-   * Renders one muted line inside the answer details, which open on their
-   * own when it is present — a fact about the EVIDENCE, in the same register
+   * Renders one muted line inside the answer details, whose trigger carries a
+   * warning dot when it is present — a fact about the EVIDENCE, in the same register
    * as the sources row. Never a badge on the
    * answer and never folded into the confidence chip: that grades whether the
    * claims are sourced, which a truncated answer can be, perfectly.
@@ -342,6 +377,20 @@ export interface AgentResponseProps {
    * the thread (`useProjectFacts`).
    */
   projectProfile?: unknown
+  /**
+   * The reader pressed Stop on this turn (`ChatMessage.stopped`). The answer
+   * keeps what was on screen at the press, says „Gestoppt" where the writing
+   * ended, and does not claim to be complete: the role tab's check is held
+   * back, as for a turn still running.
+   */
+  stopped?: boolean
+  /**
+   * The turn failed (`RUN_ERROR`) under this answer (`ChatMessage.failed`).
+   * What had been shown stays, frozen as for Stop and dimmed, with the error
+   * card the thread puts under it; nothing in the footer becomes operable,
+   * because a cut-off fragment is not an answer to copy or rate.
+   */
+  failed?: boolean
 }
 
 /** Role-tab label for the default answer card. Envelope `kind` wins. */
@@ -358,30 +407,49 @@ function answerRoleTab(
 }
 
 /**
- * Blinking caret shown at the tail of a still-streaming answer (C6). It fades
- * out while the finish reveals the last words (`fading`), so by the time the
- * answer settles and it is removed there is nothing left to disappear. The
- * fade is on a wrapper: the blink already animates the caret's own opacity,
- * and two animations of one property on one element fight.
+ * The caret at the tail of a still-streaming answer (C6), placed after the
+ * last word by the renderer (`streaming-caret.tsx`).
+ *
+ * It takes no room: a zero-width box at the baseline, the bar and the veil
+ * drawn out of it. A caret with a width pushed the last word to the next line
+ * when it just fitted, and pulled it back when the caret moved on.
+ *
+ * Solid while words advance and breathing only while the reveal stands still
+ * (`idle`, from `usePacedText`), as an editor's caret does: a caret pulsing
+ * under arriving words read as a blink, and the pause is what a breath is
+ * for. It fades out while the finish reveals the last words (`fading`), so by
+ * the time the answer settles and it is removed there is nothing left to
+ * disappear. The fade is on the wrapper and the breath on the bar: two
+ * animations of one property on one element fight.
  *
  * `veil`: the newest words come out of a short gradient trailing the caret,
  * drawn in the card's colour, so each word the reveal adds starts faint and
- * darkens as the next ones push it out, like ink settling. It moves with the
- * caret and animates nothing, so it costs no more than the caret does. A
- * fade per word (a span per word, each with its own entrance) cost a 4×
- * throttled phone 10 fps and 200 ms of main thread a second on a prose-heavy
- * answer, the long tasks included (docs/design/streaming-chat-answer.md).
- * Only on the card, whose colour it is drawn in.
+ * darkens as the next ones push it out, like ink settling. Eased stops rather
+ * than a straight ramp, so the faint end does not read as an edge. It moves
+ * with the caret and animates nothing, so it costs no more than the caret
+ * does. A fade per word (a span per word, each with its own entrance) cost a
+ * 4x throttled phone 10 fps and 200 ms of main thread a second on a
+ * prose-heavy answer (docs/design/streaming-chat-answer.md). Only on the card,
+ * whose colour it is drawn in.
  */
-const StreamingCaret: FC<{ fading?: boolean; veil?: boolean }> = ({ fading = false, veil = false }) => (
+const StreamingCaret: FC<{ fading?: boolean; veil?: boolean; idle?: boolean }> = ({
+  fading = false,
+  veil = false,
+  idle = false,
+}) => (
   <span
     aria-hidden="true"
-    className={`relative inline-block transition-opacity duration-base ease-out ${fading ? 'opacity-0' : 'opacity-100'}`}
+    data-testid="streaming-caret"
+    data-idle={idle ? 'true' : undefined}
+    className={`group/caret relative inline-block h-0 w-0 transition-opacity duration-base ease-out ${fading ? 'opacity-0' : 'opacity-100'}`}
   >
     {veil && (
-      <span className="to-card pointer-events-none absolute -top-[0.1em] right-full -bottom-[0.15em] w-[2.5em] bg-gradient-to-r from-transparent" />
+      // Hidden after markup with a ground of its own (a code span, a citation
+      // pill: `data-caret-after`), which the card's colour would paint over,
+      // and wherever the reader asked for contrast or the system's colours.
+      <span className="pointer-events-none absolute right-0 -bottom-[0.3em] h-[1.4em] w-[2.5em] bg-[linear-gradient(to_right,transparent,color-mix(in_oklab,var(--card)_30%,transparent)_45%,var(--card))] in-data-[caret-after=markup]:hidden contrast-more:hidden forced-colors:hidden" />
     )}
-    <span className="bg-foreground/70 ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] animate-pulse rounded-full align-baseline motion-reduce:animate-none" />
+    <span className="bg-foreground/70 absolute -bottom-[0.2em] left-px h-[1.1em] w-[2px] rounded-full group-data-[idle=true]/caret:animate-caret-breathe motion-reduce:animate-none forced-colors:bg-[CanvasText]" />
   </span>
 )
 
@@ -604,6 +672,10 @@ const MAX_READ_SOURCES = 8
  * counts the same entries — otherwise the details trigger opens onto an empty
  * section.
  */
+/** The `[N]` the structured wire sources carry. */
+const wireCitationNumbers = (citations: CitationSource[] | undefined): number[] =>
+  (citations ?? []).flatMap((citation) => (typeof citation.number === 'number' ? [citation.number] : []))
+
 function readSourceLabel(source: CitationSource): string | undefined {
   return source.fileName ?? source.title ?? source.citationKey
 }
@@ -684,10 +756,12 @@ const ReadSourcesSection: FC<{ readSources?: CitationSource[] }> = ({ readSource
  * actions and the feedback thumbs visible; everything else the turn carries
  * — confidence, the memory note, the skills that shaped the answer, the
  * verification notes and the timestamp — lives behind ONE muted text-xs
- * trigger line. The disclosure opens ITSELF when the turn carries something
- * the reader must not miss — a cut-off, a salvaged run, stripped citations,
- * low confidence — because a warning behind a closed trigger is a warning
- * nobody read. `SkillsUsedDisclosure` is MOVED here, not duplicated: it
+ * trigger line. When the turn carries something the reader must not miss —
+ * a cut-off, a salvaged run, stripped citations, low confidence — the trigger
+ * carries a warning dot, because a warning behind an unmarked trigger is a
+ * warning nobody read. It does not open itself: the warnings land at the
+ * settle, and the disclosure opening then moved the footer under a reader
+ * who had just reached the end. `SkillsUsedDisclosure` is MOVED here, not duplicated: it
  * renders null on a turn that activated nothing, like every other item
  * inside. Feedback stays out on purpose: rating the answer must not cost a
  * click first.
@@ -742,17 +816,20 @@ const AnswerDetails = memo(function AnswerDetails({
   // an en-US browser got "03:35 PM" beside cards that all say "15:35".
   const { locale } = useLocale()
   const [open, setOpen] = useState(false)
-  // The warnings arrive with the terminal frame, after this mounted for the
-  // streaming answer, so an effect rather than the initial state.
+  // Something the reader must not miss: a cut-off, a salvaged run, stripped
+  // citations, low confidence. These arrive with the terminal frame, after the
+  // answer settled, and used to OPEN the disclosure from an effect: 100-400px
+  // snapping in under a reader who had just reached the end. Now the trigger
+  // carries a warning dot instead, positioned over the gap beside it so it
+  // takes no width and moves nothing, and fading in only when it arrives in
+  // front of the reader. The details open when the reader asks.
   const needsAttention = Boolean(
     researchTruncated ||
     degradedReasons?.length ||
     citationsRemoved?.count ||
     answerConfidence === 'low'
   )
-  useEffect(() => {
-    if (needsAttention) setOpen(true)
-  }, [needsAttention])
+  const [attentionAtMount] = useState(needsAttention)
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="flex w-full flex-col">
       {/* One line: copy, the trigger, and feedback at the far end. The
@@ -762,14 +839,26 @@ const AnswerDetails = memo(function AnswerDetails({
         {before}
         <CollapsibleTrigger
           className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 touch-target duration-quick flex items-center gap-1.5 self-start rounded-md text-xs leading-relaxed transition-colors ease-out focus-visible:outline-none focus-visible:ring-2"
-          aria-label={t('answerDetails.triggerAria')}
+          aria-label={t(needsAttention ? 'answerDetails.triggerAriaAttention' : 'answerDetails.triggerAria')}
           data-testid="answer-details-trigger"
         >
           <span>{t('answerDetails.trigger')}</span>
-          <ChevronDown
-            className={`duration-quick size-3 shrink-0 transition-transform ease-out motion-reduce:transition-none${open ? ' rotate-180' : ''}`}
-            aria-hidden="true"
-          />
+          <span className="relative inline-flex">
+            <ChevronDown
+              className={`duration-quick size-3 shrink-0 transition-transform ease-out motion-reduce:transition-none${open ? ' rotate-180' : ''}`}
+              aria-hidden="true"
+            />
+            {needsAttention && (
+              <span
+                aria-hidden="true"
+                data-testid="answer-details-attention"
+                className={cn(
+                  'text-feedback-warning absolute -right-2 top-0 size-1.5 rounded-full bg-current',
+                  !attentionAtMount && 'animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none'
+                )}
+              />
+            )}
+          </span>
         </CollapsibleTrigger>
         {after ? (
           <>
@@ -856,6 +945,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   retrievalLedger,
   quoteStamps,
   projectProfile,
+  stopped = false,
+  failed = false,
 }) => {
   const t = useTranslations('chat')
   const storeProjectId = useChatStore((s) => s.projectId)
@@ -888,6 +979,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // which renders the one consolidated block; the inline [N] markers left in the
   // prose become links to its rows. Answers without such a section are untouched.
   const fallbackId = useId()
+  const roleTabId = `${fallbackId}-role`
   const anchorPrefix = answerSourceAnchorPrefix(messageId ?? fallbackId)
   // The prose streams while the model writes it (ADR-0066), in bursts. It is
   // shown at a steady pace a beat behind what has arrived (`usePacedText`,
@@ -904,10 +996,100 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // half a second after the last visible word. It joins the text once the
   // prose is all shown.
   const prose = useMemo(() => content.slice(0, proseLength(content)), [content])
-  const paced = usePacedText(prose, isStreaming)
+  // Whether the reader is watching this answer arrive. Every entrance below is
+  // gated on it: an answer restored on thread open, switch or reload is drawn
+  // as it stands, with nothing arriving.
+  const [mountedLive] = useState(isStreaming)
+  // Whether prose has been on screen in this view (set below, once it is).
+  const [wroteBefore, setWroteBefore] = useState(false)
+  const anatomy = useMemo(() => answerMetaToAnatomy(answerMeta), [answerMeta])
+  // A summary that restates the body's opening is the same statement twice,
+  // so the masthead drops it (see `summaryDuplicatesBody`); the rules are
+  // where `keptSummary` is written, below.
+  const summary = anatomy?.summary
+  const [keptSummary, setKeptSummary] = useState<string>()
+  const summaryDuplicates = useMemo(
+    () => Boolean(summary) && summaryDuplicatesBody(summary, prose),
+    [summary, prose]
+  )
+  const effectiveSummary =
+    summary && (summary === keptSummary || !summaryDuplicates) ? summary : undefined
+  // The summary standfirst is WRITTEN, not faded in, when it leads an answer
+  // the reader is watching begin: it arrives whole in the masthead event, and
+  // a two-to-five-line paragraph appearing in one frame read as the answer's
+  // first words popping in finished while the sentence under it was being
+  // written (recording 2026-10). It is paced as the head of the prose, so one
+  // reveal writes it and then the body, with one caret, in reading order.
+  // Decided once, at the first summary: one that arrives after prose is on
+  // screen fades in whole as before, since writing it in above text the
+  // reader is on would move that text line by line.
+  const [summaryWritten, setSummaryWritten] = useState<boolean | null>(null)
+  if (summaryWritten === null && effectiveSummary) setSummaryWritten(mountedLive && isStreaming && !wroteBefore)
+  const lead = summaryWritten && effectiveSummary ? `${effectiveSummary}${SUMMARY_GAP}` : ''
+  // A failed turn freezes like a stopped one: what was shown is what stays.
+  const paced = usePacedText(lead + prose, isStreaming, undefined, stopped || failed, messageId, lead.length)
+  // The reveal split back into its two places: the summary's share for the
+  // masthead, the rest for the body.
+  const pacedProse = paced.text.slice(lead.length)
+  const shownSummary = lead ? paced.text.slice(0, effectiveSummary?.length) : effectiveSummary
+  const writingSummary = Boolean(lead) && !paced.settled && paced.text.length < lead.length
+  // Ended under the reader before it was finished: by Stop, or by a failure.
+  // Nothing the stream had not put on screen by then arrives afterwards (the
+  // takeaways, the unplaced cards, the „Ohne Quellenbeleg" row): what the
+  // reader saw is what is kept. An answer restored later is drawn whole.
+  const cutShort = (stopped || failed) && mountedLive
   const settled = paced.settled
-  const shownContent = paced.text.length >= prose.length ? content : paced.text
+  const shownContent = pacedProse.length >= prose.length ? content : pacedProse
   const live = !settled
+  // What is on screen, for Stop to keep (`stopStreaming`): the text that had
+  // arrived runs up to two seconds ahead of it.
+  const shownContentRef = useRef(shownContent)
+  useLayoutEffect(() => {
+    if (!messageId || !live) return
+    return registerShownText(messageId, () => shownContentRef.current)
+  }, [messageId, live])
+
+  // A retraction (`answer_retracted`): a tool round's preamble streamed, was
+  // withdrawn, and the real answer follows. The content empties mid-stream,
+  // and the card used to return nothing for it: it vanished in one frame, and
+  // the next round's first word drew it again with a second entrance. Now the
+  // frame stays. The words fade out (`motionQuickExit`), the body holds its
+  // height with one quiet line in it („Antwort wird erstellt …"), and the
+  // next round's first word, or the settle, releases the height on a glide.
+  // Only for an answer the reader watched write something.
+  // The answer's structured anatomy, rendered FLAT (`AnswerAnatomy.tsx`) as
+  // answer typography: the verdict as the masthead above the prose, the
+  // takeaways closing it, the callout beside the paragraph its `[[callout]]`
+  // marker anchors it to — or after the prose when unanchored.
+  // A streaming answer whose masthead arrived before its first word is not
+  // empty: the masthead stands while the prose is still being written.
+  const hasMasthead = Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
+  const hasLiveMasthead = live && hasMasthead
+  // Nor is one stopped (or failed) while its summary was being written: the
+  // masthead is what the reader saw, and Stop keeps what was on screen. Read
+  // as blank, the settle that follows the press dropped masthead and summary
+  // in one frame, and the stored row (no text, a masthead) drew nothing after
+  // a reload.
+  const blank =
+    (!content || !content.trim() || content === 'null') &&
+    (cards?.length ?? 0) === 0 &&
+    !(hasMasthead && (live || stopped || failed))
+  if (mountedLive && live && !wroteBefore && shownContent.trim()) setWroteBefore(true)
+  // Until the next round's first word is on screen, not merely arrived: the
+  // pace shows it a frame or more later, and letting go at the arrival
+  // dropped the held height for that gap.
+  const retracted =
+    mountedLive && isStreaming && wroteBefore && (blank || (!shownContent.trim() && !hasLiveMasthead))
+  // The words the retraction took, held on screen while they fade. Written
+  // after every commit that showed words, read in the commit that lost them.
+  const lastWords = useRef('')
+  useLayoutEffect(() => {
+    shownContentRef.current = shownContent
+    if (shownContent.trim()) lastWords.current = shownContent
+  })
+  const [retractionFaded, setRetractionFaded] = useState(false)
+  if (!retracted && retractionFaded) setRetractionFaded(false)
+  const drawnContent = retracted ? (retractionFaded ? '' : lastWords.current) : shownContent
   // The finish: the stream is over, the rest of the text is being revealed.
   const finishing = live && !isStreaming
   // Outside the answer, the Herleitung's collapse waits for the same moment.
@@ -922,21 +1104,25 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     body,
     entries: sourceEntries,
     numbers: splitNumbers,
-  } = useMemo(() => splitAnswerBody(shownContent), [shownContent])
+  } = useMemo(() => splitAnswerBody(drawnContent), [drawnContent])
   // The numbers keep one identity while they stay the same: the split makes a
   // new set for every reveal step, and a new set is a new plugin list, which
   // re-parses every block of the answer instead of the one that grew.
-  const citationNumbersKey = [...splitNumbers].join(',')
+  // The numbers a `[N]` links to are the written „## Quellen" list's AND the
+  // numbered wire sources'. The list alone was not enough: a stopped answer
+  // keeps its resolved `[N]` and its sources but is cut before the list
+  // (`stopped-answer.ts`), so its markers settled to plain „[1][2]…", wider
+  // than the pills they had been; on a phone the line re-wrapped 26 px under
+  // the reader just after Stop, and a reload showed bare brackets. A number the
+  // scope cannot resolve still falls back (`CitationMarker`).
+  const citationNumbersKey = [...new Set([...splitNumbers, ...wireCitationNumbers(citations)])]
+    .sort((a, b) => a - b)
+    .join(',')
   const citationNumbers = useMemo(
     (): ReadonlySet<number> => new Set(citationNumbersKey ? citationNumbersKey.split(',').map(Number) : []),
     [citationNumbersKey]
   )
 
-  // The lede is suppressed when the envelope carries a summary or a topic:
-  // the masthead's standfirst or title holds that emphasis, and a 17px
-  // masthead line over a 17px first paragraph would be the same statement
-  // twice at the same weight.
-  // (`anatomy` is declared below; the class is derived after it.)
   // The markers are linked while the body is PARSED, not before: `[2][3]` — two
   // sources behind one claim, the shape the backend is told to write — is
   // indistinguishable from reference-link syntax in raw text, and used to reach
@@ -946,27 +1132,52 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // `[[card:2]]` on a line of its own, and the card is spliced in there rather
   // than stacked above the answer it is supposed to illustrate.
   const cardCount = cards?.length ?? 0
-  // The answer's structured anatomy, rendered FLAT (`AnswerAnatomy.tsx`) as
-  // answer typography: the verdict as the masthead above the prose, the
-  // takeaways closing it, the callout beside the paragraph its `[[callout]]`
-  // marker anchors it to — or after the prose when unanchored.
-  const anatomy = useMemo(() => answerMetaToAnatomy(answerMeta), [answerMeta])
   // A summary that restates the body's opening is the same statement twice,
-  // so the masthead drops it (see `summaryDuplicatesBody` in the module
-  // above). The lede gate reads the DROPPED value: a hidden summary hands
-  // the emphasis back to the first paragraph instead of leaving the answer
-  // with none.
-  const effectiveSummary = useMemo(
-    () =>
-      anatomy?.summary && summaryDuplicatesBody(anatomy.summary, body)
-        ? undefined
-        : anatomy?.summary,
-    [anatomy, body]
-  )
+  // so the masthead drops it (see `summaryDuplicatesBody`). Judged against
+  // everything that has ARRIVED (`prose`), not the paced body, and never
+  // taken back once shown: judged on the paced body it vanished from above
+  // the prose the moment the reveal completed the first sentence, pulling
+  // everything the reader was on up by its height. A summary that has been
+  // on screen in this view stays for it (`keptSummary`); a duplicate that
+  // arrives after the prose has opened is caught before it is ever shown.
+  // The lede gate reads the result: a hidden summary hands the emphasis back
+  // to the first paragraph instead of leaving the answer with none.
+  // Derived state, set during render: the next render (before paint) holds it.
+  if (!retracted && effectiveSummary && effectiveSummary !== keptSummary) setKeptSummary(effectiveSummary)
   // The Projektbezug strip: the project facts the answer binds, drawn from the
-  // profile under the masthead, only where the answer binds one.
-  const stripKeys = useMemo(() => (body.includes(':project[') ? projectKeysIn(body) : []), [body])
-  const ledeClass = opensWithLede(body) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
+  // profile under the masthead, only where the answer binds one. Read off what
+  // has arrived, so it is there from the first frame its keys exist. It stands
+  // ABOVE the prose only when the answer already bound a fact as it mounted (a
+  // stored answer, a reload); one that binds its first fact while the reader
+  // is reading gets it BELOW the prose instead, where it moves nothing they
+  // have read. The next view puts it back on top.
+  const stripKeys = useMemo(() => (prose.includes(':project[') ? projectKeysIn(prose) : []), [prose])
+  const [stripAbove] = useState(() => prose.includes(':project['))
+  // The lede, decided ONCE from what is known at the answer's first words:
+  // its kind (a note is never a lede), whether it opens with prose, and
+  // whether the masthead already carries a summary or a topic (the
+  // standfirst holds that emphasis, and a 17px masthead line over a 17px
+  // first paragraph would be the same statement twice). It used to be
+  // decided on the paced body behind a 600-character gate, so the first
+  // paragraph the reader was on restyled from 16 to 17px mid-stream. There is
+  // no length gate any more, because length is the one thing not known at the
+  // first word; a settled answer runs the same predicate, so a stored answer
+  // looks as it did live. Not eased: font size is a layout property, and the
+  // motion vocabulary animates none (`grid/motion-vocabulary`).
+  const roleTab = answerRoleTab(answerMeta?.kind, routingDecision, Boolean(answerMeta?.verdict))
+  const opener = opensWithProse(prose, !isStreaming)
+  const ledeNow = opener === true && roleTab !== 'note' && !effectiveSummary && !anatomy?.topic
+  const [frozenLede, setFrozenLede] = useState<boolean | null>(null)
+  if (mountedLive && !retracted && frozenLede === null && opener !== null) setFrozenLede(ledeNow)
+  // Retracted words decided nothing: once they have faded, the answer that
+  // follows decides the lede and the kept summary afresh, from its own first
+  // words. Not before: the fading words keep the size they were shown at.
+  if (retracted && retractionFaded && (frozenLede !== null || keptSummary !== undefined || summaryWritten !== null)) {
+    setFrozenLede(null)
+    setSummaryWritten(null)
+    setKeptSummary(undefined)
+  }
+  const ledeClass = (mountedLive ? frozenLede === true : ledeNow) ? LEDE_CLASS : ''
   // The files this answer NAMES, as opposed to the ones it cites. A sentence
   // like „Beginnen Sie mit pd8280-2.pdf" is pointing at a document the reader
   // owns, and until the index below resolved that name it was dead text. The
@@ -976,25 +1187,33 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     projectId: storeProjectId,
     // The conversation whose private attachments a named file may live in.
     conversationId: conversationId ?? null,
-    isStreaming: live,
   })
   // A new list re-parses every block of the answer, so it is rebuilt only when
   // what the plugins read changes: a boolean for the callout, not the anatomy.
   const hasCallout = Boolean(anatomy?.callout)
+  //
+  // `pending: true` on both passes, live or not, so the list does NOT change
+  // when the answer settles: a new list re-parses the whole answer, and the
+  // settle frame is already the most expensive one the answer has (it starved
+  // every animation that ran in it). Whether a marker with nothing behind it
+  // yet is pending or nothing is decided where it renders, from
+  // `CardSlotLiveProvider`: `CitationMarker` draws a pending pill while live
+  // and the plain „[N]" once settled; `CardSlot` holds the place while live
+  // and folds it away once settled.
   const markerPlugins = useMemo(
     (): PluggableList => [
       // While it streams, a marker with no source yet is a pending pill, not
       // a stray "[2]": the settled text names its source within seconds.
-      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: live }],
-      // While it streams, a card marker holds its card's place until the card,
-      // written after the prose, arrives to fill it.
-      [remarkCardMarkers, { count: cardCount, callout: hasCallout, pending: live }],
+      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: true }],
+      // A card marker holds its card's place until the card, written after
+      // the prose, arrives to fill it. Pending, the count is not read.
+      [remarkCardMarkers, { count: 0, callout: hasCallout, pending: true }],
       // AFTER the citation pass, so a filename that happens to sit inside a
       // marker's label is left alone: the pass skips `link` subtrees, and by
       // this point every `[N]` already is one.
       [remarkFileReferences, { fileNames: fileReferences.fileNames }],
     ],
-    [citationNumbers, anchorPrefix, live, cardCount, hasCallout, fileReferences.fileNames]
+    [citationNumbers, anchorPrefix, hasCallout, fileReferences.fileNames]
   )
   // What a run of Markdown INSIDE a card (a tab's `Text`) parses with: the
   // citations only. Its `[2]` is this answer's source 2; card markers are not
@@ -1014,6 +1233,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // unplaced card back until verification and the pipeline were done: 22 s
   // after the card was written on the recorded `oib2` turn.
   const unplacedIsFinal = !live || ((cards?.length ?? 0) > 0 && shownContent === content)
+  // Whether the unplaced cards were drawn while the answer was live: an answer
+  // cut short keeps them only then (`cutShort`).
+  const [unplacedDrawnLive, setUnplacedDrawnLive] = useState(false)
+  if (live && unplacedIsFinal && !unplacedDrawnLive) setUnplacedDrawnLive(true)
+  const drawUnplaced = unplacedIsFinal && (!cutShort || unplacedDrawnLive)
   // The after-prose anatomy: the callout leaves this block the moment the
   // prose claims it with a marker — same pre-render reading as the card
   // fallback above, and for the same reason.
@@ -1043,7 +1267,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       if (index === CALLOUT_SLOT_INDEX) {
         if (!anatomy?.callout) return null
         return (
-          <div className="block! mb-3">
+          <div className="mb-3">
             <AnatomyBlock card={anatomy.callout} />
           </div>
         )
@@ -1052,7 +1276,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       const arrivalKey = `${arrivalPrefix}:${index}`
       // Still arriving: the card is written after the prose, so its marker
       // holds the place it will arrive into rather than nothing (ADR-0066).
-      if (!card) return index >= (cards?.length ?? 0) ? <CardSlot arrivalKey={arrivalKey} /> : null
+      // A hole is a card that will never come: a place it held folds away.
+      if (!card) return <CardSlot arrivalKey={arrivalKey} refused={index < (cards?.length ?? 0)} />
       return (
         <CardSlot arrivalKey={arrivalKey}>
           <GridCardItem
@@ -1067,6 +1292,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     },
     [cards, projectId, cardMessageId, anatomy?.callout, arrivalPrefix, readOnly]
   )
+  // A retracted round's cards are gone, and the next round writes its own at
+  // the same indices: they arrive in front of the reader as new cards.
+  useLayoutEffect(() => {
+    if (retracted && retractionFaded) forgetArrivals(arrivalPrefix)
+  }, [retracted, retractionFaded, arrivalPrefix])
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
   // derivations of one citation is exactly the defect the model removes.
@@ -1097,8 +1327,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     [stages, cards, cardInteractions]
   )
 
-  const hasCards = cardCount > 0
-
   // What the merged footer's meta row would actually hold. The flags alone are
   // not the answer: `showConfidenceChip` is on by default but the chip renders
   // nothing without a level, and the feedback row needs a `messageId` — gating
@@ -1111,18 +1339,18 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const hasFeedback = !readOnly && showAnswerFeedback && Boolean(messageId)
   // The copy actions. A still-arriving answer cannot be copied — half a
   // Prüfvermerk is worse than none — and a cards-only turn has no markdown to
-  // hand over, so both are excluded rather than given a button that copies ''.
+  // hand over, so it gets no button that copies ''. While the answer arrives
+  // the actions are THERE but invisible and inert (`pending`): inserted at the
+  // settle, they widened the row, and on a phone wrapped it onto a second
+  // line, under a reader who had just finished the last sentence.
   const hasAnswerActions =
     !readOnly &&
-    !live &&
-    Boolean(content) &&
-    content.trim().length > 0 &&
-    content !== 'null'
+    (live || (Boolean(content) && content.trim().length > 0 && content !== 'null'))
   const hasMetaRow =
     hasConfidence || hasFeedback || hasAnswerActions || Boolean(timestamp) || memoryItems.length > 0
-  // Streaming still has no chips/thumbs, but the row is reserved at chip
-  // height so the footer does not jump when they land. An idle answer with
-  // nothing to hold still omits the row (no empty band).
+  // The row is reserved at chip height while the answer arrives, so the
+  // footer does not jump when what it holds becomes operable. An idle answer
+  // with nothing to hold still omits the row (no empty band).
   const reserveMetaRow = hasMetaRow || live
   // What the single footer disclosure would actually hold. The copy actions
   // and the feedback stay visible beside its trigger, so a bare answer shows
@@ -1157,47 +1385,316 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
    * action is worse than silence.
    */
   const diagramFilingTarget = useMemo(
-    () => (projectId && messageId ? { projectId, answerId: messageId } : null),
-    [projectId, messageId]
+    () =>
+      projectId && messageId
+        ? { projectId, answerId: messageId, ...(conversationId ? { conversationId } : {}) }
+        : null,
+    [projectId, messageId, conversationId]
   )
 
   // Memoised elements: the footer's `AnswerDetails` is memoised, and a new
   // element on every reveal tick re-rendered it and the feedback buttons with
   // it, about 3 ms of each 16 ms tick on a 4× throttled phone (React
   // performance audit, 2026-09).
+  //
+  // While live the actions hold their width with nothing to copy: their shape
+  // does not depend on the text (one copy button either way, the export by
+  // ids), and feeding them every reveal step re-rendered them per word.
+  // A failed answer keeps them so too: a cut-off fragment is not an answer to
+  // copy or rate, and the reserved row stays as it was.
+  const inert = live || failed
+  const actionsContent = inert ? '' : content
+  const actionsBody = inert ? '' : body
+  const actionsDocuments = inert ? NO_DOCUMENTS : documents
   const answerActions = useMemo(
     () =>
       hasAnswerActions ? (
         <AnswerActions
-          content={content}
-          body={body}
-          documents={documents}
+          content={actionsContent}
+          body={actionsBody}
+          documents={actionsDocuments}
           conversationId={conversationId}
           messageId={messageId}
+          pending={inert}
         />
       ) : null,
-    [hasAnswerActions, content, body, documents, conversationId, messageId]
+    [hasAnswerActions, actionsContent, actionsBody, actionsDocuments, conversationId, messageId, inert]
   )
   const feedback = useMemo(
     () =>
       hasFeedback && messageId ? (
         <>
-          <RetryThoroughButton messageId={messageId} conversationId={conversationId} />
-          <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+          {!inert && <RetryThoroughButton messageId={messageId} conversationId={conversationId} />}
+          <AnswerFeedback compact pending={inert} messageId={messageId} conversationId={conversationId} />
         </>
       ) : null,
-    [hasFeedback, messageId, conversationId]
+    [hasFeedback, messageId, conversationId, inert]
   )
 
+  // A terminal that does not continue what is shown (a settled snapshot that
+  // rewrites or shortens the text) replaces the body in one frame; tables and
+  // diagrams the reader was looking at vanished with no transition at all.
+  // The new body fades in instead, on the same element: nothing remounts, so
+  // the Markdown tree is not rebuilt for it.
+  //
+  // The body's frame does not drop to the new height in that frame either:
+  // the verified text is often much shorter (the recorded `oib2` terminal is
+  // 541 characters against 1,724 streamed), and everything under the body,
+  // the footer and the next turn, jumped up by the difference. The frame
+  // keeps its old height as a minimum and lets go of it on a glide
+  // (`glideFrameDown`), as it does after a retraction.
+  const proseRef = useRef<HTMLDivElement>(null)
+  const frameRef = useRef<HTMLDivElement>(null)
+  const heightRelease = useMotionToken(motionBase)
+  // The frame's height before a change: a `ResizeObserver` reports after
+  // layout effects, so in the commit that changes the body it still holds the
+  // height the reader saw.
+  const frameHeight = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const frame = frameRef.current
+    if (!mountedLive || !frame || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (!frame.style.minHeight) frameHeight.current = frame.offsetHeight
+    })
+    observer.observe(frame)
+    return () => observer.disconnect()
+  }, [mountedLive])
+  // The footer's room while the answer arrives. Reserved (invisible) so the
+  // settle does not push what lies under the card, but only once the body
+  // reaches below the viewport: reserved from the first frame, it drew the
+  // card's first words over a 116px empty band of shell (phone recording,
+  // 2026-10), the card tall and empty before the prose had filled it. Below
+  // the viewport the room is never seen. An answer that ends shorter than
+  // the viewport has the footer open at the settle instead, below the last
+  // line, where nothing the reader is on moves. One-way: once reserved, kept.
+  const [footerReserved, setFooterReserved] = useState(!mountedLive)
+  useLayoutEffect(() => {
+    const frame = frameRef.current
+    if (footerReserved || !live || !frame || typeof ResizeObserver === 'undefined') return
+    const check = () => {
+      if (frame.getBoundingClientRect().bottom > window.innerHeight) setFooterReserved(true)
+    }
+    check()
+    const observer = new ResizeObserver(check)
+    observer.observe(frame)
+    return () => observer.disconnect()
+  }, [footerReserved, live])
+  // The release eases the held MINIMUM down rather than the height: words
+  // that keep arriving grow the body while it runs, and a tweened height
+  // would clip them and land short of where they had got to.
+  const glideFrameDown = useCallback(
+    (frame: HTMLElement, from: number): (() => void) | undefined => {
+      frame.style.minHeight = ''
+      const to = frame.offsetHeight
+      const done = () => {
+        frame.style.minHeight = ''
+        frameHeight.current = frame.offsetHeight
+      }
+      if (to >= from - 1 || heightRelease === motionInstant) {
+        done()
+        return undefined
+      }
+      // Held before the first animation frame, so no frame paints the drop.
+      frame.style.minHeight = `${from}px`
+      const controls = animate(frame, { minHeight: [`${from}px`, `${to}px`] }, heightRelease)
+      void controls.then(done)
+      return () => {
+        controls.stop()
+        frame.style.minHeight = ''
+      }
+    },
+    [heightRelease]
+  )
+  const previousBody = useRef(body)
+  const bodyFade = useMotionToken(motionBase)
+  useLayoutEffect(() => {
+    const previous = previousBody.current.trimEnd()
+    previousBody.current = body
+    // Not for a body that went blank: that is a retraction, faded below. Nor
+    // for one frozen by Stop or a failure: the frozen text drops a citation
+    // still pending at the press, so it is rarely a prefix of the last body,
+    // and the whole answer blinked out and back as the button was pressed.
+    if (stopped || failed) return
+    if (!mountedLive || !previous || !body || body.startsWith(previous) || !proseRef.current) return
+    const controls = animate(proseRef.current, { opacity: [0, 1] }, bodyFade)
+    const frame = frameRef.current
+    const stopGlide = frame && frameHeight.current !== null ? glideFrameDown(frame, frameHeight.current) : undefined
+    return () => {
+      controls.stop()
+      stopGlide?.()
+    }
+  }, [body, mountedLive, bodyFade, glideFrameDown, stopped, failed])
+
+  // The retraction, on the elements that are already there (nothing remounts).
+  // The words fade out on the exit curve, then give way to the quiet line;
+  // the body's frame holds the height it had, so nothing below moves while
+  // the answer has nothing to say, and lets go on a glide when it does.
+  const retractionFade = useMotionToken(motionQuickExit)
+  useLayoutEffect(() => {
+    const frame = frameRef.current
+    const prose = proseRef.current
+    if (!retracted || !frame || !prose) return
+    if (frameHeight.current !== null) frame.style.minHeight = `${frameHeight.current}px`
+    if (retractionFaded) return
+    const controls = animate(prose, { opacity: [1, 0] }, retractionFade)
+    // Timed by the token rather than the animation's promise: a page that
+    // gets no frames (hidden) must still reach the quiet line.
+    const timer = window.setTimeout(() => setRetractionFaded(true), (retractionFade.duration ?? 0) * 1000)
+    return () => {
+      window.clearTimeout(timer)
+      controls.stop()
+      prose.style.opacity = ''
+    }
+  }, [retracted, retractionFaded, retractionFade])
+  // The next round's first word, or the settle, lets go of the held height.
+  useLayoutEffect(() => {
+    const frame = frameRef.current
+    if (retracted || !frame || !frame.style.minHeight) return
+    return glideFrameDown(frame, frame.offsetHeight)
+  }, [retracted, glideFrameDown])
+
+  // The masthead. Part of the answer's own entrance when it mounts with it
+  // (no second fade inside one); fading in alone when it arrives later; and,
+  // gated out by a snapshot or the terminal, fading out BEFORE its height goes,
+  // in one frame once it is invisible, rather than vanishing from above the
+  // prose. Its confidence is the verdict's own, from the masthead event: the
+  // turn's self-assessment arrives with the terminal and inserted a gauge row
+  // and a reason paragraph above the prose the reader was on. That one lives
+  // in the answer details.
+  const mastheadExitToken = useMotionToken(motionQuickExit)
+  const mastheadEnter = useMotionToken(motionQuick)
+  const showMasthead =
+    anatomy !== null &&
+    mastheadShows({
+      verdict: anatomy.verdict,
+      summary: shownSummary,
+      topic: anatomy.topic,
+      kind: answerMeta?.kind,
+    })
+  const masthead = (
+    <AnimatePresence initial={false}>
+      {showMasthead && anatomy && (
+        // eslint-disable-next-line grid/motion-vocabulary -- the fold after the fade: height goes in one frame (duration 0) once the masthead is invisible
+        <motion.div
+          key="masthead"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{
+            opacity: 0,
+            height: 0,
+            transition: {
+              opacity: mastheadExitToken,
+              height: { duration: 0, delay: mastheadExitToken.duration ?? 0 },
+            },
+          }}
+          transition={mastheadEnter}
+        >
+          <AnatomyMasthead
+            verdict={anatomy.verdict}
+            summary={shownSummary}
+            topic={anatomy.topic}
+            context={anatomy.context}
+            kind={answerMeta?.kind}
+            caret={writingSummary && <StreamingCaret idle={paced.idle} veil={variant !== 'inline'} />}
+          />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+
+  // What arrives BELOW the prose: a Projektbezug strip that turned up after the
+  // answer began, the takeaways and unplaced callout, the cards no marker
+  // claimed. Each takes its height smoothly (`HeightArrival`) instead of
+  // shoving the footer down by all of it in one frame, and only when the
+  // reader watches it arrive: `initial={false}` stands a stored answer's
+  // blocks at once.
+  //
+  // The unplaced cards are withheld until "unplaced" is final
+  // (`unplacedIsFinal`): it is read off the body SO FAR, and a card whose
+  // `[[card:N]]` has not been shown yet would render here and then jump up the
+  // answer. They arrive like a placed card (`CardSlot`: placeholder, then the
+  // drawn card fading in over it), so a card looks the same arriving whether
+  // or not the prose placed it. `mt-1` because the column's `gap-2` is 8px and
+  // the markdown body's paragraph rhythm is 12px, so without it an UNPLACED
+  // card hugged the prose 4px tighter than a placed one
+  // (/dev/chat-turn?variant=two-cards).
+  const lateBlocks = (
+    <AnimatePresence initial={false}>
+      {!stripAbove && stripKeys.length > 0 && (
+        <HeightArrival key="project-strip">
+          <AnswerProjectStrip keys={stripKeys} />
+        </HeightArrival>
+      )}
+      {!live && !cutShort && anatomyBelow.length > 0 && (
+        <HeightArrival key="anatomy-below" className="mt-1 gap-3">
+          {anatomyBelow.map((card) => (
+            <AnatomyBlock key={card.type} card={card} />
+          ))}
+        </HeightArrival>
+      )}
+      {drawUnplaced && cards && fallbackCardIndices.length > 0 && (
+        <HeightArrival key="unplaced-cards" className="mt-1 [&>:last-child]:mb-0">
+          {fallbackCardIndices.map((index) => {
+            const card = cards[index]
+            if (!card) return null
+            return (
+              <CardSlot key={index} arrivalKey={`${arrivalPrefix}:${index}`} arriving={mountedLive}>
+                <GridCardItem
+                  card={card}
+                  index={index}
+                  projectId={projectId}
+                  messageId={cardMessageId}
+                  decisionsMustPersist={readOnly}
+                />
+              </CardSlot>
+            )
+          })}
+        </HeightArrival>
+      )}
+    </AnimatePresence>
+  )
+
+  // A failed answer dims to what it is, a fragment, on a transition rather
+  // than in one frame; the error card under it says why.
+  const dimmed = cn(
+    'transition-opacity duration-base ease-out motion-reduce:transition-none',
+    failed && 'opacity-60'
+  )
+
+  // Where the writing ended when the reader pressed Stop: one quiet word under
+  // the last one shown, fading in on the press.
+  const stoppedMarker =
+    stopped && !live ? (
+      <p
+        className={cn(
+          'text-muted-foreground text-xs',
+          mountedLive && 'animate-in fade-in-0 duration-quick ease-out motion-reduce:animate-none'
+        )}
+        data-testid="answer-stopped"
+      >
+        {t('answerStoppedMarker')}
+      </p>
+    ) : null
+
   // Guard against null, undefined, empty, or literal "null" string content
-  // when no cards are present. Cards can render even with empty text.
-  // A streaming answer whose masthead arrived before its first word is not
-  // empty: the masthead stands while the prose is still being written.
-  const hasLiveMasthead =
-    live && Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
-  if ((!content || !content.trim() || content === 'null') && !hasCards && !hasLiveMasthead) {
-    return null
-  }
+  // when no cards are present. Cards can render even with empty text. A
+  // retracted answer keeps its frame (above).
+  if (blank && !retracted) return null
+
+  // While a retracted answer has nothing to show, one quiet line says the
+  // answer is still coming, in the room the withdrawn words held.
+  const retractionLine =
+    retracted && retractionFaded ? (
+      <motion.p
+        className="text-muted-foreground text-sm"
+        data-testid="answer-retracting"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={mastheadEnter}
+      >
+        {t('thinking.working')}
+      </motion.p>
+    ) : null
 
   // Inline variant - no box styling (for use inside containers like thinking process)
   if (variant === 'inline') {
@@ -1210,20 +1707,19 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             anchorPrefix={anchorPrefix}
             resolveFileReference={fileReferences.resolve}
           >
-            <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
-              {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
-              {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
-                <AnatomyMasthead
-                  verdict={anatomy.verdict}
-                  summary={effectiveSummary}
-                  topic={anatomy.topic}
-                  context={anatomy.context}
-                  kind={answerMeta?.kind}
-                  confidence={answerConfidence}
-                  confidenceReason={answerConfidenceReason}
-                />
+            <div
+              ref={frameRef}
+              className={cn(
+                'flex w-full flex-col gap-2 overflow-hidden break-words',
+                dimmed
               )}
-              <AnswerProjectStrip keys={stripKeys} />
+              aria-busy={live || undefined}
+              data-testid={failed ? 'answer-failed' : undefined}
+              lang="de"
+            >
+              {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
+              {masthead}
+              {stripAbove && <AnswerProjectStrip keys={stripKeys} />}
               {findings && (
                 <FindingsMatrix
                   findings={findings}
@@ -1232,59 +1728,34 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   onCommission={onCommissionFinding}
                 />
               )}
-              {/* Response Content rendered as markdown (with streaming caret). While
-            streaming, the markdown block + its last child are forced inline so
-            the caret trails the final glyph instead of dropping to a new line.
-            Cards the answer placed with a marker are spliced into this body. */}
+              {/* Response Content rendered as markdown, the streaming caret after
+            its last word. Cards the answer placed with a marker are spliced
+            into this body. */}
+              {retractionLine}
               <CardSlotLiveProvider value={live}>
                 <MarkdownSlotProvider render={renderCardSlot}>
-                  <div className={proseClass(live, ledeClass)}>
+                  <div ref={proseRef} className={proseClass(ledeClass)}>
                     <MarkdownRenderer
                       content={body}
                       isStreaming={live}
                       remarkPlugins={markerPlugins}
+                      caret={live && !retracted && !writingSummary && <StreamingCaret fading={finishing} idle={paced.idle} />}
                     />
-                    {live && <StreamingCaret fading={finishing} />}
                   </div>
                 </MarkdownSlotProvider>
               </CardSlotLiveProvider>
 
-              {/* Cards no marker claimed. AFTER the body, never before it: an answer
-            that opens with three diagrams has pushed itself below the fold.
-            Withheld until "unplaced" is final (`unplacedIsFinal`): it is read
-            off the body SO FAR, and a card whose `[[card:N]]` has not been
-            shown yet would render here and then jump up the answer.
-            `mt-1` because this column's `gap-2` is 8px and the markdown body's
-            paragraph rhythm is 12px, so without it an UNPLACED card hugged the
-            prose 4px tighter than a placed one — visible the moment an answer
-            carries both. */}
-              {/* The anatomy below the prose: the callout (unless its marker placed
-            it inline), then the takeaways. */}
-              {!live && anatomyBelow.length > 0 && (
-                <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
-                  {anatomyBelow.map((card) => (
-                    <AnatomyBlock key={card.type} card={card} />
-                  ))}
-                </div>
-              )}
-              {unplacedIsFinal && cards && fallbackCardIndices.length > 0 && (
-                <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
-                  <GridCards
-                    cards={cards}
-                    indices={fallbackCardIndices}
-                    projectId={projectId}
-                    messageId={cardMessageId}
-                    decisionsMustPersist={readOnly}
-                  />
-                </div>
-              )}
+              {stoppedMarker}
+              {/* What arrives below the prose: never before it, since an answer
+            that opens with three diagrams has pushed itself below the fold. */}
+              {lateBlocks}
 
               {/* "Belegt durch": provenance chips for sources this answer carries */}
               <AnswerSourcesRow
                 documents={documents}
                 anchorPrefix={anchorPrefix}
                 routingDecision={routingDecision}
-                isStreaming={live}
+                isStreaming={live || cutShort}
               />
 
               {/* No copy actions here, deliberately. This variant is the box-less
@@ -1297,11 +1768,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             If that changes, <AnswerActions /> drops into the row below. */}
               {reserveMetaRow && (
                 <div
-                  className={
-                    hasMetaRow
-                      ? 'animate-in fade-in-0 duration-quick flex min-h-6 flex-col gap-1.5 ease-out motion-reduce:animate-none'
-                      : 'min-h-6'
-                  }
+                  className={hasMetaRow ? 'flex min-h-6 flex-col gap-1.5' : 'min-h-6'}
                   aria-hidden={hasMetaRow ? undefined : true}
                 >
                   {hasDetailsContent && (
@@ -1327,7 +1794,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                     />
                   )}
                   {hasFeedback && messageId && (
-                    <AnswerFeedback messageId={messageId} conversationId={conversationId} />
+                    <AnswerFeedback pending={inert} messageId={messageId} conversationId={conversationId} />
                   )}
                 </div>
               )}
@@ -1348,7 +1815,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // no legacy verdict. `walkthrough` keeps the ink shell but labels the tab
   // "Antwort". `ruling`, a legacy no-kind verdict, and any other routing
   // (shallow/deep/error) keep "Ergebnis" (fail-open).
-  const roleTab = answerRoleTab(answerMeta?.kind, routingDecision, Boolean(answerMeta?.verdict))
   const isNote = roleTab === 'note'
   const tabLabel =
     roleTab === 'note'
@@ -1369,12 +1835,25 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         content and reads as a centered column (the width itself is set by the
         list's max-w container), rather than a card hugging the left edge with
         dead space beside it. */}
-          <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance flex w-full flex-col motion-reduce:animate-none">
+          {/* No entrance of its own: the thread row owns it, gated on whether
+            the answer is arriving or being restored (a CSS entrance here
+            replayed on every thread open, switch and reload). */}
+          {/* An article named by its role tab, busy while it arrives, in the
+            answer's language (German) whatever the UI locale: hyphenation
+            and a screen reader's voice follow `lang`. */}
+          <article
+            className="flex w-full flex-col"
+            aria-labelledby={roleTabId}
+            aria-busy={live || undefined}
+            data-testid={failed ? 'answer-failed' : undefined}
+            lang="de"
+          >
             {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
           fill + check. Meta / direct reply: quiet secondary fill + conversation icon. */}
             {isNote ? (
               <SectionLabel
                 as="div"
+                id={roleTabId}
                 className="bg-secondary text-secondary-foreground ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md px-2.5 py-1"
               >
                 <MessageCircle className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
@@ -1383,9 +1862,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             ) : (
               <SectionLabel
                 as="div"
+                id={roleTabId}
                 className="bg-primary text-primary-foreground ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md px-2.5 py-1"
               >
-                <Check className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
+                <RoleTabMark complete={!live && !stopped && !failed} arrived={mountedLive} />
                 {tabLabel}
               </SectionLabel>
             )}
@@ -1397,28 +1877,24 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             <div
               className={
                 isNote
-                  ? 'border-input bg-muted overflow-hidden rounded-lg border shadow-sm'
-                  : 'border-input bg-input-background overflow-hidden rounded-lg border shadow-sm'
+                  ? 'border-input bg-muted relative overflow-hidden rounded-lg border shadow-sm'
+                  : 'border-input bg-input-background relative overflow-hidden rounded-lg border shadow-sm'
               }
             >
               {/* Answer body — the hero white surface. It fills the top of the card
             flush (corners clipped by the shell) and is separated from the
             provenance footer by a single hairline, so the whole thing reads as
             one considered object with sections — not a card floating in a tray. */}
-              <div className="bg-card flex flex-col gap-2 break-words border-b px-[22px] pb-[17px] pt-[18px]">
-                {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
-                {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
-                  <AnatomyMasthead
-                    verdict={anatomy.verdict}
-                    summary={effectiveSummary}
-                    topic={anatomy.topic}
-                    context={anatomy.context}
-                    kind={answerMeta?.kind}
-                    confidence={answerConfidence}
-                    confidenceReason={answerConfidenceReason}
-                  />
+              <div
+                ref={frameRef}
+                className={cn(
+                  'bg-card flex flex-col gap-2 break-words px-[22px] pb-[17px] pt-[18px]',
+                  dimmed
                 )}
-                <AnswerProjectStrip keys={stripKeys} />
+              >
+                {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
+                {masthead}
+                {stripAbove && <AnswerProjectStrip keys={stripKeys} />}
                 {findings && (
                   <FindingsMatrix
                     findings={findings}
@@ -1427,48 +1903,27 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                     onCommission={onCommissionFinding}
                   />
                 )}
-                {/* Response Content rendered as markdown (with streaming caret).
-              Cards the answer placed with a marker are spliced into this body. */}
+                {/* Response Content rendered as markdown, the streaming caret after
+              its last word. Cards the answer placed with a marker are spliced
+              into this body. */}
+                {retractionLine}
                 <CardSlotLiveProvider value={live}>
                   <MarkdownSlotProvider render={renderCardSlot}>
-                    <div className={proseClass(live, ledeClass)}>
+                    <div ref={proseRef} className={proseClass(ledeClass)}>
                       <MarkdownRenderer
                         content={body}
                         isStreaming={live}
                         remarkPlugins={markerPlugins}
+                        caret={live && !retracted && !writingSummary && <StreamingCaret fading={finishing} idle={paced.idle} veil />}
                       />
-                      {live && <StreamingCaret fading={finishing} veil />}
                     </div>
                   </MarkdownSlotProvider>
                 </CardSlotLiveProvider>
 
-                {/* Cards no marker claimed. AFTER the body, never before it: an answer
-              that opens with three diagrams has pushed itself below the fold.
-              `mt-1` because this column's `gap-2` is 8px and the markdown
-              body's paragraph rhythm is 12px, so without it an UNPLACED card
-              hugged the prose 4px tighter than a placed one — visible the
-              moment an answer carries both, which is what
-              /dev/chat-turn?variant=two-cards shows. */}
-                {/* The anatomy below the prose: the callout (unless its marker placed
-              it inline), then the takeaways. */}
-                {!live && anatomyBelow.length > 0 && (
-                  <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
-                    {anatomyBelow.map((card) => (
-                      <AnatomyBlock key={card.type} card={card} />
-                    ))}
-                  </div>
-                )}
-                {unplacedIsFinal && cards && fallbackCardIndices.length > 0 && (
-                  <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
-                    <GridCards
-                      cards={cards}
-                      indices={fallbackCardIndices}
-                      projectId={projectId}
-                      messageId={cardMessageId}
-                      decisionsMustPersist={readOnly}
-                    />
-                  </div>
-                )}
+                {stoppedMarker}
+                {/* What arrives below the prose: never before it, since an answer
+              that opens with three diagrams has pushed itself below the fold. */}
+                {lateBlocks}
               </div>
 
               {/* Provenance footer — ONE tinted zone under the body's hairline that
@@ -1477,63 +1932,84 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             verification notes, feedback, timestamp). The sources row must not
             draw its own divider here (the body hairline already separates), so
             it takes withDivider={false}. */}
-              <div className="flex flex-col gap-2.5 px-[22px] pb-[14px] pt-3">
-                <AnswerSourcesRow
-                  documents={documents}
-                  anchorPrefix={anchorPrefix}
-                  routingDecision={routingDecision}
-                  isStreaming={live}
-                  withDivider={false}
-                />
-                {reserveMetaRow && (
-                  <div
-                    className={
-                      hasMetaRow
-                        ? 'animate-in fade-in-0 duration-quick flex min-h-6 flex-wrap items-center gap-2 ease-out motion-reduce:animate-none'
-                        : 'min-h-6'
-                    }
-                    aria-hidden={hasMetaRow ? undefined : true}
-                  >
-                    {/* Copy the answer out — markdown, with or without its sources
-                  written out. Before the disclosure: "take this with you" is
-                  what the reader wants first; the details are the afterthought.
-                  `compact` feedback: the thumbs stay on this line and their
-                  disclosure takes the next one full-width. */}
-                    {hasDetailsContent ? (
-                      <AnswerDetails
-                        conversationId={conversationId}
-                        messageId={messageId}
-                        hasConfidence={hasConfidence}
-                        answerConfidence={answerConfidence}
-                        answerConfidenceCappedReason={answerConfidenceCappedReason}
-                        answerConfidenceReason={answerConfidenceReason}
-                        memoryItems={memoryItems}
-                        skillsActivated={skillsActivated}
-                        skillsHidden={skillsHidden}
-                        showReasoning={showReasoning}
-                        researchTruncated={researchTruncated}
-                        truncationReason={truncationReason}
-                        degradedReasons={degradedReasons}
-                        citationsRemoved={citationsRemoved}
-                        readSources={readSources}
-                        hasAnswerSources={hasAnswerSources}
-                        timestamp={timestamp}
-                        answerDurationMs={answerDurationMs}
-                        before={answerActions}
-                        after={feedback}
-                      />
-                    ) : (
-                      <>
-                        {answerActions}
-                        {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
-                        {feedback}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
+              {/* Hidden while the answer arrives and faded in at the settle.
+                Shown, it moved down a line with every line the prose grew
+                while it was in view: most of the turn's layout shift (0.18 of
+                the 0.20 on the desktop harness). Hidden content does not
+                shift, and nothing in it was operable before the settle anyway
+                (the actions and feedback are `pending`). Its room is kept
+                only below the viewport (`footerReserved`); otherwise it opens
+                at the settle. The body's hairline is the footer's top border,
+                so a closed footer leaves no second line along the shell's
+                own bottom edge. */}
+              <HeightExpand open={!live || footerReserved} instant={live}>
+                <div
+                  className={cn(
+                    'duration-base flex flex-col gap-2.5 border-t px-[22px] pb-[14px] pt-3 transition-opacity ease-out motion-reduce:transition-none',
+                    live && mountedLive && 'invisible opacity-0'
+                  )}
+                  data-testid="answer-footer"
+                >
+                  <AnswerSourcesRow
+                    documents={documents}
+                    anchorPrefix={anchorPrefix}
+                    routingDecision={routingDecision}
+                    isStreaming={live || cutShort}
+                    withDivider={false}
+                  />
+                  {reserveMetaRow && (
+                    <div
+                      className={hasMetaRow ? 'flex min-h-6 flex-wrap items-center gap-2' : 'min-h-6'}
+                      aria-hidden={hasMetaRow ? undefined : true}
+                    >
+                      {/* Copy the answer out — markdown, with or without its sources
+                    written out. Before the disclosure: "take this with you" is
+                    what the reader wants first; the details are the afterthought.
+                    `compact` feedback: the thumbs stay on this line and their
+                    disclosure takes the next one full-width. */}
+                      {hasDetailsContent ? (
+                        <AnswerDetails
+                          conversationId={conversationId}
+                          messageId={messageId}
+                          hasConfidence={hasConfidence}
+                          answerConfidence={answerConfidence}
+                          answerConfidenceCappedReason={answerConfidenceCappedReason}
+                          answerConfidenceReason={answerConfidenceReason}
+                          memoryItems={memoryItems}
+                          skillsActivated={skillsActivated}
+                          skillsHidden={skillsHidden}
+                          showReasoning={showReasoning}
+                          researchTruncated={researchTruncated}
+                          truncationReason={truncationReason}
+                          degradedReasons={degradedReasons}
+                          citationsRemoved={citationsRemoved}
+                          readSources={readSources}
+                          hasAnswerSources={hasAnswerSources}
+                          timestamp={timestamp}
+                          answerDurationMs={answerDurationMs}
+                          before={answerActions}
+                          after={feedback}
+                        />
+                      ) : (
+                        <>
+                          {answerActions}
+                          {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
+                          {feedback}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </HeightExpand>
+              {/* The elevation again, OVER the content: in dark mode it carries
+                an inset top highlight, and the full-bleed body painted over the
+                shell's own. Its outer shadow is clipped here; the shell's stands. */}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-sm"
+              />
             </div>
-          </div>
+          </article>
         </AnswerCitations>
       </NestedMarkdownPluginsProvider>
     </DiagramFilingProvider>

@@ -88,8 +88,8 @@ bun run dev
 | `bun run dev`        | Start gateway + Next.js dev server (with HMR)          |
 | `bun run build`      | Build for production                                   |
 | `bun run start`      | Start production server (gateway with WebSocket proxy) |
-| `bun run lint`       | Run ESLint                                             |
-| `bun run lint:fix`   | Run ESLint with auto-fix                               |
+| `bun run lint`       | Run oxlint (repo rules included, see `.oxlintrc.json`) |
+| `bun run lint:fix`   | Run oxlint with auto-fix                               |
 | `bun run format`     | Format code with Prettier                              |
 | `bun run type-check` | Run TypeScript type checking                           |
 | `bun run test`       | Run tests once (Vitest)                                |

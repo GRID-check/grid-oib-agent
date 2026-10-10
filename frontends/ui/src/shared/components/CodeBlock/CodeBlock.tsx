@@ -11,7 +11,7 @@
 import { type FC, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Check, ChevronDown, ChevronUp, Copy } from 'lucide-react'
-import { AnimatePresence, motion, springSnappy } from '@/components/motion'
+import { AnimatePresence, motion, useIconSwapTransition } from '@/components/motion'
 import { useTranslations } from '@/i18n'
 
 export interface CodeBlockProps {
@@ -35,6 +35,7 @@ export const CodeBlock: FC<CodeBlockProps> = ({
   className = '',
 }) => {
   const t = useTranslations('common')
+  const swap = useIconSwapTransition()
   const [copied, setCopied] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
@@ -66,16 +67,15 @@ export const CodeBlock: FC<CodeBlockProps> = ({
           aria-label={copied ? t('codeBlock.copied') : t('codeBlock.copyCode')}
           className="text-subtle hover:text-primary inline-flex min-h-7 items-center gap-1 rounded-full px-2 text-xs transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >
-          {/* Icon swap with a brief scale pop on copy feedback */}
+          {/* Icon swap on copy feedback: the scale springs, the fade is a tween */}
           <AnimatePresence mode="popLayout" initial={false}>
             {copied ? (
               <motion.span
                 key="check"
                 className="inline-flex"
                 initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                transition={springSnappy}
+                animate={{ opacity: 1, scale: 1, transition: swap.enter }}
+                exit={{ opacity: 0, scale: 0.8, transition: swap.exit }}
               >
                 <Check className="h-3.5 w-3.5" aria-hidden="true" />
               </motion.span>
@@ -84,9 +84,8 @@ export const CodeBlock: FC<CodeBlockProps> = ({
                 key="copy"
                 className="inline-flex"
                 initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                transition={springSnappy}
+                animate={{ opacity: 1, scale: 1, transition: swap.enter }}
+                exit={{ opacity: 0, scale: 0.8, transition: swap.exit }}
               >
                 <Copy className="h-3.5 w-3.5" aria-hidden="true" />
               </motion.span>

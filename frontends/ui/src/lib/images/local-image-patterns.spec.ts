@@ -51,7 +51,7 @@ describe('images.localPatterns admits the URLs we actually render', () => {
   })
 
   it.each(['original', 'thumb'] as const)('accepts a signed %s document image', (variant) => {
-    const url = buildDocumentImageUrl('org_123', 'doc_456', variant)
+    const url = buildDocumentImageUrl('org_123', 'user_789', 'doc_456', variant)
     expect(url).not.toBeNull()
     // The query string is the whole point: this is what the default rejected.
     expect(url).toContain('?')

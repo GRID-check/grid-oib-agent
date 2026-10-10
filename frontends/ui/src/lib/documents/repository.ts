@@ -11,8 +11,9 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNull, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import type { DbExecutor } from '@/lib/db/executor'
 import { withOptionalTenant, withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { ARCHIV_SHELF, projectShelf, shelfDocumentWhere, shelfFolderWhere, type DocumentShelf } from './shelf'
 import { documentAliasKey, documentNameKey, documentNameVariants } from './name-match'
@@ -27,6 +28,7 @@ import {
   type DocumentLifecycle,
   type ResourceVisibility,
 } from '@/lib/db/schema'
+import type { DocumentScreeningOutcome } from '@/lib/db/schema/documents'
 
 /**
  * Hard cap on one page of a document listing (project and Archiv alike).
@@ -143,6 +145,22 @@ export interface ListProjectDocumentsOptions {
    * would be a second definition of what a document listing is.
    */
   includeArchived?: boolean
+  /**
+   * Folders whose documents this reader may not see (ADR-0087), from
+   * `getHiddenFolderIds`. Their rows are left out as if they did not exist.
+   */
+  hiddenFolderIds?: readonly string[]
+}
+
+/**
+ * Rows outside every hidden folder; nothing when none is hidden. Exported for
+ * the other queries over `documents` that serve a reader (the project
+ * overview), so "hidden" has one SQL spelling.
+ */
+export function outsideHiddenFolders(hiddenFolderIds: readonly string[] | undefined): SQL[] {
+  if (!hiddenFolderIds || hiddenFolderIds.length === 0) return []
+  const visible = or(isNull(documents.folderId), notInArray(documents.folderId, [...hiddenFolderIds]))
+  return visible ? [visible] : []
 }
 
 /**
@@ -180,12 +198,17 @@ export const documentListColumns = {
 function listingWhere(
   shelf: DocumentShelf,
   organizationId: string,
-  { authoredBy, includeArchived = false }: Pick<ListProjectDocumentsOptions, 'authoredBy' | 'includeArchived'>,
+  {
+    authoredBy,
+    includeArchived = false,
+    hiddenFolderIds,
+  }: Pick<ListProjectDocumentsOptions, 'authoredBy' | 'includeArchived' | 'hiddenFolderIds'>,
 ): SQL | undefined {
   return and(
     shelfDocumentWhere(shelf, organizationId),
     ...(authoredBy ? [eq(documents.authoredBy, authoredBy)] : []),
     ...(includeArchived ? [] : [eq(documents.lifecycle, 'active')]),
+    ...outsideHiddenFolders(hiddenFolderIds),
   )
 }
 
@@ -196,7 +219,7 @@ function boundListLimit(limit: number): number {
 export async function listProjectDocuments(
   projectId: string,
   organizationId: string,
-  { limit = DOCUMENT_LIST_LIMIT, offset = 0, authoredBy, includeArchived = false }: ListProjectDocumentsOptions = {},
+  { limit = DOCUMENT_LIST_LIMIT, offset = 0, authoredBy, includeArchived = false, hiddenFolderIds }: ListProjectDocumentsOptions = {},
 ): Promise<DocumentListRow[]> {
   const boundedLimit = boundListLimit(limit)
   const boundedOffset = Math.max(0, Math.trunc(offset))
@@ -205,7 +228,7 @@ export async function listProjectDocuments(
     db
       .select(documentListColumns)
       .from(documents)
-      .where(listingWhere(projectShelf(projectId), organizationId, { authoredBy, includeArchived }))
+      .where(listingWhere(projectShelf(projectId), organizationId, { authoredBy, includeArchived, hiddenFolderIds }))
       // Newest first, with the id as tiebreak: createdAt ties are real (a
       // batch import lands on one timestamp), and under offset pagination an
       // unstable order drops rows from one page and repeats them on the next.
@@ -282,6 +305,7 @@ export async function listDocumentPage(
     cursor,
     authoredBy,
     includeArchived = false,
+    hiddenFolderIds,
   }: Omit<ListProjectDocumentsOptions, 'offset'> & { cursor?: DocumentListCursor } = {},
 ): Promise<DocumentListPage> {
   const db = getDb()
@@ -293,7 +317,7 @@ export async function listDocumentPage(
           .from(documents)
           .where(
             and(
-              listingWhere(shelf, organizationId, { authoredBy, includeArchived }),
+              listingWhere(shelf, organizationId, { authoredBy, includeArchived, hiddenFolderIds }),
               ...(cursor ? [afterDocumentListCursor(cursor)] : []),
             ),
           )
@@ -351,7 +375,7 @@ export async function findDocumentsByFilenames(
   shelf: DocumentShelf,
   organizationId: string,
   filenames: readonly string[],
-  { includeArchived = false }: Pick<ListProjectDocumentsOptions, 'includeArchived'> = {},
+  { includeArchived = false, hiddenFolderIds }: Pick<ListProjectDocumentsOptions, 'includeArchived' | 'hiddenFolderIds'> = {},
 ): Promise<DocumentListRow[]> {
   const byName = filenameLookupWhere(filenames)
   if (!byName) return []
@@ -360,7 +384,7 @@ export async function findDocumentsByFilenames(
     db
       .select(documentListColumns)
       .from(documents)
-      .where(and(listingWhere(shelf, organizationId, { includeArchived }), byName))
+      .where(and(listingWhere(shelf, organizationId, { includeArchived, hiddenFolderIds }), byName))
       .orderBy(desc(documents.createdAt), asc(documents.id))
       .limit(DOCUMENT_LIST_LIMIT),
   )
@@ -371,7 +395,7 @@ export function findProjectDocumentsByFilenames(
   projectId: string,
   organizationId: string,
   filenames: readonly string[],
-  options: Pick<ListProjectDocumentsOptions, 'includeArchived'> = {},
+  options: Pick<ListProjectDocumentsOptions, 'includeArchived' | 'hiddenFolderIds'> = {},
 ): Promise<DocumentListRow[]> {
   return findDocumentsByFilenames(projectShelf(projectId), organizationId, filenames, options)
 }
@@ -449,6 +473,7 @@ export async function findDocumentsByNames(
   shelf: DocumentShelf,
   organizationId: string,
   names: readonly string[],
+  { hiddenFolderIds }: Pick<ListProjectDocumentsOptions, 'hiddenFolderIds'> = {},
 ): Promise<DocumentNameMatchRow[]> {
   const db = getDb()
   return probeDocumentNames(names, (where, limit) =>
@@ -456,7 +481,7 @@ export async function findDocumentsByNames(
       db
         .select(documentNameMatchColumns)
         .from(documents)
-        .where(and(shelfDocumentWhere(shelf, organizationId), where))
+        .where(and(shelfDocumentWhere(shelf, organizationId), ...outsideHiddenFolders(hiddenFolderIds), where))
         .orderBy(desc(documents.createdAt), asc(documents.id))
         .limit(limit),
     ),
@@ -468,8 +493,9 @@ export function findProjectDocumentsByNames(
   projectId: string,
   organizationId: string,
   names: readonly string[],
+  options: Pick<ListProjectDocumentsOptions, 'hiddenFolderIds'> = {},
 ): Promise<DocumentNameMatchRow[]> {
-  return findDocumentsByNames(projectShelf(projectId), organizationId, names)
+  return findDocumentsByNames(projectShelf(projectId), organizationId, names, options)
 }
 
 /**
@@ -480,13 +506,14 @@ export async function findDocumentTenancy(
   documentId: string,
 ): Promise<Pick<
   Document,
-  'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'filename' | 'displayName'
+  'organizationId' | 'projectId' | 'folderId' | 'visibility' | 'createdBy' | 'filename' | 'displayName'
 > | null> {
   const db = getDb()
   const [row] = await db
     .select({
       organizationId: documents.organizationId,
       projectId: documents.projectId,
+      folderId: documents.folderId,
       visibility: documents.visibility,
       createdBy: documents.createdBy,
       filename: documents.filename,
@@ -502,15 +529,16 @@ export async function updateDocumentVisibilityInOrg(
   documentId: string,
   organizationId: string,
   visibility: ResourceVisibility,
+  /** A transaction the caller holds, already in this organization's context. */
+  executor?: DbExecutor,
 ): Promise<Document | null> {
-  const db = getDb()
-  const [row] = await withTenant({ organizationId }, () =>
-    db
+  const write = (handle: DbExecutor) =>
+    handle
       .update(documents)
       .set({ visibility, updatedAt: new Date() })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
-      .returning(),
-  )
+      .returning()
+  const [row] = executor ? await write(executor) : await withTenant({ organizationId }, () => write(getDb()))
   return row ?? null
 }
 
@@ -775,6 +803,37 @@ export async function findLiveDocumentByFilename(
 }
 
 /**
+ * The retrieval collections of this project that already hold a live,
+ * person-uploaded document of this name — either Unicode form, as
+ * {@link findLiveDocumentByFilename} reads it. A project keeps one document
+ * per name across all its collections (ADR-0087); the database only enforces
+ * it per collection.
+ */
+export async function findProjectCollectionsHoldingFilename(
+  organizationId: string,
+  projectId: string,
+  filename: string,
+): Promise<string[]> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .selectDistinct({ collectionName: documents.collectionName })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.projectId, projectId),
+          eq(documents.scope, 'project'),
+          inArray(documents.filename, documentNameVariants(filename)),
+          eq(documents.authoredBy, 'user'),
+        ),
+      )
+      .limit(DOCUMENT_LIST_LIMIT),
+  )
+  return rows.map((row) => row.collectionName)
+}
+
+/**
  * Point an existing document row at newly uploaded bytes.
  *
  * The id is deliberately kept. It is what every citation, every chat subject
@@ -1009,6 +1068,15 @@ export async function setDocumentIngestJob(
 }
 
 /**
+ * The `documents.metadata` key of a row placement purged and re-pointed whose
+ * re-read into its new collection is the `placement_reingest` job's to do
+ * (`lib/projects/collection-placement.ts`, ADR-0087). Only ever set beside
+ * `status = 'processing'`; the job removes it when it takes the row, and every
+ * other writer of `processing` or of an ingest job id drops it.
+ */
+export const PLACEMENT_REINGEST_MARKER = 'placementReingest'
+
+/**
  * Mark a document as being worked on locally, before any backend job exists.
  *
  * The IFC path needs this: extraction happens in THIS process and can take
@@ -1023,7 +1091,9 @@ export async function setDocumentIngestJob(
  * the re-ingest heal) then answered with the OLD job's outcome — a retry of a
  * failed file flipped back to failed while its new conversion was running.
  * Clearing it at the one writer of `processing` fixes both readers at once.
- * The queue job of the previous round goes with it ({@link setDocumentBackgroundJob}).
+ * The queue job of the previous round goes with it ({@link setDocumentBackgroundJob}),
+ * and so does the placement mark ({@link PLACEMENT_REINGEST_MARKER}): a row this
+ * marks is owned by the work that marked it, not waiting for placement's job.
  */
 export async function markDocumentProcessing(
   documentId: string,
@@ -1036,7 +1106,7 @@ export async function markDocumentProcessing(
       .set({
         status: 'processing',
         errorMessage: null,
-        metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId' - 'bffJobId'`,
+        metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId' - 'bffJobId' - ${PLACEMENT_REINGEST_MARKER}::text`,
         updatedAt: new Date(),
       })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
@@ -1147,6 +1217,29 @@ export async function markDocumentIngestFailed(
   )
 }
 
+/** Several folders' paths in one project, keyed by folder id; folders not in the project are absent. */
+export async function findFolderPathsInProject(
+  folderIds: readonly string[],
+  projectId: string,
+  organizationId: string,
+): Promise<Map<string, string>> {
+  if (folderIds.length === 0) return new Map()
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({ id: projectFolders.id, path: projectFolders.path })
+      .from(projectFolders)
+      .where(
+        and(
+          inArray(projectFolders.id, [...folderIds]),
+          eq(projectFolders.projectId, projectId),
+          isNull(projectFolders.deletedAt),
+        ),
+      ),
+  )
+  return new Map(rows.map((row) => [row.id, row.path]))
+}
+
 /**
  * A folder's path on a shelf, scoped to it so a folder id from another project,
  * another shelf or another tenant can never redirect an upload or re-file a
@@ -1192,10 +1285,17 @@ export function findFolderPathInArchiv(folderId: string, organizationId: string)
  * shown — and hand back the size of the tenant's estate to someone scoped to
  * one project. Returns a plain id → count map; projects with no documents are
  * simply absent.
+ *
+ * `hiddenFolderIds` are the folders the viewer may not read in any of those
+ * projects (`getHiddenFolderIds`; folder ids are unique, so one list serves
+ * all). Their documents are left out as `listProjectDocuments` leaves them out:
+ * a number on the grid that counts a file the viewer cannot see tells them it
+ * exists.
  */
 export async function countDocumentsByProject(
   organizationId: string,
   projectIds: string[],
+  hiddenFolderIds?: readonly string[],
 ): Promise<Record<string, number>> {
   if (projectIds.length === 0) return {}
   const db = getDb()
@@ -1212,6 +1312,7 @@ export async function countDocumentsByProject(
           // asking the same question rather than by both happening to exclude
           // the other shelves.
           eq(documents.scope, 'project'),
+          ...outsideHiddenFolders(hiddenFolderIds),
         ),
       )
       .groupBy(documents.projectId),
@@ -1229,16 +1330,97 @@ export async function countDocumentsByProject(
 export async function setDocumentReconciledStatus(
   documentId: string,
   organizationId: string,
-  resolution: { status: string; errorMessage: string | null },
+  resolution: { status: string; errorMessage: string | null; screeningOutcome?: DocumentScreeningOutcome },
 ): Promise<void> {
   const db = getDb()
   await withTenant({ organizationId }, () =>
     db
       .update(documents)
-      .set({ status: resolution.status, errorMessage: resolution.errorMessage, updatedAt: new Date() })
+      .set({
+        status: resolution.status,
+        errorMessage: resolution.errorMessage,
+        // Only when the job said something (ADR-0086): an unscreened job must
+        // not erase a reviewer's `released`.
+        ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
+        updatedAt: new Date(),
+      })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
   )
 }
+
+/**
+ * A reviewer's release of a quarantined document (ADR-0086): who, when, and
+ * which bytes. Guarded on the row still being quarantined with the bytes the
+ * reviewer saw, so a release that raced a re-upload releases nothing. Returns
+ * whether it took.
+ */
+export async function markScreeningReleased(
+  documentId: string,
+  organizationId: string,
+  release: { contentHash: string; releasedBy: string; releasedAt: Date },
+): Promise<boolean> {
+  const db = getDb()
+  const updated = await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({
+        status: 'uploaded',
+        errorMessage: null,
+        screeningOutcome: 'released',
+        screeningReleasedHash: release.contentHash,
+        screeningReleasedBy: release.releasedBy,
+        screeningReleasedAt: release.releasedAt,
+        updatedAt: release.releasedAt,
+      })
+      .where(
+        and(
+          eq(documents.id, documentId),
+          eq(documents.organizationId, organizationId),
+          eq(documents.status, 'quarantined'),
+          eq(documents.contentHash, release.contentHash),
+        ),
+      )
+      .returning({ id: documents.id }),
+  )
+  return updated.length > 0
+}
+
+/** Bound on one read of the quarantine queue. A queue longer than this is a policy problem, not a list. */
+export const QUARANTINE_LIST_LIMIT = 200
+
+/** Where the next page of the quarantine starts: the last row of the previous one. */
+export interface QuarantineCursor {
+  updatedAt: Date
+  id: string
+}
+
+/**
+ * One page of the organization's quarantined documents, newest first, after
+ * `cursor`. Authorization is the caller's, which is why it pages: a reviewer of
+ * one project must not lose their documents behind a page of another project's
+ * (`listQuarantineQueue` reads on until its own list is full).
+ */
+export async function listQuarantinedDocuments(
+  organizationId: string,
+  cursor: QuarantineCursor | null = null,
+): Promise<Document[]> {
+  const db = getDb()
+  const after = cursor
+    ? or(
+        lt(documents.updatedAt, cursor.updatedAt),
+        and(eq(documents.updatedAt, cursor.updatedAt), lt(documents.id, cursor.id)),
+      )
+    : undefined
+  return withTenant({ organizationId }, () =>
+    db
+      .select()
+      .from(documents)
+      .where(and(eq(documents.organizationId, organizationId), eq(documents.status, 'quarantined'), after))
+      .orderBy(desc(documents.updatedAt), desc(documents.id))
+      .limit(QUARANTINE_LIST_LIMIT),
+  )
+}
+
 /**
  * Documents whose ingestion failed and is worth retrying, org-wide, a keyset
  * page at a time.

@@ -682,7 +682,12 @@ class TestPilotiAgent:
         finally:
             prompt_module.system_prompt_template.cache_clear()
 
-        assert reads.call_count == 1
+        # Count the template's own reads. The first construction also resolves
+        # the static half (`resolve_static_block`), which reads its bundled file
+        # unless an earlier test in this process already cached it, so a total
+        # count depended on which tests ran first on the worker.
+        template_reads = [c for c in reads.call_args_list if c.args[1] == prompt_module.PROMPT_NAME]
+        assert len(template_reads) == 1
         assert first.system_prompt is second.system_prompt
 
     def test_default_prompt_requires_tool_result_references(self, mock_llm_provider, real_tool):
