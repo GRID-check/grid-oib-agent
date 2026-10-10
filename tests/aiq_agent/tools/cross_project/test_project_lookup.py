@@ -1,4 +1,4 @@
-"""``project_lookup`` (ADR-0093): what it sends, what it renders, what it admits.
+"""``project_lookup`` (ADR-0094): what it sends, what it renders, what it admits.
 
 The HTTP call is the only thing faked. The tool, the grounding renderer, the
 citation readers and the admission are the real ones, because what is under
@@ -151,7 +151,7 @@ class TestWhatItSends:
         assert by_path["/api/internal/cross-project/search"]["from"] == "2019-01-01"
 
     async def test_every_body_names_the_answer_this_turn_writes(self, monkeypatch, calls, turn, schema) -> None:
-        # The BFF marks that answer with the hand-out (ADR-0092); the id is the
+        # The BFF marks that answer with the hand-out (ADR-0093); the id is the
         # one the turn streams and persists the answer under.
         monkeypatch.setattr(project_context, "get_conversation_id_from_context", lambda: "s_conv_1")
         monkeypatch.setattr(project_context, "get_user_message_id_from_context", lambda: "m_user_7")
@@ -359,7 +359,7 @@ class TestFindAndBrief:
 
 
 class TestTheWire:
-    """What the browser is told about a source from another project (ADR-0093)."""
+    """What the browser is told about a source from another project (ADR-0094)."""
 
     def _entry(self):
         from aiq_agent.common.citation_verification import SourceEntry

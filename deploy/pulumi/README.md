@@ -28,8 +28,8 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 - The provider's **StorageClass** name — `premium` (default, 3 replicas),
   `standard` (2), or `single-replica` (1). Confirm with `kubectl get storageclass`.
   (`lightbits` is the VolumeSnapshotClass, not a StorageClass.)
-- Images published to a registry (the `publish-images` GitHub Actions workflow
-  pushes them to GHCR on merge to `develop`).
+- Images published to a registry (CI pushes them to GHCR and tags all three
+  `sha-<commit>` for every `develop` commit whose checks passed).
 
 ## Quick start
 
@@ -310,7 +310,8 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | 🔒 `langfuseInitUserPassword` | — | Break-glass Langfuse account created at headless init, for when SSO itself is what is broken. A real credential behind the edge gate, not a placeholder |
 | `langfuseInitUserEmail` | `letsEncryptEmail` | That account's email |
 | `langfuseOrgId` / `langfuseProjectId` | `grid` / `grid-oib` | Headless-init identifiers. Deliberately not derived from the hostname: headless init matches on them, so a value that moved with the domain would create a SECOND project and orphan every stored trace |
-| `langfuseWebImage` / `langfuseWorkerImage` | digest-pinned `ghcr.io/langfuse/langfuse{,-worker}@sha256:…` (4.54.0) | Two keys because upstream publishes two images — but they **must be the same version**, and digests are opaque so nothing can check it. Bump together. Both are scanned by the trivy `image-scan` job |
+| `langfuseDefaultRole` | `VIEWER` | Role a NEW Langfuse user gets in `langfuseOrgId` / `langfuseProjectId` on first SSO sign-in (`LANGFUSE_DEFAULT_ORG_ROLE` and `_PROJECT_ROLE`). `OWNER`, `ADMIN`, `MEMBER`, `VIEWER` or `NONE`, refused at load time otherwise, because Langfuse refuses to start on an unknown one. `NONE` joins the org with no access and no project. Applied only when an account is created or first linked, so a promotion made in the Langfuse UI is never reverted. See kubernetes.md §9b, "Giving analysts read-only access" |
+| `langfuseWebImage` / `langfuseWorkerImage` | digest-pinned `ghcr.io/langfuse/langfuse{,-worker}@sha256:…` (4.56.0) | Two keys because upstream publishes two images — but they **must be the same version**, and digests are opaque so nothing can check it. Bump together. Both are scanned by the trivy `image-scan` job |
 | `clickhouseImage` | digest-pinned `clickhouse/clickhouse-server@sha256:…` (26.8 LTS) | Single-node analytical store. Langfuse v4 needs 25.12 or newer. `CLICKHOUSE_CLUSTER_ENABLED=false` makes the migrator emit plain `MergeTree`, so growing to a real cluster is a migration, not a replica count |
 | `clickhouseStorageSize` | `50Gi` | The trace store is the tier's unbounded resource — see the retention note above. The server's own system logs are TTL-bounded at 14 days (`system-log-ttl.xml` in `src/data/clickhouse.ts`) and cannot fill the disk the way `system.trace_log` did on dev in August 2026. Growing the PVC is a PVC patch (`volumeClaimTemplates` is immutable and `ignoreChanges`d) |
 | `langfuseV4WriteMode` | `dual` | Langfuse's v3 -> v4 migration (`LANGFUSE_MIGRATION_V4_WRITE_MODE`): `legacy`, `dual` or `events_only`, refused at load time otherwise, since Langfuse would read a typo as `events_only`. `events_only` is the one-way cutover; see kubernetes.md §9b, "Upgrading to Langfuse v4" |

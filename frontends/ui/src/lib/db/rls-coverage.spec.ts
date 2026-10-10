@@ -111,7 +111,7 @@ const BOUNDARY_MIGRATIONS = [
   // organization; no foreign keys, so the row outlives what it names.
   '0114_document_access_log.sql',
   // Adds project_people — the Steckbrief's people, with or without a Piloti
-  // account (ADR-0090). Keyed directly by its organization, tied to its project
+  // account (ADR-0091). Keyed directly by its organization, tied to its project
   // by a composite foreign key.
   '0117_project_steckbrief.sql',
   // Adds document_quarantine_decisions — the content gate's decisions, owed to
@@ -119,7 +119,7 @@ const BOUNDARY_MIGRATIONS = [
   // keys, so the row outlives the document it names.
   '0119_document_quarantine_decisions.sql',
   // Adds message_restricted_use — the server's mark on a message written while
-  // its conversation drew on a restricted folder (ADR-0092). Keyed directly by
+  // its conversation drew on a restricted folder (ADR-0093). Keyed directly by
   // its organization; no foreign key, so the mark outlives the chat.
   '0124_message_restricted_use.sql',
   // Adds mail_imports (ADR-0085), an Outlook archive a member is filing into a
@@ -127,7 +127,7 @@ const BOUNDARY_MIGRATIONS = [
   // stale-upload sweep reads across tenants under the platform role.
   '0108_mail_imports.sql',
   // Adds conversation_source_projects — another project a chat drew on
-  // through a cross-project lookup (ADR-0093). Keyed directly by its
+  // through a cross-project lookup (ADR-0094). Keyed directly by its
   // organization: the conversation row may not exist yet.
   '0125_conversation_source_projects.sql',
 ]

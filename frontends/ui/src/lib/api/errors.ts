@@ -78,7 +78,7 @@ export class ConversationConfinedError extends ApiError {
 }
 
 /**
- * 409 — a cross-project lookup (ADR-0093) whose conversation changed who may
+ * 409 — a cross-project lookup (ADR-0094) whose conversation changed who may
  * read it while the lookup ran: the reach it searched was computed for the old
  * audience, so nothing is handed out. Asking again searches as the new one. The
  * message is the reader's sentence, relayed by the agent.
@@ -91,7 +91,7 @@ export class CrossProjectAudienceChangedError extends ApiError {
 
 /**
  * 409 — a memory write from a conversation that drew on another project
- * (ADR-0093). Project and organization memory are read by everyone in the
+ * (ADR-0094). Project and organization memory are read by everyone in the
  * project, so nothing found in another project may reach them from a chat.
  */
 export class CrossProjectMemoryError extends ApiError {

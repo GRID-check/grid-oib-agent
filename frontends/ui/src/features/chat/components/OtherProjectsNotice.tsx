@@ -1,6 +1,6 @@
 /**
  * What the composer says once a chat's answers drew on another project still
- * running (ADR-0093): which projects, and what that closes. A closed project is
+ * running (ADR-0094): which projects, and what that closes. A closed project is
  * read by the whole office and closes nothing, so it is not listed, and a chat
  * that drew only on closed projects shows no notice: its sources name them. The chat stays with the
  * people who may open them, and nothing from it reaches what the whole project

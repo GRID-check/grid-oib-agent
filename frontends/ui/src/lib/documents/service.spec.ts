@@ -3481,7 +3481,7 @@ describe('restricted folders (ADR-0087)', () => {
     ])
   })
 
-  it('asks for the longer snippet only when a caller wants it as evidence (ADR-0093)', async () => {
+  it('asks for the longer snippet only when a caller wants it as evidence (ADR-0094)', async () => {
     await searchProjectDocuments(session, 'proj-1', 'Honorar', 10, { snippetMaxChars: 900 })
     await searchProjectDocuments(session, 'proj-1', 'Honorar', 10)
 

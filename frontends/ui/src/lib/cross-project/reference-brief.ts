@@ -7,9 +7,9 @@
  * per entry in context, the content fetched only when relevant.
  *
  * Only CLOSED projects are listed. Every office member may read a closed
- * project's name and facts (ADR-0089), so the catalog is safe in any
+ * project's name and facts (ADR-0090), so the catalog is safe in any
  * conversation, solo or shared, and listing it records nothing. People
- * (the Steckbrief's) never appear: they stay out of the prompt (ADR-0090).
+ * (the Steckbrief's) never appear: they stay out of the prompt (ADR-0091).
  */
 
 import 'server-only'

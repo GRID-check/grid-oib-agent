@@ -49,7 +49,7 @@ import { useLocale, useTranslations } from '@/i18n'
 
 interface ProjectSettingsProps {
   data: ProjectOverviewData
-  /** The Steckbrief (ADR-0090): address, period, people. Omitted, the card is not shown. */
+  /** The Steckbrief (ADR-0091): address, period, people. Omitted, the card is not shown. */
   steckbrief?: SteckbriefView
   /** Accounts a Steckbrief person may be linked to. */
   steckbriefAccounts?: readonly SteckbriefAccount[]
@@ -67,7 +67,7 @@ interface ProjectSettingsProps {
   canManageProject?: boolean
   /**
    * Whether the user manages who is a member. Like {@link canManageProject},
-   * except that it stays true in a closed project (ADR-0089), which is
+   * except that it stays true in a closed project (ADR-0090), which is
    * read-only for everything but its members and its status.
    */
   canManageMembers?: boolean
@@ -194,7 +194,7 @@ export function ProjectSettings({
         </div>
       </StaggerItem>
 
-      {/* The Steckbrief: what stays once the project is closed (ADR-0090). */}
+      {/* The Steckbrief: what stays once the project is closed (ADR-0091). */}
       {steckbrief && (
         <StaggerItem>
           <ProjectSteckbrief projectId={data.id} steckbrief={steckbrief} accounts={steckbriefAccounts} />
@@ -261,7 +261,7 @@ export function ProjectSettings({
         </StaggerItem>
       )}
 
-      {/* Close or reopen (ADR-0089): the one change a closed project allows. */}
+      {/* Close or reopen (ADR-0090): the one change a closed project allows. */}
       {canChangeStatus && (
         <StaggerItem>
           <ProjectLifecycleCard projectId={data.id} status={data.status} closedAt={data.closedAt} />

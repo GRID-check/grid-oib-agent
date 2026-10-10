@@ -490,7 +490,7 @@ describe('RunBlock — stopping a run', () => {
     expect(screen.queryByTestId('run-action-continue')).not.toBeInTheDocument()
   })
 
-  it('in a closed project says there is no new research where „Bericht fortschreiben" would be (ADR-0089)', () => {
+  it('in a closed project says there is no new research where „Bericht fortschreiben" would be (ADR-0090)', () => {
     render(
       <CurrentProjectProvider value={{ id: 'p1', name: 'Seestadt', status: 'closed' as const, closedAt: '2026-10-01T00:00:00Z', readsBecauseClosed: false }}>
         <RunBlock ledger={finished('doc-9')} title={TITLE} onContinue={vi.fn()} />

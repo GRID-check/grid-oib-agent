@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * „Ausmisten" (ADR-0091): the proposal looks only at what the closer may read
+ * „Ausmisten" (ADR-0092): the proposal looks only at what the closer may read
  * and write, sends the model metadata and nothing else, falls back to the rules
  * when the model fails, and the confirmation puts exactly what the person chose
  * into the Papierkorb, one subfolder per source folder, audited.
