@@ -1,0 +1,12 @@
+---
+improvements:
+  - >
+    When Piloti looks into the office's past projects, it now quotes the
+    decisions and requirements those projects wrote down in their project
+    memory first, named by project, and then the documents. Restricted notes
+    show up only in a chat that is yours alone and only if you may read the
+    folder they came from.
+  - >
+    For a question an earlier project may already have answered, Piloti now
+    searches the closed projects most like yours from the start, and finds
+    them by construction method too.

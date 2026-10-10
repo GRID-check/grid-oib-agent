@@ -232,7 +232,7 @@ class TestRefusals:
         set_turn_documents(None)
         result = await _move(document="Grundriss OG.pdf", target_folder="Einreichung")
         assert registry.snapshot() == []
-        assert "keine Projekt- oder Büroarchiv-Dateien" in result
+        assert "keine Projekt- oder Büroablage-Dateien" in result
 
 
 class TestOneToolFourOperations:

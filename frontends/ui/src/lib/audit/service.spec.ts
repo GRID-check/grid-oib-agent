@@ -15,13 +15,24 @@ vi.mock('@/lib/workos/client', () => ({
   }),
 }))
 
+const folderVisible = vi.fn<(organizationId: string, projectId: string, folderId: string | null, clearance: unknown) => Promise<boolean>>()
+const ANY_MEMBER_CLEARANCE = { levels: {}, seesEverything: false }
+vi.mock('@/lib/authz/folder-access', () => ({
+  ANY_MEMBER: ANY_MEMBER_CLEARANCE,
+  isFolderVisibleToClearance: folderVisible,
+}))
+
 import {
   AuditEmitError,
+  DOCUMENT_NAME_ACTIONS,
+  DOCUMENT_NAME_KEYS,
+  UNRESTRICTED_NAME_ACTIONS,
   auditLogsEnabled,
   generateAuditPortalLink,
   recordAuditEvent,
   recordAuditEventOrThrow,
   trustedAppOrigin,
+  type AuditAction,
 } from './service'
 import { AUDIT_SCHEMAS } from './schemas.mjs'
 
@@ -89,6 +100,28 @@ describe('recordAuditEvent (WorkOS-native audit trail)', () => {
     expect(event.targets).toEqual([{ type: 'organization', id: 'org_1' }])
     expect(event.context.location).toBe('unknown')
     expect(event.metadata).toEqual({})
+  })
+
+  // An event an outbox sends again (the quarantine decisions, ADR-0086) must
+  // be the SAME event: its own key, and the decision's time rather than now.
+  it('passes a fixed occurredAt and the idempotency key through, and mints neither when absent', async () => {
+    const decidedAt = new Date('2026-10-01T08:00:00Z')
+    await recordAuditEventOrThrow({
+      organizationId: 'org_1',
+      actor: { userId: 'system:upload_screening' },
+      action: 'document.quarantined',
+      targetType: 'document',
+      targetId: 'doc_1',
+      filedIn: null,
+      occurredAt: decidedAt,
+      idempotencyKey: 'document.quarantined:decision_1',
+    })
+    const [, event, options] = createEvent.mock.calls[0]
+    expect(event.occurredAt).toEqual(decidedAt)
+    expect(options).toEqual({ idempotencyKey: 'document.quarantined:decision_1' })
+
+    await recordAuditEvent({ organizationId: 'org_1', actor: { userId: 'u' }, action: 'org.settings.updated', targetType: 'organization' })
+    expect(createEvent.mock.calls[1][2]).toBeUndefined()
   })
 
   // Issues #274/#277. WorkOS derives the validator from the registered schema
@@ -181,6 +214,7 @@ describe('agent-authored events', () => {
         ref: { kind: 'agent_run', id: 'run_7' },
       },
       action: 'document.generated',
+      filedIn: null,
       targetType: 'document',
       targetId: 'doc_9',
       metadata: { projectId: 'proj_1', filename: 'Bericht.docx', fileSize: 4096 },
@@ -208,6 +242,7 @@ describe('agent-authored events', () => {
         ref: { kind: 'answer_artifact', id: 'msg_42-1a2b3c4d' },
       },
       action: 'document.generated',
+      filedIn: null,
       targetType: 'document',
       targetId: 'doc_9',
     })
@@ -222,6 +257,7 @@ describe('agent-authored events', () => {
       organizationId: 'org_1',
       actor: { userId: 'user_1' },
       action: 'document.uploaded',
+      filedIn: null,
       targetType: 'document',
       targetId: 'doc_9',
       metadata: { projectId: 'proj_1', filename: 'plan.pdf', fileSize: 12 },
@@ -237,6 +273,7 @@ describe('agent-authored events', () => {
       organizationId: 'org_1',
       actor: { type: 'agent', userId: 'user_1', ref: { kind: 'agent_run', id: 'run_7' } },
       action: 'document.generated',
+      filedIn: null,
       targetType: 'document',
       targetId: 'doc_9',
     })
@@ -256,6 +293,7 @@ describe('recordAuditEventOrThrow (the events whose absence is the failure)', ()
       organizationId: 'org_1',
       actor: { type: 'agent', userId: 'user_1', ref: { kind: 'agent_run', id: 'run_7' } },
       action: 'document.generated',
+      filedIn: null,
       targetType: 'document',
       targetId: 'doc_9',
     })
@@ -274,6 +312,7 @@ describe('recordAuditEventOrThrow (the events whose absence is the failure)', ()
       organizationId: 'org_1',
       actor: { type: 'agent', userId: 'user_1', ref: { kind: 'agent_run', id: 'run_7' } },
       action: 'document.generated',
+      filedIn: null,
       targetType: 'document',
       targetId: 'doc_9',
     }).then(
@@ -286,6 +325,147 @@ describe('recordAuditEventOrThrow (the events whose absence is the failure)', ()
     expect(failure.action).toBe('document.generated')
     expect(failure.organizationId).toBe('org_1')
     expect(failure.cause).toBe(rejection)
+  })
+})
+
+// Gap 10 of the upload-governance audit: the WorkOS audit portal opens with
+// `org:audit:view`, which roles that are not organization admins hold, so the
+// name of a document under a folder not every member may read stays out.
+describe('a restricted document is not named in the trail (ADR-0087)', () => {
+  /** The registry as the metadata maps these checks read. */
+  const SCHEMAS: Readonly<
+    Record<AuditAction, { readonly targets: readonly { readonly type: string }[]; readonly metadata?: Readonly<Record<string, string>> }>
+  > = AUDIT_SCHEMAS
+  beforeEach(() => {
+    vi.clearAllMocks()
+    createEvent.mockResolvedValue(undefined)
+    process.env.GRID_AUDIT_LOGS_ENABLED = 'true'
+  })
+
+  const rename = (folderId: string | null) =>
+    recordAuditEvent({
+      organizationId: 'org_1',
+      actor: { userId: 'user_1' },
+      action: 'document.renamed',
+      targetType: 'document',
+      targetId: 'doc_9',
+      filedIn: { projectId: 'proj_1', folderId },
+      metadata: {
+        filename: 'Gehaltsliste-2026.xlsx',
+        previousName: 'Gehaltsliste',
+        displayName: 'Gehälter',
+        collectionName: 'proj_1__f_folder_lohn',
+      },
+    })
+
+  it('leaves every name key out for a folder not every member may read, and says so', async () => {
+    folderVisible.mockResolvedValue(false)
+
+    await rename('folder_lohn')
+
+    expect(folderVisible).toHaveBeenCalledWith('org_1', 'proj_1', 'folder_lohn', ANY_MEMBER_CLEARANCE)
+    const event = lastEvent()
+    expect(event.metadata).toEqual({ collectionName: 'proj_1__f_folder_lohn', nameWithheld: true })
+    expect(JSON.stringify(event)).not.toMatch(/Gehalt/)
+    // The target still says which document: someone cleared for the folder resolves it.
+    expect(event.targets).toEqual([{ type: 'document', id: 'doc_9' }])
+  })
+
+  it('names a document in a folder every member may read, as before', async () => {
+    folderVisible.mockResolvedValue(true)
+
+    await rename('folder_plaene')
+
+    expect(lastEvent().metadata).toEqual({
+      filename: 'Gehaltsliste-2026.xlsx',
+      previousName: 'Gehaltsliste',
+      displayName: 'Gehälter',
+      collectionName: 'proj_1__f_folder_lohn',
+    })
+  })
+
+  it('asks nothing for the project root or a document on no project shelf', async () => {
+    await rename(null)
+    await recordAuditEvent({
+      organizationId: 'org_1',
+      actor: { userId: 'user_1' },
+      action: 'document.screening_overridden',
+      targetType: 'document',
+      targetId: 'doc_9',
+      filedIn: null,
+      metadata: { projectId: '', filename: 'Vertrag.pdf', terms: 'vertrag' },
+    })
+
+    expect(folderVisible).not.toHaveBeenCalled()
+    expect(createEvent.mock.calls.map((call) => (call[1] as EmittedEvent).metadata.filename)).toEqual([
+      'Gehaltsliste-2026.xlsx',
+      'Vertrag.pdf',
+    ])
+  })
+
+  it('withholds the name-gate terms of an override with the name, since they matched a piece of it', async () => {
+    folderVisible.mockResolvedValue(false)
+
+    await recordAuditEvent({
+      organizationId: 'org_1',
+      actor: { userId: 'user_1' },
+      action: 'document.screening_overridden',
+      targetType: 'document',
+      targetId: 'doc_9',
+      filedIn: { projectId: 'proj_1', folderId: 'folder_lohn' },
+      metadata: { projectId: 'proj_1', filename: 'Gehaltsliste-2026.xlsx', terms: 'gehalt,lohn' },
+    })
+
+    expect(lastEvent().metadata).toEqual({ projectId: 'proj_1', nameWithheld: true })
+    expect(JSON.stringify(lastEvent())).not.toMatch(/gehalt|lohn/i)
+  })
+
+  it('withholds the name when the folder rule cannot be read (fails closed)', async () => {
+    folderVisible.mockRejectedValue(new Error('database unavailable'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await rename('folder_lohn')
+
+    expect(lastEvent().metadata).toEqual({ collectionName: 'proj_1__f_folder_lohn', nameWithheld: true })
+  })
+
+  it('withholds it on the throwing emitter too', async () => {
+    folderVisible.mockResolvedValue(false)
+
+    await recordAuditEventOrThrow({
+      organizationId: 'org_1',
+      actor: { type: 'agent', userId: 'user_1', ref: { kind: 'agent_run', id: 'run_7' } },
+      action: 'document.generated',
+      targetType: 'document',
+      targetId: 'doc_9',
+      filedIn: { projectId: 'proj_1', folderId: 'folder_lohn' },
+      metadata: { projectId: 'proj_1', producer: 'report', filename: 'Lohnauswertung.docx', fileSize: 10 },
+    })
+
+    expect(lastEvent().metadata).toEqual({ projectId: 'proj_1', producer: 'report', fileSize: 10, nameWithheld: true })
+  })
+
+  it('classifies every action that registers a name: withheld when restricted, or never restricted with the reason', () => {
+    const NAME_KEYS = new Set<string>([...DOCUMENT_NAME_KEYS, 'name', 'documentName', 'folderName', 'title'])
+    const naming = (Object.keys(SCHEMAS) as AuditAction[]).filter((action) => {
+      const metadata = SCHEMAS[action].metadata ?? {}
+      return Object.keys(metadata).some((key) => NAME_KEYS.has(key))
+    })
+    const classified = new Set<string>([...DOCUMENT_NAME_ACTIONS, ...Object.keys(UNRESTRICTED_NAME_ACTIONS)])
+    expect(
+      naming.filter((action) => !classified.has(action)),
+      'An audit action carries a name. If it can name a document in a restricted folder, add it to ' +
+        'DOCUMENT_NAME_ACTIONS (the compiler then asks every call site for filedIn); otherwise give the reason in ' +
+        'UNRESTRICTED_NAME_ACTIONS.'
+    ).toEqual([])
+    for (const reason of Object.values(UNRESTRICTED_NAME_ACTIONS)) expect(reason.length).toBeGreaterThan(20)
+  })
+
+  it('registers nameWithheld on every action that can withhold a name, or WorkOS would reject the event', () => {
+    for (const action of DOCUMENT_NAME_ACTIONS) {
+      const metadata = SCHEMAS[action].metadata ?? {}
+      expect(metadata.nameWithheld, action).toBe('boolean')
+    }
   })
 })
 

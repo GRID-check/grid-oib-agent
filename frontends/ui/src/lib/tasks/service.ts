@@ -31,6 +31,7 @@ import {
   transitionDocumentVersion,
 } from '@/lib/documents/lifecycle'
 import { findDocumentInOrg } from '@/lib/documents/repository'
+import { internalRead } from '@/lib/documents/document-reader'
 import { openDraftForRevision } from '@/lib/documents/revision'
 import { fileResearchReport, queueResearchReportFiling } from '@/lib/documents/research-report'
 import type { FileResearchReportPayload, JobAttempt } from '@/lib/jobs-queue/types'
@@ -40,6 +41,7 @@ import { resolvePeople } from '@/lib/sharing/directory'
 import type { TaskWireRow } from '@/features/tasks/lib/task-view'
 import { loadRunSummaries, toTaskWireRow } from './list-projection'
 import * as repository from './repository'
+import { requireMaySeeSubject, withoutUnreadableSubjects } from './subject-access'
 import { isActiveTaskRunStatus } from './task-vocabulary'
 import type { ReviewTaskInput } from './types'
 
@@ -357,7 +359,7 @@ async function fileResultFor(
       actingHuman: false,
     })
   }
-  const document = await findDocumentInOrg(filed.documentId, session.organizationId)
+  const document = await findDocumentInOrg(filed.documentId, session.organizationId, internalRead('just-written'))
   return { documentId: filed.documentId, filename: document?.filename ?? `task-${run.id}` }
 }
 
@@ -431,10 +433,15 @@ export async function recordRunOutcome(
   return { notified: emitted > 0, filed: completed.filed, closed: true }
 }
 
-/** A project's runs, newest first. `project:view`, like the definition list. */
+/**
+ * A project's runs, newest first. `project:view`, like the definition list,
+ * without the revision tasks whose document the reader may not read now
+ * (`subject-access.ts`, ADR-0093).
+ */
 export async function listTasks(session: AuthorizedSession, projectId: string): Promise<TaskRun[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  return repository.listRunsInProject(projectId, session.organizationId)
+  const runs = await repository.listRunsInProject(projectId, session.organizationId)
+  return withoutUnreadableSubjects(session, projectId, runs)
 }
 
 /**
@@ -478,6 +485,7 @@ export async function reviewTask(
   await requireProjectAccess(session, projectId, 'project:edit')
   const run = await repository.findRunInProject(taskId, projectId, session.organizationId)
   if (!run) throw new NotFoundError('Task not found')
+  await requireMaySeeSubject(session, projectId, run)
   if (isActiveTaskRunStatus(run.status)) {
     throw new ConflictError('A task can only be reviewed once it has finished')
   }

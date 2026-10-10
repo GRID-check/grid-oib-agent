@@ -95,6 +95,17 @@ describe('listProjects', () => {
     expect(JSON.stringify(visible)).not.toContain('Alpha')
   })
 
+  it('lists a closed project for every member, without asking for a grant (ADR-0090)', async () => {
+    const closed = makeProject({ id: 'proj_closed', name: 'Closed', status: 'closed', closedAt: new Date(), closedBy: 'u' })
+    listProjectsInOrg.mockResolvedValue([ALPHA, closed])
+    check.mockResolvedValue({ authorized: false })
+
+    const visible = await listProjects(session())
+
+    expect(visible.map((project) => project.id)).toEqual(['proj_closed'])
+    expect(check).toHaveBeenCalledTimes(1)
+  })
+
   it('checks project:view against the caller membership, once per project', async () => {
     check.mockResolvedValue({ authorized: true })
 
@@ -196,7 +207,11 @@ describe('getProjectsGridData', () => {
     const data = await getProjectsGridData(session())
 
     expect(lastProjectActivityByUser).toHaveBeenCalledWith('org_1', 'user_1', ['proj_beta'])
-    expect(countDocumentsByProject).toHaveBeenCalledWith('org_1', ['proj_beta'], [])
+    expect(countDocumentsByProject).toHaveBeenCalledWith('org_1', ['proj_beta'], [], {
+      kind: 'projects',
+      userId: 'user_1',
+      reviewedProjectIds: [],
+    })
     expect(data.projects.map((project) => project.id)).toEqual(['proj_beta'])
     expect(data.viewerActivity).toEqual({ proj_beta: '2026-08-05T09:00:00.000Z' })
     expect(data.documentCounts).toEqual({ proj_beta: 4 })

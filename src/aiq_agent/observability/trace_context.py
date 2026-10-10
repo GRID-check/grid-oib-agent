@@ -72,6 +72,9 @@ _TYPE_BY_KIND = {
 #: Grid's own retrieval steps (``observability.retrieval_trace``) are FUNCTION
 #: spans NAT cannot tell from any other; their name says what they are.
 _RETRIEVAL_SPAN_PREFIX = "retrieve."
+#: The decision model's calls (``observability.decision_trace``): FUNCTION
+#: spans too, and model calls, so generations (ADR-0089).
+_DECISION_SPAN_PREFIX = "decide."
 
 
 def langfuse_environment(raw: str | None = None) -> str | None:
@@ -117,6 +120,8 @@ def observation_type(*, name: str | None, kind: str | None) -> str | None:
     """The Langfuse observation type for one span, or None to leave it a plain span."""
     if name and name.startswith(_RETRIEVAL_SPAN_PREFIX):
         return "retriever"
+    if name and name.startswith(_DECISION_SPAN_PREFIX):
+        return "generation"
     return _TYPE_BY_KIND.get(kind or "")
 
 

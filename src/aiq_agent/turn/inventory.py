@@ -175,7 +175,7 @@ async def aggregate_documents_across_collections(
 
     Each row is stamped with the collection it came from and the shelf the scope
     stated. Identity is ``(collection, file_name)`` — the same filename on the
-    Büroarchiv and in a project is two documents (ADR-0047). The cap keeps
+    Büroablage and in a project is two documents (ADR-0047). The cap keeps
     user-shelf files first so the OIB corpus cannot evict the archive;
     ``0``/negative disables it.
     """

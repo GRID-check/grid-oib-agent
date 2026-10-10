@@ -29,8 +29,8 @@
  * a colour there would be decoration. The bar turns when something has actually
  * happened to the document: {@link TRACK_TINT}.
  *
- * **Never the Büroarchiv gold.** `--text-color-feedback-warning` is an alias of
- * `--source-office`, the Büroarchiv's own provenance signal (`styles/tokens.css`
+ * **Never the Büroablage gold.** `--text-color-feedback-warning` is an alias of
+ * `--source-office`, the Büroablage's own provenance signal (`styles/tokens.css`
  * says so on the line), and this feature has just finished untangling one
  * archive collision in its words — putting the same collision back as a colour
  * would be a poor trade. „Änderungen erbeten" therefore shares the stopped

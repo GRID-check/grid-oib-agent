@@ -16,7 +16,7 @@
  *
  *   1. ONE DOCUMENT, FOUR PAGES — one chip, "S. 5, 12, 18, 22", markers 1–4.
  *      Every inline [N] anchors to it; nothing is degraded and nothing is lost.
- *   2. MIXED PROVENANCE — OIB corpus, RIS, Büroarchiv, project upload and a web
+ *   2. MIXED PROVENANCE — OIB corpus, RIS, Büroablage, project upload and a web
  *      page side by side, each in its own family with its authority badge.
  *   3. WRITTEN LIST ONLY — the answer's `## Quellen` section with no structured
  *      wire at all. This is the case that produced the raw filenames; it now
@@ -91,7 +91,7 @@ const mixed: CitationSource[] = [
     origin: 'kb',
     kind: 'buero',
     lane: 'buero',
-    laneLabel: 'Büroarchiv',
+    laneLabel: 'Büroablage',
     page: 2,
     number: 3,
     isCited: true,
@@ -179,7 +179,7 @@ export default function AnswerSourcesPreview() {
 
       <Block
         title="Mixed provenance"
-        note="Each family in its own tint with its authority badge: OIB corpus, RIS legal source, Büroarchiv, project upload, web page."
+        note="Each family in its own tint with its authority badge: OIB corpus, RIS legal source, Büroablage, project upload, web page."
       >
         <Row inputs={{ citations: mixed }} anchorPrefix="answer-source-preview-b-" />
       </Block>

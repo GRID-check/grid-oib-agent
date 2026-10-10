@@ -1,4 +1,4 @@
-import { render, screen, within } from '@/test-utils'
+import { fireEvent, render, screen, within } from '@/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FIXTURE_PROJECT_ID, FIXTURE_USER_ID, HISTORY } from '@/app/dev/_fixtures/upload-batches'
 import { en } from '@/i18n/dictionaries/en'
@@ -56,11 +56,55 @@ describe('UploadHistory', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it('loads the project’s uploads from its history endpoint', async () => {
-    const fetchMock = vi.fn(async () => Response.json({ uploads: HISTORY }))
+    const fetchMock = vi.fn(async () => Response.json({ uploads: HISTORY, nextCursor: null }))
     vi.stubGlobal('fetch', fetchMock)
     render(<UploadHistory projectId={FIXTURE_PROJECT_ID} currentUserId={FIXTURE_USER_ID} />)
     expect(await screen.findByTestId('upload-history')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(`/api/projects/${FIXTURE_PROJECT_ID}/uploads`, expect.anything())
+    // One page holds them all: nothing older to load.
+    expect(screen.queryByTestId('upload-history-more')).not.toBeInTheDocument()
+  })
+
+  it('reads the older uploads page by page until the history is complete', async () => {
+    const fetchMock = vi.fn(async (url: string) =>
+      url.endsWith('?cursor=page-2')
+        ? Response.json({ uploads: HISTORY.slice(2), nextCursor: null })
+        : Response.json({ uploads: HISTORY.slice(0, 2), nextCursor: 'page-2' })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    render(<UploadHistory projectId={FIXTURE_PROJECT_ID} currentUserId={FIXTURE_USER_ID} />)
+
+    const more = await screen.findByRole('button', { name: en.uploadBatches.history.more })
+    expect(screen.queryByTestId(`upload-history-row-${HISTORY[2].id}`)).not.toBeInTheDocument()
+    fireEvent.click(more)
+
+    expect(await screen.findByTestId(`upload-history-row-${HISTORY[2].id}`)).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenLastCalledWith(`/api/projects/${FIXTURE_PROJECT_ID}/uploads?cursor=page-2`, expect.anything())
+    expect(screen.getAllByTestId(/^upload-history-row-/)).toHaveLength(HISTORY.length)
+    expect(screen.queryByTestId('upload-history-more')).not.toBeInTheDocument()
+  })
+
+  it('keeps the uploads it has and offers the older ones again when they cannot be read', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.includes('?cursor=')
+          ? new Response(null, { status: 500 })
+          : Response.json({ uploads: HISTORY.slice(0, 1), nextCursor: 'page-2' })
+      )
+    )
+    render(<UploadHistory projectId={FIXTURE_PROJECT_ID} currentUserId={FIXTURE_USER_ID} />)
+    fireEvent.click(await screen.findByRole('button', { name: en.uploadBatches.history.more }))
+    expect(await screen.findByTestId('upload-history-more-error')).toHaveTextContent(en.uploadBatches.history.moreError)
+    expect(screen.getByTestId(`upload-history-row-${HISTORY[0].id}`)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: en.uploadBatches.history.more })).toBeEnabled()
+  })
+
+  it('does not call a first page with nothing visible „no uploads yet" while older ones remain', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ uploads: [], nextCursor: 'page-2' })))
+    render(<UploadHistory projectId={FIXTURE_PROJECT_ID} currentUserId={FIXTURE_USER_ID} />)
+    expect(await screen.findByTestId('upload-history-more')).toBeInTheDocument()
+    expect(screen.queryByTestId('upload-history-empty')).not.toBeInTheDocument()
   })
 
   it('offers a retry when the history cannot be read', async () => {

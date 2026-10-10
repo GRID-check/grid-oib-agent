@@ -40,6 +40,7 @@ type OptionalWireField =
   | 'versionState'
   | 'versionCount'
   | 'lifecycle'
+  | 'sourceDeletedAt'
 
 /** Normalize one wire row into the shape every file surface reads. */
 export function toFileItem(row: DocumentWireRow): FileItem {
@@ -71,6 +72,7 @@ export function toFileItem(row: DocumentWireRow): FileItem {
     // A listing that did not say is a listing of the working set — which is
     // what every listing but the „Archiviert" one is.
     lifecycle: row.lifecycle ?? 'active',
+    sourceDeletedAt: row.sourceDeletedAt ?? null,
   }
 }
 

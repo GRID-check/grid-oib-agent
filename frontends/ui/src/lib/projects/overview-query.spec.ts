@@ -28,11 +28,12 @@ vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
 
 import { getDb } from '@/lib/db'
 import { getProjectOverviewData } from './overview-query'
+import { memberReader, REVIEWER_READER } from '@/lib/documents/document-reader'
 
 const PROJECT_ID = '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
 const ORG_ID = 'org_1'
 /** A reader who may see every folder. */
-const OPEN = { hiddenFolderIds: [] as string[] }
+const OPEN = { hiddenFolderIds: [] as string[], reader: REVIEWER_READER }
 const HIDDEN_FOLDER = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d'
 
 const projectRow = {
@@ -131,13 +132,29 @@ describe('getProjectOverviewData', () => {
     // fee note is filed: both are the restricted folder's content, read by
     // anyone who can open the project, unless the same exclusion the document
     // list applies is applied here.
-    await getProjectOverviewData(PROJECT_ID, ORG_ID, { hiddenFolderIds: [HIDDEN_FOLDER] })
+    await getProjectOverviewData(PROJECT_ID, ORG_ID, { hiddenFolderIds: [HIDDEN_FOLDER], reader: REVIEWER_READER })
 
     for (const predicate of [predicates[1], predicates[2]]) {
       const { sql, params } = compile(predicate)
       expect(sql).toContain('"folder_id" is null')
       expect(sql).toContain('"folder_id" not in')
       expect(params).toContain(HIDDEN_FOLDER)
+    }
+    expect(compile(predicates[1])).toEqual(compile(predicates[2]))
+  })
+
+  it("leaves somebody else's held file out of the count, the total size and the recent list", async () => {
+    // ADR-0086. The recent list names the file; for a reader who neither
+    // uploaded it nor reviews the quarantine, a file the screening has not
+    // passed is not there: the one predicate, `documentVisibleTo`.
+    await getProjectOverviewData(PROJECT_ID, ORG_ID, { hiddenFolderIds: [], reader: memberReader('user-member') })
+
+    for (const predicate of [predicates[1], predicates[2]]) {
+      const { sql, params } = compile(predicate)
+      expect(sql).toContain('"status" <>')
+      expect(sql).toContain('"screening_outcome" in')
+      expect(sql).toContain('"created_by" =')
+      expect(params).toEqual(expect.arrayContaining(['quarantined', 'clean', 'released', 'completed', 'user-member']))
     }
     expect(compile(predicates[1])).toEqual(compile(predicates[2]))
   })

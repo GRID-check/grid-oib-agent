@@ -336,7 +336,7 @@ MAX_REASON_CHARS = 160
 
 #: ``status.documents.<shelf>`` — which shelf of the reader's own files is
 #: being read. The shelf is in the KEY rather than in ``values`` because German
-#: needs the dative ("aus dem Büroarchiv") and English needs no article at all:
+#: needs the dative ("aus der Büroablage") and English needs no article at all:
 #: a shelf name cannot be interpolated into one shared template.
 KEY_DOCUMENTS_PREFIX = "status.documents."
 
@@ -568,6 +568,9 @@ _SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
     # Unterlagen“, not the knowledge corpus.
     ("list_files", "documents"),
     ("ifc_", "ifc"),
+    # The office's OTHER projects (ADR-0094): the line
+    # says „in anderen Projekten“, so the reader sees the chat leave its project.
+    ("project_lookup", "otherProjects"),
 )
 
 #: Non-retrieval tools that still deserve a line, because the user asked for
@@ -606,6 +609,17 @@ def _action_key(base: str, args: Any) -> str | None:
 
 #: Argument names a retrieval query hides behind, in preference order.
 _QUERY_KEYS = ("query", "search_query", "question", "q", "text", "name_contains")
+
+#: Arguments that pick what a call does or which record it reads, never what
+#: was asked: ``project_lookup``'s ``action`` and ``scope``, and every id. The
+#: "first non-empty string" fallback skips them, so a ``brief`` with no query
+#: reads „Sucht in anderen Projekten", not „Sucht in anderen Projekten: „brief"".
+_SELECTOR_ARGS = frozenset({"action", "scope"})
+
+
+def _is_selector(name: str) -> bool:
+    return name in _SELECTOR_ARGS or name.endswith("_id")
+
 
 #: The retrieval tools' checkpoint argument: one sentence saying what the model
 #: now knows and what it still needs, written as part of the CALL rather than as
@@ -864,7 +878,7 @@ def _query_text(args: Any) -> str | None:
         # a retrieval call carries, so the "first non-empty string" fallback
         # would quote the model's own reasoning back at the reader as if it
         # were what they asked.
-        if name == CONCLUSION_ARG:
+        if name == CONCLUSION_ARG or _is_selector(name):
             continue
         if isinstance(value, str) and value.strip():
             return value.strip()

@@ -73,12 +73,12 @@ def add_note_embedding_routes(router: APIRouter) -> None:
         try:
             import asyncio
 
-            from knowledge_layer.llamaindex.adapter import LlamaIndexRetrieverAdapter
+            from knowledge_layer.llamaindex.adapter import LlamaIndexRetriever
             from knowledge_layer.llamaindex.adapter import _resolve_embed_api_key
             from knowledge_layer.llamaindex.adapter import embed_fingerprint
 
-            model = LlamaIndexRetrieverAdapter.DEFAULT_EMBED_MODEL
-            base_url = LlamaIndexRetrieverAdapter.DEFAULT_EMBED_BASE_URL
+            model = LlamaIndexRetriever.DEFAULT_EMBED_MODEL
+            base_url = LlamaIndexRetriever.DEFAULT_EMBED_BASE_URL
             api_key = _resolve_embed_api_key(base_url, model)
             if not api_key:
                 logger.warning("No embeddings API key resolved; notes stay on the lexical path")

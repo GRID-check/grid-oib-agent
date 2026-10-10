@@ -12,7 +12,13 @@ feel like a first thought" (product owner, 2026-10-02): the memory is kept, for
 the people allowed to know it.
 
 This module is the ONE place that decides. The ``remember`` tool and the
-reflection stage both call :func:`decide_restrictions`:
+reflection stage both call :func:`restriction_decisions`, which returns each
+memory's restriction with the judge's verdict when it was asked
+(:func:`decide_restrictions` is the restriction alone). The writers send that
+verdict with every write, and the BFF audits it as
+``project.memory.restriction_judged``: with the note it was about, or, for an
+organization write the deployment refuses (the default), with the organization,
+since that "none" is what let the agent offer the finding as an open card:
 
 1. Nothing restricted in scope: open.
 2. The turn (or the conversation it continues) cited or read restricted
@@ -56,6 +62,7 @@ from collections.abc import Iterable
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
+from typing import Literal
 
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
@@ -84,6 +91,36 @@ _MAX_MEMORY_CHARS = 600
 #: A memory's restriction: ``None`` is open memory, otherwise the restricted
 #: collections it depends on, sorted.
 Restriction = tuple[str, ...] | None
+
+
+@dataclass(frozen=True)
+class JudgeVerdict:
+    """What the judge said about one memory, for the audit trail (AI Act; ADR-0087).
+
+    Collections only, never the memory's text or what the judge was shown: the
+    BFF records which note, which folders, and the verdict.
+    """
+
+    #: ``drawn``: it named entries the memory draws on. ``none``: it named
+    #: nothing, so the judged folders add no restriction. ``failed``: no usable
+    #: answer, so the memory is restricted to every restricted folder in scope.
+    verdict: Literal["drawn", "none", "failed"]
+    #: The restricted collections behind every entry the judge was shown.
+    judged: tuple[str, ...]
+    #: The collections behind the entries it said the memory draws on.
+    drawn: tuple[str, ...] = ()
+
+    def as_payload(self) -> dict[str, object]:
+        """The ``restrictionJudge`` body field of ``POST /api/internal/memory``."""
+        return {"verdict": self.verdict, "judgedCollections": list(self.judged), "drawnCollections": list(self.drawn)}
+
+
+@dataclass(frozen=True)
+class RestrictionDecision:
+    """One memory's restriction, and the judge's verdict when a judge was asked."""
+
+    restriction: Restriction
+    judge: JudgeVerdict | None = None
 
 
 @dataclass(frozen=True)
@@ -347,13 +384,24 @@ def _restriction(collections: Iterable[str]) -> Restriction:
 
 async def decide_restrictions(contents: Sequence[str], evidence: RestrictionEvidence, *, llm: Any) -> list[Restriction]:
     """The restriction of each memory about to be written, in order. See the module docstring."""
+    return [decision.restriction for decision in await restriction_decisions(contents, evidence, llm=llm)]
+
+
+async def restriction_decisions(
+    contents: Sequence[str], evidence: RestrictionEvidence, *, llm: Any
+) -> list[RestrictionDecision]:
+    """:func:`decide_restrictions`, with the judge's verdict on each memory when it was asked.
+
+    The writers send the verdict with the write, and the BFF audits it: a judge
+    that says "nothing" is what leaves a note open, so that answer is recorded.
+    """
     if not contents:
         return []
     if not evidence.restricted:
-        return [None] * len(contents)
+        return [RestrictionDecision(None)] * len(contents)
     if not evidence.listing_known:
         logger.info("Memory restriction: the turn's inventory is unknown; failing closed")
-        return [_restriction(evidence.scope)] * len(contents)
+        return [RestrictionDecision(_restriction(evidence.scope))] * len(contents)
     read = set(evidence.read)
     # The restricted notes a memory reproduces draw on them, whatever a judge
     # would say (step 4): a verbatim copy of a restricted line is that line.
@@ -364,17 +412,21 @@ async def decide_restrictions(contents: Sequence[str], evidence: RestrictionEvid
     unread = [_document_entry(doc) for doc in evidence.documents if doc.collection not in read]
     unread += [_note_entry(note) for note in evidence.notes if not set(note.collections) <= read]
     if not unread:
-        return [_restriction(read | extra) for extra in copied]
+        return [RestrictionDecision(_restriction(read | extra)) for extra in copied]
     if len(unread) > MAX_JUDGE_DOCUMENTS:
         logger.info("Memory restriction: %d restricted entries exceed the judge's bound; failing closed", len(unread))
-        return [_restriction(evidence.scope)] * len(contents)
+        return [RestrictionDecision(_restriction(evidence.scope))] * len(contents)
+    judged = tuple(sorted({collection for entry in unread for collection in entry.collections}))
     verdicts = await judge(contents, unread, llm=llm)
     if verdicts is None:
-        return [_restriction(evidence.scope)] * len(contents)
-    return [
-        _restriction(read | extra | _collections_drawn(drawn, unread))
-        for drawn, extra in zip(verdicts, copied, strict=True)
-    ]
+        failed = JudgeVerdict("failed", judged)
+        return [RestrictionDecision(_restriction(evidence.scope), failed)] * len(contents)
+    decisions = []
+    for drawn, extra in zip(verdicts, copied, strict=True):
+        named = _collections_drawn(drawn, unread)
+        verdict = JudgeVerdict("drawn" if named else "none", judged, tuple(sorted(named)))
+        decisions.append(RestrictionDecision(_restriction(read | extra | named), verdict))
+    return decisions
 
 
 def _collections_drawn(drawn: frozenset[int], judged: Sequence[_Judged]) -> set[str]:

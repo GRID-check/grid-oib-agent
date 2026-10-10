@@ -8,6 +8,11 @@ informed: everyone working in this repo
 
 # Folder access is read/write per role
 
+> **Who is on a list is superseded by [ADR-0097](0097-who-holds-a-folder-s-own-list-is-a-workos-folder-role.md)** (2026-10-09):
+> a folder's own list is a WorkOS `folder` resource on which people hold a folder role, not
+> rows of role grants; `*` became `project_folders.everyone_reads`. The rule over the path,
+> the ceiling, the bypass, retrieval and the egress rules below still hold.
+
 ## Context and Problem Statement
 
 ADR-0087 gave a folder one switch: open, or restricted to some WorkOS roles.
@@ -109,10 +114,53 @@ asked is the token's permission the answer, as it is for the roles. This
 covers the folder decision; the project-level admin reach of
 `requireProjectAccess` still reads the token.
 
-**Deleting a folder leaves a tombstone.** The row is soft-deleted (`deleted_at`)
-and keeps its mode and grants; its documents and subfolders move up as before.
-Listings, the tree, placement and every read path ignore deleted folders; the
-access rule still answers for a deleted folder's id.
+**Deleting a folder puts it in the Papierkorb, then leaves a tombstone**
+(migration 0115, `lib/projects/folder-bin.ts`, decided 6 Oct 2026). A project
+folder only: the Archiv's folders (ADR-0078) keep the shelf's delete, which
+re-files the contents into the parent and removes the row, and have no bin,
+purge or tombstone (`project_folders_bin_state_check`). The folder goes with its subfolders and their documents, as one entry: moving the contents
+up into the parent, as the first version did, lifted the folder's own list from
+them, so a delete could widen who reads them, and nobody deleting a folder in a
+document system expects its files to stay. Deleting needs write on the folder
+and on every folder below it; a subtree with a folder the person may not read
+or may only read is refused with one generic 403 (`folder-contents-protected`)
+that names nothing. In the bin the folders are `deleted_at` with `bin_root_id`,
+the documents keep their `folder_id`, and a deleted folder hides itself and
+what is filed in it from everyone, admins included. The documents' chunks are
+purged from retrieval in the request and read again on restore, rather than
+hits being filtered by folder state wherever retrieval resolves them: a purged
+chunk cannot be found by any path, the agent's included, and a filter would
+leak through the first path that forgot it. A purge the index does not confirm
+undoes the delete (502). A request that dies after binning the folder leaves a
+`purge_binned_chunks` job, queued with the bin entry and held back two minutes,
+to finish the purge on the `bff-jobs` pool, or undo the delete when the index
+keeps refusing. Triggers refuse filing into a deleted folder under the
+project's bin lock (`GFD01`). A restore within `FOLDER_PURGE_GRACE_DAYS`
+(default 14) brings the folder back with its access, at the project root when
+its parent is gone; its documents become `processing` in the same transaction
+and a `restore_folder_bin` job reads them again (ADR-0079), so no document reads
+indexed while its chunks are gone. Then the purge erases the documents and keeps the folder
+rows, with their grants, as permanent tombstones (`purged_at`); the access rule
+still answers for a deleted folder's id.
+
+**What was derived from a purged folder is shown as the organization says**
+(„Inhalte aus gelöschten Ordnern", `organizations.settings.deletedFolderContent`).
+The one rule applies it: `effectiveFolderLevel` answers for a purged folder
+from its kept grants (`unchanged`, the default), `read` for every member
+(`project`), or nothing but the admin bypass (`admins`, and `remove`, under
+which the purge also removes the derived content: notes deleted, answers
+replaced by „Inhalt entfernt: Quelle gelöscht", their traces deleted). The
+tree loader carries the setting on each purged folder, so memory notes,
+conversations and every other caller of the rule follow it at read time. The
+purge records the folder on each conversation whose answers drew on it (an open
+folder's use was never recorded) and marks those answers and the reports filed
+from them „Quelle gelöscht am …". There is no separate erasure action: the
+ordinary purge removes the files, versions, previews, index entries and (with
+`remove`) the derived content and its traces inside the 23-day grace ceiling,
+and the queue row (ids, counts, who, when, no content) is the record (product
+owner, 6 Oct 2026: users need not see the GDPR, the product must meet it). A
+legal hold on the folder, a folder above or below it, a document in it, the
+project, a document's creator or the organization blocks the purge.
 
 **What is derived from restricted content records SOURCE FOLDER IDS** and is
 judged against the current grants when it is read:
@@ -189,7 +237,11 @@ need a write in its folder (`requireWriteAccess` on the descriptor, backed by
 `requireFolderWrite`).
 
 **Deleting a role** that folders name asks for a confirmation that lists them
-(`GET /api/organization/roles/{slug}/usage`, `DELETE …?confirmFolders=1`). Grants
+(`GET /api/organization/roles/{slug}/usage`, `DELETE …?confirmFolders=1`). Whatever
+a restore can bring back counts, because it comes back with its list: a folder in
+the Papierkorb, and every folder of a project pending deletion. The list marks
+those two („im Papierkorb“, „Projekt gelöscht“), since neither is in the
+project's folder tree. Grants
 keep their slug, so a folder whose own list then names no role that exists
 matches nobody: organization admins alone read it (`effectiveFolderLevel`), and
 the project settings list it as „Ordner ohne gültige Rolle“
@@ -229,7 +281,18 @@ recorded folders.
   found by search.
 * Bad, because a conversation that recorded a restricted folder still cannot commission deep
   research or a task, even after the folder is opened again, until that rule is revisited.
-* Bad, because tombstones accumulate; nothing purges them yet.
+* Bad, because tombstones accumulate: a purged folder's row and grants are kept for good, so
+  the derived content's access can be decided.
+* Bad, because a restore re-reads every document of the folder (an ingest each, queued at bulk
+  priority), the folder's documents are not searchable until their re-read finishes, and a
+  Dokumentart or display title set on the backend's metadata row is lost, as with a placement
+  move.
+* Bad, because a deleted folder's chunks are purged in the request: a folder of many documents
+  takes a while to delete, and a backend that does not confirm refuses the delete. A request cut
+  off half way leaves the folder partly searchable until its `purge_binned_chunks` job takes over
+  (two minutes).
+* Bad, because removing derived content cannot reach the agent's LangGraph checkpoints of the
+  affected chats; they go with the idle-thread reaper (14 days) or the chat's deletion.
 * Good, because a manager cannot widen their own access: changing a list needs write on the
   folder, so a project admin with only Lesen is refused (403) and the UI offers no „Zugriff …"
   on a read-only folder. Bad, because a list that names nobody who holds a role can then only be
@@ -348,7 +411,32 @@ recorded folders.
   one, never a restricted collection.
 * `features/documents/components/folder-access-dialog.spec.tsx` and the `/dev/folder-access`
   preview: the dialog and the „Nur lesen" marks.
-* Nothing enforces that a NEW write path calls `requireFolderWrite`; review is the gate.
+* `projects/folder-bin.integration.spec.ts` (real Postgres): a deleted folder and its
+  documents hidden from every listing, document read and the agent's restricted list, for admins
+  too; chunks purged and `document-exists` answering gone; a refused purge undoing the delete;
+  the takeover job queued with the entry, withdrawn by a request that finished, finishing a
+  request that died, undoing on its last attempt and idle once the folder was restored; a
+  restore's documents `processing` for its job and found by the stuck sweep when the job is gone,
+  dispatched at bulk, a row with nothing to read failed, a Piloti document by its published
+  version, the walk stopped for a requester who lost the project;
+  the generic refusal for a subtree with a hidden or read-only folder; the triggers refusing an
+  upload, a move and a new subfolder, and an upload that started first being taken along;
+  restore with exactly the access it had, to the root when the parent is gone, refused on a name
+  clash; the purge keeping tombstones with grants and marking derived answers; idempotent
+  purges; the hold coverage table and the 409s; each setting's read-time effect on a folder, a
+  note and a conversation; „Mit dem Ordner entfernen" through „Endgültig löschen" (notes,
+  answers, reports marked, the content-free record, no trace deletion from the BFF, and the
+  row handed to the purger with the conversations whose traces it owes).
+* `deploy/pulumi/src/app/langfuse-api-callers.spec.ts`: Langfuse's API keys in the purger's and
+  the scheduler's environments, which delete traces, and in the frontend's, which only writes
+  vote scores (ADR-0044, Amendment 3); never the bff-jobs pool's; and no BFF module importing
+  the trace client.
+* `authz/folder-access.spec.ts`: the four settings on a purged folder, the bin hidden even
+  without own lists. `purger/purge-folder.spec.mjs`: the purger's folder step.
+* `scripts/rls-test-db.sh`: 0114's backfill, its down refusing while the bin holds a folder, the
+  down and the re-apply.
+* Nothing enforces that a NEW write path calls `requireFolderWrite`; review is the gate. The
+  0114 triggers are the backstop for filing into a deleted folder.
 
 ## Pros and Cons of the Options
 
@@ -388,7 +476,7 @@ recorded folders.
 * Decided by the product owner on 6 Oct 2026 (`plans/2026-10-06-folder-access-lifecycle.md`):
   the share dialog lists only people who qualify, a chat shared with someone who later loses a
   folder stays in their list without its content, and deleting a role folders name asks first.
-* Where a later lifecycle feature would attach (participant notices, an organization setting for
-  deleted-folder content): `setFolderAccess` after placement, the tombstone in
-  `deleteProjectFolder`, `effectiveFolderLevel`, `resolveMembershipRoles`, `admitSourceFolders`
+* Where a later lifecycle feature would attach (participant notices, retention
+  periods per folder): `setFolderAccess` after placement, the bin in `moveFolderToBin` and the
+  purge in `purgeBinnedFolder`, `effectiveFolderLevel`, `resolveMembershipRoles`, `admitSourceFolders`
   and `widenConversationAudience`, `memoryVisibleTo` and `readableFolderIdsFor`.

@@ -91,12 +91,16 @@ the BFF's own `rewriteDescendantPaths` is the same prefix replace:
 |---|---|
 | Rename `Brandschutz` → `Feuer` | `Brandschutz` → `Feuer` |
 | Move `Alt/Brandschutz` under `Neu` | `Alt/Brandschutz` → `Neu/Brandschutz` |
-| Delete `Brandschutz/Alt` (parent `Brandschutz`) | `Brandschutz/Alt` → `Brandschutz` |
+| Delete an Archiv folder `Brandschutz/Alt` (parent `Brandschutz`) | `Brandschutz/Alt` → `Brandschutz` |
+| Delete a project folder `Brandschutz/Alt` | none: the folder goes to the Papierkorb with its contents |
 
-A delete works out to a prefix rewrite because `deleteProjectFolder` re-files
-the folder's documents at its parent and re-parents its children the same way:
-`Brandschutz/Alt` → `Brandschutz` and `Brandschutz/Alt/EG` → `Brandschutz/EG`
-are the same replacement.
+An Archiv folder's delete works out to a prefix rewrite because
+`deleteShelfFolder` re-files the folder's documents at its parent and
+re-parents its children the same way: `Brandschutz/Alt` → `Brandschutz` and
+`Brandschutz/Alt/EG` → `Brandschutz/EG` are the same replacement. A project
+folder's delete used to be one too. Since ADR-0088's Papierkorb it takes its
+subfolders and documents with it and their chunks are purged from the index, so
+nothing moves on the Python side; a restore re-ingests them under their path.
 
 The boundary is `/`, on both sides. `Brandschutz` must never carry
 `Brandschutzkonzepte` with it, and `LIKE` metacharacters are escaped so a folder

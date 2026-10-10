@@ -1,5 +1,7 @@
 import { render, screen } from '@/test-utils'
-import { describe, expect, test, vi } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { useChatStore } from '../store'
 import type { CitedDocument } from '../lib/citations'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import type { SourcePreviewChipProps } from './SourcePreview'
@@ -127,5 +129,110 @@ describe('AnswerSourcesRow lane tints', () => {
     expect(
       screen.getByRole('list', { name: 'Sources this answer is backed by' })
     ).toBeInTheDocument()
+  })
+})
+
+describe('AnswerSourcesRow in a closed project (ADR-0090)', () => {
+  const projectDoc: CitedDocument = {
+    id: 'doc-plan',
+    title: 'Einreichplan EG',
+    fileName: 'einreichplan-eg.pdf',
+    kind: 'projekt',
+    tint: 'project',
+    loci: [{ key: 'l1', page: 4, number: 1, isCited: true }],
+  }
+
+  test("names the project and that it is closed beside each of its files, and only its files", async () => {
+    const { CurrentProjectProvider } = await import('@/features/projects/lib/current-project')
+    render(
+      <CurrentProjectProvider
+        value={{ id: 'p1', name: 'Seestadt D12', status: 'closed', closedAt: null, readsBecauseClosed: false }}
+      >
+        <AnswerSourcesRow documents={[projectDoc, oibDoc]} anchorPrefix="test-" />
+      </CurrentProjectProvider>
+    )
+    expect(screen.getAllByText(/Seestadt D12 · closed/)).toHaveLength(1)
+  })
+
+  test('says nothing of the kind in an active project', async () => {
+    const { CurrentProjectProvider } = await import('@/features/projects/lib/current-project')
+    render(
+      <CurrentProjectProvider value={{ id: 'p1', name: 'Seestadt D12', status: 'active', closedAt: null, readsBecauseClosed: false }}>
+        <AnswerSourcesRow documents={[projectDoc]} anchorPrefix="test-" />
+      </CurrentProjectProvider>
+    )
+    expect(screen.queryByText(/closed/)).toBeNull()
+  })
+
+  test('judges a file from another project by that project’s status, not the chat’s (ADR-0094)', async () => {
+    const { CurrentProjectProvider } = await import('@/features/projects/lib/current-project')
+    const fromClosed: CitedDocument = { ...projectDoc, id: 'doc-ref', project: { id: 'p9', name: 'Wohnbau Graz', status: 'closed' } }
+    const fromRunning: CitedDocument = { ...projectDoc, id: 'doc-run', project: { id: 'p8', name: 'Schule Linz', status: 'active' } }
+    render(
+      <CurrentProjectProvider value={{ id: 'p1', name: 'Seestadt D12', status: 'closed', closedAt: null, readsBecauseClosed: false }}>
+        <AnswerSourcesRow documents={[fromClosed, fromRunning]} anchorPrefix="test-" />
+      </CurrentProjectProvider>
+    )
+    // The closed reference says so once; the running project's file says nothing of the chat's closed project.
+    expect(screen.getAllByText(/Closed project/)).toHaveLength(1)
+    expect(screen.queryByText(/Seestadt D12 · closed/)).toBeNull()
+  })
+})
+
+describe('AnswerSourcesRow precedents from another project (ADR-0094)', () => {
+  const traufe: CitedDocument = {
+    id: 'doc-traufe',
+    title: 'Detail Traufe',
+    fileName: 'detail-traufe.pdf',
+    kind: 'projekt',
+    tint: 'project',
+    snippet: 'Die Traufe ist hinterlüftet ausgeführt.',
+    loci: [{ key: 'l1', page: 3, number: 1, isCited: true }],
+  }
+  const current = { id: 'p1', name: 'Seestadt D12', status: 'active' as const, closedAt: null, readsBecauseClosed: false }
+
+  afterEach(() => useChatStore.setState({ projectId: null }))
+
+  test('is labelled a precedent, with its project, that project’s status and the Land the agent stated', async () => {
+    const { CurrentProjectProvider } = await import('@/features/projects/lib/current-project')
+    const user = userEvent.setup()
+    const precedent: CitedDocument = {
+      ...traufe,
+      project: {
+        id: 'p9',
+        name: 'Wohnbau Graz',
+        status: 'closed',
+        landNote: 'Steiermark — nicht das Bundesland dieses Projekts',
+      },
+    }
+    render(
+      <CurrentProjectProvider value={current}>
+        <AnswerSourcesRow documents={[precedent]} anchorPrefix="test-" />
+      </CurrentProjectProvider>
+    )
+
+    await user.hover(await screen.findByRole('button', { name: 'Preview source: Detail Traufe · Wohnbau Graz' }))
+
+    expect(await screen.findByText('Precedent')).toBeInTheDocument()
+    expect(screen.queryByText('Project knowledge')).toBeNull()
+    expect(screen.getAllByText(/Wohnbau Graz · closed · Steiermark — nicht das Bundesland/)).not.toHaveLength(0)
+  })
+
+  test('a file of the chat’s own project stays Project knowledge, with no precedent line', async () => {
+    const { CurrentProjectProvider } = await import('@/features/projects/lib/current-project')
+    const user = userEvent.setup()
+    const own: CitedDocument = { ...traufe, project: { id: 'p1', name: 'Seestadt D12', status: 'active' } }
+    useChatStore.setState({ projectId: 'p1' })
+    render(
+      <CurrentProjectProvider value={current}>
+        <AnswerSourcesRow documents={[own]} anchorPrefix="test-" />
+      </CurrentProjectProvider>
+    )
+
+    await user.hover(await screen.findByRole('button', { name: 'Preview source: Detail Traufe · Seestadt D12' }))
+
+    expect(await screen.findByText('Project knowledge')).toBeInTheDocument()
+    expect(screen.queryByText('Precedent')).toBeNull()
+    expect(screen.queryByText(/Seestadt D12 · active/)).toBeNull()
   })
 })

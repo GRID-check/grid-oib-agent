@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+from unittest.mock import create_autospec
 
 from aiq_agent.turn import api_seam
 from aiq_agent.turn.api_seam import AuthError
@@ -83,8 +84,8 @@ def test_auth_error_is_the_api_tiers_class():
 def test_an_ingest_job_is_queued_by_the_api_tiers_own_enqueue(monkeypatch):
     from aiq_api.jobs import ingest_dispatch
 
-    seen: list[object] = []
-    monkeypatch.setattr(ingest_dispatch, "enqueue_only", lambda prepared: seen.append(prepared) or True)
+    enqueue_only = create_autospec(ingest_dispatch.enqueue_only, return_value=True)
+    monkeypatch.setattr(ingest_dispatch, "enqueue_only", enqueue_only)
 
     assert api_seam.enqueue_ingest_job("job") is True
-    assert seen == ["job"]
+    enqueue_only.assert_called_once_with("job")

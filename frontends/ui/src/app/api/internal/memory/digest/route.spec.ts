@@ -17,11 +17,13 @@ vi.mock('@/lib/projects/memory-service', () => ({
 
 vi.mock('@/lib/documents/review-decisions', () => ({ buildReviewDecisionsBlock: vi.fn() }))
 vi.mock('@/lib/authz/folder-access', () => ({
-  ANY_MEMBER: { roles: [], seesEverything: false },
-  clearanceOfMember: vi.fn(async () => ({ roles: ['org-gf'], seesEverything: false })),
-  // Every member reads OPEN; the asker (org-gf) reads OPEN and SECRET.
-  readableFolderIdsFor: vi.fn(async (_org: string, _project: string, clearance: { roles: string[] }) =>
-    clearance.roles.includes('org-gf') ? ['folder-open', 'folder-secret'] : ['folder-open']
+  ANY_MEMBER: { levels: {}, seesEverything: false },
+  // The asker holds a folder role on SECRET (ADR-0097).
+  clearanceOfMember: vi.fn(async () => ({ levels: { 'folder-secret': 'read' }, seesEverything: false })),
+  // Every member reads OPEN; the asker reads OPEN and SECRET.
+  readableFolderIdsFor: vi.fn(
+    async (_org: string, _project: string, clearance: { levels: Record<string, 'read' | 'write'> }) =>
+      clearance.levels['folder-secret'] ? ['folder-open', 'folder-secret'] : ['folder-open']
   ),
 }))
 vi.mock('@/lib/conversations/restricted-use', () => ({
@@ -259,6 +261,7 @@ describe('what a person decided about the drafts this conversation filed', () =>
  */
 describe('restricted memory in the per-turn digest', () => {
   const DRAWABLE = 'proj_x_raaaaaaaaaaaa'
+  const ANSWER_ID = '0b7c6d2e-5f1a-5c3b-9d4e-8f7a6b5c4d3e'
   const options = () => vi.mocked(buildProjectMemoryDigest).mock.calls[0][2] ?? {}
 
   it("serves an interactive turn the notes its asker may read, admitting each note's folders for the conversation", async () => {
@@ -270,16 +273,23 @@ describe('restricted memory in the per-turn digest', () => {
 
     const response = await GET(
       makeRequest(
-        `?projectId=${PROJECT_ID}&organizationId=${ORG_ID}&conversationId=s_conv_1&userId=user_gf&restrictedCollections=${DRAWABLE}`,
+        `?projectId=${PROJECT_ID}&organizationId=${ORG_ID}&conversationId=s_conv_1&userId=user_gf&restrictedCollections=${DRAWABLE}&answerMessageId=${ANSWER_ID}`,
         REAL_TOKEN
       )
     )
 
     expect(response.status).toBe(200)
-    expect(clearanceOfMember).toHaveBeenCalledWith(ORG_ID, 'user_gf')
+    expect(clearanceOfMember).toHaveBeenCalledWith(ORG_ID, 'user_gf', PROJECT_ID)
     expect(options().readableFolderIds).toEqual(['folder-open', 'folder-secret'])
+    // The answer the turn writes is marked in the admission's transaction (ADR-0093).
     expect(admitSourceFolders).toHaveBeenCalledWith(
-      { organizationId: ORG_ID, conversationId: 's_conv_1', userId: 'user_gf', projectId: PROJECT_ID },
+      {
+        organizationId: ORG_ID,
+        conversationId: 's_conv_1',
+        userId: 'user_gf',
+        projectId: PROJECT_ID,
+        answerMessageId: ANSWER_ID,
+      },
       ['folder-secret']
     )
     // The agent counts the served folders as this turn's use.

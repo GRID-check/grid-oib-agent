@@ -129,7 +129,9 @@ def test_the_asker_travels_and_served_restricted_notes_confine_the_turn(monkeypa
     from aiq_agent.knowledge.restricted_use import reset_restricted_use
 
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
-    use = RestrictedUse(organization_id="o1", user_id="u1", conversation_id="c1", project_id="p1")
+    use = RestrictedUse(
+        organization_id="o1", user_id="u1", conversation_id="c1", project_id="p1", answer_message_id="answer-1"
+    )
     token = bind_restricted_use(use)
     try:
         body = {"digest": "PROJECT_MEMORY v1\n- x", "restrictedFoldersServed": ["f-1"]}
@@ -145,6 +147,8 @@ def test_the_asker_travels_and_served_restricted_notes_confine_the_turn(monkeypa
         reset_restricted_use(token)
     assert "userId=u1" in captured["url"]
     assert "restrictedCollections=proj_p1_r0123456789ab" in captured["url"]  # pragma: allowlist secret
+    # ADR-0093: the answer the turn writes is marked when a restricted note is admitted.
+    assert "answerMessageId=answer-1" in captured["url"]
     assert use.confined is True
 
 

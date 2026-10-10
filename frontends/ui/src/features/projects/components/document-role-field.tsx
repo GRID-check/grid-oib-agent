@@ -12,11 +12,16 @@
  * Two ways in, because architects arrive in both states: the file is already in
  * the project (pick it) or it is on their machine (drop it, and the binding is
  * made when ingestion accepts it).
+ *
+ * An upload from here is an upload like any other (ADR-0086): it opens a batch
+ * before the first file goes and seals it after the last, so the uploader gets
+ * the same inbox notice and summary, and the project's history lists it.
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, FileText, Loader2, Paperclip, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
+import { v4 as uuidv4 } from 'uuid'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -30,6 +35,8 @@ import { useTranslations } from '@/i18n'
 import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
 import { screenUploadName, type NameMatch } from '@/lib/upload-screening/name-screen'
 import { describeScreenedOut } from '@/lib/upload-screening/quarantine'
+import type { UploadScreeningPolicy } from '@/lib/upload-screening/policy'
+import { exclusionsByTerm, openUploadBatch, sealUploadBatch } from '@/features/documents/lib/upload-batch'
 import { documentRoleDefinition } from '@/lib/project-profile/document-roles'
 import type { DocumentRole } from '@/lib/project-profile/document-roles'
 import { useDocumentRoles } from '../lib/use-document-roles'
@@ -167,31 +174,63 @@ export function DocumentRoleField({
         // holds back is not sent, exactly as on the Files page. The server
         // repeats the check, but only after the bytes have arrived. The file
         // lands at the project root, so its name is all there is to screen.
-        const policy = await loadUploadScreeningPolicy()
+        // A policy that cannot be read sends nothing.
+        let policy: UploadScreeningPolicy
+        try {
+          policy = await loadUploadScreeningPolicy()
+        } catch {
+          toast.error(tFiles('errors.screeningPolicyUnavailable'))
+          return
+        }
         const screenedOut: Array<{ file: File; matches: NameMatch[] }> = []
-        for (const file of list) {
+        const allowed = list.filter((file) => {
           const verdict = screenUploadName(policy, { filename: file.name })
-          if (verdict.blocked) {
-            screenedOut.push({ file, matches: verdict.matches })
-            continue
+          if (verdict.blocked) screenedOut.push({ file, matches: verdict.matches })
+          return !verdict.blocked
+        })
+        // Null: no summary, and the upload goes ahead regardless.
+        const batchId =
+          allowed.length > 0
+            ? await openUploadBatch({
+                id: uuidv4(),
+                scope: 'project',
+                projectId,
+                conversationId: null,
+                expectedCount: allowed.length,
+                excluded: exclusionsByTerm(screenedOut.map(({ matches }) => matches)),
+              })
+            : null
+        let unchanged = 0
+        let failed = 0
+        // Files whose upload answered, so a request that threw leaves the
+        // rest counted as not arrived when the batch is sealed.
+        let answered = 0
+        try {
+          for (const file of allowed) {
+            const form = new FormData()
+            form.append('file', file)
+            form.append('projectId', projectId)
+            if (batchId) form.append('uploadBatchId', batchId)
+            const response = await fetch('/api/documents/upload', { method: 'POST', body: form })
+            answered += 1
+            if (!response.ok) {
+              failed += 1
+              toast.error(`${file.name} konnte nicht hochgeladen werden.`)
+              continue
+            }
+            const body = (await response.json()) as { documentId?: string; unchanged?: boolean }
+            if (body.unchanged) unchanged += 1
+            const documentId = body.documentId
+            // No id means the upload succeeded but we cannot name what to bind.
+            // Say so rather than reporting a binding that does not exist.
+            if (!documentId) {
+              toast.error(`${file.name} wurde abgelegt, aber nicht zugeordnet.`)
+              continue
+            }
+            await bind(documentId, file.name)
           }
-          const form = new FormData()
-          form.append('file', file)
-          form.append('projectId', projectId)
-          const response = await fetch('/api/documents/upload', { method: 'POST', body: form })
-          if (!response.ok) {
-            toast.error(`${file.name} konnte nicht hochgeladen werden.`)
-            continue
-          }
-          const body = (await response.json()) as { documentId?: string }
-          const documentId = body.documentId
-          // No id means the upload succeeded but we cannot name what to bind.
-          // Say so rather than reporting a binding that does not exist.
-          if (!documentId) {
-            toast.error(`${file.name} wurde abgelegt, aber nicht zugeordnet.`)
-            continue
-          }
-          await bind(documentId, file.name)
+        } finally {
+          if (batchId) await sealUploadBatch(batchId, { unchanged, failed: failed + allowed.length - answered })
         }
         const screenedMessage = describeScreenedOut(screenedOut, tFiles)
         if (screenedMessage) toast.error(screenedMessage)

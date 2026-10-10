@@ -508,6 +508,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     sref("SEAWEED_TENANT_ADMIN_SECRET_KEY"),
     { name: "SEAWEED_PRESIGNED_URL_TTL_SECONDS", value: String(APP_DEFAULTS.presignedUrlTtlSeconds) },
     { name: "PROJECT_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.projectPurgeGraceDays) },
+    { name: "FOLDER_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.folderPurgeGraceDays) },
     // Model catalog. Pricing (margin, credit price) is a platform setting in
     // the database (ADR-0053), not an environment variable.
     sref("OPENROUTER_API_KEY"),
@@ -636,6 +637,22 @@ export function langfuseApiEnv(cfg: GridConfig): EnvVar[] {
 const BFF_JOBS_OVERRIDES = new Set(["OTEL_SERVICE_NAME", "GRID_SHUTDOWN_DRAIN_MS"]);
 
 /**
+ * Names the bff-jobs pod does not inherit from the frontend: the Langfuse keys.
+ * Only the request path scores a vote, and `allow-frontend-to-langfuse` admits
+ * the frontend alone, so a job holding them could reach for an API it cannot
+ * open. Erasing traces is the purger's and the scheduler's (ADR-0044).
+ */
+const BFF_JOBS_WITHHELD = new Set([
+  "LANGFUSE_HOST",
+  "LANGFUSE_PUBLIC_URL",
+  "LANGFUSE_PROJECT_ID",
+  "LANGFUSE_PUBLIC_KEY",
+  "LANGFUSE_SECRET_KEY",
+]);
+const inheritedByBffJobs = (env: EnvVar) =>
+  typeof env.name !== "string" || !(BFF_JOBS_OVERRIDES.has(env.name) || BFF_JOBS_WITHHELD.has(env.name));
+
+/**
  * bff-jobs pool environment (ADR-0079): the whole frontend environment, because
  * the jobs call the same services the routes do (the database, object storage,
  * the backend, WorkOS), plus what the runner reads. Every `GRID_BFF_JOBS_` name
@@ -645,7 +662,7 @@ const BFF_JOBS_OVERRIDES = new Set(["OTEL_SERVICE_NAME", "GRID_SHUTDOWN_DRAIN_MS
 export function bffJobsEnv(w: AppWiring): EnvVar[] {
   const { cfg } = w;
   return [
-    ...frontendEnv(w).filter((env) => typeof env.name !== "string" || !BFF_JOBS_OVERRIDES.has(env.name)),
+    ...frontendEnv(w).filter(inheritedByBffJobs),
     { name: "GRID_BFF_JOBS_CONCURRENCY", value: String(cfg.bffJobs.concurrency) },
     { name: "GRID_BFF_JOBS_DRAIN_SECONDS", value: String(cfg.bffJobs.drainSeconds) },
     { name: "GRID_BFF_JOBS_MAX_PER_ORG", value: String(cfg.bffJobs.maxPerOrg) },
@@ -751,4 +768,25 @@ export function migrationEnv(): EnvVar[] {
  */
 export function auditSchemaEnv(): EnvVar[] {
   return [sref("WORKOS_API_KEY")];
+}
+
+/**
+ * Env for the WorkOS authorization-catalog Job: the API key, and the external
+ * id of the platform organization whose org-scoped roles the catalog also
+ * provisions (the frontend reads the same value).
+ */
+export function authzCatalogEnv(cfg: GridConfig): EnvVar[] {
+  return [
+    sref("WORKOS_API_KEY"),
+    { name: "GRID_PLATFORM_ORG_EXTERNAL_ID", value: cfg.auth.platformOrgExternalId },
+  ];
+}
+
+/**
+ * Env for the folder-grants carry-over Job (ADR-0097): the WorkOS key, and the
+ * schema owner's connection, because it reads `project_folder_grants` across
+ * every organization and the RLS-bound runtime role would see none of it.
+ */
+export function folderGrantsCarryOverEnv(): EnvVar[] {
+  return [sref("WORKOS_API_KEY"), sref("GRID_APP_MIGRATION_DATABASE_URL")];
 }

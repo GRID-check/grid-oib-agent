@@ -520,6 +520,14 @@ tasks:
       # ADR-0064 uses 4, 8 and 9. Exit 0 = the floors in the script hold.
       - '{{.PY}} scripts/decision_eval_offpath.py {{.CLI_ARGS}}'
 
+  be:eval:decisions:office:
+    desc: 'Decision-model eval for the office experience — precedent, reference fit, cross-project hits, fingerprint quotes — on the precedent fixture office (NEEDS OPENROUTER_API_KEY; no backend)'
+    cmds:
+      # ADR-0064 uses 1 (precedent), 10, 11 and 12. Prints each part's sweep
+      # beside the thresholds the code ships; run before and after a change to
+      # a question's wording or a threshold. A few cents for every part.
+      - '{{.PY}} scripts/decision_eval_office.py {{.CLI_ARGS}}'
+
   be:eval:decisions:holdout:
     desc: 'Held-out check for the decision-model uses, on sets written blind to the wording — never tune on them (NEEDS OPENROUTER_API_KEY; no backend)'
     cmds:

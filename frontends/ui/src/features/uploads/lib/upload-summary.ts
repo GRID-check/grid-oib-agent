@@ -47,6 +47,27 @@ export function visibleTally(tally: UploadTally): Array<{ key: TallyKey; count: 
   return TALLY_KEYS.filter((key) => key === 'ready' || tally[key] > 0).map((key) => ({ key, count: tally[key] }))
 }
 
+/**
+ * What a file of the upload was besides how it ended (ticket „Übersicht"): a
+ * new version of a document already there, or filed in a folder with its own
+ * access list. They cut across the outcomes (a changed file is also
+ * „Zitierbar"), so they are counted beside the tally, not in it.
+ */
+export const FACET_KEYS = ['changed', 'protected'] as const
+export type FacetKey = (typeof FACET_KEYS)[number]
+
+/** Every count a tile or a pill can show. */
+export type CountKey = TallyKey | FacetKey
+
+/** The non-zero facets of a summary, in reading order. */
+export function summaryFacets(summary: UploadSummary): Array<{ key: FacetKey; count: number }> {
+  const counts: Record<FacetKey, number> = {
+    changed: summary.documents.filter((document) => document.replaced).length,
+    protected: summary.documents.filter((document) => document.restricted).length,
+  }
+  return FACET_KEYS.filter((key) => counts[key] > 0).map((key) => ({ key, count: counts[key] }))
+}
+
 export interface FolderGroup {
   /** `null` is the shelf's root. */
   path: string | null

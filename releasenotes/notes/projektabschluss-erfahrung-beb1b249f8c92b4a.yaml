@@ -1,0 +1,9 @@
+---
+features:
+  - >
+    Closing a project now asks what it should leave the office. The dialog
+    shows the facts Piloti compares projects by, names the ones still open,
+    and lists the project's recorded decisions.
+  - >
+    Confirm the decisions that are right, or record a lesson in your own
+    words, and Piloti cites them in later projects as confirmed by a person.

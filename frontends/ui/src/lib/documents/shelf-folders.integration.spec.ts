@@ -16,6 +16,7 @@
 
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { REVIEWER_READER } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 // Project access is FGA (WorkOS), which is not this suite's subject: the shelf's
@@ -210,6 +211,10 @@ describe.skipIf(!url)('shelf folders against Postgres', () => {
     const deleted = await inTenant(() => folders.deleteShelfFolder(session(), shelf.ARCHIV_SHELF, child.id))
     expect(deleted.ok && deleted.result).toEqual({ documentsMoved: 1, foldersMoved: 0 })
     expect(await folderOf(archivDoc)).toBe(root.id)
+    // The row is gone, not a tombstone: the Archiv has no Papierkorb (ADR-0088),
+    // and `project_folders_bin_state_check` would refuse a deleted Archiv folder.
+    const left = await inTenant(() => db.execute(sql`SELECT id FROM project_folders WHERE id = ${child.id}`))
+    expect(Array.from(left)).toHaveLength(0)
 
     const rootDeleted = await inTenant(() => folders.deleteShelfFolder(session(), shelf.ARCHIV_SHELF, root.id))
     expect(rootDeleted.ok && rootDeleted.result).toEqual({ documentsMoved: 1, foldersMoved: 0 })
@@ -229,8 +234,8 @@ describe.skipIf(!url)('shelf folders against Postgres', () => {
     await insertDocument('00000000-0000-4000-8000-0000000f0022', 'project', { lifecycle: 'archived' })
     await insertDocument('00000000-0000-4000-8000-0000000f0023', 'project', { agent: true })
 
-    const archiv = (options = {}) => repo.listDocumentPage(shelf.ARCHIV_SHELF, ORG, options)
-    const project = (options = {}) => repo.listDocumentPage(shelf.projectShelf(projectId), ORG, options)
+    const archiv = (options = {}) => repo.listDocumentPage(shelf.ARCHIV_SHELF, ORG, { reader: REVIEWER_READER, ...options })
+    const project = (options = {}) => repo.listDocumentPage(shelf.projectShelf(projectId), ORG, { reader: REVIEWER_READER, ...options })
     const ids = async (page: ReturnType<typeof archiv>) => (await page).rows.map((row) => row.id.slice(-2)).sort()
 
     // The working set by default, both shelves alike.

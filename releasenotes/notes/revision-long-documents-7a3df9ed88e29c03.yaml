@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    When a document is too long for Piloti to revise as a task, the task now
+    says so and leaves the version as it was, instead of failing with a
+    technical error. Long documents can still be revised section by section
+    through „Besprechen“.

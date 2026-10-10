@@ -1,0 +1,6 @@
+---
+security:
+  - >
+    The download log no longer shows the document and folder names of entries
+    in folders the reader may not open, and a name search finds only names the
+    reader may see. Organization admins still see every name.

@@ -110,6 +110,13 @@ export const INBOX_ITEM_TYPES = [
    */
   'document.quarantined',
   /**
+   * Operational: the uploader of a quarantined file asks for it to be released
+   * (ADR-0086, „Freigabe anfragen"). Addressed to whoever may release it, one
+   * row per file, opening the quarantine queue. It names the file: only the
+   * file's own reviewers receive it.
+   */
+  'document.release_requested',
+  /**
    * Informational, operational tier: an Outlook archive the recipient started
    * importing has been filed, or the import stopped (ADR-0085). Addressed to the
    * person who started it, pointing at the project and anchored on the folder

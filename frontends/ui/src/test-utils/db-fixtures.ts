@@ -10,6 +10,7 @@
  */
 
 import type { getDb } from '@/lib/db'
+import type { findLiveDocumentByFilename } from '@/lib/documents/repository'
 import type { Document, Project, ProjectMemoryItem } from '@/lib/db/schema'
 
 /**
@@ -39,6 +40,11 @@ export const makeProject = (overrides: Partial<Project> = {}): Project => ({
   profilePromptView: null,
   profileDisplay: null,
   profileUpdatedAt: null,
+  status: 'active',
+  closedAt: null,
+  closedBy: null,
+  startedOn: null,
+  endedOn: null,
   deletedAt: null,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   ...overrides,
@@ -63,6 +69,8 @@ export const makeMemoryItem = (
   conflictsWithId: null,
   // Open memory unless a test restricts it (ADR-0087, migration 0113).
   restrictedFolderIds: null,
+  restrictionJudge: null,
+  evidence: null,
   salience: 0.5,
   pinned: false,
   createdBy: null,
@@ -76,6 +84,26 @@ export const makeMemoryItem = (
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
   ...overrides,
+})
+
+type LiveDocumentMatch = NonNullable<Awaited<ReturnType<typeof findLiveDocumentByFilename>>>
+
+/** A row as `findLiveDocumentByFilename` returns it: a screened, person-uploaded project document. */
+export const makeLiveDocumentMatch = (overrides: Partial<LiveDocumentMatch> = {}): LiveDocumentMatch => ({
+  id: 'doc-1',
+  storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
+  storageBucket: null,
+  fileSize: 1024,
+  contentHash: null,
+  folderId: null,
+  status: 'completed',
+  authoredBy: 'user',
+  screeningOutcome: null,
+  createdBy: 'user-1',
+  scope: 'project',
+  projectId: 'proj-1',
+  ...overrides,
+  screenedHash: 'screenedHash' in overrides ? (overrides.screenedHash ?? null) : (overrides.contentHash ?? null),
 })
 
 /** A `documents` row as `findDocumentInOrg` returns it. */
@@ -130,5 +158,9 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   uploadBatchId: null,
   folderId: null,
   ...overrides,
+  // The verdict on record is about the bytes the row holds unless a test says
+  // otherwise (migration 0123): a fixture that sets a digest has been screened
+  // as that digest.
+  screenedHash: 'screenedHash' in overrides ? (overrides.screenedHash ?? null) : (overrides.contentHash ?? null),
   visibility: overrides.visibility ?? 'project',
 })

@@ -9,7 +9,7 @@ click-dummy ``TYPES`` registry:
   RIS (Bauordnung, Verordnungen, Bundes-/Landesrecht) **and** external Normen.
   OIB corpus hits and RIS hits are the *same* kind — they differ only in the
   fine sub-lane, never in the pathway or the chip.
-- ``buero`` — Büroarchiv (the organization's standards, details, experience).
+- ``buero`` — Büroablage (the organization's standards, details, experience).
 - ``projekt`` — Projektwissen (this project's plans, Bescheide, uploads).
 - ``web`` — web-search results.
 - ``messung`` — a value measured off the project's BIM model.
@@ -81,7 +81,7 @@ SOURCE_KINDS: dict[str, SourceKind] = {
     ),
     "buero": SourceKind(
         key="buero",
-        label="Büroarchiv",
+        label="Büroablage",
         description="Standards, Details und Erfahrung deines Büros.",
         css_token="buero",
     ),
@@ -190,7 +190,7 @@ def source_kind(key: str | None) -> SourceKind:
 # of ``document_metadata`` and the only pair that is actually unique. A filename
 # alone is not — one knowledge_search fans out across the base corpus, the
 # session collection and the project collections concurrently, so `Plan.pdf` from
-# a project upload and `Plan.pdf` from the Büroarchiv can arrive in the SAME
+# a project upload and `Plan.pdf` from the Büroablage can arrive in the SAME
 # result set and are different documents.
 #
 # The SHELF is the coarse half of that identity: the org-wide Archiv, a project,
@@ -247,9 +247,11 @@ def parse_shelf(value: object) -> Shelf | None:
 #: travels. Deliberately shorter than ``SourceKind.label`` ("Baurecht &
 #: Richtlinien" reads badly inside a parenthetical) and stable: the strings are
 #: embedded in citation keys already persisted in messages, so changing one
-#: invalidates those keys.
+#: invalidates those keys unless the old string stays readable. The archiv
+#: shelf was renamed from „Büroarchiv" to „Büroablage" (product decision,
+#: 6 Oct 2026); the old qualifier lives on in :data:`RETIRED_SHELF_QUALIFIERS`.
 SHELF_QUALIFIERS: dict[Shelf, str] = {
-    Shelf.ARCHIV: "Büroarchiv",
+    Shelf.ARCHIV: "Büroablage",
     Shelf.PROJECT: "Projektwissen",
     Shelf.SESSION: "Private Sitzung",
     Shelf.BASE: "Basiswissen",
@@ -267,9 +269,31 @@ SCOPE_QUALIFIERS: dict[str, str] = {
     "session": SHELF_QUALIFIERS[Shelf.SESSION],
 }
 
-_QUALIFIER_SCOPES: dict[str, str] = {label.lower(): scope for scope, label in SCOPE_QUALIFIERS.items()}
+#: Qualifiers no writer emits any more and every reader still parses: citation
+#: keys persisted under a shelf's old name. READ-ONLY — never rendered, never
+#: shown to the model. The frontend mirror lists the same strings in
+#: ``CITATION_KEY_QUALIFIERS``.
+RETIRED_SHELF_QUALIFIERS: dict[str, Shelf] = {
+    "Büroarchiv": Shelf.ARCHIV,
+}
 
-_QUALIFIER_SHELVES: dict[str, Shelf] = {label.lower(): shelf for shelf, label in SHELF_QUALIFIERS.items()}
+#: Every qualifier a reader strips from a key: what writers emit now, then the
+#: retired names.
+READABLE_QUALIFIERS: tuple[str, ...] = (*dict.fromkeys(SCOPE_QUALIFIERS.values()), *RETIRED_SHELF_QUALIFIERS)
+
+_QUALIFIER_SCOPES: dict[str, str] = {label.lower(): scope for scope, label in SCOPE_QUALIFIERS.items()}
+# A retired name reads back through the label that replaced it.
+_QUALIFIER_SCOPES.update(
+    {
+        retired.lower(): _QUALIFIER_SCOPES[SHELF_QUALIFIERS[shelf].lower()]
+        for retired, shelf in RETIRED_SHELF_QUALIFIERS.items()
+    }
+)
+
+_QUALIFIER_SHELVES: dict[str, Shelf] = {
+    **{label.lower(): shelf for shelf, label in SHELF_QUALIFIERS.items()},
+    **{label.lower(): shelf for label, shelf in RETIRED_SHELF_QUALIFIERS.items()},
+}
 
 
 def shelf_qualifier(shelf: Shelf | str | None) -> str | None:

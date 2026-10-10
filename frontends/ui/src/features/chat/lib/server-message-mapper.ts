@@ -90,6 +90,13 @@ const asAddressees = (value: unknown): ChatMessage['addressees'] | undefined => 
   return { agent, users: users.filter((user): user is string => typeof user === 'string') }
 }
 
+/** The `at` of a `{ folderId, at }` mark the purge writes, when it is a real date. */
+function markedAt(mark: unknown): string | undefined {
+  if (typeof mark !== 'object' || mark === null || Array.isArray(mark)) return undefined
+  const at = (mark as { at?: unknown }).at
+  return typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? at : undefined
+}
+
 /**
  * Map one server message row to a ChatMessage.
  *
@@ -198,6 +205,17 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     ...(() => {
       const stages = sanitizeStages(metadata.stages)
       return stages ? { stages } : {}
+    })(),
+    // Content drawn from a deleted folder (ADR-0088): the purge's mark, and a
+    // removal of what was derived from it („Mit dem Ordner entfernen“).
+    // Dates only, read as such.
+    ...(() => {
+      const at = markedAt(metadata.sourceDeleted)
+      return at ? { sourceDeletedAt: at } : {}
+    })(),
+    ...(() => {
+      const at = markedAt(metadata.sourceRemoved)
+      return at ? { erasedAt: at } : {}
     })(),
     // What the answer rested on. Spread last so a future metadata key cannot
     // silently shadow one of the fields above.

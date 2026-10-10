@@ -12,7 +12,7 @@ import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { createHold, listOpenHolds } from '@/lib/compliance/service'
 
 const createHoldSchema = z.object({
-  entityType: z.enum(['project', 'document', 'conversation', 'organization', 'user']),
+  entityType: z.enum(['project', 'document', 'conversation', 'organization', 'user', 'folder']),
   entityId: z.string().min(1),
   reason: z.string().min(1).max(2000),
 })

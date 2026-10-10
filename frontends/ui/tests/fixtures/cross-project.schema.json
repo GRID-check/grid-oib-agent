@@ -1,0 +1,996 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Grid cross-project lookups wire contract",
+  "description": "Generated from frontends/ui/src/lib/cross-project/types.ts. Do not edit by hand: cross-project-schema.spec.ts rewrites this file and fails when it is stale.",
+  "$defs": {
+    "CrossProjectSearchRequest": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 500
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "similar",
+            "closed",
+            "all",
+            "named"
+          ]
+        },
+        "projectIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "maxItems": 20
+        },
+        "documentTypes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "Bebauungsplan",
+              "Flächenwidmungsplan",
+              "Grundriss",
+              "Schnitt",
+              "Ansicht",
+              "Detail",
+              "Gutachten",
+              "Bescheid",
+              "Norm/Richtlinie",
+              "Vertrag",
+              "Foto",
+              "Sonstiges"
+            ]
+          },
+          "maxItems": 12
+        },
+        "disciplines": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "Standsicherheit",
+              "Brandschutz",
+              "Hygiene/Gesundheit/Umweltschutz",
+              "Nutzungssicherheit/Barrierefreiheit",
+              "Schallschutz",
+              "Energieeinsparung/Wärmeschutz"
+            ]
+          },
+          "maxItems": 6
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "answerMessageId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "openFoldersOnly": {
+          "type": "boolean"
+        },
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": true
+    },
+    "CrossProjectSearchResponse": {
+      "type": "object",
+      "properties": {
+        "decisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "closed"
+                    ]
+                  },
+                  "bundesland": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "status",
+                  "bundesland"
+                ],
+                "additionalProperties": true
+              },
+              "collection": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "decision",
+                  "constraint"
+                ]
+              },
+              "content": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string",
+                "enum": [
+                  "person",
+                  "documents",
+                  "agent"
+                ]
+              },
+              "confirmed": {
+                "type": "boolean"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "fileName": {
+                      "type": "string"
+                    },
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "fileName",
+                    "page"
+                  ],
+                  "additionalProperties": true
+                }
+              },
+              "recordedAt": {
+                "type": "string"
+              },
+              "restricted": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "project",
+              "collection",
+              "kind",
+              "content",
+              "origin",
+              "confirmed",
+              "evidence",
+              "recordedAt",
+              "restricted"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "permits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "closed"
+                    ]
+                  },
+                  "bundesland": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "status",
+                  "bundesland"
+                ],
+                "additionalProperties": true
+              },
+              "collection": {
+                "type": "string"
+              },
+              "fileName": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "bewilligung",
+                  "nachforderung",
+                  "ablehnung",
+                  "sonstiges"
+                ]
+              },
+              "authority": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "municipality": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "issuedOn": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reference": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "requirements": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "auflage",
+                        "nachforderung",
+                        "hinweis"
+                      ]
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "evidence": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "legalBasis": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "content",
+                    "evidence",
+                    "legalBasis",
+                    "page"
+                  ],
+                  "additionalProperties": true
+                },
+                "maxItems": 6
+              },
+              "restricted": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "project",
+              "collection",
+              "fileName",
+              "kind",
+              "authority",
+              "municipality",
+              "issuedOn",
+              "reference",
+              "requirements",
+              "restricted"
+            ],
+            "additionalProperties": true
+          },
+          "maxItems": 8
+        },
+        "hits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "closed"
+                    ]
+                  },
+                  "bundesland": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "status",
+                  "bundesland"
+                ],
+                "additionalProperties": true
+              },
+              "documentId": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "collection": {
+                "type": "string"
+              },
+              "page": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "score": {
+                "type": "number"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "uploadedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "project",
+              "documentId",
+              "filename",
+              "title",
+              "collection",
+              "page",
+              "snippet",
+              "score",
+              "tags",
+              "uploadedAt"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "projectsInScope": {
+          "type": "integer"
+        },
+        "projectsSearched": {
+          "type": "integer"
+        },
+        "nextOffset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "decisions",
+        "permits",
+        "hits",
+        "projectsInScope",
+        "projectsSearched",
+        "nextOffset"
+      ],
+      "additionalProperties": true
+    },
+    "CrossProjectPermit": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "closed"
+              ]
+            },
+            "bundesland": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "status",
+            "bundesland"
+          ],
+          "additionalProperties": true
+        },
+        "collection": {
+          "type": "string"
+        },
+        "fileName": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "bewilligung",
+            "nachforderung",
+            "ablehnung",
+            "sonstiges"
+          ]
+        },
+        "authority": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "municipality": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "issuedOn": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "auflage",
+                  "nachforderung",
+                  "hinweis"
+                ]
+              },
+              "content": {
+                "type": "string"
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "legalBasis": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "page": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "content",
+              "evidence",
+              "legalBasis",
+              "page"
+            ],
+            "additionalProperties": true
+          },
+          "maxItems": 6
+        },
+        "restricted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "project",
+        "collection",
+        "fileName",
+        "kind",
+        "authority",
+        "municipality",
+        "issuedOn",
+        "reference",
+        "requirements",
+        "restricted"
+      ],
+      "additionalProperties": true
+    },
+    "CrossProjectListRequest": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "closed"
+          ]
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "answerMessageId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "CrossProjectListResponse": {
+      "type": "object",
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "closed"
+                ]
+              },
+              "bundesland": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "collection": {
+                "type": "string"
+              },
+              "address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "period": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "string"
+                  },
+                  "end": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ],
+                "additionalProperties": true
+              },
+              "oibEdition": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "confirmed": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "confirmed"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "current": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "status",
+              "bundesland",
+              "collection",
+              "address",
+              "period",
+              "oibEdition",
+              "current"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "projects",
+        "total"
+      ],
+      "additionalProperties": true
+    },
+    "CrossProjectBriefRequest": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "answerMessageId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "projectId"
+      ],
+      "additionalProperties": true
+    },
+    "CrossProjectBriefResponse": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "closed"
+              ]
+            },
+            "bundesland": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "collection": {
+              "type": "string"
+            },
+            "address": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "period": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string"
+                },
+                "end": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "additionalProperties": true
+            },
+            "oibEdition": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    },
+                    "confirmed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "confirmed"
+                  ],
+                  "additionalProperties": true
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "current": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "status",
+            "bundesland",
+            "collection",
+            "address",
+            "period",
+            "oibEdition",
+            "current"
+          ],
+          "additionalProperties": true
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "facts": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "project",
+        "summary",
+        "facts"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

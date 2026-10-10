@@ -20,6 +20,8 @@ export interface ProfiledConversationSummary {
   /** Display name for `organizationId`; null when unknown or unresolvable. */
   organizationName: string | null
   title: string | null
+  /** The conversation drew on a folder with restricted access (ADR-0093). */
+  titleWithheld: boolean
   /** Turns in the scope's range, not in the conversation's whole life. */
   turnCount: number
   /** Summed turn time in the scope's range. */
@@ -67,6 +69,7 @@ export async function listProfiledConversations(
     organizationId: row.organizationId,
     organizationName: row.organizationId ? (names.get(row.organizationId) ?? null) : null,
     title: row.title,
+    titleWithheld: row.titleWithheld,
     turnCount: row.turnCount,
     totalDurationMs: row.totalDurationMs,
     lastActiveAt: row.lastActiveAt.toISOString(),

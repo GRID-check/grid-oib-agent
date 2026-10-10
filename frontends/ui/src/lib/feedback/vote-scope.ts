@@ -49,6 +49,30 @@ export const ANSWER_CONFIDENCE = sql`(m.metadata->'provenance'->>'answerConfiden
 /** A note is text with something in it; a voter who typed spaces wrote nothing. */
 const hasText = (column: SQL): SQL => sql`nullif(btrim(${column}), '') is not null`
 
+/**
+ * Leaves out a vote on an answer whose conversation drew on a folder with
+ * restricted access (`grid_feedback_restricted_use`, migration 0124,
+ * ADR-0093). Its question, answer, comment and expected answer may quote that
+ * folder, and every reader of these rows is outside the folder's audience: the
+ * platform staff's drill-in and export, the digest's model, the eval-case
+ * converter fed by the export, and the lessons distiller that injects into
+ * every organization's turns (`platform-lessons/repository.ts`).
+ *
+ * The database answers, from one rule: the vote's message id is marked
+ * (`message_restricted_use`), or the conversation the voted message is in, or
+ * the one the vote names, drew on such a folder now. Marks are written by
+ * triggers when a message is written into such a conversation, when a
+ * conversation is first admitted restricted content (every message it holds
+ * and every vote naming it), and when a vote is cast on either; they have no
+ * foreign key, so they stay when the chat is deleted. The vote's ids are the
+ * client's and only ever add to the answer: a vote whose message id names no
+ * row, cast in a restricted chat, is marked by the chat it names. Any record
+ * counts, including one for a folder since opened: these readers are
+ * cross-tenant, and the safe direction is to show less. Expects the feedback
+ * row aliased `f`.
+ */
+export const OUTSIDE_RESTRICTED_USE = sql`not grid_feedback_restricted_use(f.organization_id, f.message_id, f.conversation_id)`
+
 export interface VoteScopeOptions {
   /** Join the question too (rows that show it, or a search that reads it). */
   question?: boolean
@@ -56,6 +80,12 @@ export interface VoteScopeOptions {
   scopeOnly?: boolean
   /** More joins after the shared ones, before the WHERE (a topic fan-out, say). */
   extraJoins?: SQL
+  /**
+   * The read returns what voters and the agent wrote (the drill-in, the digest's
+   * samples, the export's rows), so it leaves out votes on a conversation that
+   * drew on a restricted folder. Counts leave this off: a count quotes nothing.
+   */
+  contentBearing?: boolean
 }
 
 /**
@@ -74,6 +104,7 @@ export function voteScope(query: FeedbackQuery, options: VoteScopeOptions = {}):
   if (scope.organizationIds.length) conditions.push(sql`f.organization_id in (${sqlList(scope.organizationIds)})`)
   if (scope.projectIds.length) conditions.push(sql`${VOTE_PROJECT} in (${sqlList(scope.projectIds)})`)
   if (ratings) conditions.push(...ratingsConditions(ratings))
+  if (options.contentBearing) conditions.push(OUTSIDE_RESTRICTED_USE)
 
   return sql`
     from answer_feedback f

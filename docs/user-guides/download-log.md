@@ -13,7 +13,7 @@ One entry each time Piloti hands a document's bytes to a person:
 
 | What the person did | Recorded | Shown in the log as |
 |---|---|---|
-| **Downloaded** a file (the download button) | Always, wherever the file is filed: a project folder, the Archiv, a chat attachment | `Download` |
+| **Downloaded** a file (the download button) | Always, wherever the file is filed: a project folder, the Büroablage, a chat attachment | `Download` |
 | **Opened** a file in the viewer (preview, PDF viewer, text preview, a version from the version list, the 3D model) | Only when the file is in a folder with its own access list, or in a folder below one | `Vorschau`, `Im Viewer geöffnet`, `Textvorschau`, `Version geöffnet`, `3D-Modell geöffnet` |
 
 Each entry holds: the person (their WorkOS user id), the organization, the
@@ -66,9 +66,22 @@ a custom role can be given it under Organisation → Personen & Zugriff → Eige
 Rollen. The audit-log permission does not open it, because this is data about
 what staff opened. The page is **Organisation → Download-Protokoll**.
 
+**The permission clears no folder.** A row recorded in a folder the reader may
+not open shows „Name ausgeblendet“ instead of the document's name, and no folder
+path; who, when, what and the document's id are still there. In a closed
+project the reader is not a member of, of the folders with their own list only
+those every project member reads count as open to them, even if a list names
+them, just as on the project's Files page.
+Organization admins see every name. A row whose project has since been deleted for good can no
+longer be checked against today's lists, so it goes by what was recorded: one
+logged under a folder with its own list keeps its name hidden from everyone but
+organization admins. Typing part of a name finds only rows whose name the reader may
+see, so the filter cannot be used to find out what a restricted folder holds.
+
 **Reading the log is recorded too.** Every request for a page of the log writes
 an entry in the organization's audit trail first (`download_log.viewed`: who
-looked, and the filters they used, not what they found), and the page shows
+looked, and the filters they used, not what they found; for a typed name only
+that one was typed, since the text may be a restricted document's name), and the page shows
 nothing when that entry cannot be written. Changing the retention is audited as
 `download_log.retention.updated`, with the value before and after.
 
@@ -111,6 +124,11 @@ deleted project or folder shows up as gone.
 Developers: the one writer is `recordDocumentAccess`
 (`frontends/ui/src/lib/download-log/service.ts`), and
 `download-log/coverage.spec.ts` fails when a new function reads or presigns an
-object, or a new route reaches one, without being classified there. Table and
+object, or a new route reaches one, without being classified there. It also
+fails when a logged function does not ask `getAccessibleDocument` (itself, or
+through a function it calls or imports by name) before it reads, presigns or
+records, on the path every call takes: a check under a branch, in a `try` that
+swallows it or in a callback does not count. It reads the order of calls, not
+their arguments, so a check on a different document id is for review to catch. Table and
 purge: [`database/schema.md`](../database/schema.md#document_access_log-migration-0114-adr-0085);
 routes: [`api/bff-routes.md`](../api/bff-routes.md).
