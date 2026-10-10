@@ -1312,8 +1312,9 @@ describe('ProjectFileWorkspace — saved tags survive reselect', () => {
     const user = userEvent.setup()
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
 
-    // Open doc-a and add a discipline tag via the inline add-tag input.
+    // Open doc-a, correct Piloti's reading, and add a discipline tag via the inline add-tag input.
     fireEvent.click(await findFileButton(/alpha\.txt/i))
+    await user.click(await screen.findByRole('button', { name: 'Correct' }))
     await user.type(await screen.findByRole('textbox', { name: /add tag/i }), 'Brandschutz{Enter}')
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Remove tag Brandschutz' })).toBeDefined()
@@ -1332,6 +1333,8 @@ describe('ProjectFileWorkspace — saved tags survive reselect', () => {
     fireEvent.click(await findFileButton(/alpha\.txt/i))
     await screen.findByRole('dialog')
 
+    // The reading is static again; open the editor to see what was saved.
+    await user.click(await screen.findByRole('button', { name: 'Correct' }))
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Remove tag Brandschutz' })).toBeDefined()
     )

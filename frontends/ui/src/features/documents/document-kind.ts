@@ -11,7 +11,7 @@
  *      a `.csv` is a table and a `.md` is a written note, whatever they are
  *      named and whatever tags they carry.
  *   1. Controlled ingestion tags (backend-classified, user-correctable).
- *   2. Content type (any `image/*` is a photo).
+ *   2. Content type (an `image/*` is a photo, unless its name names a drawing).
  *   3. Filename heuristics (German building-domain terms + image extensions).
  *   4. Fallback: generic document.
  */
@@ -98,8 +98,12 @@ export function inferDocumentKind({ filename, contentType, tags }: DocumentKindI
     if (kind) return kind
   }
 
-  // 2. MIME type: any raster/vector image is a photo.
-  if (lowerType.startsWith('image/')) return 'photo'
+  // 2. MIME type: a raster/vector image is a photo — unless its NAME says it is
+  //    a scanned drawing or notice. `Grundriss_EG.jpg` drew a photo while
+  //    `Grundriss_EG.pdf` drew a floor plan, the same sheet in two formats. Only
+  //    the explicit terms count here, not the bare "plan" the PDF rules accept:
+  //    a photo called `IMG_plan_wall.jpg` is still a photo.
+  if (lowerType.startsWith('image/')) return scannedKindFromName(lowerName) ?? 'photo'
 
   // 3. Filename heuristics. Site-plan terms are matched before the generic
   //    "plan" pattern so "Lageplan"/"site-plan" never reads as a floor plan.
@@ -112,6 +116,15 @@ export function inferDocumentKind({ filename, contentType, tags }: DocumentKindI
 
   // 4. Default: generic text document.
   return 'document'
+}
+
+/** What an IMAGE's name says it is a scan of, by the unambiguous terms only. */
+function scannedKindFromName(name: string): DocumentKind | null {
+  if (/lageplan|bebauungsplan|fl(ä|ae)chenwidmung|site.?plan/.test(name)) return 'siteplan'
+  if (/schnitt|ansicht/.test(name)) return 'section'
+  if (/grundriss|grundriß|floor.?plan/.test(name)) return 'floorplan'
+  if (/bescheid/.test(name)) return 'notice'
+  return null
 }
 
 /** Uppercase display extension ("PDF", "DOCX"); empty string when there is none. */

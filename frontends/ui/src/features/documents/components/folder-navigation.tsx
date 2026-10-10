@@ -34,6 +34,8 @@ import { cn } from '@/lib/utils'
 import { TimeAgo } from '@/components/ui/time-ago'
 import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
 import { FolderAccessMark, FolderReadOnlyBadge } from './folder-access-mark'
+import { FolderReadState } from './folder-read-state'
+import type { KnowledgeTally } from '../lib/folder-knowledge'
 import type { FolderItem } from './project-file-workspace'
 
 /**
@@ -297,6 +299,8 @@ interface FolderTileProps {
   itemCount: number
   /** Most recent child's timestamp — the "last change" for this folder, like file cards show file time. */
   lastModified?: string | null
+  /** Where the folder's whole subtree stands with Piloti (`subtreeTallies`). */
+  knowledge?: KnowledgeTally
   onOpen: (id: string) => void
   onRenameFolder: FolderNavProps['onRenameFolder']
   onDeleteFolder: FolderNavProps['onDeleteFolder']
@@ -459,6 +463,7 @@ export function FolderCard({
   folder,
   itemCount,
   lastModified,
+  knowledge,
   onOpen,
   onRenameFolder,
   onDeleteFolder,
@@ -566,6 +571,7 @@ export function FolderCard({
             </>
           )}
           <span className="flex-1" />
+          <FolderReadState tally={knowledge} className="min-w-0 truncate" />
         </GridTileFooter>
       </button>
     </GridTileShell>
@@ -581,6 +587,7 @@ export function FolderRow({
   folder,
   itemCount,
   lastModified,
+  knowledge,
   onOpen,
   onRenameFolder,
   onDeleteFolder,
@@ -684,6 +691,8 @@ export function FolderRow({
             <TimeAgo date={lastModified} locale={locale} className="shrink-0 text-xs tabular-nums text-muted-foreground" />
           </>
         )}
+        <span className="flex-1" />
+        <FolderReadState tally={knowledge} />
       </button>
       {actions ?? (
         <FolderActionsMenu

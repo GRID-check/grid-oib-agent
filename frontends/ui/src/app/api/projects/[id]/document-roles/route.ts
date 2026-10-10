@@ -7,6 +7,7 @@
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { declareDocumentRole, listDocumentRoles } from '@/lib/document-roles/service'
+import { loadMissingDocuments } from '@/lib/document-roles/prompt-loader'
 import { DOCUMENT_ROLES } from '@/lib/project-profile/document-roles'
 
 type Params = { id: string }
@@ -31,6 +32,10 @@ const declareSchema = z.object({
 export const GET = apiRoute<Params>(
   async ({ session, params }) => ({
     roles: await listDocumentRoles(params.id, session),
+    // What Piloti expects this project to hold and does not: the agent's own
+    // `documents_missing:` list, so the folder brief shows the gaps the agent
+    // sees. Read after `listDocumentRoles`, which has checked access.
+    missing: await loadMissingDocuments(params.id, session.organizationId),
   }),
   { authz: { enforcedBy: 'listDocumentRoles (requireProjectAccess project:view)' } }
 )

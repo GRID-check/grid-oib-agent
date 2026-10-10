@@ -51,6 +51,21 @@ describe('inferDocumentKind', () => {
       expect(inferDocumentKind({ filename: 'scan_001.tif', contentType: 'image/tiff' })).toBe('photo')
       expect(inferDocumentKind({ filename: 'baustelle', contentType: 'image/jpeg' })).toBe('photo')
     })
+
+    it('reads an image named as a drawing or notice as that scan, like the same sheet as a PDF', () => {
+      expect(inferDocumentKind({ filename: 'Grundriss_EG.jpg', contentType: 'image/jpeg' })).toBe('floorplan')
+      expect(inferDocumentKind({ filename: 'Schnitt_A-A.png', contentType: 'image/png' })).toBe('section')
+      expect(inferDocumentKind({ filename: 'Lageplan.jpg', contentType: 'image/jpeg' })).toBe('siteplan')
+      expect(inferDocumentKind({ filename: 'Bescheid_scan.jpg', contentType: 'image/jpeg' })).toBe('notice')
+    })
+
+    it('keeps a photo whose name only contains the bare word "plan"', () => {
+      expect(inferDocumentKind({ filename: 'IMG_plan_wall.jpg', contentType: 'image/jpeg' })).toBe('photo')
+    })
+
+    it('lets a Foto tag win over a drawing-like name', () => {
+      expect(inferDocumentKind({ filename: 'Grundriss_EG.jpg', contentType: 'image/jpeg', tags: ['Foto'] })).toBe('photo')
+    })
   })
 
   describe('filename heuristics', () => {

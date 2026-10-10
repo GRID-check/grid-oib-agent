@@ -24,6 +24,7 @@ import { FolderActionsTrigger, FolderObjectMenu } from './folder-object-menu'
 import { listingActionEntries } from './listing-action-entries'
 import { NewFolderDialog } from './new-folder-dialog'
 import { DEFAULT_FILE_SORT, sortFiles, type FileSort } from '../lib/file-sort'
+import { subtreeTallies } from '../lib/folder-knowledge'
 import {
   FolderBreadcrumbRow,
   FolderBreadcrumbRowSkeleton,
@@ -154,6 +155,19 @@ interface FileBrowserPaneProps {
   onViewChange?: (view: 'cards' | 'list') => void
   onPickFiles?: () => void
   onPickFolder?: () => void
+  /**
+   * What Piloti knows about this level's whole subtree (`FolderBrief`), drawn
+   * above the level. The caller builds it because the caller holds the
+   * unfiltered corpus: the brief describes the folder, not the filter.
+   */
+  brief?: ReactNode
+  /**
+   * A slice of the subtree the brief opened — every failed document under this
+   * folder, every Grundriss — drawn flat in place of the level, with the way
+   * back. A folder's documents are spread over its subfolders; walking each to
+   * find them is the chore the brief exists to remove.
+   */
+  slice?: { files: readonly FileItem[]; label: string; onClear: () => void }
 }
 
 export function FileBrowserPane({
@@ -180,6 +194,8 @@ export function FileBrowserPane({
   onPickFolder,
   sort = DEFAULT_FILE_SORT,
   onSortChange,
+  brief,
+  slice,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -189,6 +205,7 @@ export function FileBrowserPane({
   // it is handed — a no-op, and cheaper than teaching every branch below which
   // of the two views it is about to render into.
   const orderedFiles = useMemo(() => sortFiles(files, sort, locale), [files, sort, locale])
+  const orderedSlice = useMemo(() => (slice ? sortFiles(slice.files, sort, locale) : []), [slice, sort, locale])
 
   // Client-side filter: name, plus AI tags and summary when the backend
   // generated them. A typed query escapes the current folder (the query is the
@@ -293,6 +310,7 @@ export function FileBrowserPane({
       folder,
       itemCount: folderItemCount(folder.id),
       lastModified: folderLastModified(folder.id),
+      knowledge: folderAggregates.tallies.get(folder.id),
       onOpen: folderNav!.onNavigate,
       onRenameFolder: folderNav!.onRenameFolder,
       onDeleteFolder: folderNav!.onDeleteFolder,
@@ -399,87 +417,25 @@ export function FileBrowserPane({
   )
 
   /**
-   * The two numbers every folder card shows — its item count and the newest
-   * thing under it — for the WHOLE tree, in one pass.
+   * What every folder card shows — its item count, the newest thing under it
+   * and where its subtree stands with Piloti — for the WHOLE tree, in one pass.
    *
-   * They were two functions called per rendered card, and each one re-scanned
-   * the corpus: the count filtered every document and every folder, and the
-   * timestamp did that AND recursed into each subtree, re-filtering the corpus
-   * again at every level. A project with 500 documents and 30 folders paid
-   * roughly 30 × (530 + subtree) comparisons on every render — every keystroke
-   * in the search field, every poll that replaces the listing, every folder
-   * card's hover state.
-   *
-   * Nothing about the answer needs a scan per card. Both facts are aggregates
-   * over the same two groupings, so they are built once: documents by folder,
-   * folders by parent, then one post-order walk that hands each parent what its
-   * children already computed. Linear in the corpus, and memoized on the inputs
-   * it actually reads.
-   *
-   * The walk is iterative and marks visited nodes rather than recursing, because
-   * `parentId` comes off the wire and a cycle in it would otherwise be a stack
-   * overflow in a render.
+   * These were once functions called per rendered card, each re-scanning the
+   * corpus, so a project with 500 documents and 30 folders paid that on every
+   * keystroke and every poll. The subtree fold is `subtreeTallies`, shared with
+   * the folder brief so a tile and the brief above it cannot disagree about
+   * the same folder; the item count is direct children only and needs no walk.
    */
   const folderAggregates = useMemo(() => {
     const corpus = searchFiles ?? files
     const allFolders = folderNav?.folders ?? []
-
-    const docsByFolder = new Map<string, FileItem[]>()
-    for (const file of corpus) {
-      const key = file.folderId ?? null
-      if (key === null) continue
-      const bucket = docsByFolder.get(key)
-      if (bucket) bucket.push(file)
-      else docsByFolder.set(key, [file])
-    }
-
-    const childrenByParent = new Map<string, FolderItem[]>()
-    for (const folder of allFolders) {
-      const key = folder.parentId
-      if (key === null) continue
-      const bucket = childrenByParent.get(key)
-      if (bucket) bucket.push(folder)
-      else childrenByParent.set(key, [folder])
-    }
-
-    /** Direct children only — what the card's "N items" line counts. */
     const counts = new Map<string, number>()
-    /** Newest `createdAt` anywhere in the subtree, or null for an empty one. */
-    const lastModified = new Map<string, string | null>()
-
-    const visited = new Set<string>()
-    for (const root of allFolders) {
-      if (visited.has(root.id)) continue
-      // Post-order: a folder is settled only once every child of it is, so the
-      // stack carries each node twice — once to expand, once to fold up.
-      const stack: Array<{ id: string; expanded: boolean }> = [{ id: root.id, expanded: false }]
-      while (stack.length > 0) {
-        const frame = stack.pop()!
-        if (!frame.expanded) {
-          if (visited.has(frame.id)) continue
-          visited.add(frame.id)
-          stack.push({ id: frame.id, expanded: true })
-          for (const child of childrenByParent.get(frame.id) ?? []) {
-            if (!visited.has(child.id)) stack.push({ id: child.id, expanded: false })
-          }
-          continue
-        }
-        const docs = docsByFolder.get(frame.id) ?? []
-        const children = childrenByParent.get(frame.id) ?? []
-        counts.set(frame.id, docs.length + children.length)
-        let latest: string | null = null
-        for (const doc of docs) {
-          if (doc.createdAt && (latest === null || doc.createdAt > latest)) latest = doc.createdAt
-        }
-        for (const child of children) {
-          const nested = lastModified.get(child.id) ?? null
-          if (nested && (latest === null || nested > latest)) latest = nested
-        }
-        lastModified.set(frame.id, latest)
-      }
+    const bump = (id: string | null | undefined) => {
+      if (id != null) counts.set(id, (counts.get(id) ?? 0) + 1)
     }
-
-    return { counts, lastModified }
+    for (const file of corpus) bump(file.folderId)
+    for (const folder of allFolders) bump(folder.parentId)
+    return { counts, tallies: subtreeTallies(corpus, allFolders) }
   }, [files, searchFiles, folderNav?.folders])
 
   /** Documents + subfolders directly inside `folderId`, for the count line. */
@@ -487,7 +443,7 @@ export function FileBrowserPane({
 
   /** Most recent child timestamp — the folder's "last change", like file cards show. */
   const folderLastModified = (folderId: string): string | null =>
-    folderAggregates.lastModified.get(folderId) ?? null
+    folderAggregates.tallies.get(folderId)?.latest ?? null
 
   if (isLoading) {
     return (
@@ -566,6 +522,11 @@ export function FileBrowserPane({
           readOnly={!writableHere}
         />
       )}
+
+      {/* What Piloti knows about the level's whole subtree. Hidden while a
+          query runs for the same reason the breadcrumb is: the query is the
+          context then, and its results span the corpus. */}
+      {brief && !semantic.active && !searching && <div className={`${CONTENT_MAX} px-4 pt-4`}>{brief}</div>}
 
       <ActionMenu mode="context" entries={listingEntries}>
       {semantic.active ? (
@@ -702,6 +663,40 @@ export function FileBrowserPane({
             </FileGrid>
           </div>
         )
+      ) : slice ? (
+        /* A slice of the subtree the brief opened, flat — over every subfolder,
+           like a search, and with the same views. */
+        <div className={CONTENT_MAX} data-testid="folder-brief-slice">
+          <div className="flex items-center gap-2 px-4 pt-4">
+            <p className="text-foreground min-w-0 flex-1 truncate text-sm font-medium">{slice.label}</p>
+            <Button type="button" variant="outline" size="sm" onClick={slice.onClear} data-testid="folder-brief-slice-clear">
+              {t('brief.sliceClear')}
+            </Button>
+          </div>
+          {slice.files.length === 0 ? (
+            <div className="p-8">
+              <EmptyState variant="bare" icon={FolderOpen} title={t('brief.sliceEmpty')} />
+            </div>
+          ) : view === 'list' ? (
+            <FileListView
+              files={orderedSlice}
+              selectedFileId={selectedFileId}
+              onSelectFile={onSelectFile}
+              renderActions={renderActions}
+              wrapRow={wrapFileRow}
+              sort={sort}
+              onSortChange={onSortChange}
+            />
+          ) : (
+            <div className="p-4">
+              <FileGrid>
+                {orderedSlice.map((file) => (
+                  <Fragment key={file.id}>{fileCard(file)}</Fragment>
+                ))}
+              </FileGrid>
+            </div>
+          )}
+        </div>
       ) : levelEmpty ? (
         /* An empty folder keeps its breadcrumb (above) — the way back out and
            the "New folder" control stay where the reader expects them. */
