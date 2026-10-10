@@ -130,6 +130,10 @@ class Run:
     #: The cross-project lookups the fixture BFF served this run (`--set precedent`):
     #: the model's own calls and the turn decision's round-0 prefetch alike.
     lookups: list[str] = field(default_factory=list)
+    #: The turn decision's p(precedent) (ADR-0064), read off its log line; None when
+    #: no decision ran or asked it. Beside `lookups`, it calibrates the prefetch's
+    #: threshold against what the answer turned out to need.
+    precedent_p: float | None = None
     #: `--set precedent`: the fixture office the run sat in, and whether its
     #: question is held out (written without reading answers, never tuned on).
     scenario: str = ""
@@ -142,6 +146,13 @@ class Run:
 
 
 _PATCHED_RE = re.compile(r"quote patch corrected (\d+) of \d+")
+_PRECEDENT_RE = re.compile(r"Turn decision in \d+ ms: .*precedent=([0-9.]+)")
+
+
+def precedent_of(log_text: str) -> float | None:
+    """The turn decision's p(precedent) as its log line states it; None when it states none."""
+    found = _PRECEDENT_RE.search(log_text)
+    return float(found.group(1)) if found else None
 
 
 def log_signals(log_text: str) -> list[str]:
@@ -285,6 +296,7 @@ def observe(question: dict, index: int, record: Path, log: Path) -> Run:
     run.wall_s = round(max(row["t_end"] for row in rows) - rows[0]["t_start"], 1)
     _read_calls(run, research, answered_at, rows[0]["t_start"])
     run.signals = log_signals(log_text)
+    run.precedent_p = precedent_of(log_text)
     run.answer = final_answer(log_text)
     run.envelope = {"kind": envelope.get("kind"), "cards": envelope.get("cards") or []} if envelope else None
     run.kind = str((envelope or {}).get("kind") or "")

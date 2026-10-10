@@ -93,7 +93,14 @@ Gebäudeklasse with a neighbouring class counting a little, Bauweise, uses, kind
 of work); `closed` walks only the closed ones, in the same order (amended
 2026-10-10: it walked them newest first, so the turn's precedent prefetch
 searched the newest closed projects, not the catalog's closest); `all` and
-`named` remain. Optional filters: document type
+`named` remain. *Amended 2026-10-10:* a `similar` or `closed` search takes an
+`order`, the projects to walk first: the turn's reference fit (ADR-0064 use
+10), which verifies each catalog line against the question. It only reorders
+the scope the request already decides, so a closed search stays closed and
+an id outside the reach is ignored. The passages a search returns are then
+judged by the decision model (use 11): reordered by whether they show how a
+comparable case was solved, an instruction-like one named as content, and a
+hint to page on when none shows a solution. Nothing is dropped. Optional filters: document type
 and OIB discipline (the ingestion tags, after retrieval) and the PROJECT's
 period (the Steckbrief's Beginn and Abschluss, else the day it was created in
 Piloti), never a file's upload day. Inside each project the search IS

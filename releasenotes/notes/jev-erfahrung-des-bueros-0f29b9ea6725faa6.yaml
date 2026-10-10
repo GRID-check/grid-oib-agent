@@ -1,0 +1,18 @@
+---
+improvements:
+  - >
+    When you ask how something was solved before, Piloti now starts with the
+    past projects that fit your question, not only those most like your
+    building, and puts the passages that show a solution first.
+  - >
+    Piloti looks into past projects on its own more reliably for questions
+    about practice, and no longer does so for plain questions about a rule.
+security:
+  - >
+    A passage from another project's document that tries to instruct the AI
+    is now named as document content wherever Piloti uses it.
+other:
+  - >
+    Facts Piloti suggests from a closed project's documents are checked
+    against the quoted words, so a value the quote contradicts is no longer
+    suggested.

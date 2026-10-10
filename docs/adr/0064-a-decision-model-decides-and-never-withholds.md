@@ -139,6 +139,20 @@ moves it (`agents/piloti/decisions.py`, `PRECEDENT_THRESHOLD`).
 restricted folders, and recording one narrows the chat on a search nobody asked
 for; a restricted folder stays a call the model makes itself.
 
+*Amended 2026-10-10 (measured):* the bar depends on where the answer lives.
+`scripts/decision_eval_office.py precedent` asks the production question set
+of 59 German rows: the 24 precedent questions that must look, the 4 that must
+not, and the 31 loop-eval rule questions (two runs, mean drift 0.013, the same
+corpus on every row). The noul alone separates poorly: at the single 0.6 it
+caught 23/24 and fired on 8/35 rule questions, which score 0.6-0.75 on
+precedent (sommerlicher Wärmeschutz 0.75, Tragwerk 0.66). The corpus choice
+separates them: every rule question put the answer in `baurecht` at ~1.00.
+So `wants_reference` asks 0.7 when the decision placed the answer in the law
+with confidence (`PRECEDENT_THRESHOLD_LAW`) and 0.55 otherwise
+(`PRECEDENT_THRESHOLD`); `referenz` as the corpus still decides alone. On the
+same rows, in two runs: 24/24 caught, 1-2/35 fired. The thresholds were read off these rows,
+so the next labelled precedent questions are the held-out check, not these.
+
 **Use 2 — the judge's yes/no** (`knowledge_layer/decisions.py`,
 `requery_decider: jev`). One noul per passage of the fused head — "does this
 passage state the governing statement the question needs" — beside the
@@ -164,16 +178,21 @@ with every upload were a generative call on `summary_llm` returning a JSON
 array that a post-filter held to the vocabulary. They are one choice over the
 twelve types and one noul per discipline, over the text the summary reads;
 below 0.8 on the type, or when no decision ran, the prompt tags as before.
-Tags annotate a file (the inventory line, the Files panel) and nothing filters
-on them. Tuning set (twelve hand-labelled German openings): types 12/12 (the
+Tags annotate a file (the inventory line, the Files panel). *Corrected
+2026-10-10:* two things do act on them, since: the cross-project search
+narrows its hits by `documentTypes` and `disciplines` after retrieval
+(ADR-0094), and the `Bescheid` type triggers the permit reading (ADR-0095).
+Both only narrow what a caller asked to narrow, or add a record; neither
+withholds what an unfiltered search would hand out. Tuning set (twelve hand-labelled German openings): types 12/12 (the
 prompt on the default model: 11/12), 0.2–0.3 s against 0.8–1.9 s, $0.00005 per
 document; clear disciplines at 0.96–0.98, everything else at or below 0.52, so
 no false tag at 0.8, where the prompt had one. The decider does not tag a plan
 Brandschutz for drawing a compartment line, which is what the prompt's own
 „nur wenn der Fachbereich eindeutig zutrifft" asks. One type only: the old
 second type was a choice's runner-up, which cannot reach 0.8. Ingestion has no
-request context, so the org id travels in the job config and the endpoint
-resolves ZDR by the id it is given (`common/decisions._zdr_only_blocking`).
+request context, so the org id travels in the job config. (Every decision is
+now pinned to zero-data-retention endpoints whatever the org's setting,
+ADR-0074; `_zdr_only_blocking` is gone.)
 
 **Use 8 — a Dokumentart for a person to accept**
 (`knowledge/document_classification.suggest_doc_class`). A base-corpus file
@@ -197,6 +216,64 @@ the digest's brief and back to the Quality page as one line. A label below 0.8
 is left unlabelled, not guessed. The comment now leaves the BFF with its
 sample, fenced as data like the question. Tuning set (sixteen down-votes):
 16/16.
+
+*Amended 2026-10-10:* the office's experience (ADR-0094, ADR-0096,
+`docs/roadmap/office-experience.md` "Where Jev fits"). Three uses, each
+measured live before it shipped (`scripts/decision_eval_office.py`, the run
+committed as `tests/fixtures/decisions/office_eval_2026-10-10.json`), each
+reorder-or-flag only.
+
+**Use 10 — which reference projects fit this question**
+(`agents/piloti/reference_fit.py`). The catalog is ranked by fingerprint in
+the BFF, blind to the question. Beside the turn decision, one `fits` noul per
+catalog line (the line without its id, and the message) partitions it: the
+lines at 0.6 or above move ahead, each group in the likeness order. The model
+reads the catalog in that order, and every `similar` or `closed` lookup of the
+turn, the round-0 prefetch included, walks it first (`CrossProjectTurn.reference_order`
+→ the search's `order`, which only reorders the scope). A partition, not a
+sort: sorting by the raw score reshuffled four Holzbau projects at 0.77-0.80
+and pushed the one with the Traufe detail from first to fifth. Measured on the
+19 precedent questions whose answer must cite a closed project: the cited
+project first in 10/19 by fingerprint alone, 16/19 partitioned at 0.6 (MRR
+0.695 → 0.893), none worse; at 0.7 two got worse. About $0.0003 a turn,
+0.23-0.89 s for twelve lines measured, run beside the decision (median
+0.54 s), so a turn waits for the slower of the two.
+
+**Use 11 — what another project handed out** (`tools/cross_project/hit_judge.py`).
+A cross-project search merges other projects' passages by vector score, and
+neither of the knowledge layer's questions was asked of them. Now two nouls
+per passage: `solved` (does it show how a comparable case was solved?)
+reorders the passages, decisions and permit records staying ahead; and the
+knowledge layer's own `INJECTION_QUESTION` names a flagged passage in the
+result as content, not instructions. When no passage reaches 0.5 and more
+projects remain, the result says to page on. Measured on 19 questions and 184
+passages, two runs: every evidence passage scored 0.8 or more, so the page-on
+hint never fired beside an answer; the evidence passage came first in 13-15/19
+pools (11/19 in the pool's own order); 7/7 planted instructions flagged at
+0.7, none of the 184 real passages. It costs every cross-project search one
+parallel batch over at most its ten passages, inside the decision's 1.5 s
+bound (0.25-1.0 s measured over ten passages, the first call of a process
+paying the TLS handshake; a few hundredths of a cent); a batch that times out
+leaves the passages in the BFF's order.
+
+**Use 12 — does a fingerprint quote state its value**
+(`knowledge/fingerprint_verify.py`). The closed-project reading's pen cites a
+quote for every value, and code checks the quote is in the text, not that it
+says the value. One `stated` noul per proposed token; a token below 0.1 is
+not suggested. Only a clear contradiction drops: on 32 hand-labelled quotes
+(`tests/fixtures/decisions/fingerprint_quotes.yaml`, two runs) a quote that
+states the value only through what a reader knows scores low („Stadtgemeinde
+Mödling" for Niederösterreich 0.24, „Klassenräume" for Bildung 0.14-0.19), so
+0.5 dropped 5-6 of 17 correct values; 0.1 drops none in either run and still
+rejects the pen's realistic slips (Holzbau quoted as Massivbau 0.04, the 2019
+edition offered as 2015 0.05; 5-6 of the 15 wrong values). The Gebäudeklasse is not asked: the pen may
+derive it from heights, which is arithmetic.
+
+**Every decision is a Langfuse generation** (ADR-0089), since the same day:
+`decide.<slot>` nested in the turn, with the question names, the answers as
+numbers, the served model, the latency and the usage the cost reads off; never
+a state (`observability/decision_trace.py`). A decision that did not run says
+why.
 
 **Held out.** The tuning numbers above were measured on the rows the criteria
 were written against. A held-out set per use, written blind to the wording from
@@ -270,7 +347,8 @@ numbers above are one run on German questions the product actually gets.
   (audit §8) is the measurement to add.
 * Bad, because a decision model is one more thing a prompt engineer cannot
   see: its criteria live in `decisions.py` in English, and a change to them
-  is a change to what the turn prefetches.
+  is a change to what the turn prefetches. (Since 2026-10-10 each call is a
+  Langfuse generation with its answers, so a trace shows what it decided.)
 * Neutral, because an org without the key, with ZDR, or with a foreign BYOK
   key gets every turn exactly as before, and the record says so.
 
@@ -296,6 +374,14 @@ numbers above are one run on German questions the product actually gets.
 - `tests/aiq_agent/common/test_feedback_causes.py`, `frontends/aiq_api/tests/test_feedback_digest.py`:
   each down-vote asked with its comment, an unsure label left out, a
   labelling failure leaves the digest whole.
+- `tests/aiq_agent/agents/piloti/test_reference_fit.py`, `tools/cross_project/test_project_lookup.py`
+  (`TestTheHitJudge`, `TestTheReferenceFitOrder`), `knowledge/test_fingerprint_verify.py`,
+  `frontends/ui/src/lib/cross-project/service.spec.ts` (the `order` only
+  reorders a closed scope): uses 10-12 reorder and flag, never drop, and a
+  decision that did not run leaves everything as it was.
+- `tests/aiq_agent/common/test_decisions.py::TestLangfuseSeesEveryDecision`,
+  `observability/test_decision_trace.py`: one generation per call or batch,
+  with usage, and never a state.
 - `tests/conftest.py::_no_live_decisions` (and its twin in
   `frontends/aiq_api/tests/conftest.py`): the suites never reach the live
   endpoint unless a test turns decisions on and stubs it.

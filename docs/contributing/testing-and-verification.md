@@ -389,6 +389,16 @@ although no model call shows it. The report adds each kind of check over every r
 and after any change to the lookup, the catalog, the similarity or the prompt
 around them.
 
+**The decision model's part of it** (`task be:eval:decisions:office`) needs
+no corpus: `scripts/decision_eval_office.py` asks Jev the production
+questions over the same fixture office — whether a turn should look
+(`precedent`), which catalog projects fit a question (`fit`), whether another
+project's passage shows a solution or instructs an AI (`hits`), and whether a
+fingerprint quote states its value (`verify`) — and prints each sweep beside
+the threshold the code ships. Run it before and after changing a question's
+wording or a threshold; the last run is
+`tests/fixtures/decisions/office_eval_2026-10-10.json`.
+
 **Against overfitting.** A question may name a `scenario`: the office the run
 sits in (`office.json` → `scenarios`, each rendered by the production code
 like the default). `wien-bestand` puts the chat in a Vienna office building

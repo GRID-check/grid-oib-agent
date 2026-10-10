@@ -476,6 +476,20 @@ describe('searchAcrossProjects', () => {
     expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[1].id, state.reachable[0].id])
   })
 
+  it('walks the projects the turn’s reference fit names first, and only reorders the scope', async () => {
+    const closed = { status: 'closed' as const, closedAt: new Date(), closedBy: OWNER }
+    state.reachable = [project(1, closed), project(2, closed), project(3, closed), project(4)]
+    const [first, second, third, running] = state.reachable
+
+    await searchAcrossProjects(
+      caller(),
+      search({ scope: 'closed', order: [third.id, running.id, '99999999-0000-4000-8000-000000000099'] })
+    )
+
+    // The running project stays out of a closed search whatever the order says.
+    expect(state.searched.map((call) => call.projectId)).toEqual([third.id, first.id, second.id])
+  })
+
   it('narrows by the PROJECT’s period before searching, not by when a file was uploaded', async () => {
     // Projekt 1 began 2026-02-15, Projekt 2 2026-03-15, Projekt 3 2026-04-15; all still open.
     const result = await searchAcrossProjects(caller(), search({ to: '2026-03-31' }))

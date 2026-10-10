@@ -152,6 +152,10 @@ class CrossProjectTurn:
     #: handed to this turn: what the admission lets through, and what may be
     #: named.
     admitted: set[str] = field(default_factory=set)
+    #: The reference projects in the order the turn's reference fit put them
+    #: (ADR-0064 use 10): every ``similar`` or ``closed`` lookup of this turn
+    #: walks them first. Empty when no fit ran; the BFF's likeness order holds.
+    reference_order: list[str] = field(default_factory=list)
 
 
 _cross_turn: contextvars.ContextVar[CrossProjectTurn | None] = contextvars.ContextVar(

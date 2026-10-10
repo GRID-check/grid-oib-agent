@@ -44,6 +44,7 @@ from aiq_agent.common.openrouter import pin_chat_model
 from aiq_agent.common.reasoning_settings import effort_of
 from aiq_agent.common.request_llm_context import read_request_llm_context
 from aiq_agent.common.tool_validation import format_no_sources_message
+from aiq_agent.knowledge.restricted_use import current_cross_project_turn
 from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
 from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
 from aiq_agent.project_context import get_organization_id_from_context
@@ -77,6 +78,10 @@ from .decisions import decide_turn
 from .decisions import prefetch_calls
 from .decisions import prefetch_query
 from .models import ResearchAgentState
+from .reference_fit import FIT_THRESHOLD
+from .reference_fit import MIN_LINES as MIN_FIT_LINES
+from .reference_fit import ReferenceFit
+from .reference_fit import fit_references
 from .tool_search import ToolSearchSettings
 from .tool_search import tool_basename
 
@@ -350,6 +355,7 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
             entry for entry in card_index_entries(exclude=CHAT_ONLY_CARD_TYPES) if entry[0] not in ENVELOPE_SHAPE_TYPES
         ],
         reference_projects=reference_project_count(state.reference_projects),
+        reference_catalog=state.reference_projects,
     )
 
 
@@ -378,6 +384,43 @@ async def _decide_turn(facts: TurnFacts | None) -> TurnDecisions:
     except Exception:  # noqa: BLE001 — a decision is worth less than the turn
         logger.warning("Turn decision failed; running the turn as before", exc_info=True)
         return TurnDecisions.none()
+
+
+async def _fit_references(facts: TurnFacts | None) -> ReferenceFit | None:
+    """The catalog verified against the question (ADR-0064 use 10), beside the turn decision; never raises.
+
+    Under the same gates as the decision: switched off with it, and not for a
+    first message of one or two words. Asked whatever the decision then says,
+    because it runs beside it: the model reads the catalog in every turn, and
+    its own lookups walk the same order.
+    """
+    if facts is None or facts.reference_projects < MIN_FIT_LINES:
+        return None
+    if facts.previous_message is None and len(facts.question.split()) < 3:
+        return None
+    try:
+        return await fit_references(
+            facts.question, facts.reference_catalog, organization_id=get_organization_id_from_context()
+        )
+    except Exception:  # noqa: BLE001 — a reorder is worth less than the turn
+        logger.warning("Reference fit failed; the catalog keeps its order", exc_info=True)
+        return None
+
+
+def _apply_reference_fit(fit: ReferenceFit | None, state: ResearchAgentState) -> None:
+    """The catalog in its fit order, and the order every similar or closed search of the turn walks."""
+    if fit is None:
+        return
+    state.reference_projects = fit.catalog
+    turn = current_cross_project_turn()
+    if turn is not None:
+        turn.reference_order = fit.order
+    scored = [p for _, p in fit.ranked if p is not None]
+    record_trace_metadata(
+        reference_fit_scored=len(scored),
+        reference_fit_top=round(max(scored), 3) if scored else None,
+        reference_fit_fitting=sum(1 for p in scored if p >= FIT_THRESHOLD),
+    )
 
 
 #: The warm-ups still running (see _warm_question).
@@ -538,10 +581,11 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     # The facts only feed the decision, so a config without it builds none.
     facts = _turn_facts(state, runtime) if config.turn_decisions else None
     _warm_question(facts)
-    draft_tools, decisions, llm_provider = await asyncio.gather(
-        draft_tools_for_turn(), _decide_turn(facts), _active_provider(deployment.provider)
+    draft_tools, decisions, llm_provider, fit = await asyncio.gather(
+        draft_tools_for_turn(), _decide_turn(facts), _active_provider(deployment.provider), _fit_references(facts)
     )
     _apply_decisions(decisions, state, runtime)
+    _apply_reference_fit(fit, state)
     # After the decision: the skill it inlined is part of what this turn inlined.
     if runtime is not None:
         emit_skills_offered(runtime)

@@ -580,7 +580,8 @@ functions:
     # of a cent — and runs `requery_llm` only when the head is insufficient,
     # for the phrasings a decision model cannot write. The hidden frontier
     # call on EVERY search becomes a frontier call on the insufficient
-    # minority. No key, ZDR org, breaker open: the judge runs as before.
+    # minority. No key, a BYOK key on another host, breaker open: the judge
+    # runs as before. (A ZDR org is decided for: every call is pinned to ZDR.)
     # `reranker_provider: jev` is the same model as a reranker, an option to
     # evaluate beside the cross-encoder, not the default.
     requery_decider: jev

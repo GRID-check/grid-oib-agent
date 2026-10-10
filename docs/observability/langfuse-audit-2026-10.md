@@ -145,12 +145,17 @@ needed.
     Since 10 Oct a `project_lookup` is a `retrieve.project_lookup` observation,
     and the root carries the catalog size, p(precedent), whether round 0
     prefetched the reference projects, and how many cited sources came from
-    other projects (`langfuse.md`). Still open:
+    other projects (`langfuse.md`). Every decision-model call is a
+    `decide.<slot>` generation with its answers and cost, and the reference
+    fit and the hit judge are on the turn and on the lookup's observation.
+    Still open:
     - the closed-project reading (`knowledge/project_experience.py`, three
       LangChain calls per project behind `POST /v1/internal/project-experience`)
       is no generation and has no trace name: it needs a sync adapter for
       `observed_generation`, and `test_model_calls_are_traced.py` cannot see it
       (it scans `routes/` for `/chat/completions`);
+    - the decision model's own eval (`decision_eval_office.py`) writes a JSON
+      file, not dataset runs, so a threshold change is compared by hand;
     - the precedent eval (`suite.py --set precedent`) is no dataset, so its
       checks (looked when it should, cited, invented project, said nothing
       comparable, edition caveat) are not scores anyone can trend;

@@ -85,6 +85,15 @@ export const crossProjectSearchRequestSchema = z.object({
    * folder stays a step the model takes with its own call.
    */
   openFoldersOnly: z.boolean().default(false),
+  /**
+   * The projects to walk first, in this order, for a `similar` or `closed`
+   * search: the turn's reference fit (ADR-0064 use 10), the decision model's
+   * reading of which catalog projects fit THIS question. It only reorders the
+   * scope the rest of the request decides; an id outside it, or one the reader
+   * may not open, is skipped without a word, and the rest keep their likeness
+   * order behind it.
+   */
+  order: z.array(z.string().uuid()).max(CROSS_PROJECT_MAX_NAMED).default([]),
 })
 export type CrossProjectSearchRequest = z.infer<typeof crossProjectSearchRequestSchema>
 
