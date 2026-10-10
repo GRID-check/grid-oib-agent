@@ -80,12 +80,16 @@ export interface MissingDocument {
 /**
  * What Piloti expects this project to hold and does not — exactly the agent's
  * `documents_missing:` list, read through the same reader, so a person sees the
- * gaps the agent sees. Fail-open to an empty list, like the block.
+ * gaps the agent sees.
+ *
+ * Null when the read fails — NOT an empty list. The prompt block can fail open
+ * to saying nothing; a person-facing list cannot, because an empty one reads as
+ * "nothing is missing", which is a claim the failed read never made.
  */
 export async function loadMissingDocuments(
   projectId: string,
   organizationId: string | null | undefined
-): Promise<MissingDocument[]> {
+): Promise<MissingDocument[] | null> {
   try {
     const [bindings, profile] = await Promise.all([
       readerFor(projectId, organizationId).then((reader) => listProjectDocumentRoles(projectId, reader)),
@@ -98,7 +102,7 @@ export async function loadMissingDocuments(
       bauwerkName: slot.scopeInstanceId ? (bauwerkNames[slot.scopeInstanceId] ?? null) : null,
     }))
   } catch {
-    return []
+    return null
   }
 }
 
