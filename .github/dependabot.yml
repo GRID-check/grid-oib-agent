@@ -27,6 +27,31 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
+    # Families that must move together. Bumped one at a time they drift apart
+    # and the build breaks: @aws-sdk/client-s3 alone pulls newer @smithy types
+    # than @aws-sdk/s3-request-presigner was built against, and typecheck fails;
+    # @opentelemetry/sdk-logs alone (0.x, so every minor is breaking) leaves
+    # api-logs and exporter-logs-otlp-http on an incompatible line.
+    groups:
+      aws-sdk:
+        patterns:
+          - "@aws-sdk/*"
+      opentelemetry:
+        patterns:
+          - "@opentelemetry/*"
+    ignore:
+      # TypeScript 7 is the Go-native compiler and ships no JS compiler API,
+      # which `next build` loads to typecheck (next.config.ts `typescript`).
+      # Lift this once Next.js supports TypeScript 7 and we adopt it in the
+      # same PR.
+      - dependency-name: "typescript"
+        versions: [">=7"]
+      # The runtime is Node 22 (`FROM node:22-slim` in the Dockerfiles,
+      # node-version "22" in CI), so newer @types/node majors type APIs that
+      # crash at runtime. Lift this when the runtime moves to a new major, and
+      # move @types/node with it.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # Landing site (Astro microservice).
   - package-ecosystem: npm
@@ -36,6 +61,13 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
+    ignore:
+      # Same reasons as frontends/ui: `astro check` runs on the TypeScript JS
+      # API that TypeScript 7 drops, and the runtime is Node 22.
+      - dependency-name: "typescript"
+        versions: [">=7"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # The Pulumi program and its policy pack. Bumping @pulumi/pulumi here also
   # moves the CLI the deploy installs (deploy.yml installs the locked SDK's
@@ -52,6 +84,11 @@ updates:
     groups:
       pulumi:
         patterns: ["@pulumi/*"]
+    ignore:
+      # deploy.yml runs the program on Node 22 (node-version "22"); same rule
+      # as frontends/ui above.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # Keep the Actions current. They are pinned by commit SHA with a version
   # comment (tests/test_ci_workflows.py), and Dependabot bumps both. "/" reads

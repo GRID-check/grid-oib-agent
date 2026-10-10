@@ -272,7 +272,12 @@ Findings inside those upstream images that no digest bump can clear go in
 `expired_at`. Never by loosening the gate.
 
 Dependabot ([`dependabot.yml`](../../.github/dependabot.yml)) opens the
-dependency fix PRs. Maintainability is covered by the native linters and the
+dependency fix PRs. Package families that only build at matching versions
+(`@aws-sdk/*`, `@opentelemetry/*`) are grouped into one PR, and majors the
+toolchain cannot take yet (TypeScript 7, an `@types/node` past the Node 22
+runtime) are ignored, each with a comment saying when to lift it. Dependabot
+PRs skip the automatic Claude review: the action refuses a bot actor, and CI
+already judges a lockfile bump. Maintainability is covered by the native linters and the
 coverage gate in `ci.yml`. That drops Sonar's clean-as-you-code gate, so the
 `PLR09xx` refactor rules ruff ignores (too many arguments, branches, statements)
 are no longer reported on new code.
