@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * The record a cross-project lookup writes before it answers (ADR-0093), with
+ * The record a cross-project lookup writes before it answers (ADR-0094), with
  * the store mocked: the audience the reach was computed for, compared under
  * the lock; the projects and restricted folders recorded in one transaction;
  * nothing recorded and a typed refusal once the audience changed. And the
@@ -120,7 +120,7 @@ describe('recordCrossProjectHandOut', () => {
     expect(state.steps).toEqual(['lock', 'audience', `projects:${OTHER}`, `folders:${HONORARE_ID}`])
   })
 
-  it('marks the answer the turn is writing in the same transaction, after the record (ADR-0092)', async () => {
+  it('marks the answer the turn is writing in the same transaction, after the record (ADR-0093)', async () => {
     await recordCrossProjectHandOut(
       { ...party, answerMessageId: ANSWER },
       { projectIds: [OTHER], folderIds: [HONORARE_ID] },
@@ -192,7 +192,7 @@ describe('requireMayRememberFrom', () => {
     expect((error as CrossProjectMemoryError).message).toContain('laufende andere Projekte')
   })
 
-  it('refuses one that drew on a restricted folder of another project, closed or not (ADR-0089)', async () => {
+  it('refuses one that drew on a restricted folder of another project, closed or not (ADR-0090)', async () => {
     // The project is closed (not restricting), the folder of it still is: the
     // agent's own restriction evidence only knows this project's folders.
     state.audiences = [{ ...solo, projectId: OWN }]

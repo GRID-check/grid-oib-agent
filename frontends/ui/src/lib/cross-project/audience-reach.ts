@@ -12,7 +12,7 @@
  * | private, shared with named people | closed projects, and the active ones every one of them may open |
  * | visible to the project or the office | closed projects: their readers cannot be enumerated |
  *
- * A closed project is open to every office member (ADR-0089), so it is in reach
+ * A closed project is open to every office member (ADR-0090), so it is in reach
  * of every conversation. Restricted folders follow the same rule one level
  * down: only a solo chat searches them ({@link AudienceReach.restrictedFolders}),
  * because whether each of several readers may read a folder of another project

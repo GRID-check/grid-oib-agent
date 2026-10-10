@@ -1,4 +1,4 @@
-"""A turn whose conversation drew on another project shuts every door a whole project reads (ADR-0093).
+"""A turn whose conversation drew on another project shuts every door a whole project reads (ADR-0094).
 
 The BFF refuses each of them on its own (a run, a task, a profile patch, a
 filing, a memory write). These pin the agent's half, so the model is not

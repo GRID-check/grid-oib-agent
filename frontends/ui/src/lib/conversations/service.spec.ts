@@ -332,7 +332,7 @@ describe('reading a conversation — the access rules', () => {
   })
 })
 
-describe('the other projects that restrict a chat (ADR-0093)', () => {
+describe('the other projects that restrict a chat (ADR-0094)', () => {
   const GRAZ = { id: '22222222-0000-4000-8000-000000000002', name: 'Wohnbau Graz' }
 
   it('puts the server’s current record on the detail, asked for this conversation in this organization', async () => {

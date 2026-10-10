@@ -1,5 +1,5 @@
 /**
- * Permitting memory's rows (docs/design/permitting-memory.md, ADR-0094): what a
+ * Permitting memory's rows (docs/design/permitting-memory.md, ADR-0095): what a
  * Bescheid says, kept as one record per source document with its requirements,
  * and the search the cross-project lookup reads them through.
  *

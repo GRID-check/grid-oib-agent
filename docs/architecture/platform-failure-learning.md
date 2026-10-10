@@ -139,7 +139,7 @@ Before any of them, a down-vote on an answer that drew on a folder with
 restricted access is never read: its question and answer may quote a folder
 some of the tenant's own members may not read, and a lesson reaches every
 tenant. The database decides, from one rule (`grid_feedback_restricted_use`,
-migration 0124, ADR-0092): the vote's message is marked in
+migration 0124, ADR-0093): the vote's message is marked in
 `message_restricted_use`, or the voted message's conversation, or the one the
 vote names, holds a `conversation_restricted_folders` record (written when the
 BFF admits restricted content into a turn) or is a revision thread whose

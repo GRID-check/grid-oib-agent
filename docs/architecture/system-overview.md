@@ -369,7 +369,7 @@ frontend start). → `docs/database/`.
   crosses organizations.
 - **Verification / CI.** `task verify` is the local gate, host-native, defined
   once in the root `Taskfile.yml`. CI calls the same definitions but schedules
-  them differently (concurrent jobs, a six-way test shard), and two required
+  them differently (concurrent jobs, a four-way test shard), and two required
   checks sit outside it. → `docs/contributing/testing-and-verification.md`.
 
 ---

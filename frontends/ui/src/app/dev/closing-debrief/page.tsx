@@ -2,7 +2,7 @@
 
 /**
  * Dev preview for the closing debrief (docs/roadmap/office-experience.md, step
- * 3): the REAL `ProjectLifecycleCard`, whose close dialog („Ausmisten", ADR-0091) asks
+ * 3): the REAL `ProjectLifecycleCard`, whose close dialog („Ausmisten", ADR-0092) asks
  * with the REAL `ClosingDebrief` inside. Open it with „Projekt abschließen".
  *
  *   - default             — a project admin who may write the memory: two facts
@@ -105,7 +105,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
         const found = MEMORY.find((entry) => url.endsWith(`/${entry.id}`))
         return Response.json({ item: { ...found, verification: 'user_confirmed' } })
       }
-      // The „Ausmisten" proposal the close dialog asks for first (ADR-0091): nothing to remove.
+      // The „Ausmisten" proposal the close dialog asks for first (ADR-0092): nothing to remove.
       if (url.endsWith('/cleanup/proposal')) return Response.json({ items: [], considered: 0, aiUsed: false, aiError: null })
       if (url.endsWith('/status')) return new Response('{}', { status: 409 })
       return real(input, init)

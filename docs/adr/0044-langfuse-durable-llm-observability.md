@@ -356,6 +356,19 @@ outside the agent knew which trace that was: NAT draws a random
   chip and the voter's words. The score id is derived from the feedback row id,
   so a re-vote upserts it and a retraction deletes it.
   `frontends/ui/src/lib/langfuse/feedback-score.ts`.
+- **A down-vote is a reason and a review item (2026-10-09).** The analysts and
+  domain experts who review answers work in Langfuse, and a reason inside a
+  comment can be neither charted nor filtered. A down-vote therefore also writes
+  a CATEGORICAL `user-feedback-reason` score (the reason key; a down-vote
+  without one is `other`, as the platform page counts it), with an id derived
+  from the feedback row like the first; a re-vote to up or a retraction deletes
+  it. The vote that becomes a down-vote also adds its trace (`objectType:
+  TRACE`) to the annotation queue `answer-review`, which `task
+  langfuse:provision` creates. The BFF finds the queue by name and caches the id,
+  or its absence, for ten minutes; without the queue nothing is enqueued. The
+  queue-item API takes no client id, so duplicates are avoided at the source:
+  editing a standing down-vote adds nothing, and only down, retract, down again
+  adds a second item. A retraction leaves the item where it is.
 
 **What it does not do.** The BFF reads the trace id from the row and never
 derives it: a row from before this amendment, or a turn whose answer was never

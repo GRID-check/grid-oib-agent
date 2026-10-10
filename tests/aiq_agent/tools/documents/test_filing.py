@@ -455,7 +455,7 @@ class TestTheReadRouteIsScopedToTheConversation:
         assert "answerMessageId" not in query
         assert "/document-versions/ver%209/content" in seen[0]
 
-        # The answer the turn writes: marked by the BFF when the read admits a restricted folder (ADR-0092).
+        # The answer the turn writes: marked by the BFF when the read admits a restricted folder (ADR-0093).
         filing.get_document_version_content("ver 9", "org_1", "conv-1", "user_1", "answer-1")
         query = parse_qs(urlsplit(seen[1]).query)
         assert query["userId"] == ["user_1"]

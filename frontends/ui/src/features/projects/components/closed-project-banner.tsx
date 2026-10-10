@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The line every page of a closed project opens with (ADR-0089): closed, since
+ * The line every page of a closed project opens with (ADR-0090): closed, since
  * when, and what that means — read-only, chat still open. Someone who reads the
  * project only because it is closed is told why they see it, and that folders
  * with their own access list stay hidden from them.

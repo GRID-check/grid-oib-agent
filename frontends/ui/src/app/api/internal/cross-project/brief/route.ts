@@ -1,6 +1,6 @@
 /**
  * INTERNAL — one project's brief (confirmed facts and summary), from any chat
- * (ADR-0093). The agent's `project_lookup` tool (`action: brief`) is the
+ * (ADR-0094). The agent's `project_lookup` tool (`action: brief`) is the
  * caller; the acting person is the envelope's, as a pinned session, and the
  * project must be in reach of the conversation's audience (404 otherwise, like
  * every project the caller cannot see).

@@ -11,6 +11,8 @@ export const chat: typeof en.chat = {
     faster: 'Schneller',
     smarter: 'Intelligenter',
     help: 'Wie lange Piloti nachdenkt, bevor es antwortet. Mehr Aufwand hilft bei verzwickten Fragen, kostet aber Zeit und Tokens. Gilt für diesen Chat.',
+    maximumWarning:
+      'Selten klüger als Hoch. Piloti denkt viel länger, kostet weit mehr Tokens und verrennt sich eher.',
     levels: {
       minimal: 'Minimal',
       low: 'Niedrig',
@@ -105,7 +107,8 @@ export const chat: typeof en.chat = {
       buero: 'Büroablage',
       session: 'Beilage in diesem Chat',
     },
-    notIndexed: 'Abgelegt, nicht gelesen. Sie können die Datei öffnen, aber Piloti zitiert sie nicht.',
+    notIndexed:
+      'Abgelegt, nicht gelesen. Sie können die Datei öffnen, aber Piloti zitiert sie nicht.',
     failed: 'Lesen fehlgeschlagen. Piloti kann diese Datei nicht zitieren.',
   },
   composer: {
@@ -127,7 +130,8 @@ export const chat: typeof en.chat = {
   // Spracheingabe im Eingabefeld (features/dictation).
   dictation: {
     start: 'Diktieren',
-    startHint: 'Sprechen Sie, Piloti schreibt es in Ihre Nachricht. Stoppt nach {seconds} Sekunden.',
+    startHint:
+      'Sprechen Sie, Piloti schreibt es in Ihre Nachricht. Stoppt nach {seconds} Sekunden.',
     stop: 'Beenden und einfügen',
     recording: 'Aufnahme, {elapsed}',
     transcribing: 'Wird verschriftlicht …',
@@ -218,7 +222,7 @@ export const chat: typeof en.chat = {
     // Ein offener Befund lässt sich als eigener Auftrag klären; der Lauf
     // erscheint als Block in diesem Verlauf.
     clarify: 'Klären',
-    /** Unter der Matrix in einem abgeschlossenen Projekt, wo „Klären“ stünde (ADR-0089). */
+    /** Unter der Matrix in einem abgeschlossenen Projekt, wo „Klären“ stünde (ADR-0090). */
     clarifyClosed: 'Abgeschlossenes Projekt: keine neue Recherche zu offenen Befunden.',
     commissioned: 'Auftrag angelegt',
     // Gegenüber dem vorigen Bericht zum selben Thema.
@@ -916,7 +920,8 @@ export const chat: typeof en.chat = {
     // Zug, der nur unterbrochen AUSSIEHT, nicht sofort den „verloren“-Hinweis
     // zeigt, bevor bestätigt ist, dass die Antwort wirklich fehlt.
     recovering: 'Antwort wird geholt',
-    recoveringNotice: 'Piloti arbeitet weiter — die Antwort erscheint hier, sobald sie fertig ist …',
+    recoveringNotice:
+      'Piloti arbeitet weiter — die Antwort erscheint hier, sobald sie fertig ist …',
     done: 'Fertig',
     // Die Lesenden haben die Antwort angehalten: kein grünes Häkchen, kein
     // „Fertig“ — so steht es auch an einem abgebrochenen Lauf.
@@ -1271,7 +1276,7 @@ export const chat: typeof en.chat = {
    * Sensible Daten im Chat (ADR-0086): was der Composer vor dem Senden meldet.
    * Die Platzhalter selbst sind Fachdaten und kommen aus `content-screen.ts`.
    */
-  /** The notice once a chat's answers drew on another project (ADR-0093). */
+  /** The notice once a chat's answers drew on another project (ADR-0094). */
   otherProjects: {
     title: 'Dieser Chat stützt sich auf andere Projekte: {projects}.',
     gone: 'ein Projekt, das es nicht mehr gibt',
@@ -1282,7 +1287,8 @@ export const chat: typeof en.chat = {
     body: 'Piloti sendet sie nicht an das Antwortmodell.',
     preview: 'Das Modell sieht: „{text}“',
     iban: '{count, plural, one {eine IBAN} other {# IBANs}}',
-    at_svnr: '{count, plural, one {eine Sozialversicherungsnummer} other {# Sozialversicherungsnummern}}',
+    at_svnr:
+      '{count, plural, one {eine Sozialversicherungsnummer} other {# Sozialversicherungsnummern}}',
     credit_card: '{count, plural, one {eine Kartennummer} other {# Kartennummern}}',
     term: 'den Begriff „{term}“',
     withSample: '{item} {sample}',

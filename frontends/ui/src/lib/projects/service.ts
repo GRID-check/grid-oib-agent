@@ -81,7 +81,7 @@ export async function listProjects(
 
 /**
  * The projects the caller may CHAT in: the reach of the cross-project lookups
- * (ADR-0093). Pointing the agent at a project's corpus is chatting in it, which
+ * (ADR-0094). Pointing the agent at a project's corpus is chatting in it, which
  * the turn scope gates on `project:chat` (or the legacy `project:edit`) and not
  * on `project:view` (`collection-scope-request.ts`): a reader gets a project's
  * documents through the documents API, not the agent. Same bypass, same
@@ -107,7 +107,7 @@ async function listProjectsHolding(
   if (hasPermission(session, ORG_PERMISSIONS.projectsAdminister)) return projects
 
   const holds = async (project: Project): Promise<boolean> => {
-    // A closed project (ADR-0089), decided as `requireProjectAccess` decides it:
+    // A closed project (ADR-0090), decided as `requireProjectAccess` decides it:
     // only what a closed project still allows is asked, and what is open to the
     // whole organization (reading, chatting) every member holds.
     const asked = isProjectClosed(project) ? keptWhenClosed(permissions) : permissions
@@ -281,7 +281,7 @@ export async function deleteProject(
   confirmName: string,
   request: Request
 ): Promise<{ purgeAfter: Date }> {
-  // A closed project can still be deleted (ADR-0089): deletion is the GDPR
+  // A closed project can still be deleted (ADR-0090): deletion is the GDPR
   // path, and it is soft, with its grace period, exactly as for an active one.
   await requireProjectAccess(session, projectId, 'project:manage', { evenWhenClosed: true })
 
@@ -325,7 +325,7 @@ export async function deleteProject(
 }
 
 /**
- * Close a project, or reopen it (ADR-0089). `project:manage`, asked as if the
+ * Close a project, or reopen it (ADR-0090). `project:manage`, asked as if the
  * project were active: it is the one write a closed project allows. Closing
  * deletes and purges nothing; it makes the project read-only and opens it to
  * every member of the organization for reading, with every folder that has its

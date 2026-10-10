@@ -25,7 +25,7 @@ export interface ConversationTitleResult {
 export type ListedConversation = Conversation & { contentLocked?: boolean }
 
 /**
- * An other project that restricts a conversation now (ADR-0093), as the server
+ * An other project that restricts a conversation now (ADR-0094), as the server
  * judges it; `name` is null for a project that is deleted or gone.
  */
 export interface RestrictingOtherProject {
@@ -73,7 +73,7 @@ export const conversationsClient = {
   },
 
   /**
-   * The other projects that restrict this conversation NOW (ADR-0093): the
+   * The other projects that restrict this conversation NOW (ADR-0094): the
    * server's current record, judged at read time, never what an answer's
    * citations said when it was written. `null` when it cannot be read (no
    * access, a failed request), so a caller keeps what it showed. Never throws.

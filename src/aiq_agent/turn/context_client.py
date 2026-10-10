@@ -30,7 +30,7 @@ class ContextBlocks:
     project_memory: str | None
     org_instructions: str | None
     #: The conversation drew on another project through a cross-project lookup
-    #: (ADR-0093). Absent from an older BFF's answer, which reads as False: the
+    #: (ADR-0094). Absent from an older BFF's answer, which reads as False: the
     #: BFF refuses every door such a conversation may not use on its own.
     drew_on_other_projects: bool = False
     #: The office's reference projects, one line each (the closed projects most

@@ -198,7 +198,7 @@ export const FindingsMatrix: FC<{
   onCommission?: (finding: Finding) => Promise<boolean>
 }> = ({ findings, anchorPrefix, previous, onCommission }) => {
   const t = useTranslations('chat')
-  // A closed project commissions nothing (ADR-0089): the thread hides „Klären“, and this says why.
+  // A closed project commissions nothing (ADR-0090): the thread hides „Klären“, and this says why.
   const closedProject = useCurrentProject()?.status === 'closed'
   const openFindings = findings.items.some((finding) => finding.status !== undefined && OPEN_STATUSES.has(finding.status))
   const counts = findingCounts(findings)

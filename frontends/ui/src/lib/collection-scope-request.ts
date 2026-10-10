@@ -202,7 +202,7 @@ export async function buildCollectionScopeFromRequest(
    */
   verifiedConversationId: string | undefined
   /**
-   * The caller reaches the project only because it is closed (ADR-0089): they
+   * The caller reaches the project only because it is closed (ADR-0090): they
    * may read it and chat about it, and steer no run but their own. The job
    * envelope signs no project for them (`signJobRequestContext`). Always set
    * here; optional so a stand-in that predates it reads as a member.

@@ -1,6 +1,6 @@
 /**
  * Whether a person may see a revision task: whether they may read the folder
- * its document is in NOW (ADR-0092, ADR-0088).
+ * its document is in NOW (ADR-0093, ADR-0088).
  *
  * A `revision` task quotes its draft's text into the run, its title and goal
  * are the reviewer's words about that draft, and its thread holds the revised

@@ -136,10 +136,10 @@ async function treeOf(organizationId: string, project: ProjectRef): Promise<Fold
 /**
  * What judges a record: one folder tree holding the conversation's own
  * project's folders and those of every project a recorded folder belongs to
- * (a cross-project lookup, ADR-0093, records folders of OTHER projects, and a
+ * (a cross-project lookup, ADR-0094, records folders of OTHER projects, and a
  * conversation with no project has no tree of its own), and which project owns
  * each folder. Folder ids are unique across projects, so the trees merge into
- * one map. The owner matters because a clearance is one project's (ADR-0089:
+ * one map. The owner matters because a clearance is one project's (ADR-0090:
  * someone who reads a closed project only because it is closed clears
  * less there), so a folder is judged with the reader's clearance IN ITS OWN
  * project. A folder no project owns stays unknown: nobody reads it.
@@ -199,7 +199,7 @@ const PROJECT_CHECK_CONCURRENCY = 20
 
 /**
  * The people among `people` who may open every one of `projectIds` now: the
- * question a cross-project record (ADR-0093) puts to everyone who would read
+ * question a cross-project record (ADR-0094) puts to everyone who would read
  * the conversation. Asked of WorkOS the way an invitation asks
  * (`userHoldsProjectPermission`, `project:view`, the admin bypass mirrored),
  * failing closed. Per person the projects are asked one after another and the
@@ -302,7 +302,7 @@ export async function recordedRestrictedFolders(conversationId: string, organiza
 
 /**
  * The recorded restricted folders of projects OTHER than the conversation's own
- * (ADR-0093), each with the project that holds it, or null when none does now;
+ * (ADR-0094), each with the project that holds it, or null when none does now;
  * judged as {@link recordedRestrictedFolders} judges them: not readable by every
  * member of its project now, a binned folder's tombstone as restricted as it
  * was, an unknown id included. The folders of the conversation's own project are
@@ -331,7 +331,7 @@ export async function recordedForeignRestrictedFolders(
 /**
  * Mark the answer a turn is writing when its conversation already drew on a
  * folder with restricted access, by the database's rule
- * (`grid_conversation_restricted_use`, ADR-0092). Asked at turn start, before
+ * (`grid_conversation_restricted_use`, ADR-0093). Asked at turn start, before
  * the model reads the conversation's history: the answer can quote what an
  * earlier turn admitted, and a vote on it names it by this id whether or not
  * the answer is ever persisted. Without an answer id, nothing to mark.
@@ -343,7 +343,7 @@ export async function markTurnAnswer(request: RestrictedUseRequest): Promise<voi
 
 /**
  * The other projects this conversation drew on through a cross-project lookup
- * (ADR-0093), sorted. Every one counts, whoever may open it now: the doors a
+ * (ADR-0094), sorted. Every one counts, whoever may open it now: the doors a
  * whole project reads (`restricted-egress.ts`) cannot enumerate their readers,
  * so none of them may carry another project's content.
  */
@@ -390,7 +390,7 @@ export async function peopleWhoMayRead(
   const restricting = stillRestricting(view.tree, recorded)
   if (restricting.length === 0 && projects.length === 0) return new Set(userIds)
   const asked = [...new Set(userIds)].slice(0, READERS_MAX_PEOPLE)
-  // A cross-project record (ADR-0093): only people who may open every project it names.
+  // A cross-project record (ADR-0094): only people who may open every project it names.
   const opening = await peopleWhoMayOpen(organizationId, asked, projects)
   if (restricting.length === 0) return opening
   // Each folder is judged with each person's clearance in the folder's own project.
@@ -457,7 +457,7 @@ export async function lockedConversationIds(
 
 /**
  * The view for one listed conversation's record: its project's, cached for the
- * list, unless the record names a folder of another project (ADR-0093), which
+ * list, unless the record names a folder of another project (ADR-0094), which
  * gets a view of its own.
  */
 async function listView(
@@ -484,7 +484,7 @@ export interface RestrictedUseRequest {
    * agent derives it from the conversation and the turn
    * (`aiq_agent.turn.response.answer_message_id`), the same id it streams and
    * persists, so the server can mark that answer at admission, before the
-   * model reads anything (ADR-0092). Absent off the chat path.
+   * model reads anything (ADR-0093). Absent off the chat path.
    */
   answerMessageId?: string | null
 }
@@ -646,7 +646,7 @@ export type AudienceWidening =
 interface Uncovered {
   /** Recorded folders that still restrict someone and the person may not read. */
   folders: string[]
-  /** Recorded other projects (ADR-0093) the person may not open; every one for a visibility widening. */
+  /** Recorded other projects (ADR-0094) the person may not open; every one for a visibility widening. */
   projects: string[]
 }
 
@@ -743,7 +743,7 @@ interface WideningContext {
    * recorded folder (a clearance is one project's); null for a visibility widening.
    */
   personClearances: ReadonlyMap<string, FolderClearance> | null
-  /** The recorded other projects (ADR-0093) the person being let in may open; empty for a visibility widening. */
+  /** The recorded other projects (ADR-0094) the person being let in may open; empty for a visibility widening. */
   personOpens: ReadonlySet<string>
 }
 
@@ -816,7 +816,7 @@ export async function assertMayWidenConversation(
  * Widen the conversation's audience with `write`, under the lock admission
  * takes, after checking the record inside it: a person must be able to read
  * every folder the conversation recorded and open every other project it drew
- * on (ADR-0093), and a project-wide visibility needs a record that restricts
+ * on (ADR-0094), and a project-wide visibility needs a record that restricts
  * nobody and names no other project. `write` runs on the transaction's handle
  * and must not call `getDb()`.
  */

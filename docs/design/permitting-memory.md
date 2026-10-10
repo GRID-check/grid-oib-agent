@@ -2,7 +2,7 @@
 
 Roadmap step 2 in [`docs/roadmap/office-experience.md`](../roadmap/office-experience.md):
 „Fragt die Behörde das wieder nach?" answered from what the office's own past
-procedures went through. Decision record: [ADR-0094](../adr/0094-permitting-memory-is-derived-from-the-documents-at-ingest.md).
+procedures went through. Decision record: [ADR-0095](../adr/0095-permitting-memory-is-derived-from-the-documents-at-ingest.md).
 
 ## What it is
 

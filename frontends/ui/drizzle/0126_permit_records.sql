@@ -1,6 +1,6 @@
 -- 0126: permit_records and permit_requirements — what a Bescheid says, read
 -- once at ingest and kept as rows (docs/design/permitting-memory.md,
--- ADR-0094), so „Fragt die Behörde das wieder nach?" is answered from what the
+-- ADR-0095), so „Fragt die Behörde das wieder nach?" is answered from what the
 -- office's own past procedures went through.
 --
 -- ## The records
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS "permit_records" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "permit_records" IS
-  'What a Bescheid says, one row per source document, read once at ingest by a model with a strict schema (0126, ADR-0094). Derived index data: re-extraction replaces it, deleting the document deletes it.';
+  'What a Bescheid says, one row per source document, read once at ingest by a model with a strict schema (0126, ADR-0095). Derived index data: re-extraction replaces it, deleting the document deletes it.';
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "permit_requirements" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS "permit_requirements" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "permit_requirements" IS
-  'The items of a permit record: an Auflage, or what a Nachforderung demands, with the evidence asked for and the legal basis cited (0126, ADR-0094). Copies project_id and restricted_folder_ids from the record so the search needs no join.';
+  'The items of a permit record: an Auflage, or what a Nachforderung demands, with the evidence asked for and the legal basis cited (0126, ADR-0095). Copies project_id and restricted_folder_ids from the record so the search needs no join.';
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "permit_records_project_idx" ON "permit_records" ("project_id");
 --> statement-breakpoint
