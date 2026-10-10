@@ -84,6 +84,11 @@ updates:
     groups:
       pulumi:
         patterns: ["@pulumi/*"]
+    ignore:
+      # deploy.yml runs the program on Node 22 (node-version "22"); same rule
+      # as frontends/ui above.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # Keep the Actions current. They are pinned by commit SHA with a version
   # comment (tests/test_ci_workflows.py), and Dependabot bumps both. "/" reads

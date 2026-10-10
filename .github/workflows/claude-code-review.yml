@@ -31,7 +31,7 @@ jobs:
     # Dependabot PRs are skipped: claude-code-action refuses a bot actor ("Add
     # bot to allowed_bots list") so the job only ever failed there, and allowing
     # the bot would buy an LLM review of a lockfile bump, which CI (typecheck,
-    # tests, OSV-Scanner) already judges for free.
+    # tests) already judges for free.
     if: github.event.pull_request.draft == false && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
