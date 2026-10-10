@@ -110,12 +110,8 @@ rows = [
 
 df = pd.DataFrame(rows)
 df = df.sort_values(["company", "metric", "period_index"])
-df["qoq_growth_pct"] = (
-    df.groupby(["company", "metric"])["value_usd_billions"].pct_change(1) * 100
-)
-df["yoy_growth_pct"] = (
-    df.groupby(["company", "metric"])["value_usd_billions"].pct_change(4) * 100
-)
+df["qoq_growth_pct"] = df.groupby(["company", "metric"])["value_usd_billions"].pct_change(1) * 100
+df["yoy_growth_pct"] = df.groupby(["company", "metric"])["value_usd_billions"].pct_change(4) * 100
 
 display_cols = [
     "company",
@@ -147,9 +143,9 @@ latest = latest.sort_values(
 )
 latest["rank"] = range(1, len(latest) + 1)
 
-ranking_table = latest[
-    ["rank", "company", "period", "value_usd_billions", "source", "notes"]
-].to_markdown(index=False, floatfmt=".1f")
+ranking_table = latest[["rank", "company", "period", "value_usd_billions", "source", "notes"]].to_markdown(
+    index=False, floatfmt=".1f"
+)
 ```
 
 ### C. Generate Data-Quality Notes

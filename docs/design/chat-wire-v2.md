@@ -376,8 +376,10 @@ def emit(body: EventBody) -> None:
     except RuntimeError:  # no graph run: the setup phase yields its steps itself
         return
 
+
 def emit_step(step: Step, *, started: bool = False) -> None:
     emit(StepStartedBody(step=step) if started else StepFinishedBody(step=step))
+
 
 # agents/piloti/conversation.py
 async def stream(self, state: ConversationState, thread_id: str | None) -> AsyncIterator[EventBody | ConversationState]:
@@ -391,13 +393,17 @@ async def stream(self, state: ConversationState, thread_id: str | None) -> Async
             final = chunk
     yield ConversationState.model_validate(final)
 
+
 # turn/admission.py: admission, budget and the cost tracker around the stream
-async def answer_turn(agent, state, *, thread_id, organization_id, identity, metadata, ledgers
-                      ) -> AsyncIterator[EventBody | TurnOutcome[StateT]]: ...
+async def answer_turn(
+    agent, state, *, thread_id, organization_id, identity, metadata, ledgers
+) -> AsyncIterator[EventBody | TurnOutcome[StateT]]: ...
+
 
 # agents/piloti/conversation_register.py
-async def _run(request: UserMessage | str
-               ) -> Annotated[AsyncGenerator[EventBody, None], Streaming(convert=fold_turn)]: ...
+async def _run(
+    request: UserMessage | str,
+) -> Annotated[AsyncGenerator[EventBody, None], Streaming(convert=fold_turn)]: ...
 ```
 
 `Streaming(convert=fold_turn)` keeps `nat run`, `nat eval` and single-shot HTTP
@@ -442,7 +448,7 @@ never to the adaptor). `AIQAPIWorker.add_routes` (`aiq_api/plugin.py`) calls
 `super().add_routes(...)`, then:
 
 ```python
-session_manager = await self._create_session_manager(builder)   # the worker's own, registered for cleanup
+session_manager = await self._create_session_manager(builder)  # the worker's own, registered for cleanup
 app.add_api_websocket_route("/websocket", chat_socket_endpoint(session_manager))
 ```
 

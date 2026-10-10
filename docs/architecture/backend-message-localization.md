@@ -100,6 +100,7 @@ decision rather than implemented ad hoc.
        "org_cap": {"en": "Your organization already has {n} research jobs ...", "de": "..."},
    }
 
+
    def t(code: str, locale: str, **kwargs) -> str:
        table = MESSAGES[code]
        return table.get(locale, table["en"]).format(**kwargs)

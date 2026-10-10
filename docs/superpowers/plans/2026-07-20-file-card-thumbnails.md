@@ -24,9 +24,7 @@ class IngestRequest(BaseModel):
     file_ref: str = Field(..., description="Presigned URL or file reference to download")
     collection: str = Field(..., description="Target collection name")
     document_id: str | None = Field(None, description="Optional document tracking ID")
-    thumbnail_upload_url: str | None = Field(
-        None, description="Presigned URL for uploading a generated thumbnail"
-    )
+    thumbnail_upload_url: str | None = Field(None, description="Presigned URL for uploading a generated thumbnail")
 ```
 
 ### Task 2: Backend — Pass thumbnail upload URL through API route to ingestor config
@@ -85,6 +83,7 @@ def _generate_and_upload_thumbnail(
     if is_pdf:
         try:
             import pypdfium2 as pdfium
+
             pdf = pdfium.PdfDocument(file_path)
             page = pdf[0]
             bitmap = page.render(scale=1)
