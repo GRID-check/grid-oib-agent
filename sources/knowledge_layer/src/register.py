@@ -2022,6 +2022,28 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         if (match or "meaning").strip().lower() != "meaning":
             return '`match` must be "meaning" (ranked by what a passage says) or "exact" (every literal occurrence).'
 
+        # `folder=` narrows BEFORE ranking, as the exact mode does: the folder
+        # becomes the files filed in it (or under it), and only those are
+        # ranked. It used to be a post-filter over the top `3 × top_k` of the
+        # whole shelf, so a folder whose passages ranked below that pool came
+        # back empty or thin while holding exactly what was asked — the agent
+        # was told "nothing in Pläne" about a folder full of plans. The
+        # post-filter in `_apply_agent_filters` stays as the backstop.
+        folder_files: dict[str, list[str]] | None = None
+        if folder:
+            from .browse import _files_by_collection
+
+            folder_files = (
+                await _files_by_collection(config, file_name=None, folder=folder, doc_class=None, title_contains=None)
+                or {}
+            )
+            target_collections = [entry for entry in target_collections if folder_files.get(entry.collection)]
+            if not target_collections:
+                return (
+                    f"No file in scope is filed in the folder {folder!r}. "
+                    "`list_files` shows the folders that exist and what is in them."
+                )
+
         # Cross-lingual bridge. The corpus is German; an English question reaches it
         # only weakly by embedding and not at all lexically. Measured on the golden
         # set, an English question scored MRR 0.276 against 0.605 for the same
@@ -2077,6 +2099,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # File exclusions + caller filters apply to the base collection only;
             # session/project collections are user content and are never filtered.
             coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
+            if folder_files is not None:
+                narrowing = {"file_name": {"$in": sorted(folder_files.get(coll) or [])}}
+                coll_filters = {**coll_filters, **narrowing} if coll_filters else narrowing
             result = await retriever.retrieve(
                 query=search_query, collection_name=coll, top_k=candidate_k, filters=coll_filters
             )

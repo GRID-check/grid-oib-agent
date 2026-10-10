@@ -907,7 +907,7 @@ def _unknown_document_message(document: str, known: int, suggestions: Sequence[s
             f"No document in scope is named {document!r}. No documents are readable this turn — "
             "the inventory is empty. Check the knowledge-base inventory (`surface_documents`) for "
             "what is filed, or call `knowledge_search` with the topic when you do not yet know "
-            "which document holds it. Do not invent a citation."
+            "which document holds it. Do not invent a citation. " + _NOT_READABLE_IS_NOT_ABSENT
         )
     else:
         base = (
@@ -916,7 +916,7 @@ def _unknown_document_message(document: str, known: int, suggestions: Sequence[s
             f"{known} document(s) are readable this turn. Take the name from a hit's `Source:` or "
             "`Citation:` line, or from the knowledge-base inventory, and call again — or call "
             "`knowledge_search` with the topic when you do not yet know which document holds it. "
-            "Do not invent a citation."
+            "Do not invent a citation. " + _NOT_READABLE_IS_NOT_ABSENT
         )
     if not shown:
         return base
@@ -928,6 +928,15 @@ def _unknown_document_message(document: str, known: int, suggestions: Sequence[s
     if remaining > 0:
         message += f"\n(+{remaining} more candidate(s) not shown — refine the name to narrow it down.)"
     return message
+
+
+#: Every refusal that a name is not readable says this, because the agent read
+#: "not readable" as "not there": a file whose read failed is in the project and
+#: in none of the lists a read builds (feld72, Jour fixe 2026-10-09).
+_NOT_READABLE_IS_NOT_ABSENT = (
+    "Not readable here is not the same as not in the project: a file whose read failed is listed under "
+    "`documents_unreadable:` in the project context — say it could not be read, never that it is missing."
+)
 
 
 def _no_passage_message(document: str, punkt: str | None, page: int | None) -> str:

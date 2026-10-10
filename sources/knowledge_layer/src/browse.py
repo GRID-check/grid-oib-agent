@@ -72,6 +72,8 @@ MAX_PAGE_SIZE = 100
 
 #: How many subfolders the folder overview names before it counts the rest.
 MAX_FOLDER_LINES = 30
+#: Document types named in the listing's profile line before it stops (the vocabulary has 12).
+MAX_TYPE_COUNTS = 8
 
 #: The summary is a hint for choosing what to open, not something to answer from.
 MAX_SUMMARY_CHARS = 160
@@ -212,6 +214,34 @@ class Listing:
     here: int = 0
     shelves: tuple[str, ...] = ()
     notes: list[str] = field(default_factory=list)
+    #: Document types Piloti assigned across the WHOLE selection (not just the
+    #: page), most frequent first, and how many files carry none.
+    types: list[tuple[str, int]] = field(default_factory=list)
+    untyped: int = 0
+
+
+def _type_profile(rows: Sequence[FileRow]) -> tuple[list[tuple[str, int]], int]:
+    """What the selected files are, by the document type Piloti gave each: the folder's README line.
+
+    The agent otherwise meets a folder of 300 files as 300 lines, of which a page
+    of 50 is shown. One line of counts tells it what the folder holds before it
+    reads any of them (and what the folder brief in Dateien shows a person).
+    „Sonstiges“ is counted last whatever its size: it says nothing about the folder.
+    """
+    from aiq_agent.knowledge.document_classification import DOCUMENT_TYPE_TAGS
+
+    known = set(DOCUMENT_TYPE_TAGS)
+    counts: dict[str, int] = {}
+    untyped = 0
+    for row in rows:
+        types = [tag for tag in dict.fromkeys(row.tags) if tag in known]
+        if not types:
+            untyped += 1
+        for tag in types:
+            counts[tag] = counts.get(tag, 0) + 1
+    order = {tag: index for index, tag in enumerate(DOCUMENT_TYPE_TAGS)}
+    ranked = sorted(counts.items(), key=lambda item: (item[0] == "Sonstiges", -item[1], order[item[0]]))
+    return ranked, untyped
 
 
 def _subfolders(rows: Sequence[FileRow], folder: str | None) -> tuple[list[tuple[str, int]], int]:
@@ -282,7 +312,8 @@ def select_files(
 
     total = len(selected)
     page = selected[offset : offset + limit]
-    return Listing(page, total, offset, limit, resolved_folder, subfolders, here, shelves, notes)
+    types, untyped = _type_profile(selected)
+    return Listing(page, total, offset, limit, resolved_folder, subfolders, here, shelves, notes, types, untyped)
 
 
 def _row_line(row: FileRow, *, show_shelf: bool) -> str:
@@ -319,6 +350,10 @@ def render_listing(listing: Listing, *, in_flight: Sequence[str] = ()) -> str:
         last = listing.offset + len(listing.rows)
         shown = f"{first}–{last}" if listing.rows else "keine (offset liegt hinter dem Ende)"
         lines.append(f"{listing.total} Datei(en) auf {scope}; hier {shown}.")
+        if listing.types:
+            profile = " · ".join(f"{tag} {count}" for tag, count in listing.types[:MAX_TYPE_COUNTS])
+            untyped = f"; ohne Dokumentart: {listing.untyped}" if listing.untyped else ""
+            lines.append(f"Dokumentarten (von Piloti zugeordnet): {profile}{untyped}.")
 
     if listing.subfolders:
         lines.append("")
@@ -354,7 +389,9 @@ def render_listing(listing: Listing, *, in_flight: Sequence[str] = ()) -> str:
     lines.append("")
     lines.append(
         "Das ist ein Verzeichnis, keine Quelle: eine Zeile beweist, dass die Datei existiert, nicht was "
-        "darin steht. Schreibe Dateinamen genau so, wie sie hier stehen — der Leser sieht jeden als Link, "
+        "darin steht. Es zeigt nur, was Piloti lesen konnte — eine Datei, deren Lesen fehlgeschlagen ist, "
+        "steht hier nicht, aber unter `documents_unreadable:` im Projektkontext; fehlt eine Datei hier, ist "
+        "das kein Beweis, dass es sie nicht gibt. Schreibe Dateinamen genau so, wie sie hier stehen — der Leser sieht jeden als Link, "
         "der die Datei öffnet. Lesen: `read_passage(document=…)`; darin suchen: "
         '`knowledge_search(file_name=…)`, wörtlich mit `match="exact"`; eine Seite ansehen: `view_knowledge_image`.'
     )

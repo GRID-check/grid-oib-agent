@@ -50,7 +50,7 @@ research call's input ([turns audit](turns-per-answer-audit-2026-09.md)).
 | `knowledge_search` | Ranked search; `match="exact"` is Ctrl+F across the files | 1,300 | `sources/knowledge_layer/src/register.py` |
 | `ris_lookup` | Austrian law by citation | 760 | `sources/ris_adapter/src/lookup/tool.py` |
 | `read_passage` | Opens one Punkt, page or outline, ≤12 chunks | 730 | `sources/knowledge_layer/src/read_passage.py` |
-| `list_files` | Browse: folder, name, Dokumentart, date, paged, uncapped | 600 | `sources/knowledge_layer/src/browse.py` |
+| `list_files` | Browse: folder, name, Dokumentart, date, paged, uncapped; opens with the selection's document types (`Dokumentarten (von Piloti zugeordnet): …`) and closes by saying unreadable files are not listed (they are in `documents_unreadable:`) | 600 | `sources/knowledge_layer/src/browse.py` |
 | `surface_documents` | Shows a file or a 1–3 thumbnail choice | 510 | `src/aiq_agent/cards/surface_documents.py` |
 | `ask_user` | Blocking multiple-choice question | 490 | `src/aiq_agent/agents/piloti/ask_user.py` |
 | `remember` | Project memory capture | 420 | `src/aiq_agent/memory/register.py` |
@@ -253,3 +253,30 @@ External:
 - AEC: [Autodesk AI][adsk], [AU2026](https://architosh.com/2026/09/au2026-autodesk-expands-forma-and-leverages-ai/), [Bluebeam Smart Overlay][bluebeam], [Procore](https://www.enr.com/articles/63042-procore-releases-new-ai-agients-after-datagrid-integration), [Procore Agent Builder](https://v2.support.procore.com/product-manuals/agent-builder-project), [Trunk Tools](https://trunktools.com/product/), [Document Crunch](https://www.documentcrunch.com/crunch-ai)
 - Research: [RAG-MCP][rag-mcp], [Less is More][less-more], [Trace-Free+](https://arxiv.org/abs/2602.20426), [CE-MCP security][ce-mcp], [BFCL][bfcl], [Li et al. 2024, RAG vs. long context][li-2024], [AEC layout benchmark][aec-layout], [ColPali](https://arxiv.org/abs/2407.01449), [Braschler & Ripplinger 2004][braschler], [Postgres dictionaries][pg-dict]
 - OpenRouter: [changelog](https://openrouter.ai/docs/changelog), [Responses](https://openrouter.ai/docs/api_reference/responses/overview), [reasoning](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens), [tool calling](https://openrouter.ai/docs/guides/features/tool-calling), [tool search][or-ts], [server tools](https://openrouter.ai/docs/guides/features/server-tools), [Responses tool calling][or-resp-tools], [PDF inputs][or-pdf], [ZDR][or-zdr], [in-region routing][or-irr], [prompt caching][or-cache], [router metadata][or-meta], [Auto Exacto](https://openrouter.ai/docs/guides/routing/auto-exacto), [Exacto](https://openrouter.ai/docs/guides/routing/model-variants/exacto), [embeddings](https://openrouter.ai/docs/api_reference/embeddings), [web search](https://openrouter.ai/docs/guides/features/server-tools/web-search), [response healing](https://openrouter.ai/docs/guides/features/plugins/response-healing)
+
+## What the agent knows about files it cannot read, and about folders
+
+Added 2026-10-10 (feld72 Jour fixe: answers called documents missing that had
+been uploaded and read).
+
+- **Unreadable is not absent.** Every agent view of a project's files is built
+  from the rows a successful read writes, so a file whose read failed was
+  invisible: no inventory row, no `list_files` line, no hit. The project
+  context now carries `documents_unreadable:` (built by the BFF,
+  `lib/project-profile/unreadable-section.ts`): the active files of the
+  project whose read failed, screened ones only (ADR-0086) and none in a
+  restricted folder (ADR-0087), at most 20. A failed read that never reached
+  the content screen stays unnamed, like any held upload.
+- **`documents_missing:` names unassigned roles, not absent files.** It is
+  recommended document roles minus bound ones, and a document read under
+  another name and never assigned is in it. `<project_record>` in
+  `piloti_static.md` now tells the agent to look (`list_files`,
+  `knowledge_search`) before calling a document missing, and that absence
+  from every list is never proof a file does not exist. The folder brief in
+  Dateien shows people the same list.
+- **`folder=` is a pre-filter on the ranked search.** The folder resolves to
+  the files filed in it or under it (`browse._files_by_collection`, the
+  exact mode's resolver), and only those are ranked. It used to filter the
+  shelf's top `3 × top_k`, so a folder whose passages ranked lower came back
+  empty while holding what was asked.
+

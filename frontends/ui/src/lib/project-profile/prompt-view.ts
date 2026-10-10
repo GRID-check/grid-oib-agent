@@ -1,5 +1,6 @@
 import { findProjectProfile, findProjectPromptView } from '@/lib/projects/repository'
 import { loadDocumentRolesPromptSection } from '@/lib/document-roles/prompt-loader'
+import { loadUnreadableDocumentsSection } from './unreadable-section'
 import { getCached, invalidateCached } from '@/lib/cache'
 import { buildProjectBriefView } from './brief-view'
 import { isValidBundeslandToken } from './intake-definition'
@@ -66,7 +67,14 @@ export async function loadProjectPromptView(
     return combined || null
   }
 
-  return getCached(promptViewCacheKey(projectId, organizationId), PROMPT_VIEW_CACHE_TTL_MS, build)
+  // The unreadable files ride beside the cached view, not inside it: a re-read
+  // changes them without touching anything that invalidates the cache, and
+  // the next turn must not be told about a failure „Alle erneut lesen" fixed.
+  const [view, unreadable] = await Promise.all([
+    getCached(promptViewCacheKey(projectId, organizationId), PROMPT_VIEW_CACHE_TTL_MS, build),
+    loadUnreadableDocumentsSection(projectId, organizationId),
+  ])
+  return [view, unreadable].filter(Boolean).join('\n\n') || null
 }
 
 export async function invalidateProjectPromptViewCache(

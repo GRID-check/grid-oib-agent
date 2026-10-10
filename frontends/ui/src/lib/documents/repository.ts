@@ -607,6 +607,45 @@ export async function listDocumentIdsForProject(
   return rows.map((row) => row.id)
 }
 
+/** The statuses a read ended in failure at — the `failed` family of `DOCUMENT_STATUS_FACTS`. */
+const READ_FAILED_STATUSES = ['failed', 'error'] as const
+
+/**
+ * The project's active documents whose read FAILED and that a model may name:
+ * screened ones only (ADR-0086, {@link SCREENED_ONLY}) and none in a folder the
+ * caller hides (ADR-0087). Newest first, bounded by `limit`.
+ *
+ * Read for the agent's `documents_unreadable:` block. Without it a file Piloti
+ * could not read was indistinguishable from one that does not exist: it has no
+ * summary row, so neither the inventory nor any tool lists it, and an answer
+ * called it missing.
+ */
+export async function listUnreadableProjectDocuments(
+  projectId: string,
+  organizationId: string,
+  hiddenFolderIds: readonly string[],
+  limit: number,
+): Promise<{ filename: string; displayName: string | null; folderId: string | null }[]> {
+  const db = getDb()
+  return withTenant({ organizationId }, () =>
+    db
+      .select({ filename: documents.filename, displayName: documents.displayName, folderId: documents.folderId })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.projectId, projectId),
+          eq(documents.organizationId, organizationId),
+          eq(documents.lifecycle, 'active'),
+          inArray(documents.status, [...READ_FAILED_STATUSES]),
+          ...outsideHiddenFolders(hiddenFolderIds),
+          documentVisibleTo(SCREENED_ONLY),
+        ),
+      )
+      .orderBy(desc(documents.createdAt))
+      .limit(limit),
+  )
+}
+
 /**
  * Which of `ids` exist, held ones included: the orphan sweep deletes the grants
  * of a document that is gone, and a held document is not gone (allowlisted in
