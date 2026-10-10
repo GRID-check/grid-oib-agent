@@ -28,7 +28,8 @@ interface SpendTrendChartProps {
   points: SpendTrendPoint[]
   /** The unit is the caller's: credits for a tenant, USD for the platform. */
   formatValue: (value: number) => string
-  requestsLabel: (count: number) => string
+  /** The second half of a column's tooltip; omit when the value already is the count. */
+  requestsLabel?: (count: number) => string
   emptyLabel: string
 }
 
@@ -78,7 +79,8 @@ export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, formatValue,
                 <TooltipContent>
                   <p className="font-medium">{dateLabel(point.day)}</p>
                   <p className="tabular-nums">
-                    {formatValue(point.value)} · {requestsLabel(point.events)}
+                    {formatValue(point.value)}
+                    {requestsLabel ? ` · ${requestsLabel(point.events)}` : null}
                   </p>
                 </TooltipContent>
               </Tooltip>

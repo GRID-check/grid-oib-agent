@@ -70,11 +70,11 @@ describe('KeyboardShortcuts', () => {
 
     expect(await screen.findByText('Current project')).toBeInTheDocument()
     // Click-dummy IA (spec §5): Chat/Files/Settings + Setup (intake).
-    for (const section of ['Ask Piloti', 'Files', 'Settings', 'Setup']) {
+    for (const section of ['Ask Piloti', 'Files', 'Overview', 'Setup']) {
       expect(screen.getByText(section)).toBeInTheDocument()
     }
-    // Overview/Members/Research left the IA (FB-9/FB-10).
-    expect(screen.queryByText('Overview')).toBeNull()
+    // Members/Research left the IA (FB-9/FB-10). "Overview" is listed above,
+    // as the project hub's name.
     expect(screen.queryByText('Members')).toBeNull()
     expect(screen.queryByText('Research')).toBeNull()
   })
@@ -114,7 +114,7 @@ describe('KeyboardShortcuts', () => {
 
     await screen.findByText('Keyboard shortcuts')
     // Rows are derived from the shared IA, so they carry the rail's own labels.
-    for (const label of ['All projects', 'Organization', 'Ask Piloti', 'Files', 'Office filing', 'Settings']) {
+    for (const label of ['All projects', 'Organization', 'Ask Piloti', 'Files', 'Office filing', 'Overview']) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
     // Flag-gated sections stay out until their flag is on.

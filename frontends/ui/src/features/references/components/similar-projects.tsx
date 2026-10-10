@@ -2,7 +2,8 @@
 
 /**
  * Similar projects: the closed projects most like this one that the person may
- * open, one card each (`/app/projects/{id}/referenzen`). The data is the
+ * open, one card each (the project hub's Similar projects section,
+ * `/app/projects/{id}/settings/references`). The data is the
  * service's (`getSimilarProjects`); this draws it from the reference atoms and
  * the raised-card shape, and says so when there is none.
  */
@@ -99,7 +100,7 @@ function SimilarProjectCard({ project }: { project: SimilarProject }): JSX.Eleme
 export function SimilarProjects({ projects }: { projects: readonly SimilarProject[] }): JSX.Element {
   const t = useTranslations('references')
   return (
-    <div className="flex flex-col gap-6 px-4 py-4 md:px-8">
+    <div className="flex flex-col gap-6">
       <p className="max-w-prose text-sm text-muted-foreground">{t('intro')}</p>
       {projects.length === 0 ? (
         <EmptyState title={t('empty.title')} description={t('empty.description')} />

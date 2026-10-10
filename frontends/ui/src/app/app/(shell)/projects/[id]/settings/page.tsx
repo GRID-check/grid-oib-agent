@@ -1,19 +1,27 @@
 import type { JSX } from 'react'
+import { Suspense } from 'react'
 import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
+import type { AuthorizedSession } from '@/lib/auth/types'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { can } from '@/lib/authz/decide'
-import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
+import { getProjectUsage } from '@/lib/budgets/service'
+import { getProjectActivity } from '@/lib/projects/activity'
+import { listFoldersWithoutValidRole } from '@/lib/projects/folder-access-settings'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
 import { projectOverviewReader } from '@/lib/projects/service'
-import { listFoldersWithoutValidRole } from '@/lib/projects/folder-access-settings'
-import { ProjectSettings } from '@/features/projects/components/project-settings'
+import { resolveProjectSettingsAccess } from '@/lib/projects/settings-access'
 import { getSteckbrief } from '@/lib/projects/steckbrief-service'
+import { getSimilarProjects } from '@/lib/references/service'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
+import { BentoCell } from '@/components/ui/bento'
+import { Skeleton } from '@/components/ui/skeleton'
+import { ProjectOverview } from '@/features/projects/components/overview/project-overview'
+import { SimilarProjectsTile } from '@/features/projects/components/overview/similar-projects-tile'
+import { settingsSectionHref } from '@/features/projects/lib/settings-sections'
 import { getTranslations } from '@/i18n/server'
 
-interface ProjectSettingsPageProps {
+interface PageProps {
   params: Promise<{ id: string }>
 }
 
@@ -23,67 +31,87 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * Project Settings (spec §5, FB-9) — consolidates what used to live on the
- * Overview and Members pages: project parameters (intake brief + applicable
- * standards), the member roster, project memory, an insights placeholder, and
- * the danger zone.
+ * The project Overview: the bento dashboard the hub opens on.
  *
- * View access gates the page (same guard the layout applies); manager-only
- * affordances (member management, rename, danger zone) are gated by the
- * derived role, matching the old pages exactly.
+ * Activity (how many questions, by how many people) and the Steckbrief are for
+ * everyone; spend is loaded only for a reader who may see it, the same set the
+ * Usage section is open to. Document counts use the overview reader, so they
+ * leave out folders this reader may not open and quarantined uploads
+ * (ADR-0087, ADR-0086). Similar projects stream in after the rest.
  */
-export default async function ProjectSettingsPage({ params }: ProjectSettingsPageProps): Promise<JSX.Element> {
+export default async function ProjectOverviewPage({ params }: PageProps): Promise<JSX.Element> {
   return withPageSession(async (session) => {
     const { id } = await params
+    await requireProjectAccess(session, id, 'project:view')
 
-    const { role, closed } = await requireProjectAccess(session, id, 'project:view')
+    const [data, access, activity, steckbrief] = await Promise.all([
+      projectOverviewReader(session, id).then((reader) =>
+        getProjectOverviewData(id, session.organizationId, reader)
+      ),
+      resolveProjectSettingsAccess(session, id),
+      getProjectActivity(session, id),
+      getSteckbrief(session, id),
+    ])
+    if (!data) notFound()
 
-    // The same reader the overview route uses: hidden folders and quarantine (ADR-0087, ADR-0086).
-    const data = await getProjectOverviewData(id, session.organizationId, await projectOverviewReader(session, id))
-    if (!data) {
-      notFound()
-    }
-
-    // A closed project's role is unchanged, but nothing it lets one change is
-    // open (ADR-0090): only closing and reopening, and the members.
-    const managesProject = role === 'project-admin'
-    const canManageProject = managesProject && !closed
-    // Folders whose roles were deleted since (ADR-0088). Asked only of a
-    // project manager, who is the one who can set a role again.
-    const foldersWithoutRole = canManageProject ? await listFoldersWithoutValidRole(session, id) : []
-    const steckbrief = await getSteckbrief(session, id)
-    // The closing debrief writes project memory, so it asks for that permission,
-    // not for the role that may close: a custom role can hold one without the other.
-    const canWriteMemory = await can(session, 'project:memory:write', { type: 'project', id })
-    // The organization's people, to link a Steckbrief person to their account;
-    // asked only of someone who may edit it. Names only, never e-mail.
-    const accounts = steckbrief.canEdit
-      ? [...(await loadOrganizationDirectory(session.organizationId)).values()].map((person) => ({
-          userId: person.userId,
-          name: person.name,
-        }))
-      : []
+    const [usage, foldersWithoutRole, accounts] = await Promise.all([
+      access.manageBudget ? getProjectUsage(session, id) : null,
+      // Folders whose roles were deleted since (ADR-0088). Asked only of a
+      // project manager, who is the one who can set a role again.
+      access.manage ? listFoldersWithoutValidRole(session, id) : [],
+      // The organization's people, to link a Steckbrief person to their
+      // account; asked only of someone who may edit it. Names only, never e-mail.
+      steckbrief.canEdit
+        ? loadOrganizationDirectory(session.organizationId).then((directory) =>
+            [...directory.values()].map((person) => ({ userId: person.userId, name: person.name }))
+          )
+        : [],
+    ])
 
     return (
-      <ProjectSettings
+      <ProjectOverview
         data={data}
+        activity={activity}
+        usage={usage}
+        foldersWithoutRole={foldersWithoutRole}
         steckbrief={steckbrief}
         steckbriefAccounts={accounts}
-        foldersWithoutRole={foldersWithoutRole}
-        canManageProject={canManageProject}
-        canManageMembers={managesProject}
-        canChangeStatus={managesProject}
-        canWriteMemory={canWriteMemory}
-        // Knowledge left the top-level nav (spec §5) but stays reachable from
-        // Settings while its feature flag is on.
-        showKnowledgeLink={isProjectKnowledgePageEnabled(session)}
-        // Same id space as the roster's `organizationMembershipId` (see
-        // GridSession/AuthorizedSession) — lets the members form recognize the
-        // signed-in user's own row and guard against self-lockout.
-        currentMembershipId={session.organizationMembershipId}
-        // The upload history links the reader's own uploads to their summaries.
-        currentUserId={session.userId}
+        similar={
+          <Suspense
+            fallback={
+              <BentoCell span="wide">
+                <Skeleton className="h-40 rounded-lg" />
+              </BentoCell>
+            }
+          >
+            <SimilarProjectsSlot session={session} projectId={id} />
+          </Suspense>
+        }
+        access={{
+          manage: access.manage,
+          changeStatus: access.changeStatus,
+          writeMemory: access.writeMemory,
+          editProfile: access.editProfile,
+          manageMembers: access.manageMembers,
+        }}
       />
     )
   })
+}
+
+/** The similar-projects tile, read on its own so the dashboard does not wait for it. */
+async function SimilarProjectsSlot({
+  session,
+  projectId,
+}: {
+  session: AuthorizedSession
+  projectId: string
+}): Promise<JSX.Element> {
+  const projects = await getSimilarProjects(session, projectId)
+  return (
+    <SimilarProjectsTile
+      projects={projects}
+      href={settingsSectionHref(projectId, 'references')}
+    />
+  )
 }

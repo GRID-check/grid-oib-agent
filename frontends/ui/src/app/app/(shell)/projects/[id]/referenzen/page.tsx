@@ -1,28 +1,17 @@
-import type { JSX } from 'react'
-import { type Metadata } from 'next'
-import { withPageSession } from '@/lib/auth/require-auth'
-import { getTranslations } from '@/i18n/server'
-import { getSimilarProjects } from '@/lib/references/service'
-import { SimilarProjects } from '@/features/references/components/similar-projects'
+import { redirect } from 'next/navigation'
 
-interface ReferencesPageProps {
+interface ReferencesRedirectProps {
   params: Promise<{ id: string }>
 }
 
-export async function generateMetadata(): Promise<Metadata> {
-  const t = await getTranslations('nav')
-  return { title: t('sections.referenzen') }
-}
-
 /**
- * The closed projects most like this one that the person may open. The service
- * owns the access (`project:view` on this project, and what each reference
- * shows); the page only asks and draws.
+ * Similar projects moved into the project hub: a tile on its Overview and a
+ * section behind it. The route stays as a redirect because chat answers and
+ * bookmarks already carry `/referenzen`; the project layout guards access.
  */
-export default async function ReferencesPage({ params }: ReferencesPageProps): Promise<JSX.Element> {
-  return withPageSession(async (session) => {
-    const { id } = await params
-    const projects = await getSimilarProjects(session, id)
-    return <SimilarProjects projects={projects} />
-  })
+export default async function ReferencesRedirect({
+  params,
+}: ReferencesRedirectProps): Promise<never> {
+  const { id } = await params
+  redirect(`/app/projects/${encodeURIComponent(id)}/settings/references`)
 }
