@@ -1,0 +1,10 @@
+---
+features:
+  - >
+    The effort slider now warns when it is set to Maximum, and the level chip
+    in the composer turns amber while it is on. Maximum thinks much longer and
+    costs far more tokens, and is rarely smarter than High.
+fixes:
+  - >
+    The dots in the effort slider no longer seem to slide along with the
+    handle. They now stay in place and grow denser as you turn the effort up.

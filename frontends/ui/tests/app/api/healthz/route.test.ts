@@ -41,7 +41,7 @@ describe('GET /api/healthz', () => {
 
   it('answers `unknown` for an image nothing stamped, never an empty field', async () => {
     // `sha=` in a health payload reads as a truncation; `unknown` reads as an
-    // image that was not built by publish-images.yml, which is the fact.
+    // image that was not built by CI's image build, which is the fact.
     delete process.env.GRID_GIT_SHA
 
     await expect((await probe()).json()).resolves.toMatchObject({ sha: 'unknown' })

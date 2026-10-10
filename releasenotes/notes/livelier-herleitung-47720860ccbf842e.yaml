@@ -1,0 +1,29 @@
+---
+# One entry per user-visible change. The public sections are PUBLISHED, in
+# English and in German translation, to https://piloti.at/changelog — write
+# them for the architect using Piloti, not for the reviewer of your diff.
+#
+#   - English. The German is generated from it; a German note fails the lint.
+#   - At most two sentences and 400 characters: what the reader can now do,
+#     or what stopped going wrong for them. The mechanism goes in the PR.
+#   - No RST, backticks, issue numbers, file paths or internal names.
+#   - Only the people running the platform can act on it (the Platform area,
+#     model defaults, a deployment step)? Put it under `operators`.
+#   - A security fix goes under `security`; a severe fix (data lost or kept
+#     after deletion, a permission or legal hold that did not hold) under
+#     `incident`. `security`, `incident` and `operators` are kept here and
+#     never published, and a note in them still satisfies the PR check.
+#
+# Good: Uploading a corrected plan under the same name now replaces the old
+#       one instead of adding a second copy.
+# Bad:  Fixed dedup in the ingest path so re-uploads no longer create a
+#       duplicate row.  (mechanism, not effect)
+#
+# Delete every section you do not need — an empty one fails the lint.
+fixes:
+  - >
+    While Piloti works, the Herleitung shows its whole reasoning graph again,
+    with a spinning icon and moving connectors, instead of a cut-off window.
+  - >
+    The end of an answer no longer shows a hard cut and stray marks just above
+    the question field.
