@@ -28,7 +28,9 @@
  *     decoration: it is the product telling the reader "Piloti can quote this",
  *     which is why `isCitableStatus` is exactly the `success` set and
  *     `isFailedStatus` exactly the `destructive` one. They were separate sets
- *     that happened to be identical; here they are one statement.
+ *     that happened to be identical; here they are one statement. The word a
+ *     surface says for it is derived from the colour too (`surfaceStateOf`,
+ *     `./surface-state`): one word per state, the same on every surface.
  *   - `phase` — whether the row will change on its own. This is the
  *     load-bearing one for `reconcile-status.ts`, which polls the backend for
  *     every in-flight row, and for the workspace, which re-reads the listing
@@ -44,8 +46,6 @@ export type DocumentStatusPhase = 'in-flight' | 'terminal'
 export interface DocumentStatusFacts {
   readonly variant: DocumentStatusVariant
   readonly phase: DocumentStatusPhase
-  /** `files` dictionary key for the badge label. */
-  readonly labelKey: string
 }
 
 /**
