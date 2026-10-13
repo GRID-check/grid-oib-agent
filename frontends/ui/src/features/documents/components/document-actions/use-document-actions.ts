@@ -227,6 +227,12 @@ export function useDocumentActions({
         toast.error(t('actions.reingestError'))
         return null
       }
+      // Refused on purpose: the same bytes would fail the same way. The
+      // sentence says what to do instead; nothing about the row changed.
+      if (outcome.kind === 'unchanged') {
+        toast.info(t('actions.reingestWouldFailAgain'))
+        return null
+      }
       // A `settled` answer is not a failure to retry. The row the reader
       // clicked was stale (it said failed or stuck while the backend was
       // working, or already done), so the answer is the real state and a fresh

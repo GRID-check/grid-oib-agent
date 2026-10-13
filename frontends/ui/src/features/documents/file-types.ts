@@ -134,6 +134,15 @@ export interface FileItem {
    * the purge ran, for „Quelle gelöscht am …". Null for every other document.
    */
   sourceDeletedAt?: string | null
+  /**
+   * Whether reading the document again may come out differently
+   * (`lib/documents/retry-policy.ts`). False only for a FAILED file whose
+   * failure is lasting (empty, encrypted, unparseable) and whose bytes and
+   * reader have not changed since: „Alle erneut lesen“ leaves it out, and its
+   * „Erneut lesen“ says to upload a new version instead. Absent reads as true,
+   * which is what every listing served before the field meant.
+   */
+  retryable?: boolean
 }
 
 export interface FileAssignee {

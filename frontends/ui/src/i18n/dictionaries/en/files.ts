@@ -314,6 +314,7 @@ export const files = {
     ingestionFailedPreviousVersionKept:
       'Search and Piloti still use the previous revision. The download serves the new file.',
     retryIngestion: 'Read again',
+    retryWouldFailAgain: 'Reading this file again would give the same result. Upload a new revision instead.',
     retryingIngestion: 'Retrying…',
     retryIngestionError: "Reading couldn't be restarted. Please try again.",
     dialogLabel: 'File preview: {name}',
@@ -592,6 +593,7 @@ export const files = {
     reingesting: 'Retrying…',
     reingestRunning: 'Already being read',
     reingestAlreadyDone: 'Already finished',
+    reingestWouldFailAgain: 'Reading this file again would give the same result. Upload a new revision instead.',
     reingestConfirmTitle: 'Read “{name}” again?',
     reingestConfirmDescription:
       'Piloti reads the file again from scratch, for example to pick up the pictures in Word and PowerPoint files. Until it is done, Piloti keeps answering from what it read before.',

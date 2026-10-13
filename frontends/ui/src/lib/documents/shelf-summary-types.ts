@@ -25,9 +25,11 @@ export interface ShelfSummary {
   /** One row per folder that holds a document this reader may see; a folder with none has no row. */
   folders: ShelfFolderTally[]
   /**
-   * The documents whose read failed, newest first, at most
-   * {@link SHELF_SUMMARY_FAILED_LIMIT}: what „Alle erneut lesen“ sends back
-   * through ingestion, filtered to a subtree by the browser.
+   * The documents whose read failed and may read differently now, newest
+   * first, at most {@link SHELF_SUMMARY_FAILED_LIMIT}: what „Alle erneut lesen“
+   * sends back through ingestion, filtered to a subtree by the browser. A file
+   * that failed for a lasting reason (`lib/documents/retry-policy.ts`) is in the
+   * folder tallies and not here.
    */
   failed: Array<{ id: string; folderId: string | null }>
   /** Whether more failed documents exist than `failed` carries. */

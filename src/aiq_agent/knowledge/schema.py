@@ -314,6 +314,26 @@ class FileProgress(BaseModel):
             "(a match; the file FAILED and `error_message` starts with `quarantined:`)."
         ),
     )
+    failure_category: str | None = Field(
+        default=None,
+        description=(
+            "Why a FAILED file failed, as a machine category (`aiq_agent.knowledge.ingest_failures`): "
+            "`transient` (interrupted, timed out, a download or upstream call failed: reading it again "
+            "may work), `configuration` (the deployment lacks something, e.g. a vision model: reading it "
+            "again works once that is configured), `deterministic` (the bytes themselves: empty, "
+            "encrypted, unparseable, unreadable pages; the same reader fails the same way), "
+            "`quarantined` (not a failure: the content check held the file), or `unknown`. "
+            "Null while the file has not failed."
+        ),
+    )
+    retryable: bool | None = Field(
+        default=None,
+        description=(
+            "Whether reading the same bytes again with the same reader can succeed; follows "
+            "`failure_category` (false for `deterministic` and `quarantined`). Null while the file "
+            "has not failed."
+        ),
+    )
 
 
 class IngestionJobStatus(BaseModel):
@@ -338,6 +358,14 @@ class IngestionJobStatus(BaseModel):
     collection_name: str = Field(..., description="Target collection/index name.")
     backend: str = Field(..., description="Ingestion backend used.")
     error_message: str | None = Field(None, description="Error message if job failed.")
+    reader_version: str | None = Field(
+        None,
+        description=(
+            "The extraction logic that read the files (`knowledge_layer.reader_version."
+            "INGEST_READER_VERSION`), stamped when a worker starts the job. A file that failed "
+            "`deterministic` under one reader may read under a newer one. Null until the job runs."
+        ),
+    )
 
     # Extra metadata for backend-specific info (e.g., milvus_uri, results_count)
     metadata: dict[str, Any] = Field(

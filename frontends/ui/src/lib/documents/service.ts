@@ -49,7 +49,8 @@ import {
 import { ALLOWED_TAGS, MAX_TOPICS, MAX_TOPIC_LENGTH } from './tag-vocabulary'
 import { documentStatusFacts } from './document-status'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
-import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
+import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING, INGEST_WOULD_FAIL_AGAIN } from './reingest-codes'
+import { canRetry, contentHashChanged, CURRENT_INGEST_READER_VERSION, type RetryFacts } from './retry-policy'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import {
@@ -1562,6 +1563,13 @@ export interface ReingestDocumentResult {
  * Every refusal is a 409 whose `details.code` says why (`./reingest-codes`),
  * so the client can tell "already running" and "already finished" from a
  * failure worth retrying.
+ *
+ * A failure is retried only when reading it again may come out differently
+ * (`canRetry`, `./retry-policy`): a file that failed for a lasting reason with
+ * the same bytes and the same reader is refused with `INGEST_WOULD_FAIL_AGAIN`,
+ * which the client turns into "upload a new version". Decided on the failure
+ * the backend reported, so a row healed from `processing` to `failed` here is
+ * judged by the job that just failed, not by the row's earlier columns.
  */
 export async function reingestDocument(
   session: AuthorizedSession,
@@ -1589,6 +1597,18 @@ export async function reingestDocument(
       code: INGEST_NOT_ELIGIBLE,
     })
   }
+
+  // The failure a retry would answer: the row's own, or (below) the one the
+  // backend just reported for a row that looked in flight. Null when the retry
+  // answers no failure at all (an indexed re-read, a lost in-flight job).
+  let failure: RetryFacts | null = isRetryable
+    ? {
+        status: doc.status,
+        ingestFailureCategory: doc.ingestFailureCategory,
+        ingestRetryable: doc.ingestRetryable,
+        ingestReaderVersion: doc.ingestReaderVersion,
+      }
+    : null
 
   if (isInFlight) {
     // In flight: retry only what the backend has LOST. A row can sit at
@@ -1640,7 +1660,26 @@ export async function reingestDocument(
           code: INGEST_ALREADY_DONE,
         })
       }
+      failure = {
+        status: knowledge.resolution.status,
+        ingestFailureCategory: knowledge.resolution.failure?.category ?? null,
+        ingestRetryable: knowledge.resolution.failure?.retryable ?? null,
+        ingestReaderVersion: knowledge.resolution.failure?.readerVersion ?? null,
+      }
     }
+  }
+
+  if (
+    failure &&
+    !canRetry(failure, {
+      currentReaderVersion: CURRENT_INGEST_READER_VERSION,
+      contentHashChanged: contentHashChanged(doc),
+    })
+  ) {
+    throw new ConflictError('Reading this file again would fail the same way', {
+      status: failure.status,
+      code: INGEST_WOULD_FAIL_AGAIN,
+    })
   }
 
   // The bucket the object is ACTUALLY in — `doc.storageBucket`, not the bucket
@@ -1966,7 +2005,14 @@ async function retryFailedDocument(
     return outcome.status === 'failed' ? 'failed' : 'queued'
   } catch (error) {
     const code = reingestRefusalCode(error)
-    if (code === INGEST_RUNNING || code === INGEST_ALREADY_DONE || code === INGEST_NOT_ELIGIBLE) return 'skipped'
+    if (
+      code === INGEST_RUNNING ||
+      code === INGEST_ALREADY_DONE ||
+      code === INGEST_NOT_ELIGIBLE ||
+      code === INGEST_WOULD_FAIL_AGAIN
+    ) {
+      return 'skipped'
+    }
     if (error instanceof NotFoundError || error instanceof ForbiddenError) return 'skipped'
     return 'failed'
   }

@@ -80,6 +80,7 @@ export function toFileItem(row: DocumentWireRow): FileItem {
     // what every listing but the „Archiviert" one is.
     lifecycle: row.lifecycle ?? 'active',
     sourceDeletedAt: row.sourceDeletedAt ?? null,
+    retryable: row.retryable ?? true,
   }
 }
 

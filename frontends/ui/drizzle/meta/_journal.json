@@ -932,6 +932,13 @@
       "when": 1792454400018,
       "tag": "0132_documents_folder_level_listing_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1792454400019,
+      "tag": "0133_document_ingest_failure_facts",
+      "breakpoints": true
     }
   ]
 }

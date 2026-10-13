@@ -10,6 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { SegmentMeter, ToneSwatch, type MeterTone } from '@/components/ui/segment-meter'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatDayRange } from '@/lib/format'
+import { offeredForRetry } from '@/lib/documents/retry-policy'
 import { cn } from '@/lib/utils'
 import type { BulkReingestProgress } from '../hooks/use-bulk-reingest'
 import { FolderReadState } from './folder-read-state'
@@ -500,8 +501,10 @@ function NeedsYouSection({
   // Counted from the tally, which both briefs carry exactly; the attention
   // lists only NAME documents for an action, and a summary-built brief names
   // the failed ones alone, up to the summary's limit (ADR-0102). The re-read
-  // button counts what it will send.
+  // button counts what it will send: not a file that failed for a lasting
+  // reason (`offeredForRetry`), which stays in the tally and is not sent.
   const { failed, held, unplaced } = brief.tally
+  const sendable = offeredForRetry(brief.attention.failed).length
   if (failed + held + unplaced === 0) return null
   return (
     <section className="flex flex-col gap-2.5 px-3 py-3" aria-labelledby="folder-brief-needs">
@@ -516,7 +519,7 @@ function NeedsYouSection({
           onShow={() => onSelect({ kind: 'state', state: 'failed' })}
           testId="folder-brief-needs-failed"
         >
-          {onReadAgain && (
+          {onReadAgain && (sendable > 0 || Boolean(readAgainProgress)) && (
             <Button
               type="button"
               size="sm"
@@ -529,7 +532,7 @@ function NeedsYouSection({
               <RotateCcw className={cn('size-3.5', readAgainProgress && 'animate-spin motion-reduce:animate-none')} aria-hidden />
               {readAgainProgress
                 ? t('brief.readAgainProgress', { done: readAgainProgress.done, count: readAgainProgress.total })
-                : t('brief.readAgainAll', { count: brief.attention.failed.length })}
+                : t('brief.readAgainAll', { count: sendable })}
             </Button>
           )}
         </AttentionRow>

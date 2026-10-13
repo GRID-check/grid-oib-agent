@@ -310,6 +310,8 @@ export const files: typeof en.files = {
     ingestionFailedPreviousVersionKept:
       'Die Suche und Piloti verwenden weiterhin die vorige Fassung. Der Download liefert die neue Datei.',
     retryIngestion: 'Erneut lesen',
+    retryWouldFailAgain:
+      'Diese Datei liefert beim erneuten Lesen dasselbe Ergebnis. Laden Sie eine neue Fassung hoch.',
     retryingIngestion: 'Wird erneut gestartet…',
     retryIngestionError:
       'Das erneute Lesen konnte nicht gestartet werden. Bitte versuchen Sie es noch einmal.',
@@ -570,6 +572,8 @@ export const files: typeof en.files = {
     reingesting: 'Wird erneut gestartet …',
     reingestRunning: 'Wird bereits gelesen',
     reingestAlreadyDone: 'Ist bereits fertig',
+    reingestWouldFailAgain:
+      'Diese Datei liefert beim erneuten Lesen dasselbe Ergebnis. Laden Sie eine neue Fassung hoch.',
     reingestConfirmTitle: '„{name}“ erneut lesen?',
     reingestConfirmDescription:
       'Piloti liest die Datei noch einmal vollständig, zum Beispiel damit Bilder in Word- und PowerPoint-Dateien erfasst werden. Bis Piloti damit fertig ist, antwortet es weiter aus dem bisher Gelesenen.',

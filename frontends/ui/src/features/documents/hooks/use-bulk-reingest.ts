@@ -18,6 +18,13 @@ export interface BulkReingestProgress {
   done: number
   /** Answers that were refusals or errors. */
   failed: number
+  /**
+   * Documents the server declined because reading them again would fail the
+   * same way (`INGEST_WOULD_FAIL_AGAIN`): neither started nor failed. The batch
+   * is chosen to leave those out, so this counts only verdicts newer than the
+   * listing. Optional so a progress built elsewhere need not say.
+   */
+  unchanged?: number
 }
 
 /**
@@ -38,7 +45,7 @@ export function useBulkReingest(onReingested: (id: string, status: string) => vo
   const run = useCallback(
     async (documentIds: readonly string[]): Promise<BulkReingestProgress> => {
       const total = documentIds.length
-      const result: BulkReingestProgress = { total, done: 0, failed: 0 }
+      const result: BulkReingestProgress = { total, done: 0, failed: 0, unchanged: 0 }
       if (running.current || total === 0) return result
       running.current = true
       setProgress({ ...result })
@@ -47,7 +54,10 @@ export function useBulkReingest(onReingested: (id: string, status: string) => vo
         for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
           const outcome = await requestReingest(id)
           result.done += 1
+          // `unchanged` is not a failure: the server judged reading it again
+          // pointless (the listing that offered it was older than the verdict).
           if (outcome.kind === 'failed') result.failed += 1
+          else if (outcome.kind === 'unchanged') result.unchanged = (result.unchanged ?? 0) + 1
           else if (outcome.status) onReingested(id, outcome.status)
           setProgress({ ...result })
         }

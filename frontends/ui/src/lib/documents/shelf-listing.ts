@@ -17,6 +17,7 @@ import type { FassungFacts } from './fassung'
 import { loadFassungFacts } from './fassung-facts'
 import type { DocumentLevelPage, DocumentListPage, DocumentListRow } from './repository'
 import { keepReadable, type ListingReader, type ShelfReader } from './document-reader'
+import { canRetryRow } from './retry-policy'
 
 /**
  * One row of a document listing.
@@ -28,9 +29,26 @@ import { keepReadable, type ListingReader, type ShelfReader } from './document-r
  * anything reading a listing had to re-widen the type to find the faces it
  * renders.
  */
-export type ListedDocument = Omit<DocumentListRow, 'metadata' | 'createdBy' | 'screeningOutcome' | 'screenedHash'> &
+export type ListedDocument = Omit<
+  DocumentListRow,
+  | 'metadata'
+  | 'createdBy'
+  | 'screeningOutcome'
+  | 'screenedHash'
+  | 'ingestFailureCategory'
+  | 'ingestRetryable'
+  | 'ingestReaderVersion'
+> &
   DocumentMetadata & {
     assignees: AssignedPerson[]
+    /**
+     * Whether reading the document again may come out differently
+     * (`canRetryRow`, `./retry-policy`): false for a file that failed for a
+     * lasting reason, which „Alle erneut lesen“ leaves out and whose „Erneut
+     * lesen“ says why instead. The failure facts it is decided from stay in
+     * the BFF. Optional for rows built without it; absent reads as true.
+     */
+    retryable?: boolean
     /**
      * Which documents this one replaces or is replaced by (CONTEXT.md,
      * „Fassung"), resolved for THIS reader: a document they may not open is
@@ -72,11 +90,32 @@ export async function toListedDocuments(
   const reconciled = keepReadable(await reconcileDocumentStatuses(rows, session.organizationId), reader)
 
   const fassung = await loadFassungFacts(session, reconciled, reader)
-  const listed = reconciled.map(({ metadata, createdBy: _createdBy, screeningOutcome: _screening, screenedHash: _screened, ...row }) => ({
-    ...row,
-    sourceDeletedAt: sourceDeletedAtOf(metadata),
-    fassung: fassung.get(row.id) ?? null,
-  }))
+  const listed = reconciled.map(
+    ({
+      metadata,
+      createdBy: _createdBy,
+      screeningOutcome: _screening,
+      screenedHash: _screened,
+      ingestFailureCategory,
+      ingestRetryable,
+      ingestReaderVersion,
+      ...row
+    }) => ({
+      ...row,
+      // Decided here, from the reconciled row, while `metadata` still says
+      // which bytes the last dispatch sent; only the answer leaves.
+      retryable: canRetryRow({
+        status: row.status,
+        contentHash: row.contentHash,
+        metadata,
+        ingestFailureCategory,
+        ingestRetryable,
+        ingestReaderVersion,
+      }),
+      sourceDeletedAt: sourceDeletedAtOf(metadata),
+      fassung: fassung.get(row.id) ?? null,
+    })
+  )
 
   if (!isCollaborationEnabled(session) || listed.length === 0) {
     return listed.map((row) => ({ ...row, assignees: [] }))

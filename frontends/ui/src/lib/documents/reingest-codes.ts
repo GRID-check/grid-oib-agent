@@ -19,7 +19,15 @@ export const INGEST_ALREADY_DONE = 'INGEST_ALREADY_DONE'
 /** The row is in a state re-ingest does not apply to (e.g. an agent's `stored` report). */
 export const INGEST_NOT_ELIGIBLE = 'INGEST_NOT_ELIGIBLE'
 
+/**
+ * The file failed for a lasting reason (empty, encrypted, unparseable), and
+ * neither its bytes nor the reader have changed since (`./retry-policy`).
+ * Reading it again would fail the same way; a new upload is the way out.
+ */
+export const INGEST_WOULD_FAIL_AGAIN = 'INGEST_WOULD_FAIL_AGAIN'
+
 export type ReingestRefusalCode =
   | typeof INGEST_RUNNING
   | typeof INGEST_ALREADY_DONE
   | typeof INGEST_NOT_ELIGIBLE
+  | typeof INGEST_WOULD_FAIL_AGAIN

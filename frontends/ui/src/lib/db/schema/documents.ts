@@ -5,6 +5,7 @@ import {
   timestamp,
   jsonb,
   integer,
+  boolean,
   check,
   foreignKey,
   index,
@@ -82,6 +83,7 @@ import {
   type DocumentAuthor,
 } from '@/lib/documents/document-authors'
 import { DOCUMENT_LIFECYCLES, type DocumentLifecycle } from '@/lib/documents/lifecycle-types'
+import type { IngestFailureCategory } from '@/lib/documents/retry-policy'
 
 // Re-exported so `@/lib/db/schema` stays the one import site every existing
 // caller already uses; the declaration itself lives outside the schema so a
@@ -423,6 +425,24 @@ export const documents = pgTable('documents', {
   screeningReleasedBy: text('screening_released_by'),
   screeningReleasedAt: timestamp('screening_released_at', { withTimezone: true }),
   /**
+   * Why the last read failed, as the backend classified it (migration 0133,
+   * `aiq_agent/knowledge/ingest_failures.py`): `transient`, `configuration`,
+   * `deterministic`, `quarantined` or `unknown`. NULL while the row has not
+   * failed, and on every row from before the column. Written by the reconcile
+   * with the status; `lib/documents/retry-policy.ts` reads it to decide
+   * whether reading the document again is worth anything.
+   */
+  ingestFailureCategory: text('ingest_failure_category').$type<IngestFailureCategory>(),
+  /** The backend's flag beside the category: whether the same bytes may read on a retry. */
+  ingestRetryable: boolean('ingest_retryable'),
+  /**
+   * The backend reader (`INGEST_READER_VERSION`) that last read the row. A
+   * `deterministic` failure is offered again once the deployed reader is newer.
+   */
+  ingestReaderVersion: text('ingest_reader_version'),
+  /** Dispatches of this row since migration 0133 (`setDocumentIngestJob`). Informational. */
+  ingestAttempts: integer('ingest_attempts'),
+  /**
    * The upload gesture that last wrote this document's bytes (migration 0110),
    * or NULL for a row no batch wrote. No foreign key: the batch is a pointer
    * for the upload summary, and pruning it must not take the document along.
@@ -641,6 +661,11 @@ export const documents = pgTable('documents', {
    * not.
    */
   lifecycleKnown: check('documents_lifecycle_known', sql`${table.lifecycle} IN ('active', 'archived')`),
+  /** The retry rule's vocabulary (migration 0133): a category nothing knows would read as unknown. */
+  ingestFailureCategoryKnown: check(
+    'documents_ingest_failure_category_check',
+    sql`${table.ingestFailureCategory} IS NULL OR ${table.ingestFailureCategory} IN ('transient', 'configuration', 'deterministic', 'quarantined', 'unknown')`
+  ),
   authorshipRequiresProvenance: check(
     'documents_authorship_requires_provenance',
     sql`${table.authoredBy} = 'user' OR (${table.authoredByProducer} IS NOT NULL AND ${table.authoredByRef} IS NOT NULL AND ${table.authoredByRefKind} IS NOT NULL)`

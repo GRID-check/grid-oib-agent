@@ -77,6 +77,7 @@ from aiq_agent.common.db_utils import ensure_schema
 
 from . import ingest_queue
 from .document_metadata_store import DocumentMetadataStore
+from .ingest_failures import classify_failure
 from .schema import FileStatus
 from .schema import IngestionJobStatus
 from .schema import JobState
@@ -213,11 +214,14 @@ def interrupted(status: IngestionJobStatus) -> IngestionJobStatus:
     # serializer note and the adapter's retention pruning, which parses it).
     failed.completed_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
     failed.metadata = {**failed.metadata, "failure_reason": INTERRUPTED, "retryable": True}
+    verdict = classify_failure(INTERRUPTED_MESSAGE)
     for detail in failed.file_details:
         if detail.status in (FileStatus.SUCCESS, FileStatus.FAILED):
             continue
         detail.status = FileStatus.FAILED
         detail.error_message = INTERRUPTED_MESSAGE
+        detail.failure_category = verdict.category
+        detail.retryable = verdict.retryable
     return failed
 
 

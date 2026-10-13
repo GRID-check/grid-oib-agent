@@ -26,6 +26,7 @@ import { createDocumentByNameClient } from '@/lib/documents/by-name-client'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { shelfSummaryUrl, type LevelPageRequest } from '@/lib/documents/level-client'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
+import { offeredForRetry } from '@/lib/documents/retry-policy'
 import { inferDocumentKind } from '../document-kind'
 import type { FileItem, FolderItem } from '../file-types'
 import { useDocParamSync, usePreviewChannel, type PreviewHandlers } from '../hooks/use-preview-channel'
@@ -946,9 +947,11 @@ function useFolderBriefSurface({
 
   const failedIds = brief?.attention.failed
   const readAgain = useCallback(async () => {
-    const ids = (failedIds ?? []).map((file) => file.id)
+    // Only what reading again may change: a file that failed for a lasting
+    // reason is left out, as the button's count already says.
+    const ids = offeredForRetry(failedIds ?? []).map((file) => file.id)
     const result = await bulk.run(ids)
-    const started = result.done - result.failed
+    const started = result.done - result.failed - (result.unchanged ?? 0)
     if (started > 0) toast.success(t('brief.readAgainDone', { count: started }))
     if (result.failed > 0) toast.error(t('brief.readAgainPartial', { count: result.failed }))
     onReadAgainDone()

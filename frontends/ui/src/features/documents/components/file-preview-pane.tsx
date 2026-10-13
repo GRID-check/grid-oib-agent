@@ -1495,19 +1495,28 @@ export function FilePreviewPane({
                     )}
                   </div>
                 </div>
-                {canManage && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full gap-2"
-                    onClick={handleReingest}
-                    disabled={actions.isReingesting}
-                  >
-                    <RotateCcw className="size-4" aria-hidden />
-                    {actions.isReingesting
-                      ? t('preview.retryingIngestion')
-                      : t('preview.retryIngestion')}
-                  </Button>
+                {/* A file that failed for a lasting reason would fail the same
+                  way again (`lib/documents/retry-policy.ts`): no button that
+                  can only repeat the failure, the way out instead. */}
+                {file.retryable === false ? (
+                  <p className="text-muted-foreground break-words text-xs" data-testid="preview-retry-would-fail-again">
+                    {t('preview.retryWouldFailAgain')}
+                  </p>
+                ) : (
+                  canManage && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full gap-2"
+                      onClick={handleReingest}
+                      disabled={actions.isReingesting}
+                    >
+                      <RotateCcw className="size-4" aria-hidden />
+                      {actions.isReingesting
+                        ? t('preview.retryingIngestion')
+                        : t('preview.retryIngestion')}
+                    </Button>
+                  )
                 )}
               </div>
             )}

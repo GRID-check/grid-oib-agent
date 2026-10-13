@@ -79,6 +79,9 @@ export function toDocumentWireRow(
     revisionFacts: row.revisionFacts ?? null,
     fassung: row.fassung ?? null,
     queueAhead: row.queueAhead ?? null,
+    // Whether „Alle erneut lesen“ sends it and „Erneut lesen“ is offered
+    // (`./retry-policy`); a row that was not judged keeps today's answer.
+    retryable: row.retryable ?? true,
     assignees: row.assignees,
     sourceDeletedAt: row.sourceDeletedAt ?? null,
   }

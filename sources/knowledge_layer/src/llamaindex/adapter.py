@@ -3065,13 +3065,22 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         status: FileStatus,
         chunks_created: int | None = None,
         error: str | None = None,
+        exc: BaseException | None = None,
     ) -> None:
         """Record a file's outcome on the job, then in the shared store.
 
         The job's ``file_details`` is the file's record: ``list_files`` and
         ``get_file_status`` in any process read it from the store, so a FAILED
         file's reason is written there with the status, not kept here.
+
+        A FAILED file also gets its failure category and whether the same bytes
+        may read on a retry (``ingest_failures.classify_failure``), from the
+        reason and, when the per-file catch had one, the exception ``exc``. One
+        place for every failure the adapter writes, so no call site can fail a
+        file without saying whether retrying it is worth anything.
         """
+        from aiq_agent.knowledge.ingest_failures import classify_failure
+
         with self._lock:
             if file_index < len(job.file_details):
                 file_detail = job.file_details[file_index]
@@ -3082,6 +3091,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     file_detail.chunks_created = chunks_created
                 elif status == FileStatus.FAILED and error:
                     file_detail.error_message = error
+                if status == FileStatus.FAILED:
+                    verdict = classify_failure(error, exc)
+                    file_detail.failure_category = verdict.category
+                    file_detail.retryable = verdict.retryable
+                else:
+                    file_detail.failure_category = None
+                    file_detail.retryable = None
 
             job.processed_files = file_index + 1
 
@@ -4588,11 +4604,16 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         # to delete, whether or not it owns the caller's files.
         downloaded: list[str] = []
         try:
-            # Update job to processing
+            # Update job to processing, stamped with the reader that reads it:
+            # a file that fails `deterministic` here may read under a newer one
+            # (`knowledge_layer.reader_version`), and the BFF compares the two.
+            from knowledge_layer.reader_version import INGEST_READER_VERSION
+
             with self._lock:
                 job = self._jobs[job_id]
                 job.status = JobState.PROCESSING
                 job.started_at = datetime.utcnow()
+                job.reader_version = INGEST_READER_VERSION
             self._persist(job)
 
             # Initialize components
@@ -5594,7 +5615,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     raise
                 except Exception as e:
                     logger.exception(f"Error processing file {file_path}")
-                    self._update_file_status(job, i, FileStatus.FAILED, error=str(e))
+                    self._update_file_status(job, i, FileStatus.FAILED, error=str(e), exc=e)
                     self._discard_partial_version(chroma_collection, collection_name, file_name, chunks_before)
                 finally:
                     # Still under the replacement lock: a quarantined re-upload

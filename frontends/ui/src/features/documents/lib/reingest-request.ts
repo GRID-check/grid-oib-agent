@@ -7,7 +7,7 @@
  * `details.code` says why (`@/lib/documents/reingest-codes`).
  */
 
-import { INGEST_ALREADY_DONE, INGEST_RUNNING } from '@/lib/documents/reingest-codes'
+import { INGEST_ALREADY_DONE, INGEST_RUNNING, INGEST_WOULD_FAIL_AGAIN } from '@/lib/documents/reingest-codes'
 
 export type ReingestOutcome =
   /** Dispatched; `status` is the row's new status (usually `pending`). */
@@ -17,6 +17,12 @@ export type ReingestOutcome =
    * reading it, or already has. `status` is the real one when the server said.
    */
   | { kind: 'settled'; code: typeof INGEST_RUNNING | typeof INGEST_ALREADY_DONE; status: string | null }
+  /**
+   * Not read again on purpose: the file failed for a lasting reason and
+   * reading the same bytes would fail the same way (`lib/documents/retry-policy.ts`).
+   * Not an error to retry; the way out is a new upload.
+   */
+  | { kind: 'unchanged' }
   /** Refused for another reason, or the request itself failed. */
   | { kind: 'failed' }
 
@@ -40,6 +46,7 @@ export async function requestReingest(documentId: string): Promise<ReingestOutco
       if (refusal?.code === INGEST_RUNNING || refusal?.code === INGEST_ALREADY_DONE) {
         return { kind: 'settled', code: refusal.code, status: refusal.status }
       }
+      if (refusal?.code === INGEST_WOULD_FAIL_AGAIN) return { kind: 'unchanged' }
       return { kind: 'failed' }
     }
     if (!res.ok) return { kind: 'failed' }

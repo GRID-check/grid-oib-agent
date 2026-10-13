@@ -38,6 +38,8 @@ export const archiv = {
     reingestError: 'Das erneute Lesen konnte nicht gestartet werden. Bitte versuchen Sie es noch einmal.',
     reingestRunning: 'Wird bereits gelesen',
     reingestAlreadyDone: 'Ist bereits fertig',
+    reingestWouldFailAgain:
+      'Diese Datei liefert beim erneuten Lesen dasselbe Ergebnis. Laden Sie eine neue Fassung hoch.',
     reingestConfirmTitle: '„{name}“ erneut lesen?',
     reingestConfirmDescription:
       'Piloti liest die Datei noch einmal vollständig, zum Beispiel damit Bilder in Word- und PowerPoint-Dateien erfasst werden. Bis Piloti damit fertig ist, antwortet es weiter aus dem bisher Gelesenen.',
