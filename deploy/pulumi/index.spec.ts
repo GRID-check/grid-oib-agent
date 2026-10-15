@@ -125,11 +125,17 @@ describe("the program constructs in the split topology", () => {
       expect(url).toBe(`http://aiq-api:8000/v1/maintenance/housekeeping/${job.name.replace("housekeeping-", "")}`);
       expect(job.inputs.spec?.concurrencyPolicy).toBe("Forbid");
     }
+    // Suspended only while `chromaMigration` is on (index-chroma-migration.spec.ts);
+    // written as false otherwise, so switching the flag off resumes the clock.
+    const baseCorpus = housekeeping.find((r) => r.name === "housekeeping-base-corpus");
+    expect((baseCorpus?.inputs.spec as { suspend?: boolean }).suspend).toBe(false);
+    const reconcile = cronJobs.find((r) => r.name === "vector-reconcile");
+    expect((reconcile?.inputs.spec as { suspend?: boolean }).suspend).toBe(false);
   });
 
   it("keeps no files on the web role: no volume claim, nothing mounted at /app/data", () => {
     // ADR-0082 step A2's gate. The base corpus is in the object store and a
-    // table, the vectors in the shared Chroma; a claim here would bring back the
+    // table, the vectors in the shared Qdrant; a claim here would bring back the
     // one replica's disk an upload could land on.
     const web = RESOURCES.find((r) => r.type === "kubernetes:apps/v1:StatefulSet" && r.name === "aiq-agent");
     const spec = web?.inputs.spec;
@@ -141,7 +147,7 @@ describe("the program constructs in the split topology", () => {
     for (const container of containers) {
       expect(container.volumeMounts ?? []).toEqual([]);
       const env = container.env ?? [];
-      expect(env.find((e) => e.name === "AIQ_CHROMA_URL")?.value).toBeDefined();
+      expect(env.find((e) => e.name === "AIQ_QDRANT_URL")?.value).toBeDefined();
       for (const gone of ["AIQ_CHROMA_DIR", "OIB_UPLOADS_DIR", "GRID_BASE_CORPUS_STORE"]) {
         expect(env.find((e) => e.name === gone)).toBeUndefined();
       }
@@ -284,22 +290,48 @@ describe("the program constructs in the split topology", () => {
     expect(withSelector.map((r) => r.name)).toEqual([]);
   });
 
-  it("asks the cluster-autoscaler never to evict the one Chroma pod", () => {
-    const pod = podOf("kubernetes:apps/v1:StatefulSet", "chroma") as SizedPod & {
-      metadata: { annotations?: Record<string, string> };
-    };
-
-    expect(pod.metadata.annotations).toEqual({ "cluster-autoscaler.kubernetes.io/safe-to-evict": "false" });
+  it("deploys Qdrant on a stack that sets no Qdrant knob, and no Chroma (ADR-0113)", () => {
+    // The StatefulSet, its two Services and the claims of every Chroma pod are
+    // gone; Qdrant is always there. A resource named for Chroma would be the
+    // old server coming back.
+    expect(RESOURCES.filter((r) => /chroma/i.test(r.name)).map((r) => `${r.type}/${r.name}`)).toEqual([]);
+    expect(named("kubernetes:apps/v1:StatefulSet")).toContain("qdrant");
+    expect(named("kubernetes:core/v1:Service")).toEqual(expect.arrayContaining(["qdrant", "qdrant-headless"]));
+    for (const [type, name] of [
+      ["kubernetes:apps/v1:StatefulSet", "aiq-agent"],
+      ["kubernetes:apps/v1:Deployment", "aiq-api"],
+      ["kubernetes:apps/v1:Deployment", "agent-worker"],
+      ["kubernetes:apps/v1:Deployment", "ingest-worker"],
+    ]) {
+      const env = RESOURCES.find((r) => r.type === type && r.name === name)?.inputs.spec?.template?.spec.containers[0].env;
+      const names = (env ?? []).map((e) => e.name);
+      expect(names, name).toContain("AIQ_QDRANT_URL");
+      expect(names, name).toContain("AIQ_QDRANT_API_KEY");
+      expect(names.filter((n) => n.startsWith("AIQ_CHROMA") || n === "AIQ_VECTOR_BACKEND"), name).toEqual([]);
+    }
   });
 
-  it("gives Chroma a request the scheduler has to keep room for, and the burst limit prod runs", () => {
-    const [container] = podOf("kubernetes:apps/v1:StatefulSet", "chroma").spec.containers;
+  it("puts nothing of Qdrant's dashboard at the edge on a stack that does not ask for it", () => {
+    // `qdrantDashboardEnabled` defaults off, and off must render exactly what a
+    // stack rendered before the knob existed: a listener is a certificate
+    // request, a route without the flag is a public window onto the store.
+    // `index-qdrant-dashboard.spec.ts` builds the on side.
+    const gateway = RESOURCES.find((r) => r.name === "grid-gateway");
+    const listeners = (gateway?.inputs.spec as unknown as { listeners: Array<{ name: string }> }).listeners;
+    expect(listeners.map((l) => l.name)).toEqual(["http", "https-app", "https-s3", "https-web"]);
+    expect(RESOURCES.filter((r) => /qdrant-dashboard/.test(r.name)).map((r) => r.name)).toEqual([]);
+    expect(named("kubernetes:gateway.networking.k8s.io/v1:HTTPRoute")).not.toContain(
+      "grid-qdrant-dashboard-route",
+    );
+    expect(named("kubernetes:gateway.envoyproxy.io/v1alpha1:SecurityPolicy")).toEqual([]);
+    expect(named("kubernetes:networking.k8s.io/v1:NetworkPolicy")).not.toContain("allow-edge-to-qdrant-dashboard");
+  });
 
-    expect(container.name).toBe("chroma");
-    expect(container.resources).toEqual({
-      requests: { cpu: "1", memory: "3Gi" },
-      limits: { cpu: "4", memory: "6Gi" },
-    });
+  it("manages no PersistentVolumeClaim, so removing Chroma cannot delete its volume", () => {
+    // The old `data-chroma-0` was the StatefulSet's volumeClaimTemplate, kept
+    // on delete (`whenDeleted: Retain`), never a resource of this program. A
+    // claim resource here would be one a later `up` could delete.
+    expect(named("kubernetes:core/v1:PersistentVolumeClaim")).toEqual([]);
   });
 
   it("keeps the S3 endpoint on the name the app tier already uses", () => {

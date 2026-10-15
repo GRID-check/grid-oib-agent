@@ -48,11 +48,13 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURES = ROOT / "frontends" / "ui" / "tests" / "fixtures" / "precedent"
 
-#: As `CROSS_PROJECT_PAGE_PROJECTS` in `lib/cross-project/types.ts`.
+#: The per-project page the BFF searched before ADR-0114 (8 projects). The BFF now ranks a page of
+#: `CROSS_PROJECT_PAGE_PROJECTS` (40, `lib/cross-project/types.ts`) in one grouped query; kept at 8 so
+#: census runs stay comparable with the earlier ones.
 PAGE_PROJECTS = 8
 #: The office as `office.json` describes it; the other scenarios are named under its `scenarios`.
 DEFAULT_SCENARIO = "default"
-#: As `perProjectTopK`'s cap and `CROSS_PROJECT_MAX_DECISIONS` in `lib/cross-project/`.
+#: As the former per-project search's cap, and `CROSS_PROJECT_MAX_DECISIONS` in `lib/cross-project/`.
 MAX_PER_PROJECT = 30
 MAX_DECISIONS = 6
 #: As `CROSS_PROJECT_MAX_PERMITS` and `CROSS_PROJECT_MAX_PERMIT_REQUIREMENTS` in `lib/cross-project/types.ts`.
@@ -107,8 +109,7 @@ def _idf_weights(documents: list[set[str]]) -> dict[str, float]:
     Computed from the office's own passages, so „wie", „der" and „bei" weigh
     little and „Fluchttreppe" much without a list of words that decides which
     is which. Production's lexical channel prices words the same way
-    (``chunk_text_store``: ``ts_rank_cd`` over a German tsvector on Postgres,
-    summed inverse document frequency on SQLite). Raw overlap let a passage that shared three function words with
+    (Qdrant's server-side BM25, IDF per scope). Raw overlap let a passage that shared three function words with
     the question outrank the one that held its only content word.
     """
     counts = Counter(token for tokens in documents for token in tokens)

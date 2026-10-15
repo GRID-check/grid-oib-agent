@@ -2,8 +2,9 @@
 
 The semantic (vector) channel alone misses queries whose signal is a short exact string
 (``§ 3``, ``OIB-Richtlinie 2``, an ALLCAPS code). The retriever therefore runs one extra
-Chroma ``where_document {"$contains": term}`` pass per exact term extracted from the query
-and fuses the channels with reciprocal rank fusion (Cormack, Clarke & Buettcher, SIGIR 2009).
+channel per selective exact term extracted from the query (a phrase prefetch in Qdrant,
+``qdrant.search.exact_term``), and channels are fused with reciprocal rank fusion
+(Cormack, Clarke & Buettcher, SIGIR 2009).
 
 RRF is rank-only: each channel contributes ``1 / (k + rank)`` per result, so score scales
 between channels never need to be comparable — exactly what a hybrid of cosine similarity

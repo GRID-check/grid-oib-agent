@@ -27,6 +27,11 @@ export function baseStackConfig(): Record<string, string> {
     "grid-oib:openrouterApiKey": "or", // pragma: allowlist secret
     "grid-oib:dragonflyPassword": "df", // pragma: allowlist secret
     "grid-oib:rateLimitStorePassword": "rl", // pragma: allowlist secret
+    // Qdrant is always deployed (ADR-0113) and refuses to plan without its
+    // three keys, each distinct from the others and from every SeaweedFS secret.
+    "grid-oib:qdrantApiKey": "qd-rw", // pragma: allowlist secret
+    "grid-oib:qdrantReadOnlyApiKey": "qd-ro", // pragma: allowlist secret
+    "grid-oib:qdrantS3SecretKey": "qd-s3", // pragma: allowlist secret
     // The DB-claimed research queue is the only execution (ADR-0082 B) and fails
     // closed without a payload KEK; a test about another knob wants neither.
     "grid-oib:allowPlaintextJobPayloads": "true",

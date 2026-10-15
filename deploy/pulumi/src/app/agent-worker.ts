@@ -32,7 +32,7 @@ export const RESEARCH_QUEUE_DEPTH_QUERY = queueDepthQuery(QUEUE_TABLE);
  * Dedicated worker replicas (same backend image, `GRID_ROLE=worker`) claim
  * deep-research jobs from Postgres and execute them, so the token-heavy
  * workload scales horizontally and independently of the chat/web tier. No web
- * port, no PVC — workers are stateless (vectors live in shared Chroma,
+ * port, no PVC — workers are stateless (vectors live in shared Qdrant,
  * job state in Postgres).
  *
  * SCALED ON THE QUEUE, NOT ON CPU. A research job spends its time waiting on
@@ -86,7 +86,7 @@ export function installAgentWorker(
             annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
           },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             imagePullSecrets: w.imagePullSecrets,
             securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend },
             // Let a terminating worker finish the research jobs it already
@@ -123,7 +123,7 @@ export function installAgentWorker(
                 },
                 // The marker only appears on the FIRST claim-loop tick, which is
                 // gated behind importing the full aiq_api stack + connecting to
-                // Postgres/Chroma. On a cold node that can exceed the liveness
+                // Postgres/Qdrant. On a cold node that can exceed the liveness
                 // window and crash-loop the pod before it ever works. A startup
                 // probe holds liveness off until first boot completes (up to
                 // 60×10s = 10 min) instead of killing a still-booting worker.

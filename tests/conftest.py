@@ -17,6 +17,7 @@ from pydantic import Field
 
 from aiq_agent.common.llm_factory import enforce_chat_request_contract
 from nat.llm.openai_llm import OpenAIModelConfig
+from sources.knowledge_layer.tests.qdrant_testing import qdrant_store  # noqa: F401 - the shared store fixture
 
 logger = logging.getLogger(__name__)
 

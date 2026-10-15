@@ -106,6 +106,12 @@ describe("the program constructs with public DNS enabled", () => {
     expect(dnsHosts()).toHaveLength(4);
   });
 
+  it("publishes no record for Qdrant's dashboard while it is off, the default", () => {
+    // `index-qdrant-dashboard.spec.ts` turns it on and checks the record arrives.
+    expect(dnsHosts()).not.toContain(`qdrant.dev.${ZONE}`);
+    expect(listenerHosts()).not.toContain(`qdrant.dev.${ZONE}`);
+  });
+
   it("points every record at the pinned LoadBalancer IP", () => {
     // The address the Envoy Service is annotated with and the address in DNS are
     // read from one config key precisely so they cannot disagree.

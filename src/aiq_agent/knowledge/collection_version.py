@@ -16,8 +16,8 @@ cannot treat this as ``int``; that is deliberate.
 The retriever caches retrieval results for static collections for
 ``STATIC_RESULT_CACHE_TTL_SECONDS`` (1 hour) and keys them on the collection's
 write version, so a write invalidates them immediately. That worked only while
-"the process" and "the deployment" were the same thing. They are not: Chroma is
-a shared server (``AIQ_CHROMA_URL``), the backend runs at ``backendReplicas: 2``
+"the process" and "the deployment" were the same thing. They are not: Qdrant is
+a shared cluster (``AIQ_QDRANT_URL``), the backend runs at ``backendReplicas: 2``
 in production, and the deep-research worker tier runs 2-8 more — all reading and
 writing ONE store. A version counter held in a module global is invisible to
 every replica but its own, so an ingest or a delete on replica A would leave

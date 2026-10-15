@@ -17,6 +17,13 @@ export const PLATFORM_VIEW_PERMISSION = "platform:organizations:view";
  */
 export const OBSERVABILITY_VIEW_PERMISSION = "platform:observability:view";
 
+/**
+ * Envoy Gateway requires the OIDC client secret under exactly this key
+ * (`OIDC.ClientSecret`). Do not rename. Every Secret a gate's `secretName`
+ * names carries the Connect application's client secret under it.
+ */
+export const OIDC_CLIENT_SECRET_KEY = "client-secret"; // pragma: allowlist secret (Secret key name fixed by the Envoy Gateway API, not a credential)
+
 export interface PlatformOidcGate {
   /** HTTPRoute the policy attaches to. */
   routeName: string;
@@ -40,11 +47,15 @@ export interface PlatformOidcGate {
 
 /**
  * Edge authN + authZ for a platform-operator route (ADR-0029 Amendment 2,
- * generalized by ADR-0044 when Langfuse became a second such route, and the
- * only one since the Aspire dashboard was retired).
+ * generalized by ADR-0044 when Langfuse became a second such route). Two use
+ * it since the Aspire dashboard was retired: Langfuse, and Qdrant's dashboard
+ * when `qdrantDashboardEnabled` (`qdrant-dashboard.ts`).
  *
  * Three cooperating stages, run by Envoy in this order (the filter order is
- * fixed by Envoy Gateway: OAuth2=8, JWTAuthn=9, RBAC=301):
+ * fixed by Envoy Gateway, `newOrderedHTTPFilter` in
+ * `internal/xds/translator/httpfilters.go`: OAuth2=9, JWTAuthn=10, RBAC=301 on
+ * `main` as read on 2026-10-15; the numbers have moved before, the order has
+ * not):
  *
  *   1. `oidc`          — browser redirect flow against WorkOS AuthKit. On
  *                        success Envoy stores the tokens in cookies and, with
@@ -79,8 +90,8 @@ export interface PlatformOidcGate {
  *
  * **One application, as many routes as there are.** Every platform route gates
  * on the same issuer and the same operator permission (Langfuse additionally
- * admits `platform:observability:view`, through `alsoAdmit`), so a second route
- * would share the Connect application and carry one more redirect URI.
+ * admits `platform:observability:view`, through `alsoAdmit`), so each further
+ * route shares the Connect application and carries one more redirect URI.
  * Splitting them would mean two near-identical confidential clients and two
  * places to get the scope assignment wrong, buying a separation nobody would
  * use — the credential is already purpose-scoped to platform operators.

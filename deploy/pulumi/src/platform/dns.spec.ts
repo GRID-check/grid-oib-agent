@@ -110,6 +110,14 @@ describe("managedHosts", () => {
       "langfuse.d.test",
     ]);
   });
+
+  it("adds the Qdrant dashboard host after langfuse, in listener order, only when given", () => {
+    const base = { webDomain: "d.test", appDomain: "app.d.test", s3Domain: "s3.d.test" };
+    expect(managedHosts({ ...base, qdrantDashboardDomain: undefined })).toEqual(["d.test", "app.d.test", "s3.d.test"]);
+    expect(
+      managedHosts({ ...base, langfuseDomain: "langfuse.d.test", qdrantDashboardDomain: "qdrant.d.test" }),
+    ).toEqual(["d.test", "app.d.test", "s3.d.test", "langfuse.d.test", "qdrant.d.test"]);
+  });
 });
 
 describe("hostsOutsideZone", () => {

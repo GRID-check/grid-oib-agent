@@ -95,6 +95,22 @@ def test_falls_back_to_summary_when_fetcher_returns_none():
     assert "A summary source." in llm.invoke.call_args[0][0]
 
 
+def test_an_unreachable_store_fails_the_row_instead_of_classifying_the_summary():
+    """Tagged from the summary during an outage, the row would read as done and be skipped by every re-run."""
+    store = FakeStore(existing={("c", "doc.pdf")})
+    doc = AvailableDocument(file_name="doc.pdf", summary="A summary source.", tags=None)
+    llm = _llm_returning(["Grundriss"])
+
+    def down(collection, file_name):
+        raise ConnectionError("qdrant down")
+
+    outcome = backfill.process_row("c", doc, llm=llm, update_fn=store.update_tags, text_fetcher=down)
+
+    assert outcome == backfill.FAILED
+    assert llm.invoke.call_count == 0
+    assert store.updates == []
+
+
 def test_existing_tags_skipped_without_force():
     store = FakeStore()
     doc = AvailableDocument(file_name="doc.pdf", summary="S.", tags=["Grundriss"])
@@ -189,7 +205,7 @@ def _patch_main_deps(monkeypatch, stats, *, llm_raises=False):
         return MagicMock()
 
     monkeypatch.setattr(backfill, "build_summary_llm", _build_llm)
-    monkeypatch.setattr(backfill, "make_chunk_text_fetcher", lambda chroma_dir: None)
+    monkeypatch.setattr(backfill, "make_chunk_text_fetcher", lambda: None)
     monkeypatch.setattr(backfill, "run_backfill", lambda **kwargs: stats)
 
 

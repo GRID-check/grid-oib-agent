@@ -160,7 +160,7 @@ function installDragonflyInstance(
         template: {
           metadata: { labels, annotations: authAnnotations },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             terminationGracePeriodSeconds:
               gracefulShutdown(ROLLOUT.dataPlane).terminationGracePeriodSeconds,
             ...onNodeGroup(opts.nodeGroup),

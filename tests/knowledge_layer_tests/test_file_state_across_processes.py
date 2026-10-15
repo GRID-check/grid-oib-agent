@@ -8,13 +8,12 @@ by the id the worker had issued. The BFF treats a name absent from the listing a
 "the backend never heard of it" and lets the document be dispatched again.
 
 Two ingestors stand for the two processes: they share one SQLite status store and
-one Chroma directory, and nothing else. The worker ingests; the api never ran a job.
+one Qdrant store, and nothing else. The worker ingests; the api never ran a job.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import MagicMock
 
 import pytest
 from knowledge_layer.llamaindex import adapter as adapter_module
@@ -26,21 +25,20 @@ from aiq_agent.knowledge.schema import FileStatus
 from aiq_agent.knowledge.schema import IngestionJobStatus
 from aiq_agent.knowledge.schema import JobState
 from aiq_agent.knowledge.schema import stable_file_id
+from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
 from tests.knowledge_layer_tests import test_reingest_replaces_versions as reingest
 
 COLLECTION = "proj_two_processes"
 
-# The metadata store and lexical mirror a job writes to, on temp SQLite files.
+# The metadata store a job writes to, on a temp SQLite file.
 stores = reingest.stores
 
 
 @pytest.fixture()
-def processes(tmp_path, monkeypatch, stores):
-    """``(worker, api)``: two ingestors over one status store and one Chroma directory."""
+def processes(tmp_path, monkeypatch, stores, qdrant_store):
+    """``(worker, api)``: two ingestors over one status store and one Qdrant."""
     url = f"sqlite:///{tmp_path / 'jobs.db'}"
     monkeypatch.setenv("AIQ_SUMMARY_DB", url)
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", reingest._IndexIntoChroma)
-    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
 
     def encrypted(_path):
         raise ValueError("PDF is encrypted")
@@ -48,8 +46,8 @@ def processes(tmp_path, monkeypatch, stores):
     monkeypatch.setattr(adapter_module, "_extract_text_from_pdf", encrypted)
 
     def process() -> LlamaIndexIngestor:
-        ingestor = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma"), "generate_summary": False})
-        ingestor._embed_model = MagicMock()
+        ingestor = LlamaIndexIngestor({"generate_summary": False})
+        ingestor._embed_model = FakeEmbedder()
         ingestor._initialized = True
         return ingestor
 
@@ -224,7 +222,6 @@ def test_a_job_that_failed_before_it_reached_a_file_fails_that_file(processes):
 def test_a_finished_job_whose_chunks_are_gone_lists_nothing(processes):
     _worker, api = processes
     ingest_status_store.put(_job("done", datetime(2026, 7, 1), JobState.COMPLETED, FileStatus.SUCCESS))
-    api._get_chroma_client().get_or_create_collection(COLLECTION)
 
     assert api.list_files(COLLECTION) == []
 

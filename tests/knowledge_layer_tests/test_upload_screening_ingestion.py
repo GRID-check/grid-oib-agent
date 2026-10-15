@@ -4,8 +4,8 @@ Through ``_run_ingestion`` with real local extraction (pdfplumber on a hand-buil
 PDF, the text-format reader on a ``.txt``) and every external call site replaced
 by a recorder: page transcription (``route_pdf_pages``), image captioning
 (``_build_image_documents``), VLM enrichment (``enrich_vlm_batch``), summary and
-tags (the summary LLM), and embeddings (``VectorStoreIndex`` and the embed
-model). A quarantined file must FAIL with a ``quarantined:`` reason and leave
+tags (the summary LLM), and embeddings (the embed model, before anything is
+written to the store). A quarantined file must FAIL with a ``quarantined:`` reason and leave
 every recorder empty; the same file without a screening config must reach them,
 which is what proves the gate, not the stubs, kept them empty.
 """
@@ -25,6 +25,8 @@ from knowledge_layer.llamaindex.screening import QUARANTINED_PREFIX
 
 from aiq_agent.common.credential_resolution import ResolvedCredential
 from aiq_agent.knowledge.schema import FileStatus
+from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
+from sources.knowledge_layer.tests.qdrant_testing import capture_indexed_documents
 
 from .pdf_fixtures import build_pdf
 
@@ -45,9 +47,8 @@ def summary_db(tmp_path):
 
 
 @pytest.fixture
-def calls(tmp_path, monkeypatch, summary_db):
+def calls(tmp_path, monkeypatch, summary_db, qdrant_store):
     """Every external call site, recording; plus the ingestor that would make them."""
-    import llama_index.core
     from knowledge_layer.llamaindex import processing
 
     record: dict[str, list] = {"ocr": [], "image_caption": [], "vlm": []}
@@ -75,17 +76,12 @@ def calls(tmp_path, monkeypatch, summary_db):
 
     llm = MagicMock()
     llm.invoke.side_effect = lambda prompt: MagicMock(content='["Bericht"]' if "klassifizierst" in prompt else "Ok.")
-    ingestor = LlamaIndexIngestor(
-        {"persist_dir": str(tmp_path / "chroma"), "generate_summary": True, "summary_llm": llm, "extract_images": True}
-    )
-    ingestor._embed_model = MagicMock()
+    ingestor = LlamaIndexIngestor({"generate_summary": True, "summary_llm": llm, "extract_images": True})
+    ingestor._embed_model = FakeEmbedder()
     ingestor._initialized = True
-    index = MagicMock()
-    monkeypatch.setattr(llama_index.core, "VectorStoreIndex", index)
-    monkeypatch.setattr(llama_index.core, "Settings", MagicMock())
     record["ingestor"] = ingestor
     record["summary_llm"] = llm
-    record["index"] = index
+    record["indexed"] = capture_indexed_documents(monkeypatch)
     return record
 
 
@@ -95,7 +91,7 @@ def _external_calls(calls: dict) -> dict[str, int]:
         "image_caption": len(calls["image_caption"]),
         "vlm": len(calls["vlm"]),
         "summary_and_tags": calls["summary_llm"].invoke.call_count,
-        "embeddings": calls["index"].from_documents.call_count + len(calls["ingestor"]._embed_model.mock_calls),
+        "embeddings": len(calls["ingestor"]._embed_model.batches),
     }
 
 
@@ -395,7 +391,7 @@ class TestTablesAndCapsAreScreened:
         assert detail.status == FileStatus.SUCCESS
         assert detail.metadata["rows_over_cap"] == 1
         assert detail.screening == "partial"
-        embedded = [doc.text for call in calls["index"].from_documents.call_args_list for doc in call.args[0]]
+        embedded = [doc.text for documents in calls["indexed"] for doc in documents]
         assert embedded and not any("Gehaltsabrechnung" in text for text in embedded)
 
     def test_a_term_only_in_columns_past_the_cap_is_partial(self, tmp_path, calls, monkeypatch):

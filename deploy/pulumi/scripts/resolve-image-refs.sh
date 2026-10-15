@@ -37,6 +37,9 @@
 # last deployed, read from the stack output `deployedImages`. Nothing else ever
 # compared the two, which is why that downgrade was silent. Only an explicit
 # rollback may go backwards, and it says so.
+#
+# Below the guard, a floor nothing passes: the backend image must have been
+# built for the vector store the deployed program runs (vector-store-floor.sh).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -140,6 +143,8 @@ for service in backend frontend web; do
   new="$(resolve_ref "$service" "$deployed")" || { failed=1; continue; }
   log "${service}: ${deployed:-unknown} -> ${new}"
   guard "$service" "$deployed" "$new" || failed=1
+  # The floor below the guard, which a rollback does not pass either.
+  if [ "$service" = backend ]; then "$here/vector-store-floor.sh" "$new" || failed=1; fi
   out+="$(printf '%s' "$service" | tr '[:lower:]' '[:upper:]')_IMAGE_REF=${new}"$'\n'
 done
 

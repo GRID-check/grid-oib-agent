@@ -33,7 +33,8 @@ export const POST = internalApiRoute(
       crossTenant:
         'every collection in the deployment is compared against the document catalog across ' +
         'organizations; the reconciler steps up itself (withPlatformAccess) for that one read, and ' +
-        'the vector-store calls carry no tenant',
+        'the vector-store calls carry no tenant; the project facts half lists every live project the same way ' +
+        '(listProjectFactsPage) and reads each project’s folders under its own organization',
     },
   },
 )

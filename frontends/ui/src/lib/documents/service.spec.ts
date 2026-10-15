@@ -216,6 +216,7 @@ import {
   REINGEST_SLICE_DOCUMENTS,
   resolveProjectDocumentsByName,
   searchProjectDocuments,
+  fetchGroupedSemanticHits,
   joinHitsToFiles,
   deriveSearchTopK,
   dispatchDocument,
@@ -1184,6 +1185,65 @@ describe('joinHitsToFiles', () => {
   })
 })
 
+describe('fetchGroupedSemanticHits (one ranking across collections, ADR-0114)', () => {
+  const ok = (hits: unknown[]) => new Response(JSON.stringify({ hits }), { status: 200 })
+  const backendHit = (collection: string, fileName: string, score: number) => ({
+    file_name: fileName,
+    collection,
+    score,
+    snippet: 's',
+    page_number: 1,
+  })
+
+  it('asks once for every collection, signed for exactly those, and numbers the ranking it gets back', async () => {
+    mockFetch.mockResolvedValueOnce(ok([backendHit('proj_b', 'b.pdf', 0.4), backendHit('proj_a', 'a.pdf', 0.9)]))
+
+    const hits = await fetchGroupedSemanticHits(['proj_a', 'proj_b', 'proj_a'], 'Fluchttreppe', 3, 900)
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    const [url, init] = mockFetch.mock.calls[0]
+    expect(String(url)).toMatch(/\/v1\/collections\/search$/)
+    expect(JSON.parse(init.body)).toMatchObject({
+      query: 'Fluchttreppe',
+      collections: ['proj_a', 'proj_b'],
+      groups: 2,
+      files_per_group: 3,
+      snippet_max_chars: 900,
+    })
+    expect(hits?.map((hit) => [hit.collection, hit.rank])).toEqual([
+      ['proj_b', 0],
+      ['proj_a', 1],
+    ])
+  })
+
+  it('drops a hit from a collection it did not ask for', async () => {
+    mockFetch.mockResolvedValueOnce(ok([backendHit('proj_other', 'x.pdf', 0.9), backendHit('proj_a', 'a.pdf', 0.5)]))
+    const hits = await fetchGroupedSemanticHits(['proj_a'], 'q', 3)
+    expect(hits?.map((hit) => hit.collection)).toEqual(['proj_a'])
+  })
+
+  it('throws an upstream error, never "nothing found", when the backend refuses, fails or answers garbage', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('{"detail":"grouped document search failed"}', { status: 500 }))
+    await expect(fetchGroupedSemanticHits(['proj_a'], 'q', 3)).rejects.toBeInstanceOf(UpstreamError)
+    mockFetch.mockRejectedValueOnce(new Error('down'))
+    await expect(fetchGroupedSemanticHits(['proj_a'], 'q', 3)).rejects.toBeInstanceOf(UpstreamError)
+    mockFetch.mockResolvedValueOnce(new Response('{"nothits":1}', { status: 200 }))
+    await expect(fetchGroupedSemanticHits(['proj_a'], 'q', 3)).rejects.toBeInstanceOf(UpstreamError)
+  })
+
+  it('sends the pre-filters and the boost in the one request, and nothing when there are none', async () => {
+    const boost = { facts: { bundesland: 'wien', gebaeudeklasse: [4], bauweise: [], nutzungen: [], vorhabensart: [] }, weights: { bundesland: 4 } }
+    mockFetch.mockResolvedValueOnce(ok([]))
+    await fetchGroupedSemanticHits(['proj_a'], 'q', 10, 900, { filters: { document_types: ['Bescheid'] }, boost })
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toMatchObject({ filters: { document_types: ['Bescheid'] }, boost })
+
+    mockFetch.mockResolvedValueOnce(ok([]))
+    await fetchGroupedSemanticHits(['proj_a'], 'q', 10)
+    const plain = JSON.parse(mockFetch.mock.calls[1][1].body)
+    expect('filters' in plain || 'boost' in plain).toBe(false)
+  })
+})
+
 describe('deriveSearchTopK', () => {
   it('derives the passage budget from top_k_files and holds top_k >= top_k_files', () => {
     // 20 files → 60 passages (3×), never the old fixed 40 that capped scale.
@@ -1366,6 +1426,35 @@ describe('searchProjectDocuments', () => {
       hiddenFolderIds: [],
       reader: { kind: 'screened-only' },
     })
+  })
+
+  it('hands a model no superseded Fassung, and still shows it to the person who searches (ADR-0099)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          hits: [
+            { file_name: 'permit.pdf', score: 0.91, snippet: 'permit snippet', page_number: 2, collection: 'proj_abc' },
+            { file_name: 'plan.pdf', score: 0.44, snippet: 'plan snippet', page_number: null, collection: 'proj_abc' },
+          ],
+        }),
+    })
+    // A person confirmed permit.pdf replaces plan.pdf; the vector copy of that mark may lag.
+    const replaced = () =>
+      new Map([
+        [
+          'doc-a',
+          { supersededBy: { id: 'doc-b', filename: 'permit.pdf' }, supersedes: [], suggestion: null, changeSummary: null },
+        ],
+      ])
+    vi.mocked(loadFassungFacts).mockResolvedValueOnce(replaced()).mockResolvedValueOnce(replaced())
+
+    const forPerson = await searchProjectDocuments(session, 'proj-1', 'fire escape', 20)
+    const forModel = await searchProjectDocuments(session, 'proj-1', 'fire escape', 20, { forModel: true })
+
+    expect(forPerson.hits.map((h) => h.id)).toEqual(['doc-b', 'doc-a'])
+    expect(forModel.hits.map((h) => h.id)).toEqual(['doc-b'])
   })
 
   it('asks for no rows when the search found nothing', async () => {
@@ -1755,6 +1844,32 @@ describe('the folder a document is filed in reaches the ingest dispatch', () => 
     await uploadDocument(session, { ...makeInput(), folderId: 'folder-1' }, new Request('http://x'))
 
     expect(ingestBody().folder_path).toBe('Brandschutz/Fluchtwege')
+  })
+
+  it('sends the project’s facts and status, so the new chunks are filtered and lifted like their siblings', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ projectId: 'proj-1' }))
+    vi.mocked(findProjectInOrg).mockResolvedValue(
+      makeProject({
+        id: 'proj-1',
+        status: 'closed',
+        profile: {
+          facts: {
+            bundesland: { value: 'Wien', source: 'user_confirmed' },
+            bauweise: { value: ['holzbau'], source: 'user_confirmed' },
+          },
+          goals: {},
+          unknowns: [],
+          assumptions: {},
+        } as unknown as ReturnType<typeof makeProject>['profile'],
+      })
+    )
+
+    await uploadDocument(session, makeInput(), new Request('http://x'))
+
+    expect(ingestBody().project_facts).toEqual({
+      facts: { bundesland: 'wien', gebaeudeklasse: [], bauweise: ['holzbau'], nutzungen: [], vorhabensart: [] },
+      status: 'closed',
+    })
   })
 
   it('sends null for an upload at the project root', async () => {

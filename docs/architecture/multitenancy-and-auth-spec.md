@@ -42,7 +42,7 @@ This spec defines the **target design** for:
   ownership.
 - **Authorization** — request‑time access checks from JWT claims plus Grid‑owned project
   membership.
-- **Knowledge & document storage** — server‑authoritative ChromaDB collection naming, SeaweedFS
+- **Knowledge & document storage** — server‑authoritative collection naming, SeaweedFS
   for durable document bytes, layered/scoped retrieval.
 - **Service contracts** — a thin, explicit boundary between the Next.js BFF and the
   stateless Python agent.
@@ -91,7 +91,7 @@ An honest snapshot of what exists today.
   hard‑coded `default-user` (UI) / `anonymous` (backend). No users table, no login, no
   per‑user binding. WorkOS AuthKit scaffolding exists but is **disabled**.
 - **Isolation = a client‑generated collection name.** The only boundary between
-  users'/sessions' uploaded data is the ChromaDB collection name = a **client‑generated**
+  users'/sessions' uploaded data is the collection name = a **client‑generated**
   `conversation_id` (`s_<uuid>`), minted in the browser, stored in localStorage, sent over
   WebSocket, and used directly as the upload collection path. There is **no server‑side
   ownership record**.
@@ -99,7 +99,7 @@ An honest snapshot of what exists today.
   stores only job metadata, job events, document summaries, and LangGraph checkpoints (keyed
   by `thread_id`, not user).
 - **Uploaded file bytes are never durably stored** — written to an OS temp file, embedded
-  into Chroma, then deleted (`cleanup_files=true`). Only vector chunks survive, in a
+  into the vector store, then deleted (`cleanup_files=true`). Only vector chunks survive, in a
   per‑session collection TTL‑reaped after 24h.
 - **No "project" concept** exists anywhere. **No object store** is wired (only an
   aspirational `image_storage_uri` schema field + transitive `boto3`).
@@ -130,8 +130,8 @@ Three tiers plus an external identity provider.
 | Tier | Responsibility | State |
 | --- | --- | --- |
 | **Next.js (UI + Application/BFF)** | Owns the WorkOS session, orgs/projects CRUD, document upload, conversation persistence, and the **collection‑naming / scoping policy**. Calls Postgres and SeaweedFS **directly**. Calls Python over HTTP/WS with a Bearer JWT + explicit context. | System of record (via Postgres/SeaweedFS) |
-| **Python AI‑Q agent** | Stateless inference + embedding microservice. Two contracts: `infer` and `ingest`. Receives user **context** for attribution/personalization but **trusts the caller** and is not the system of record. Writes vectors to ChromaDB **only**. | Stateless |
-| **Data stores** | PostgreSQL server with `grid_app` (app/identity metadata), `aiq_jobs` (agent job metadata + summaries), and `aiq_checkpoints` (LangGraph checkpoints); SeaweedFS (document bytes); ChromaDB (vectors). | Authoritative for app + agent data |
+| **Python AI‑Q agent** | Stateless inference + embedding microservice. Two contracts: `infer` and `ingest`. Receives user **context** for attribution/personalization but **trusts the caller** and is not the system of record. Writes vectors to Qdrant **only**. | Stateless |
+| **Data stores** | PostgreSQL server with `grid_app` (app/identity metadata), `aiq_jobs` (agent job metadata + summaries), and `aiq_checkpoints` (LangGraph checkpoints); SeaweedFS (document bytes); Qdrant (vectors). | Authoritative for app + agent data |
 | **WorkOS** | External identity provider. | Authoritative for identity |
 
 We chose **Option A** (Next.js as the application/BFF) over a separate dedicated app server,
@@ -167,7 +167,7 @@ flowchart LR
     PGAgent[("PostgreSQL\naiq_jobs + aiq_checkpoints")]
     Obj[("SeaweedFS")]
     Py["Python agent\n(stateless)"]
-    Vec[("ChromaDB")]
+    Vec[("Qdrant")]
     WorkOS["WorkOS"]
 
     UI -->|session cookie| BFF
@@ -462,7 +462,7 @@ sequenceDiagram
     participant M as SeaweedFS
     participant DB as PostgreSQL
     participant P as Python agent
-    participant V as ChromaDB
+    participant V as Qdrant
 
     U->>B: Upload file (to project P)
     B->>B: Authorize (org_id + project_members)
@@ -478,7 +478,7 @@ sequenceDiagram
     B-->>U: Done
 ```
 
-> The Python agent **only** writes vectors to ChromaDB. It never writes Postgres or SeaweedFS and
+> The Python agent **only** writes vectors to Qdrant. It never writes Postgres or SeaweedFS and
 > never decides tenancy.
 
 ---
@@ -627,7 +627,7 @@ erDiagram
 | `created_by` | `text` | (WorkOS `user_...`) | Owner |
 | `filename` | `text` | | |
 | `storage_key` | `text` | | `org/<orgId>/project/<projectId>/doc/<documentId>/<filename>` |
-| `collection_name` | `text` | | Server‑assigned Chroma collection |
+| `collection_name` | `text` | | Server‑assigned collection (a payload field in Qdrant, ADR-0114) |
 | `status` | `text` | | `pending` / `embedded` / `failed` |
 | `created_at` | `timestamptz` | | |
 
@@ -663,7 +663,7 @@ only **embedding / inference** goes to Python. The Python agent continues to own
 
 The agent owns **no** identity/tenancy/system‑of‑record state. It verifies the JWT via JWKS,
 receives **user context** for attribution/personalization, **trusts the caller** for derived
-scope, and writes vectors to ChromaDB **only**.
+scope, and writes vectors to Qdrant **only**.
 
 #### `infer(query, context) → stream(tokens + cards)`
 
@@ -697,8 +697,8 @@ classDiagram
 #### `ingest(file_ref, collection) → embed status`
 
 - **`file_ref`** = a **presigned SeaweedFS URL** (short‑lived).
-- **`collection`** = the server‑assigned Chroma collection name.
-- Embeds into the named Chroma collection. Writes vectors to **ChromaDB only**; never writes
+- **`collection`** = the server‑assigned collection name.
+- Embeds into the named collection. Writes vectors to **Qdrant only**; never writes
   Postgres/SeaweedFS and never decides tenancy.
 
 ### Direct vs. delegated — at a glance
@@ -710,7 +710,7 @@ flowchart LR
     PGAgent[("PostgreSQL\naiq_jobs + aiq_checkpoints")]
     Obj[("SeaweedFS")]
     Py["Python agent"]
-    Vec[("ChromaDB")]
+    Vec[("Qdrant")]
 
     BFF -->|DIRECT SQL| PGApp
     Py -->|DIRECT SQL| PGAgent
@@ -733,7 +733,7 @@ sequenceDiagram
     participant B as Next.js BFF
     participant DB as PostgreSQL
     participant P as Python agent
-    participant V as ChromaDB
+    participant V as Qdrant
     participant W as WorkOS JWKS
 
     U->>B: Send message (session cookie) to conversation C
@@ -768,7 +768,7 @@ sequenceDiagram
 | **Server‑authoritative collection names** | Never trust client‑minted IDs. The **BFF assigns** `proj_<id>` / `conv_<id>` and computes `collection_scope[]`. |
 | **WorkOS rate limits + caching** | Fetch profiles / list members **on demand + cache** (respect read rate limit ≈ 1000 / 10s). WorkOS stays authoritative; we never mirror identity. |
 | **Cross‑project access via org role** | A user without project membership may still access a resource if their **org‑level role/permission** grants cross‑project access (see [§6](#6-tenancy-ownership--access-model)). |
-| **EU data residency** | Regulatory **content** stays in EU‑hostable Postgres/SeaweedFS/Chroma that **we** control. WorkOS is SOC2 Type 2 + GDPR/CCPA and signs DPA/BAA, but EU‑region PII hosting was **not** verifiable from public docs — **open item** (see [Open Questions](#open-questions)). |
+| **EU data residency** | Regulatory **content** stays in EU‑hostable Postgres/SeaweedFS/Qdrant that **we** control. WorkOS is SOC2 Type 2 + GDPR/CCPA and signs DPA/BAA, but EU‑region PII hosting was **not** verifiable from public docs — **open item** (see [Open Questions](#open-questions)). |
 
 ### JWT verification flow (defense in depth)
 

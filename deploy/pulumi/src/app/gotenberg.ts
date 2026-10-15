@@ -68,7 +68,7 @@ export function installGotenberg(
         template: {
           metadata: { labels },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             automountServiceAccountToken: false,
             terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
             securityContext: {

@@ -3,6 +3,57 @@
  */
 import { describe, test, expect, vi } from 'vitest'
 import { getByPath, interpolate, createTranslator } from './translate'
+import { dictionaries } from './dictionaries'
+
+/**
+ * Every plural block in every dictionary speaks the cut-down syntax the
+ * translator reads: `one` and `other`, nothing else. A label it does not know
+ * (`=0`, `zero`, `few`) ends the branch scan, and the whole block renders as an
+ * empty string: „Durchsucht wurden dieses Projekt, und die Büroablage."
+ * shipped from a `=0` branch until this held it.
+ */
+describe('plural blocks in the dictionaries', () => {
+  const strings = (node: unknown, path: string, found: Array<[string, string]>): Array<[string, string]> => {
+    if (typeof node === 'string') found.push([path, node])
+    else if (node && typeof node === 'object') {
+      for (const [key, value] of Object.entries(node)) strings(value, path ? `${path}.${key}` : key, found)
+    }
+    return found
+  }
+
+  /** The branch labels of each plural block in `template`. */
+  const labelsOf = (template: string): string[][] =>
+    [...template.matchAll(/\{\w+,\s*plural,\s*/g)].map((header) => {
+      const labels: string[] = []
+      let depth = 1
+      let label = ''
+      for (let cursor = (header.index ?? 0) + header[0].length; cursor < template.length && depth > 0; cursor += 1) {
+        const char = template[cursor]
+        if (char === '{') {
+          if (depth === 1) labels.push(label.trim())
+          depth += 1
+          label = ''
+        } else if (char === '}') depth -= 1
+        else if (depth === 1) label += char
+      }
+      return labels
+    })
+
+  const malformed = (labels: string[]): boolean =>
+    !labels.includes('other') || labels.some((label) => label !== 'one' && label !== 'other')
+
+  test.each(Object.entries(dictionaries))('%s: only `one` and `other`, and always `other`', (_locale, dictionary) => {
+    const offenders = strings(dictionary, '', [])
+      .filter(([, text]) => labelsOf(text).some(malformed))
+      .map(([path]) => path)
+    expect(offenders).toEqual([])
+  })
+
+  test('the check sees a branch the translator cannot read', () => {
+    expect(labelsOf('{count, plural, =0 {keins} one {# Projekt} other {# Projekte}}').some(malformed)).toBe(true)
+    expect(labelsOf('{count, plural, one {# Projekt} other {# Projekte}}').some(malformed)).toBe(false)
+  })
+})
 
 describe('getByPath', () => {
   const obj = { a: { b: { c: 'deep' } }, x: 'top' }

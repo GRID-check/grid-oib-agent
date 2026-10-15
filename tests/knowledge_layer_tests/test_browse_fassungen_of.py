@@ -394,37 +394,26 @@ class TestTheTool:
         assert "Index B und C" in _LIST_FILES_DESCRIPTION
 
 
-class _FakeCollection:
-    def __init__(self, chunks: dict[str, list[tuple[str, dict]]]) -> None:
-        self._chunks = chunks
+def _page(file_name: str, n: int, text: str):
+    from sources.knowledge_layer.tests.qdrant_testing import record
 
-    def get(self, where: dict, include: list[str]) -> dict:  # noqa: ARG002 - the store's signature
-        stored = self._chunks.get(where["file_name"], [])
-        return {"documents": [text for text, _ in stored], "metadatas": [meta for _, meta in stored]}
-
-
-class _FakeRetriever:
-    def __init__(self, chunks: dict[str, list[tuple[str, dict]]]) -> None:
-        self._collection = _FakeCollection(chunks)
-
-    def _get_chroma_client(self) -> MagicMock:
-        client = MagicMock()
-        client.get_collection = MagicMock(return_value=self._collection)
-        return client
-
-
-def _page(n: int, text: str) -> tuple[str, dict]:
-    return text, {"page_label": str(n), "content_type": "text"}
+    return record(text, file_name, page_label=str(n), content_type="text")
 
 
 @pytest.fixture
-def stored(monkeypatch):
-    """Index A and Index B as the index holds them: one value moved on page 2."""
-    chunks = {
-        "Plan_Index_A.pdf": [_page(1, "Deckblatt"), _page(2, "Fluchtweglänge 38 m")],
-        "Plan_Index_B.pdf": [_page(1, "Deckblatt"), _page(2, "Fluchtweglänge 42 m")],
-    }
-    monkeypatch.setattr("aiq_agent.knowledge.factory.get_active_retriever", lambda: _FakeRetriever(chunks))
+def stored(monkeypatch, qdrant_store):  # noqa: ARG001 - the store the compare reads
+    """Index A and Index B as the index holds them, in a real Qdrant: one value moved on page 2."""
+    from sources.knowledge_layer.tests.qdrant_testing import write
+
+    write(
+        "proj_1",
+        [
+            _page("Plan_Index_A.pdf", 1, "Deckblatt"),
+            _page("Plan_Index_A.pdf", 2, "Fluchtweglänge 38 m"),
+            _page("Plan_Index_B.pdf", 1, "Deckblatt"),
+            _page("Plan_Index_B.pdf", 2, "Fluchtweglänge 42 m"),
+        ],
+    )
     noted: list[set[str]] = []
     monkeypatch.setattr(
         "aiq_agent.knowledge.restricted_use.note_collections_read", lambda collections: noted.append(set(collections))
@@ -465,7 +454,47 @@ class TestComparing:
         text = await self._call(fassungen_of="Plan_Index_A.pdf", compare_to="vorige", shelf="archiv")
         assert "nichts zu vergleichen" in text
 
-    async def test_a_file_the_index_does_not_hold_is_said_not_compared(self, scope, monkeypatch):
-        monkeypatch.setattr("aiq_agent.knowledge.factory.get_active_retriever", lambda: _FakeRetriever({}))
+    async def test_identical_fassungen_with_several_chunks_on_a_page_compare_as_unchanged(
+        self,
+        scope,
+        qdrant_store,  # noqa: ARG002
+    ):
+        """Point ids are random node ids, so only the chunk's place in the file orders a page's chunks.
+
+        One chunk per page (the fixture above) cannot see a shuffled page; the
+        Sentence splitter cuts several from a real one.
+        """
+        from sources.knowledge_layer.tests.qdrant_testing import write
+
+        lines = [f"Zeile {i}: Brandabschnitt {i} hat Feuerwiderstand REI {30 + i}" for i in range(8)]
+        for name in ("Plan_Index_A.pdf", "Plan_Index_B.pdf"):
+            records = [_page(name, 1, line) for line in lines]
+            for ordinal, record in enumerate(records):
+                record.ordinal = ordinal
+            write("proj_1", records)
+
+        text = await self._call(fassungen_of="Plan_Index_B.pdf", compare_to="vorige", shelf="project")
+
+        assert "Seiten: 1 → 1; 1 unverändert, 0 geändert." in text
+        assert "Im gelesenen Inhalt unterscheiden sich die beiden Dateien nicht." in text
+
+    async def test_an_unreachable_index_is_said_as_one_never_as_not_in_the_index(self, scope, stored, monkeypatch):
+        from knowledge_layer.qdrant import store as store_module
+
+        from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
+
+        def down(*_args, **_kwargs):
+            raise ConnectionError("qdrant down")
+
+        monkeypatch.setattr(store_module.QdrantStore, "scroll", down)
+
+        text = await self._call(fassungen_of="Plan_Index_B.pdf", compare_to="vorige", shelf="project")
+
+        assert text.startswith(FETCH_FAILED_MARKER)
+        assert "nicht erreichbar" in text
+        assert "nicht im Index" not in text
+        assert stored == []
+
+    async def test_a_file_the_index_does_not_hold_is_said_not_compared(self, scope, qdrant_store):  # noqa: ARG002
         text = await self._call(fassungen_of="Plan_Index_B.pdf", compare_to="vorige", shelf="project")
         assert "nicht im Index" in text

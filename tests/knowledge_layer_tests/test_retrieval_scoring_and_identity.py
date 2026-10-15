@@ -3,142 +3,97 @@
 Each test here pins a defect that the suite passed straight through before, because
 none of the three seams had any coverage at all:
 
-- ``_chunks_from_raw_query`` fabricated a fresh ``uuid4`` for every lexical-channel
-  chunk (``TextNode(node_id=...)`` is a read-only property, silently dropped by
-  pydantic), so reciprocal rank fusion could never match a chunk across channels.
-- ``normalize`` reported the store's ``exp(-distance)`` as if it were a cosine
+- the lexical channel fabricated a fresh ``uuid4`` for every chunk
+  (``TextNode(node_id=...)`` is a read-only property, silently dropped by pydantic),
+  so reciprocal rank fusion could never match a chunk across channels;
+- ``normalize`` reported the old store's ``exp(-distance)`` as if it were a cosine
   similarity, putting an *orthogonal* chunk at 0.37 and making the one threshold in
-  the codebase a no-op.
-- No document set ``excluded_embed_metadata_keys``, so LlamaIndex prepended the whole
+  the codebase a no-op;
+- no document set ``excluded_embed_metadata_keys``, so LlamaIndex prepended the whole
   metadata dict -- ``file_size`` included -- to every chunk before embedding.
 
-All offline: no ChromaDB, no embeddings, no network.
+All offline: no store, no embeddings, no network.
 """
 
 from __future__ import annotations
 
-import math
 from types import SimpleNamespace
 
 import pytest
+from knowledge_layer.qdrant.schema import identity_mismatch
+from knowledge_layer.qdrant.search import Hit
 
 from sources.knowledge_layer.src.llamaindex.adapter import EMBED_EXCLUDED_METADATA_KEYS
 from sources.knowledge_layer.src.llamaindex.adapter import LlamaIndexRetriever
 from sources.knowledge_layer.src.llamaindex.adapter import _apply_metadata_exclusions
-from sources.knowledge_layer.src.llamaindex.adapter import _to_chroma_where
-from sources.knowledge_layer.src.llamaindex.adapter import cosine_similarity_from_store_score
+from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint
+from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_metadata
+from sources.knowledge_layer.src.llamaindex.adapter import unit_score
 
 # ===========================================================================
 # Score scale
 # ===========================================================================
 
 
-def test_orthogonal_chunk_scores_zero_not_zero_point_three_seven() -> None:
-    """The store reports exp(-distance); at cosine 0 that is 0.37, not 0.
-
-    This is the whole defect: a chunk with no relationship to the query was printed
-    into the grounding block as ``Relevance Score: 0.37`` and read by the answering
-    model as a moderate match.
-    """
-    assert cosine_similarity_from_store_score(math.exp(-1.0)) == pytest.approx(0.0, abs=1e-9)
-    assert cosine_similarity_from_store_score(math.exp(-2.0)) == 0.0  # contradictory, floored
+def _hit(chunk_id: str, cosine: float, text: str = "Fluchtwege sind so auszubilden…") -> Hit:
+    payload = {"file_name": "oib-rl_2.pdf", "page_label": "13", "content_type": "text", "chunk_id": chunk_id}
+    return Hit(chunk_id, text, payload, 0.0, cosine)
 
 
-def test_conversion_is_exact_for_real_similarities() -> None:
-    for cosine in (0.9, 0.8, 0.7, 0.5, 0.25, 0.05):
-        store_score = math.exp(-(1.0 - cosine))
-        assert cosine_similarity_from_store_score(store_score) == pytest.approx(cosine, abs=1e-9)
+def _retriever() -> LlamaIndexRetriever:
+    return LlamaIndexRetriever(config={"embed_model": "m", "embed_base_url": "https://host"})
 
 
-def test_conversion_is_total_and_never_raises() -> None:
+def test_a_hits_score_is_its_true_cosine() -> None:
+    """An orthogonal chunk scores 0, not the 0.37 ``exp(-1)`` the old store reported."""
+    retriever = _retriever()
+    assert retriever._chunk_from_hit(_hit("a", 0.0)).score == pytest.approx(0.0, abs=1e-9)
+    assert retriever._chunk_from_hit(_hit("a", 0.73)).score == pytest.approx(0.73, abs=1e-9)
+    assert retriever._chunk_from_hit(_hit("a", -0.4)).score == 0.0  # contradictory, floored
+
+
+def test_the_score_is_total_and_never_raises() -> None:
     """``normalize``'s except-branch substitutes a poison chunk rather than dropping one.
 
     A chunk whose ``content`` is ``str(raw_result)`` and whose ``file_name`` is
-    ``"unknown"`` still occupies a top-k slot and can be cited, so the conversion must
+    ``"unknown"`` still occupies a top-k slot and can be cited, so the score must
     not be able to raise in the first place.
     """
-    for bad in (None, float("nan"), float("inf"), float("-inf"), -1.0, 0.0, "", "abc", object()):
-        value = cosine_similarity_from_store_score(bad)
+    for bad in (None, float("nan"), float("inf"), float("-inf"), -1.0, 0.0, 2.0, "", "abc", object()):
+        value = unit_score(bad)
         assert isinstance(value, float)
         assert 0.0 <= value <= 1.0
 
 
-def test_conversion_is_monotone_so_every_ordering_consumer_is_unaffected() -> None:
-    scores = [math.exp(-d) for d in (0.05, 0.2, 0.4, 0.6, 0.8, 0.95)]
-    converted = [cosine_similarity_from_store_score(s) for s in scores]
-    assert converted == sorted(converted, reverse=True)
+def test_the_score_is_monotone_so_every_ordering_consumer_is_unaffected() -> None:
+    cosines = [0.95, 0.8, 0.6, 0.4, 0.2, 0.05]
+    assert [unit_score(c) for c in cosines] == cosines
 
 
 # ===========================================================================
-# Chunk identity across the two retrieval channels
+# Chunk identity
 # ===========================================================================
 
 
-def _raw_query(chunk_id: str, text: str = "Fluchtwege sind so auszubilden…") -> dict:
-    return {
-        "ids": [[chunk_id]],
-        "documents": [[text]],
-        "metadatas": [[{"file_name": "oib-rl_2.pdf", "page_label": "13", "content_type": "text"}]],
-        "distances": [[0.4]],
-    }
+def test_a_hit_keeps_the_stored_chunk_id() -> None:
+    """Fusion and citations key on ``chunk_id``; a fabricated id breaks both."""
+    retriever = _retriever()
+    first = retriever._chunk_from_hit(_hit("stored-id-42", 0.6))
+    second = retriever._chunk_from_hit(_hit("stored-id-42", 0.6))
+    assert first.chunk_id == second.chunk_id == "stored-id-42"
 
 
-def test_lexical_channel_preserves_the_stored_chunk_id() -> None:
-    """Fusion keys on ``chunk_id``; a fabricated id makes cross-channel matching impossible."""
-    retriever = LlamaIndexRetriever(config={"persist_dir": "/tmp/unused"})
-    chunks = retriever._chunks_from_raw_query(_raw_query("stored-id-42"))
-    assert [c.chunk_id for c in chunks] == ["stored-id-42"]
-
-
-def test_lexical_chunk_id_is_stable_across_calls() -> None:
-    """The old code returned a new uuid4 every call, so even the same query never agreed."""
-    retriever = LlamaIndexRetriever(config={"persist_dir": "/tmp/unused"})
-    first = retriever._chunks_from_raw_query(_raw_query("stored-id-42"))
-    second = retriever._chunks_from_raw_query(_raw_query("stored-id-42"))
-    assert first[0].chunk_id == second[0].chunk_id == "stored-id-42"
-
-
-def test_lexical_and_vector_channels_agree_on_identity_so_rrf_can_fuse() -> None:
+def test_two_rankings_agree_on_identity_so_rrf_can_fuse() -> None:
     """The end-to-end property the id fix exists for: one passage, one identity."""
     from sources.knowledge_layer.src.llamaindex.hybrid import reciprocal_rank_fusion
 
-    retriever = LlamaIndexRetriever(config={"persist_dir": "/tmp/unused"})
-    lexical = retriever._chunks_from_raw_query(_raw_query("shared-id"))
+    lexical = [_retriever()._chunk_from_hit(_hit("shared-id", 0.6))]
     vector = [SimpleNamespace(chunk_id="shared-id"), SimpleNamespace(chunk_id="other-id")]
 
     fused = reciprocal_rank_fusion([vector, lexical])
     ids = [c.chunk_id for c in fused]
     assert ids.count("shared-id") == 1, "the same passage must not appear twice"
     assert ids[0] == "shared-id", "a chunk found by both channels must outrank a single-channel one"
-
-
-# ===========================================================================
-# Filter grammar parity between the channels
-# ===========================================================================
-
-
-def test_multi_key_filter_is_translated_rather_than_passed_raw() -> None:
-    """Chroma requires exactly one operator per expression; siblings are an implicit AND.
-
-    The base collection always carries the ``exclude_file_names`` clause, so a caller
-    filter with two keys used to make the lexical pass raise and silently disable
-    hybrid retrieval for exactly the filtered queries.
-    """
-    where = _to_chroma_where({"content_type": "text", "doc_class": "gesetz"})
-    assert "$and" in where
-    assert len(where["$and"]) == 2
-
-
-def test_single_element_group_is_collapsed_to_a_bare_expression() -> None:
-    """Chroma rejects an ``$and``/``$or`` with fewer than two operands."""
-    where = _to_chroma_where({"$and": [{"content_type": "text"}]})
-    assert "$and" not in where
-    assert where == {"content_type": {"$eq": "text"}}
-
-
-def test_empty_filter_translates_to_none() -> None:
-    assert _to_chroma_where(None) is None
-    assert _to_chroma_where({}) is None
 
 
 # ===========================================================================
@@ -226,16 +181,6 @@ def test_resolving_a_nonsense_provider_returns_none_rather_than_raising() -> Non
         assert resolve_cross_encoder(hostile) is None
 
 
-def test_the_local_chroma_where_fallback_matches_the_vendor_normalisations() -> None:
-    """Used when llama-index drops the private helper this translation borrows."""
-    from sources.knowledge_layer.src.llamaindex.adapter import _local_chroma_where
-
-    assert _local_chroma_where({"content_type": "text"}) == {"content_type": {"$eq": "text"}}
-    assert _local_chroma_where({"$and": [{"content_type": "text"}]}) == {"content_type": {"$eq": "text"}}
-    two_key = _local_chroma_where({"content_type": "text", "doc_class": "gesetz"})
-    assert len(two_key["$and"]) == 2
-
-
 # ===========================================================================
 # Embedding-model fingerprint
 #
@@ -246,40 +191,20 @@ def test_the_local_chroma_where_fallback_matches_the_vendor_normalisations() -> 
 # ===========================================================================
 
 
-def test_a_collection_with_no_fingerprint_is_adopted_not_rejected() -> None:
-    """Every collection deployed before this existed has no fingerprint.
-
-    "No fingerprint" carries no claim, so it can only be wrong in the case that is
-    already wrong today. Failing on absence would brick every live corpus.
-    """
-    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_mismatch
-
-    assert embed_fingerprint_mismatch(None, "model-a", "https://host") is None
-    assert embed_fingerprint_mismatch({}, "model-a", "https://host") is None
-    assert embed_fingerprint_mismatch({"created_at": "x"}, "model-a", "https://host") is None
-
-
 def test_a_matching_fingerprint_passes_and_a_different_model_is_reported() -> None:
-    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_metadata
-    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_mismatch
-
     stamped = embed_fingerprint_metadata("model-a", "https://host/v1")
-    assert embed_fingerprint_mismatch(stamped, "model-a", "https://host/v1") is None
+    assert identity_mismatch(stamped, embed_fingerprint_metadata("model-a", "https://host/v1")) is None
 
-    mismatch = embed_fingerprint_mismatch(stamped, "model-b", "https://host/v1")
+    mismatch = identity_mismatch(stamped, embed_fingerprint_metadata("model-b", "https://host/v1"))
     assert mismatch and "model-b" in mismatch and "model-a" in mismatch
 
 
 def test_the_same_model_on_a_different_host_is_a_different_vector_space() -> None:
     """This deployment's code default and its compose default disagree on both."""
-    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_metadata
-    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_mismatch
-
     stamped = embed_fingerprint_metadata("text-embedding-3-large", "https://openrouter.ai/api/v1")
-    assert embed_fingerprint_mismatch(stamped, "text-embedding-3-large", "https://embeddings.example.com/v1")
+    other = embed_fingerprint_metadata("text-embedding-3-large", "https://embeddings.example.com/v1")
+    assert identity_mismatch(stamped, other)
 
 
 def test_a_trailing_slash_is_not_a_different_deployment() -> None:
-    from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint
-
     assert embed_fingerprint("m", "https://host/v1/") == embed_fingerprint("m", "https://host/v1")

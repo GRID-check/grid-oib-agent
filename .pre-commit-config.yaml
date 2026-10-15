@@ -112,6 +112,17 @@ repos:
         pass_filenames: false
         files: ^docs/adr/.*\.md$|^scripts/check_adrs\.py$
 
+      - id: release-notes
+        name: the release notes keep the house rules
+        # CI's Repo checks job ran this and nothing local did, so a note that
+        # grew past its length limit in a follow-up commit was found only
+        # after the push. Scoped to the notes and their linter: reno is
+        # fetched by uv, a second or so, and only when a note changed.
+        entry: uv run --no-project --with reno==4.1.0 python scripts/release_notes.py lint
+        language: system
+        pass_filenames: false
+        files: ^releasenotes/notes/.*\.yaml$|^scripts/release_notes\.py$
+
       - id: hidden-unicode
         name: no invisible or bidi-control characters in committed text
         # A zero-width space or a bidi override renders as nothing, so a grep

@@ -80,7 +80,7 @@ export function installFrontend(
             annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
           },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             imagePullSecrets: w.imagePullSecrets,
             // Keep serving after SIGTERM: preStop covers EndpointSlice
             // propagation at the gateway, then server.js drains in-flight

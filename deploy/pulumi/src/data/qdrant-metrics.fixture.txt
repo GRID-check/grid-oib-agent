@@ -1,0 +1,122 @@
+# What otel-collector re-exposes on :8889 after scraping three qdrant/qdrant:v1.19.2 peers on
+# their metrics port (otel/opentelemetry-collector-contrib 0.161.0, the pinned digest), captured
+# in the 2026-10-13 drill (docs/deployment/qdrant-runbook.md). HELP and TYPE lines only: the
+# names a rule may use. qdrant-alerts.spec.ts reads it; refresh it on a Qdrant or collector upgrade.
+# HELP app_info information about qdrant server
+# TYPE app_info gauge
+# HELP app_status_recovery_mode features enabled in qdrant server
+# TYPE app_status_recovery_mode gauge
+# HELP cluster_commit_total index of last committed (finalized) operation cluster peer is aware of
+# TYPE cluster_commit_total counter
+# HELP cluster_enabled is cluster support enabled
+# TYPE cluster_enabled gauge
+# HELP cluster_last_update_timestamp_seconds_total unix timestamp of last update
+# TYPE cluster_last_update_timestamp_seconds_total counter
+# HELP cluster_peers_total total number of cluster peers
+# TYPE cluster_peers_total gauge
+# HELP cluster_pending_operations_total total number of pending operations for cluster peer
+# TYPE cluster_pending_operations_total gauge
+# HELP cluster_term_total current cluster term
+# TYPE cluster_term_total counter
+# HELP cluster_voter is cluster peer a voter or learner
+# TYPE cluster_voter gauge
+# HELP cluster_working_state working state of the cluster
+# TYPE cluster_working_state gauge
+# HELP collection_active_replicas_max maximum number of active replicas across all shards
+# TYPE collection_active_replicas_max gauge
+# HELP collection_active_replicas_min minimum number of active replicas across all shards
+# TYPE collection_active_replicas_min gauge
+# HELP collection_dead_replicas total amount of shard replicas in non-active state
+# TYPE collection_dead_replicas gauge
+# HELP collection_hardware_metric_cpu_total CPU measurements of a collection
+# TYPE collection_hardware_metric_cpu_total counter
+# HELP collection_hardware_metric_payload_index_io_read_total Total IO payload index read metrics of a collection
+# TYPE collection_hardware_metric_payload_index_io_read_total counter
+# HELP collection_hardware_metric_payload_index_io_write_total Total IO payload index write metrics of a collection
+# TYPE collection_hardware_metric_payload_index_io_write_total counter
+# HELP collection_hardware_metric_payload_io_read_total Total IO payload read metrics of a collection
+# TYPE collection_hardware_metric_payload_io_read_total counter
+# HELP collection_hardware_metric_payload_io_write_total Total IO payload write metrics of a collection
+# TYPE collection_hardware_metric_payload_io_write_total counter
+# HELP collection_hardware_metric_vector_io_read_total Total IO vector read metrics of a collection
+# TYPE collection_hardware_metric_vector_io_read_total counter
+# HELP collection_hardware_metric_vector_io_write_total Total IO vector write metrics of a collection
+# TYPE collection_hardware_metric_vector_io_write_total counter
+# HELP collection_indexed_only_excluded_points amount of points excluded in indexed_only requests
+# TYPE collection_indexed_only_excluded_points gauge
+# HELP collection_points approximate amount of points per collection
+# TYPE collection_points gauge
+# HELP collection_running_optimizations number of currently running optimization tasks per collection
+# TYPE collection_running_optimizations gauge
+# HELP collection_shard_transfer_failed number of failed shard transfers
+# TYPE collection_shard_transfer_failed gauge
+# HELP collection_shard_transfer_incoming incoming shard transfers currently running
+# TYPE collection_shard_transfer_incoming gauge
+# HELP collection_shard_transfer_outgoing outgoing shard transfers currently running
+# TYPE collection_shard_transfer_outgoing gauge
+# HELP collection_update_queue_deferred_points number of points currently hidden during read operations as they're not yet optimized
+# TYPE collection_update_queue_deferred_points gauge
+# HELP collection_update_queue_length number of pending operations in update queues per collection
+# TYPE collection_update_queue_length gauge
+# HELP collection_vectors amount of vectors grouped by vector name
+# TYPE collection_vectors gauge
+# HELP collections_total number of collections
+# TYPE collections_total gauge
+# HELP collections_vector_total total number of vectors in all collections
+# TYPE collections_vector_total gauge
+# HELP cpu_cores_used average number of CPU cores used by this process over roughly the last two seconds
+# TYPE cpu_cores_used gauge
+# HELP memory_active_bytes Total number of bytes in active pages allocated by the application
+# TYPE memory_active_bytes gauge
+# HELP memory_allocated_bytes Total number of bytes allocated by the application
+# TYPE memory_allocated_bytes gauge
+# HELP memory_metadata_bytes Total number of bytes dedicated to metadata
+# TYPE memory_metadata_bytes gauge
+# HELP memory_resident_bytes Maximum number of bytes in physically resident data pages mapped
+# TYPE memory_resident_bytes gauge
+# HELP memory_retained_bytes Total number of bytes in virtual memory mappings
+# TYPE memory_retained_bytes gauge
+# HELP process_major_page_faults_total count of disk accesses caused by a mmap page fault
+# TYPE process_major_page_faults_total counter
+# HELP process_max_fds limit for open file descriptors
+# TYPE process_max_fds gauge
+# HELP process_minor_page_faults_total count of minor page faults which didn't cause a disk access
+# TYPE process_minor_page_faults_total counter
+# HELP process_open_fds count of currently open file descriptors
+# TYPE process_open_fds gauge
+# HELP process_open_mmaps count of open mmaps
+# TYPE process_open_mmaps gauge
+# HELP process_threads count of active threads
+# TYPE process_threads gauge
+# HELP quota_exceeded whether this node is at or over the configured quota for a resource
+# TYPE quota_exceeded gauge
+# HELP rest_responses_avg_duration_seconds average response duration
+# TYPE rest_responses_avg_duration_seconds gauge
+# HELP rest_responses_duration_seconds response duration histogram
+# TYPE rest_responses_duration_seconds histogram
+# HELP rest_responses_max_duration_seconds maximum response duration
+# TYPE rest_responses_max_duration_seconds gauge
+# HELP rest_responses_min_duration_seconds minimum response duration
+# TYPE rest_responses_min_duration_seconds gauge
+# HELP rest_responses_total total number of responses
+# TYPE rest_responses_total counter
+# HELP scrape_duration_seconds Duration of the scrape
+# TYPE scrape_duration_seconds gauge
+# HELP scrape_samples_post_metric_relabeling The number of samples remaining after metric relabeling was applied
+# TYPE scrape_samples_post_metric_relabeling gauge
+# HELP scrape_samples_scraped The number of samples the target exposed
+# TYPE scrape_samples_scraped gauge
+# HELP scrape_series_added The approximate number of new series in this scrape
+# TYPE scrape_series_added gauge
+# HELP snapshot_created_total total amount of snapshots created
+# TYPE snapshot_created_total counter
+# HELP snapshot_creation_running amount of snapshot creations that are currently running
+# TYPE snapshot_creation_running gauge
+# HELP snapshot_recovery_running amount of snapshot recovery operations currently running
+# TYPE snapshot_recovery_running gauge
+# HELP system_max_mmaps system wide limit of open mmaps
+# TYPE system_max_mmaps gauge
+# HELP target_info Target metadata
+# TYPE target_info gauge
+# HELP up The scraping was successful
+# TYPE up gauge

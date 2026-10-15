@@ -9,7 +9,7 @@ import { baseStackConfig, langfuseStackConfig } from "./src/test-support/stack-c
 /**
  * Worker-group placement, with the knobs prod sets (IPAX, 2026-10).
  *
- * Prod was placed by hand first: Chroma on `data`, the ingest workers on
+ * Prod was placed by hand first: the vector store on `data`, the ingest workers on
  * `batch`, the chat tier on `Node`. A `pulumi up` that renders anything else
  * moves them back, and one that places a tier nobody meant to (a store with a
  * PVC) moves it without its migration. So the whole program is built here and
@@ -69,7 +69,7 @@ function nodeSelectors(): Record<string, unknown[]> {
 const DATA = [
   "grid-pg",
   "grid-pg-pooler-rw",
-  "chroma",
+  "qdrant",
   "seaweedfs",
   "clickhouse",
   "dragonfly",
@@ -182,8 +182,8 @@ describe("worker-group placement with prod's knobs", () => {
     });
   });
 
-  it("keeps Chroma's autoscaler annotation on the data group too", () => {
-    const pod = podOf("kubernetes:apps/v1:StatefulSet", "chroma");
+  it("keeps Qdrant's autoscaler annotation on the data group too", () => {
+    const pod = podOf("kubernetes:apps/v1:StatefulSet", "qdrant");
 
     expect(pod.metadata.annotations?.["cluster-autoscaler.kubernetes.io/safe-to-evict"]).toBe("false");
   });

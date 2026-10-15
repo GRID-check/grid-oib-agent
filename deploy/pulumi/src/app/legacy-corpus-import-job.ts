@@ -44,7 +44,7 @@ export function importLegacyCorpus(
         template: {
           metadata: { labels: commonLabels("legacy-corpus-import") },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             imagePullSecrets: w.imagePullSecrets,
             restartPolicy: "OnFailure",
             securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend },

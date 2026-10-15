@@ -42,8 +42,8 @@ outside NAT, so the chat model is built from the same env as ``backfill_document
 * ``BACKFILL_SUMMARY_MODEL`` — default ``GRID_DEFAULT_MODEL``, then ``openai/gpt-6-luna``.
 
 The BFF is reached through ``FRONTEND_INTERNAL_URL`` and ``GRID_INTERNAL_API_TOKEN``.
-The summaries DB is ``AIQ_SUMMARY_DB`` (``--summary-db``), the Chroma directory
-``AIQ_CHROMA_DIR`` (``--chroma-dir``).
+The summaries DB is ``AIQ_SUMMARY_DB`` (``--summary-db``); the document text is
+read from the Qdrant cluster at ``AIQ_QDRANT_URL``.
 
 EXIT CODES
 ----------
@@ -73,7 +73,6 @@ from aiq_agent.knowledge.schema import AvailableDocument
 logger = logging.getLogger(__name__)
 
 DEFAULT_SUMMARY_DB = os.environ.get("AIQ_SUMMARY_DB", "sqlite+aiosqlite:///./summaries.db")
-DEFAULT_CHROMA_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
 
 # A document's indexed chunks as (page_label, text), in reading order; None when unavailable.
 PageFetcher = Callable[[str, str], "list[tuple[str | None, str]] | None"]
@@ -115,26 +114,12 @@ def build_extraction_llm():
     return pin_chat_model(enforce_chat_request_contract(apply_openrouter_structured_defaults(llm)), PLATFORM_FIXED)
 
 
-def make_page_fetcher(chroma_dir: str) -> PageFetcher | None:
-    """A per-file fetcher of ``(page_label, chunk text)`` over the Chroma store, or None without one."""
-    try:
-        import chromadb
-    except ImportError:
-        logger.error("chromadb is not installed; there is no document text to read.")
+def make_page_fetcher() -> PageFetcher | None:
+    """A per-file fetcher of ``(page_label, chunk text)`` over the Qdrant store, or None without one."""
+    if not os.environ.get("AIQ_QDRANT_URL", "").strip():
+        logger.error("AIQ_QDRANT_URL is not set; there is no document text to read.")
         return None
-    if not os.path.isdir(chroma_dir):
-        logger.error("Chroma dir %s not found; there is no document text to read.", chroma_dir)
-        return None
-    try:
-        client = chromadb.PersistentClient(path=chroma_dir)
-    except Exception as e:  # noqa: BLE001 - reported once, as no source
-        logger.error("Could not open Chroma at %s (%s)", chroma_dir, e)
-        return None
-
-    def fetch(collection: str, file_name: str) -> list[tuple[str | None, str]] | None:
-        return read_pages(client, collection, file_name)
-
-    return fetch
+    return read_pages
 
 
 STORED = "stored"
@@ -181,7 +166,11 @@ def process_row(
     if document_ids and document_id is None and not dry_run:
         logger.warning("[fail] %s/%s has no entry in --document-ids", collection, file_name)
         return FAILED
-    pages = page_fetcher(collection, file_name)
+    try:
+        pages = page_fetcher(collection, file_name)
+    except Exception as e:  # noqa: BLE001 - an outage fails this document, never the batch
+        logger.warning("[fail] %s/%s the vector store could not be read: %s", collection, file_name, e)
+        return FAILED
     if not pages:
         logger.warning("[fail] %s/%s has no indexed text", collection, file_name)
         return FAILED
@@ -253,9 +242,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true", help="Extract and print, but write nothing.")
     parser.add_argument("--summary-db", default=DEFAULT_SUMMARY_DB, help="Summaries DB URL (default: $AIQ_SUMMARY_DB).")
-    parser.add_argument(
-        "--chroma-dir", default=DEFAULT_CHROMA_DIR, help="Chroma persistence dir (default: $AIQ_CHROMA_DIR)."
-    )
     return parser.parse_args(argv)
 
 
@@ -295,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     if not any(is_bescheid(doc.tags) for doc in documents):
         return 0
 
-    page_fetcher = make_page_fetcher(args.chroma_dir)
+    page_fetcher = make_page_fetcher()
     if page_fetcher is None:
         return 2
     try:

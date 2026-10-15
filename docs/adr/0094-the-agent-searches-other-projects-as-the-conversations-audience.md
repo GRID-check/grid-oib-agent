@@ -202,8 +202,12 @@ shows none. (Clarified 2026-10-08: the notice first judged from the project
 status the citations carried at answer time, so it went stale when a project
 closed or reopened.)
 
-**Bounded cost.** One search call searches at most 8 projects, 4 at a time, and
-returns the offset of the next page. A shared chat's reach asks WorkOS at most
+**Bounded cost.** One search call searches one page of projects, authorized 4
+at a time, and returns the offset of the next page. A page is at most 40
+projects (`CROSS_PROJECT_PAGE_PROJECTS`) and at most 500 collections, the
+backend's cap on one search (`BACKEND_SEARCH_MAX_COLLECTIONS`); a project past
+the cap starts the next page. (Clarified 2026-10-14: the page was 8 projects,
+searched one by one, until ADR-0114 made it one grouped query.) A shared chat's reach asks WorkOS at most
 (other readers ≤ 10) × (active projects in the asker's reach) questions, cached
 a minute; beyond 10 readers it is the closed projects alone, asking nothing.
 The catalog is one bounded project read per turn, advisory: a failure answers

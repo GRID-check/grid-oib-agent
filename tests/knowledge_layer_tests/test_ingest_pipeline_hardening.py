@@ -681,7 +681,7 @@ class TestEmbedBatchSizeWired:
 
         monkeypatch.setattr("llama_index.embeddings.nvidia.NVIDIAEmbedding", FakeNVIDIAEmbedding)
 
-        ing = adapter.LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+        ing = adapter.LlamaIndexIngestor({})
         ing._ensure_initialized()
 
         assert captured["embed_batch_size"] == adapter.EMBED_BATCH_SIZE

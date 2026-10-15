@@ -1,7 +1,7 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, backendAutoscaled } from "../config";
-import { EDGE_RATE_LIMIT, GOTENBERG, LANGFUSE, PORT } from "../constants";
+import { CHROMA_MIGRATION, EDGE_RATE_LIMIT, GOTENBERG, LANGFUSE, PORT, QDRANT } from "../constants";
 import { KEDA_NAMESPACE, KEDA_OPERATOR_LABEL } from "./keda";
 import { CLUSTER_NAME as POSTGRES_CLUSTER } from "../data/postgres";
 
@@ -21,6 +21,25 @@ const CLICKHOUSE = LANGFUSE.clickhouse;
 export const LANGFUSE_BACKEND_CALLERS = ["aiq-agent", "aiq-api", "agent-worker"] as const;
 
 /**
+ * The pods that get `AIQ_QDRANT_URL` (every role built from `backendEnv`), the
+ * snapshot CronJob, the one-shot Chroma migration's importer, and the
+ * operator's throwaway `qdrant-ops` pod (the runbook's restore and shard
+ * moves, run from inside the namespace): the named callers of Qdrant's client
+ * ports in rule 16. A pod that reads or writes vectors and is missing here
+ * times out on every call while its plan is green.
+ */
+export const QDRANT_CALLERS = [
+  "aiq-agent",
+  "aiq-api",
+  "agent-worker",
+  "ingest-worker",
+  "legacy-corpus-import",
+  QDRANT.snapshotJob,
+  CHROMA_MIGRATION.name,
+  QDRANT.opsLabel,
+] as const;
+
+/**
  * Namespace-scoped NetworkPolicies for `grid`: a **default-deny for ingress**
  * plus the minimum set of allows the stack actually needs. This contains lateral
  * movement — a compromised pod in another namespace can't reach the app/data
@@ -37,7 +56,7 @@ export const LANGFUSE_BACKEND_CALLERS = ["aiq-agent", "aiq-api", "agent-worker"]
  *     workers→data, backend→frontend BFF). Per-edge micro-policies buy little
  *     here and are far easier to get subtly wrong. The exceptions are the pods
  *     whose receivers authenticate nobody or hold a store of every tenant's
- *     text (Langfuse and its ClickHouse, Gotenberg) — see rule 2.
+ *     text (Langfuse and its ClickHouse, Gotenberg, Qdrant) — see rule 2.
  *   - Cross-namespace allows are explicit: the **edge** (Envoy Gateway) to the
  *     three public services, and the **CNPG operator** to its managed pods.
  *
@@ -99,6 +118,7 @@ export function installNetworkPolicies(
           values: [
             ...langfuseWithheld,
             ...(cfg.gotenberg.enabled ? [GOTENBERG.name] : []),
+            QDRANT.name,
           ],
         },
       ],
@@ -374,6 +394,80 @@ export function installNetworkPolicies(
       })
     : undefined;
 
+  // 16-17. Qdrant (ADR-0113), withheld from rule 2. Every office's chunk text
+  //     and vectors sit behind one API key that six workloads carry, and its p2p
+  //     port moves shards and Raft state between peers: no other pod has any
+  //     reason to open either. 16 admits the vector callers to the client ports;
+  //     17 keeps p2p (and the client ports, which peers forward requests over)
+  //     between the peers alone.
+  const qdrantPod = { podSelector: { matchLabels: { "app.kubernetes.io/name": QDRANT.name } } };
+  const appToQdrant = mk("allow-app-to-qdrant", {
+    ...qdrantPod,
+    policyTypes: ["Ingress"],
+    ingress: [
+      {
+        from: QDRANT_CALLERS.map((name) => ({
+          podSelector: { matchLabels: { "app.kubernetes.io/name": name } },
+        })),
+        ports: [
+          { protocol: "TCP", port: PORT.qdrantHttp },
+          { protocol: "TCP", port: PORT.qdrantGrpc },
+        ],
+      },
+    ],
+  });
+  const qdrantPeers = mk("qdrant-peers", {
+    ...qdrantPod,
+    policyTypes: ["Ingress"],
+    ingress: [
+      {
+        from: [qdrantPod],
+        ports: [
+          { protocol: "TCP", port: PORT.qdrantHttp },
+          { protocol: "TCP", port: PORT.qdrantGrpc },
+          { protocol: "TCP", port: PORT.qdrantP2p },
+        ],
+      },
+    ],
+  });
+
+  // 18. otel-collector → each Qdrant peer's metrics port, which answers without
+  //     a key (`PORT.qdrantMetrics`): the collector alone, that port alone. Rule
+  //     2 withholds Qdrant, and rules 16-17 grant neither the collector nor this
+  //     port, so without it every scrape times out and `up` reads 0 for every
+  //     peer, which looks exactly like the cluster being down.
+  const collectorToQdrant = cfg.observability.enabled
+    ? mk("allow-collector-to-qdrant-metrics", {
+        ...qdrantPod,
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "otel-collector" } } }],
+            ports: [{ protocol: "TCP", port: PORT.qdrantMetrics }],
+          },
+        ],
+      })
+    : undefined;
+
+  // 19. Edge → Qdrant's REST port, for the dashboard route
+  //     (`platform/qdrant-dashboard.ts`), only while `qdrantDashboardEnabled`.
+  //     Like rule 10 it only makes the route reachable; the SecurityPolicy on
+  //     that route authorizes the request and Qdrant's own key the call. 6333
+  //     alone: the dashboard and the REST API it calls share that listener,
+  //     and nothing at the edge speaks gRPC, p2p or the metrics port.
+  const edgeQdrant = cfg.qdrant.dashboard.enabled
+    ? mk("allow-edge-to-qdrant-dashboard", {
+        ...qdrantPod,
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [nsLabel("envoy-gateway-system")],
+            ports: [{ protocol: "TCP", port: PORT.qdrantHttp }],
+          },
+        ],
+      })
+    : undefined;
+
   return [
     deny,
     intra,
@@ -392,5 +486,9 @@ export function installNetworkPolicies(
     ...(backendToLangfuse ? [backendToLangfuse] : []),
     ...(langfuseToClickhouse ? [langfuseToClickhouse] : []),
     ...(gotenberg ? [gotenberg] : []),
+    appToQdrant,
+    qdrantPeers,
+    ...(collectorToQdrant ? [collectorToQdrant] : []),
+    ...(edgeQdrant ? [edgeQdrant] : []),
   ];
 }

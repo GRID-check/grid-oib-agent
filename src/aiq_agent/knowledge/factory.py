@@ -42,8 +42,8 @@ logger = logging.getLogger(__name__)
 # These are read from environment variables at module load time.
 # The API layer uses these defaults - users don't need to specify per-request.
 #
-# NOTE: Backend-specific configuration (milvus_uri, chroma_path, etc.) should
-# be defined in each adapter, NOT here. The factory is backend-agnostic.
+# NOTE: Backend-specific configuration (the Qdrant URL, the embedder) is
+# defined in each adapter, NOT here. The factory is backend-agnostic.
 
 # @environment_variable KNOWLEDGE_RETRIEVER_BACKEND
 # @category Knowledge Layer
@@ -87,7 +87,7 @@ _ACTIVE_INGESTOR: BaseIngestor | None = None
 # Active retriever for the Knowledge API (lazily built from the active ingestor's
 # backend/config on first use — see get_active_retriever). Cached so a fresh
 # process serving /v1/collections/{c}/search initializes the retriever once and
-# reuses it (no per-request embed-client / Chroma re-init).
+# reuses it (no per-request embed-client re-init).
 _ACTIVE_RETRIEVER: BaseRetriever | None = None
 _active_retriever_lock = threading.Lock()
 
@@ -218,7 +218,7 @@ def get_retriever(
         ValueError: If backend is not registered.
 
     Example:
-        >>> retriever = get_retriever("llamaindex", {"persist_dir": "/data/chroma"})
+        >>> retriever = get_retriever("llamaindex", {"embed_model": "openai/text-embedding-3-large"})
         >>> result = await retriever.retrieve("What is RAG?", "my_collection")
     """
     # Use configured default if not specified
@@ -281,7 +281,7 @@ def get_ingestor(
         ValueError: If backend is not registered.
 
     Example:
-        >>> ingestor = get_ingestor("llamaindex", {"persist_dir": "/data/chroma"})
+        >>> ingestor = get_ingestor("llamaindex", {"embed_model": "openai/text-embedding-3-large"})
         >>> job_id = ingestor.submit_job(["/path/to/file.pdf"], "my_collection")
     """
     # Use configured default if not specified
@@ -350,18 +350,17 @@ def clear_active_ingestor() -> None:
 
 
 def _retriever_config_from_ingestor(ingestor: BaseIngestor) -> dict[str, Any]:
-    """Mirror the active ingestor's store + embedding config for the retriever.
+    """Mirror the active ingestor's embedding config for the retriever.
 
-    The retriever and ingestor MUST read the same Chroma persist directory and
-    embed the same model, or search would query a different (empty) store than
-    was ingested into. The ingestor exposes its resolved settings as attributes
-    (``persist_dir``/``embed_base_url``/``embed_model_name``); we copy the ones
-    that resolve into the retriever's config-key names. Read defensively via
+    The retriever and ingestor MUST embed with the same model, or every search
+    is refused as an embedding mismatch against the vectors that were ingested.
+    The ingestor exposes its resolved settings as attributes
+    (``embed_base_url``/``embed_model_name``); we copy the ones that resolve
+    into the retriever's config-key names. Read defensively via
     ``getattr`` so a backend that does not expose an attribute simply falls back
     to the retriever adapter's own default for that key.
     """
     attr_to_key = {
-        "persist_dir": "persist_dir",
         "embed_base_url": "embed_base_url",
         "embed_model_name": "embed_model",
     }
@@ -397,9 +396,8 @@ def get_active_retriever() -> BaseRetriever:
     Mirrors the active-ingestor singleton. The first caller in a fresh process
     builds ONE retriever from the same backend + store/embedding config the
     active ingestor was created with (see :func:`_retriever_config_from_ingestor`),
-    so both share the same Chroma persist directory and embedding model. The
-    instance is cached and reused for every subsequent request — no per-request
-    embed-client / Chroma re-init. (The adapter itself still lazy-initializes its
+    so both embed with the same model. The instance is cached and reused for
+    every subsequent request — no per-request embed-client re-init. (The adapter itself still lazy-initializes its
     heavy components on the first ``retrieve`` call.)
 
     If no active ingestor is set, falls back to the factory default backend/config
@@ -507,6 +505,21 @@ def _get_document_metadata_store() -> "DocumentMetadataStore":
     return _document_metadata_store
 
 
+def _mirror_facts(collection: str, file_names: list[str] | None = None, *, folders_only: bool = False) -> None:
+    """Copy the facts just changed here onto the file's points in Qdrant (ADR-0114).
+
+    This store stays the authority; the vector store carries a copy so a
+    search can filter on a tag, a Dokumentart or a Fassung before ranking
+    instead of after. It never raises (``knowledge_layer.qdrant.writes.refresh_facts``).
+    ``folders_only`` copies just the folder, all a folder move changed.
+    """
+    try:
+        from knowledge_layer.qdrant import writes
+    except ImportError:  # the knowledge layer's store extra is not installed here
+        return
+    writes.refresh_facts(collection, file_names, fields=writes.FOLDER_FACTS if folders_only else None)
+
+
 def register_summary(
     collection: str,
     filename: str,
@@ -522,7 +535,10 @@ def register_summary(
     """
     if not summary:
         return
-    _get_document_metadata_store().register(collection, filename, summary, tags, topics)
+    store = _get_document_metadata_store()
+    store.register(collection, filename, summary, tags, topics)
+    # A row linked to this one reads as replaced again now that it is back.
+    _mirror_facts(collection, [filename, *store.files_linked_to(collection, filename)])
 
 
 def update_document_tags(collection: str, filename: str, tags: list[str] | None) -> bool:
@@ -535,7 +551,10 @@ def update_document_tags(collection: str, filename: str, tags: list[str] | None)
     caller's responsibility — the store persists whatever it is given, so every
     caller MUST validate against ``document_classification.ALLOWED_TAGS`` first.
     """
-    return _get_document_metadata_store().update_tags(collection, filename, tags)
+    changed = _get_document_metadata_store().update_tags(collection, filename, tags)
+    if changed:
+        _mirror_facts(collection, [filename])
+    return changed
 
 
 def set_document_tags_by_person(collection: str, filename: str, tags: list[str] | None) -> bool:
@@ -545,7 +564,10 @@ def set_document_tags_by_person(collection: str, filename: str, tags: list[str] 
     :func:`update_document_tags` otherwise: validated by the caller, never
     touches the summary, ``False`` when no summary row exists (callers 404).
     """
-    return _get_document_metadata_store().set_tags_by_person(collection, filename, tags)
+    changed = _get_document_metadata_store().set_tags_by_person(collection, filename, tags)
+    if changed:
+        _mirror_facts(collection, [filename])
+    return changed
 
 
 def get_document_person_tags(collection: str, filenames: list[str]) -> dict[str, list[str]]:
@@ -561,7 +583,10 @@ def set_document_topics_by_person(collection: str, filename: str, topics: list[s
     no summary row exists (callers 404). Marks the row as a person's, which
     freezes its tags as well as its topics.
     """
-    return _get_document_metadata_store().set_topics_by_person(collection, filename, topics)
+    changed = _get_document_metadata_store().set_topics_by_person(collection, filename, topics)
+    if changed:
+        _mirror_facts(collection, [filename])
+    return changed
 
 
 def get_document_person_topics(collection: str, filenames: list[str]) -> dict[str, list[str]]:
@@ -601,7 +626,10 @@ def set_document_superseded_by(collection: str, older: str, newer: str | None) -
     A model's reading of two documents goes through :func:`set_document_revision_suggestion`, which
     hides nothing. UPDATE-only: ``False`` when ``older`` has no metadata row.
     """
-    return _get_document_metadata_store().set_superseded_by(collection, older, newer)
+    changed = _get_document_metadata_store().set_superseded_by(collection, older, newer)
+    if changed:
+        _mirror_facts(collection, [older])
+    return changed
 
 
 def link_document_fassung(collection: str, older: str, newer: str) -> "LinkOutcome":
@@ -612,7 +640,9 @@ def link_document_fassung(collection: str, older: str, newer: str) -> "LinkOutco
     clears a suggestion on ``newer`` that named ``older``, and the change line of the file ``older``
     was replaced by until now when it was told against ``older``.
     """
-    return _get_document_metadata_store().link_fassung(collection, older, newer)
+    outcome = _get_document_metadata_store().link_fassung(collection, older, newer)
+    _mirror_facts(collection, [older, newer])
+    return outcome
 
 
 def dismiss_document_revision_suggestion(collection: str, filename: str, older: str) -> bool:
@@ -658,7 +688,10 @@ def set_document_doc_class(collection: str, filename: str, doc_class: str | None
     exists for ``(collection, filename)``. The single factory seam behind the
     ingestion pre-fill and any future doc_class-edit endpoint.
     """
-    return _get_document_metadata_store().set_doc_class(collection, filename, doc_class)
+    changed = _get_document_metadata_store().set_doc_class(collection, filename, doc_class)
+    if changed:
+        _mirror_facts(collection, [filename])
+    return changed
 
 
 def get_document_doc_class(collection: str, filename: str) -> str | None:
@@ -719,7 +752,10 @@ def set_document_folder_path(collection: str, filename: str, folder_path: str | 
     The single seam behind BOTH ingestion (which stamps the folder the BFF sent
     with the file) and the folder mirror endpoint.
     """
-    return _get_document_metadata_store().set_folder_path(collection, filename, (folder_path or "").strip() or None)
+    changed = _get_document_metadata_store().set_folder_path(collection, filename, (folder_path or "").strip() or None)
+    if changed:
+        _mirror_facts(collection, [filename])
+    return changed
 
 
 def get_document_folder_paths(collection: str, filenames: list[str]) -> dict[str, str]:
@@ -773,7 +809,10 @@ def rewrite_document_folder_paths(collection: str, from_path: str, to_path: str 
     renamed / re-parented / deleted folder's whole subtree. Returns the number of
     documents re-filed.
     """
-    return _get_document_metadata_store().rewrite_folder_paths(collection, from_path, to_path)
+    count, moved = _get_document_metadata_store().rewrite_folder_paths_moved(collection, from_path, to_path)
+    if moved:
+        _mirror_facts(collection, moved, folders_only=True)
+    return count
 
 
 def list_summary_collections() -> list[str]:
@@ -784,6 +823,11 @@ def list_summary_collections() -> list[str]:
 def get_available_documents(collection: str) -> list["AvailableDocument"]:
     """Get documents with summaries (sync)."""
     return _get_document_metadata_store().get_all(collection)
+
+
+def get_documents(collection: str, filenames: list[str]) -> list["AvailableDocument"]:
+    """The metadata rows of ``filenames`` only (sync); ``supersedes`` is not derived (see ``get_many``)."""
+    return _get_document_metadata_store().get_many(collection, filenames)
 
 
 async def get_available_documents_async(collection: str) -> list["AvailableDocument"]:
@@ -815,7 +859,7 @@ def reconcile_collection_summaries(
     file_name) -> str | None`` method (duck-typed via ``getattr`` — deliberately
     not part of the abstract ``BaseIngestor`` interface, so this stays opt-in
     per backend); see ``LlamaIndexIngestor.get_document_text_sample`` for the
-    reference implementation, which reads chunk text back out of Chroma. When a
+    reference implementation, which reads chunk text back out of Qdrant. When a
     backend has no such method, or the sample comes back empty, the filename
     itself becomes the fallback summary — a row that exists beats no row at
     all.
@@ -898,8 +942,15 @@ def unregister_summary(collection: str, filename: str, *, permanent: bool = Fals
     """Delete a file's metadata row; the Fassung facts a person made are kept for its return unless ``permanent``.
 
     See :meth:`DocumentMetadataStore.unregister`. ``permanent`` is a delete nobody undoes.
+    Every row this one replaced reads as current once it is gone, so their
+    ``superseded`` is copied again: left ``true`` on the points, the pre-filter
+    would hide the Fassung that is now the current one from every search.
     """
-    _get_document_metadata_store().unregister(collection, filename, permanent=permanent)
+    store = _get_document_metadata_store()
+    linked = store.files_linked_to(collection, filename)
+    store.unregister(collection, filename, permanent=permanent)
+    if linked:
+        _mirror_facts(collection, linked)
 
 
 def clear_collection_summaries(collection: str) -> None:

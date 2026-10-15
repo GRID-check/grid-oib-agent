@@ -25,7 +25,7 @@ export const QUEUE_DEPTH_QUERY = queueDepthQuery(QUEUE_TABLE);
  *
  * Replicas of the backend image with `GRID_ROLE=ingest-worker`: no web port, no PVC. Each builds the ingestor once and its `concurrency` threads
  * claim jobs from Postgres, fairly across organisations (fewest running first,
- * fleet-wide). Vectors live in the shared Chroma, jobs in Postgres, so a replica
+ * fleet-wide). Vectors live in the shared Qdrant, jobs in Postgres, so a replica
  * is disposable.
  *
  * SCALED ON THE QUEUE, NOT ON CPU. An ingest job mostly waits on the model
@@ -73,7 +73,7 @@ export function installIngestWorker(
         template: {
           metadata: { labels, annotations: secretChecksumAnnotations(secrets.checksum) },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             imagePullSecrets: w.imagePullSecrets,
             securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend },
             terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,

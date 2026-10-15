@@ -183,16 +183,16 @@ def summary_db(tmp_path):
 
 
 @pytest.fixture
-def ingestor(tmp_path, monkeypatch):
-    from unittest.mock import MagicMock
-
+def ingestor(tmp_path, monkeypatch, qdrant_store):
     from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
 
-    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma"), "generate_summary": False})
-    ing._embed_model = MagicMock()
+    from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
+    from sources.knowledge_layer.tests.qdrant_testing import capture_indexed_documents
+
+    ing = LlamaIndexIngestor({"generate_summary": False})
+    ing._embed_model = FakeEmbedder()
     ing._initialized = True
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", MagicMock())
-    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
+    capture_indexed_documents(monkeypatch, into=_INDEXED)
     return ing
 
 
@@ -209,10 +209,12 @@ def _run(ing, path: str, name: str):
     raise AssertionError("ingestion job did not terminate in time")
 
 
-def _indexed():
-    import llama_index.core
+#: What each file of the running test's jobs handed to chunking and embedding (``ingestor`` records it).
+_INDEXED: list[list] = []
 
-    return [doc for call in llama_index.core.VectorStoreIndex.from_documents.call_args_list for doc in call.args[0]]
+
+def _indexed():
+    return [doc for documents in _INDEXED for doc in documents]
 
 
 class TestThroughTheIngestJob:

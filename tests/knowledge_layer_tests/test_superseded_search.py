@@ -144,7 +144,8 @@ class TestTheExclusion:
 
         out = await _ranked_search(query="Bewehrung der Decke")
 
-        assert _project_filters(store) == [{"file_name": {"$nin": ["Statik_Index_B.pdf"]}}]
+        # A payload condition, never a list of names; the Postgres list drops what a lagging copy let through.
+        assert _project_filters(store) == [{"superseded": {"$ne": True}}]
         assert "Statik_Index_B.pdf, p.1" not in _cited(out)
         assert {"Statik_Index_C.pdf, p.1", "Brandschutz.pdf, p.1"} <= set(_cited(out))
 
@@ -206,8 +207,8 @@ class TestTheExclusion:
         out = await _ranked_search(query="Bewehrung der Decke")
 
         by_collection = {call["collection"]: call["filters"] for call in store.calls}
-        assert by_collection[ARCHIV] == {"file_name": {"$nin": ["Altbau.pdf"]}}
-        assert by_collection[PROJECT] == {"file_name": {"$nin": ["Statik_Index_B.pdf"]}}
+        assert by_collection[ARCHIV] == {"superseded": {"$ne": True}}
+        assert by_collection[PROJECT] == {"superseded": {"$ne": True}}
         assert "Altbau.pdf" in out.split("Ältere Fassungen ausgeblendet", 1)[1].splitlines()[0]
 
     async def test_a_folder_narrowing_and_the_exclusion_hold_together(self, search):
@@ -216,9 +217,7 @@ class TestTheExclusion:
         out = await _ranked_search(query="Bewehrung der Decke", folder="Statik")
 
         [filters] = _project_filters(store)
-        clauses = filters["$and"]
-        assert {"file_name": {"$in": sorted(doc.file_name for doc in DOCS)}} in clauses
-        assert {"file_name": {"$nin": ["Statik_Index_B.pdf"]}} in clauses
+        assert filters == {"$and": [{"folder_ancestors": "statik"}, {"superseded": {"$ne": True}}]}
         assert "Statik_Index_B.pdf, p.1" not in _cited(out)
 
     async def test_with_nothing_replaced_the_search_is_as_it_was(self, search):
@@ -226,7 +225,8 @@ class TestTheExclusion:
 
         out = await _ranked_search(query="Bewehrung der Decke")
 
-        assert _project_filters(store) == [None]
+        # The condition keeps every point that is not marked replaced, so it costs nothing here.
+        assert _project_filters(store) == [{"superseded": {"$ne": True}}]
         assert "Ältere Fassungen ausgeblendet" not in out
         assert "Statik_Index_B.pdf, p.1" in _cited(out)
 
@@ -235,7 +235,7 @@ class TestTheExclusion:
 
         out = await _ranked_search(query="Bewehrung der Decke")
 
-        assert _project_filters(store) == [None]
+        assert _project_filters(store) == [{"superseded": {"$ne": True}}]
         assert "Statik_Index_B.pdf, p.1" in _cited(out)
 
     async def test_the_notice_names_a_few_files_and_counts_the_rest(self, search):

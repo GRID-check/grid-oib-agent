@@ -3,12 +3,12 @@
 Run as its own container: ``GRID_ROLE=ingest-worker`` makes the entrypoint start
 ``python -m aiq_api.jobs.ingest_worker``. It builds the NAT workflow once, which
 activates the ingestor exactly as the web roles do (same summary model, same
-shared Chroma, same object store), attaches the durable queue to it, and then
+shared Qdrant, same object store), attaches the durable queue to it, and then
 does nothing but claim: its ``AIQ_INGEST_MAX_WORKERS`` threads take the next job
 fairly across every organisation, run it, and come back for another.
 
 No web server, no port, no state of its own: jobs live in Postgres, vectors in
-the shared Chroma. So the tier scales on the one number that says how much
+the shared Qdrant cluster. So the tier scales on the one number that says how much
 ingestion is waiting, the depth of ``ingest_job_queue``, from zero workers when
 nothing is queued to as many as the provider's rate limit allows.
 

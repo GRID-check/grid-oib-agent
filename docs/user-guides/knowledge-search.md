@@ -80,7 +80,7 @@ To use it, ensure Web Search is enabled in the panel and ask a question that req
 
 ## Collection Scoping
 
-The system automatically determines which ChromaDB collections to search for each request. This scoping is transparent to the user:
+The system automatically determines which collections to search for each request. This scoping is transparent to the user:
 
 - **Project context** — If you are working in a project, `proj_{projectId}` is included
 - **Conversation context** — If you have a conversation open, `s_{conversationId}` is included

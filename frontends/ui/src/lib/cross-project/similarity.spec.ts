@@ -46,6 +46,15 @@ describe('similarityFacts', () => {
     })
   })
 
+  it('reads only a Gebäudeklasse that exists, 1 to 5, and the class a note names rather than its first digit', () => {
+    for (const value of [0, 6, 4.5, -1, '0', '6', 'GK 6', 'GK45']) {
+      expect(similarityFacts(profile({ gebaeudeklasse: value })).gebaeudeklasse, String(value)).toEqual([])
+    }
+    expect(similarityFacts(profile({ gebaeudeklasse: 'Fluchtniveau 8 m → GK4' })).gebaeudeklasse).toEqual([4])
+    expect(similarityFacts(profile({ gebaeudeklasse: 'Fluchtniveau 3 m → GK 2' })).gebaeudeklasse).toEqual([2])
+    expect(similarityFacts(profile({ gebaeudeklasse: ' 5 ' })).gebaeudeklasse).toEqual([5])
+  })
+
   it('reads what the intake wizard stores: a building’s answers under its instance, every building', () => {
     // The producer, not a hand-written profile: the wizard keys a building's
     // answers `bauweise@bw1`, and a ranking that read only `bauweise` saw

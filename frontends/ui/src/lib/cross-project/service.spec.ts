@@ -8,8 +8,10 @@
  * chat gets no restricted folder; the record is checked against the audience
  * the reach was computed for; the conversation's own project is left out; the
  * `similar` scope walks the most alike projects first; one call searches a
- * bounded page of projects and says where the next starts; every hit names its
- * project and status; the filters hold. The reach itself: `audience-reach.spec.ts`.
+ * bounded page of projects in one grouped query and says where the next
+ * starts; every hit names its project and status; the filters hold; a failed
+ * search is an upstream error, never "nothing found". The reach itself:
+ * `audience-reach.spec.ts`.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -27,7 +29,8 @@ const state = vi.hoisted(() => ({
   /** Rows of a project's documents the backend did NOT hit: same-named siblings in other collections. */
   siblingRows: new Map<string, Array<Record<string, unknown>>>(),
   failing: new Set<string>(),
-  searched: [] as Array<{ projectId: string; topK: number; snippetMaxChars?: number; forModel?: boolean }>,
+  /** Per project, restricted collections the reader is cleared for beyond those its hits came from. */
+  cleared: new Map<string, string[]>(),
   recorded: [] as Array<{ projectIds: readonly string[]; folderIds: readonly string[] }>,
   recordedFor: [] as string[],
   /** What the decisions repository answers, and the scopes it was asked with. */
@@ -40,8 +43,24 @@ const state = vi.hoisted(() => ({
   readable: new Map<string, string[]>(),
   /** Restricted collection → source folder, for the project whose folder tree is asked. */
   folders: new Map<string, string>(),
-  inFlight: 0,
-  peak: 0,
+  /** Whether the grouped search fails upstream (Qdrant down): the real client throws an UpstreamError. */
+  groupedFails: false,
+  /** Projects whose hits cannot be joined to their rows (Postgres down). */
+  hydrateFails: new Set<string>(),
+  /** The grouped search's ranking, as hit ids best first; unset ranks by score. */
+  ranking: null as string[] | null,
+  groupedCalls: [] as Array<{
+    collections: string[]
+    filesPerCollection: number
+    snippetMaxChars?: number
+    options: { filters?: { document_types?: string[]; disciplines?: string[] }; boost?: unknown }
+  }>,
+  /** Every project `planProjectSearch` was asked to authorize, in order. */
+  planned: [] as string[],
+  hydrating: 0,
+  hydratePeak: 0,
+  /** Every project whose hits were joined to its rows, with how. */
+  hydrated: [] as Array<{ projectId: string; snippetMaxChars?: number; forModel?: boolean }>,
 }))
 
 vi.mock('./audience-reach', () => ({
@@ -92,45 +111,122 @@ vi.mock('@/lib/projects/repository', () => ({
 // be labelled with an open collection (a newer same-named row) unnoticed.
 vi.mock('@/lib/documents/service', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/documents/service')>()
+  const projectOf = (projectId: string) => [...state.reachable, ...state.outOfReach].find((one) => one.id === projectId)
+  // The rows the database answers for a project: its hit documents and any same-named siblings.
+  const rowsOf = (projectId: string) =>
+    [
+      ...(state.hits.get(projectId) ?? []).map(({ snippet: _snippet, page: _page, score: _score, ...row }) => ({
+        authoredBy: 'user',
+        ...row,
+      })),
+      ...(state.siblingRows.get(projectId) ?? []),
+    ] as unknown as Array<{ filename: string; collectionName: string; createdAt: Date; authoredBy: string }>
   return {
-    searchProjectDocuments: vi.fn(
-      async (_session: unknown, projectId: string, _query: string, topK: number, options: { snippetMaxChars?: number; forModel?: boolean }) => {
-        state.searched.push({ projectId, topK, snippetMaxChars: options.snippetMaxChars, forModel: options.forModel })
-        state.inFlight += 1
-        state.peak = Math.max(state.peak, state.inFlight)
+    BACKEND_SEARCH_MAX_COLLECTIONS: actual.BACKEND_SEARCH_MAX_COLLECTIONS,
+    projectsWithinCollectionCap: actual.projectsWithinCollectionCap,
+    planProjectSearch: vi.fn(async (_session: unknown, projectId: string) => {
+      state.planned.push(projectId)
+      if (state.failing.has(projectId)) throw new Error('access withdrawn')
+      const found = projectOf(projectId)
+      if (!found) throw new Error('not found')
+      // Cleared restricted collections: every non-own collection the project's hits came from.
+      const restricted = [
+        ...new Set(
+          (state.hits.get(projectId) ?? [])
+            .map((row) => row.collectionName as string)
+            .filter((collection) => collection !== found.collectionName)
+        ),
+      ]
+      return {
+        project: found,
+        access: { sourceFolderOf: (collection: string) => state.folders.get(collection) ?? null, hiddenFolderIds: new Set() },
+        collections: [found.collectionName, ...restricted, ...(state.cleared.get(projectId) ?? [])],
+      }
+    }),
+    // What `POST /v1/collections/search` answers (`_ranked_group_hits`): the
+    // chunks' tags filtered inside the query, at most `filesPerCollection`
+    // documents per collection, every document ordered ACROSS collections by
+    // its place in the one fused ranking (`state.ranking`, else the score).
+    fetchGroupedSemanticHits: vi.fn(
+      async (
+        collections: readonly string[],
+        _query: string,
+        filesPerCollection: number,
+        snippetMaxChars?: number,
+        options: { filters?: { document_types?: string[]; disciplines?: string[] }; boost?: unknown } = {}
+      ) => {
+        if (state.groupedFails) throw new UpstreamError('Grouped search backend returned 500')
+        state.groupedCalls.push({ collections: [...collections], filesPerCollection, snippetMaxChars, options })
+        const asked = new Set(collections)
+        const anyOf = (tags: string[], wanted?: string[]) => !wanted?.length || wanted.some((tag) => tags.includes(tag))
+        const chunkTags = (row: Record<string, unknown>) => (row.chunkTags ?? row.tags ?? []) as string[]
+        const all = [...state.hits.values()]
+          .flat()
+          .filter((row) => asked.has(row.collectionName as string))
+          .filter((row) => anyOf(chunkTags(row), options.filters?.document_types) && anyOf(chunkTags(row), options.filters?.disciplines))
+        const order = state.ranking
+        const fused = order
+          ? (row: Record<string, unknown>) => -order.indexOf(row.id as string)
+          : (row: Record<string, unknown>) => row.score as number
+        const perCollection = new Map<string, Array<Record<string, unknown>>>()
+        for (const row of [...all].sort((a, b) => fused(b) - fused(a))) {
+          const kept = perCollection.get(row.collectionName as string) ?? []
+          if (kept.length < filesPerCollection) kept.push(row)
+          perCollection.set(row.collectionName as string, kept)
+        }
+        return [...perCollection.values()]
+          .flat()
+          .sort((a, b) => fused(b) - fused(a))
+          .map((row, rank) => ({
+            file_name: row.filename as string,
+            collection: row.collectionName as string,
+            score: row.score as number,
+            snippet: row.snippet as string,
+            page_number: row.page as number | null,
+            rank,
+          }))
+      }
+    ),
+    hydrateProjectHits: vi.fn(
+      async (
+        _session: unknown,
+        plan: { project: Project; collections: string[] },
+        hits: Array<{ collection: string; file_name: string; score: number; snippet: string; page_number: number | null; rank?: number }>,
+        options: { snippetMaxChars?: number; forModel?: boolean }
+      ) => {
+        if (state.hydrateFails.has(plan.project.id)) throw new Error('connection terminated')
+        state.hydrated.push({ projectId: plan.project.id, snippetMaxChars: options.snippetMaxChars, forModel: options.forModel })
+        state.hydrating += 1
+        state.hydratePeak = Math.max(state.hydratePeak, state.hydrating)
         await Promise.resolve()
-        state.inFlight -= 1
-        if (state.failing.has(projectId)) throw new Error('backend down')
-        // What the backend answers: one hit per passage, naming the collection it was found in.
-        const found = state.hits.get(projectId) ?? []
-        const backendHits = found.map((row) => ({
-          file_name: row.filename as string,
-          collection: row.collectionName as string,
-          score: row.score as number,
-          snippet: row.snippet as string,
-          page_number: row.page as number | null,
-        }))
-        // What the database answers for those names: the hit documents' rows and any same-named siblings.
-        const rows = [
-          ...found.map(({ snippet: _snippet, page: _page, score: _score, ...row }) => ({ authoredBy: 'user', ...row })),
-          ...(state.siblingRows.get(projectId) ?? []),
-        ] as unknown as Array<{ filename: string; collectionName: string; createdAt: Date; authoredBy: string }>
-        return { hits: actual.joinHitsToFiles(backendHits, rows) }
+        state.hydrating -= 1
+        return actual.joinHitsToFiles(
+          hits.filter((one) => plan.collections.includes(one.collection)),
+          rowsOf(plan.project.id)
+        )
       }
     ),
   }
 })
 
-import { CrossProjectAudienceChangedError, NotFoundError } from '@/lib/api/errors'
+import { CrossProjectAudienceChangedError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import {
   CROSS_PROJECT_SNIPPET_CHARS,
+  holdsFacts,
   listLookupProjects,
   periodOverlaps,
   readProjectBrief,
   searchAcrossProjects,
   SEARCH_CONCURRENCY,
 } from './service'
-import { CROSS_PROJECT_PAGE_PROJECTS, crossProjectListRequestSchema, crossProjectSearchRequestSchema } from './types'
+import {
+  CROSS_PROJECT_PAGE_PROJECTS,
+  crossProjectListRequestSchema,
+  crossProjectSearchRequestSchema,
+} from './types'
+import { SIMILARITY_WEIGHTS } from './similarity'
+import { BACKEND_SEARCH_MAX_COLLECTIONS } from '@/lib/documents/service'
+import { projectFactsOf } from './project-facts-mirror'
 
 const ORG = 'org_1'
 const OWNER = 'user_owner'
@@ -188,7 +284,8 @@ beforeEach(() => {
   state.hits = new Map()
   state.siblingRows = new Map()
   state.failing = new Set()
-  state.searched = []
+  state.cleared = new Map()
+  state.hydrated = []
   state.recorded = []
   state.recordedFor = []
   state.decisions = []
@@ -197,8 +294,13 @@ beforeEach(() => {
   state.permitScopes = []
   state.readable = new Map()
   state.folders = new Map()
-  state.inFlight = 0
-  state.peak = 0
+  state.groupedFails = false
+  state.hydrateFails = new Set()
+  state.ranking = null
+  state.groupedCalls = []
+  state.planned = []
+  state.hydrating = 0
+  state.hydratePeak = 0
 })
 
 describe('searchAcrossProjects', () => {
@@ -210,7 +312,7 @@ describe('searchAcrossProjects', () => {
 
     const result = await searchAcrossProjects(caller(two.id), search({}))
 
-    expect(state.searched.map((call) => call.projectId)).toEqual([one.id, three.id])
+    expect(state.planned).toEqual([one.id, three.id])
     expect(result.hits.map((found) => [found.project.name, found.project.status, found.filename])).toEqual([
       ['Projekt 3', 'closed', 'c.pdf'],
       ['Projekt 1', 'active', 'a.pdf'],
@@ -369,7 +471,7 @@ describe('searchAcrossProjects', () => {
 
     await searchAcrossProjects(caller(state.reachable[2].id), search({}))
 
-    expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[1].id, state.reachable[0].id])
+    expect(state.planned).toEqual([state.reachable[1].id, state.reachable[0].id])
   })
 
   it('says each hit’s Bundesland, so the agent can tell a precedent decided under another Bauordnung', async () => {
@@ -418,34 +520,33 @@ describe('searchAcrossProjects', () => {
       search({ scope: 'named', projectIds: [stranger.id, state.reachable[0].id] })
     )
 
-    expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[0].id])
+    expect(state.planned).toEqual([state.reachable[0].id])
     expect(result.projectsInScope).toBe(1)
   })
 
-  it('asks each project for the longer passage the agent answers from', async () => {
+  it('asks for the longer passage the agent answers from, and joins it as a model reads it', async () => {
+    const [one, two] = state.reachable
+    state.hits.set(one.id, [hit('a', 0.9)])
+    state.hits.set(two.id, [hit('b', 0.8, { collectionName: 'proj_2' })])
+
     await searchAcrossProjects(caller(), search({}))
 
-    expect(state.searched.every((call) => call.snippetMaxChars === CROSS_PROJECT_SNIPPET_CHARS)).toBe(true)
+    expect(state.groupedCalls[0].snippetMaxChars).toBe(CROSS_PROJECT_SNIPPET_CHARS)
+    // Screened documents only, never the asker's held uploads in that project.
+    expect(state.hydrated.map((call) => call.projectId)).toEqual([one.id, two.id])
+    expect(state.hydrated.every((call) => call.forModel && call.snippetMaxChars === CROSS_PROJECT_SNIPPET_CHARS)).toBe(true)
   })
 
-  it('searches every project as a model reads it: screened documents only, never the asker’s held uploads', async () => {
-    await searchAcrossProjects(caller(), search({}))
-
-    expect(state.searched.length).toBeGreaterThan(0)
-    expect(state.searched.every((call) => call.forModel === true)).toBe(true)
-  })
-
-  it('searches one bounded page of projects, a bounded number at a time, and says where the next starts', async () => {
+  it('searches one bounded page of projects and says where the next starts', async () => {
     state.reachable = Array.from({ length: CROSS_PROJECT_PAGE_PROJECTS + 3 }, (_, index) => project(index + 1))
 
     const first = await searchAcrossProjects(caller(), search({}))
     expect(first).toMatchObject({ projectsSearched: CROSS_PROJECT_PAGE_PROJECTS, nextOffset: CROSS_PROJECT_PAGE_PROJECTS })
-    expect(state.peak).toBeLessThanOrEqual(SEARCH_CONCURRENCY)
 
-    state.searched = []
+    state.planned = []
     const second = await searchAcrossProjects(caller(), search({ offset: first.nextOffset }))
     expect(second).toMatchObject({ projectsSearched: 3, nextOffset: null })
-    expect(state.searched).toHaveLength(3)
+    expect(state.planned).toHaveLength(3)
   })
 
   it('searches only the closed projects in the closed scope', async () => {
@@ -454,7 +555,7 @@ describe('searchAcrossProjects', () => {
     const result = await searchAcrossProjects(caller(), search({ scope: 'closed' }))
 
     expect(result).toMatchObject({ projectsInScope: 1 })
-    expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[1].id])
+    expect(state.planned).toEqual([state.reachable[1].id])
   })
 
   it('walks the closed projects most like the current one first, as the catalog lists them', async () => {
@@ -475,7 +576,7 @@ describe('searchAcrossProjects', () => {
 
     await searchAcrossProjects(caller(state.reachable[2].id), search({ scope: 'closed' }))
 
-    expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[1].id, state.reachable[0].id])
+    expect(state.planned).toEqual([state.reachable[1].id, state.reachable[0].id])
   })
 
   it('walks the projects the turn’s reference fit names first, and only reorders the scope', async () => {
@@ -489,38 +590,21 @@ describe('searchAcrossProjects', () => {
     )
 
     // The running project stays out of a closed search whatever the order says.
-    expect(state.searched.map((call) => call.projectId)).toEqual([third.id, first.id, second.id])
+    expect(state.planned).toEqual([third.id, first.id, second.id])
   })
 
   it('narrows by the PROJECT’s period before searching, not by when a file was uploaded', async () => {
     // Projekt 1 began 2026-02-15, Projekt 2 2026-03-15, Projekt 3 2026-04-15; all still open.
     const result = await searchAcrossProjects(caller(), search({ to: '2026-03-31' }))
 
-    expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[0].id, state.reachable[1].id])
+    expect(state.planned).toEqual([state.reachable[0].id, state.reachable[1].id])
     expect(result.projectsInScope).toBe(2)
 
     // The Steckbrief's Beginn and Abschluss win over the day the project was created in Piloti.
     state.reachable = [project(1, { startedOn: '2015-03-01', endedOn: '2017-06-01' }), project(2)]
-    state.searched = []
+    state.planned = []
     await searchAcrossProjects(caller(), search({ from: '2015-01-01', to: '2018-01-01' }))
-    expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[0].id])
-  })
-
-  it('filters by type and discipline after retrieval, asking each project for more', async () => {
-    const [one] = state.reachable
-    state.hits.set(one.id, [
-      hit('detail', 0.9),
-      hit('vertrag', 0.8, { tags: ['Vertrag'] }),
-      hit('schall', 0.6, { tags: ['Detail', 'Schallschutz'] }),
-    ])
-
-    const result = await searchAcrossProjects(
-      caller(),
-      search({ documentTypes: ['Detail'], disciplines: ['Brandschutz'], limit: 5 })
-    )
-
-    expect(result.hits.map((found) => found.filename)).toEqual(['detail.pdf'])
-    expect(state.searched[0].topK).toBe(15)
+    expect(state.planned).toEqual([state.reachable[0].id])
   })
 
   it('keeps the other projects when one fails, and cuts the merged ranking to the limit', async () => {
@@ -531,6 +615,207 @@ describe('searchAcrossProjects', () => {
     const result = await searchAcrossProjects(caller(), search({ limit: 2 }))
 
     expect(result.hits.map((found) => found.filename)).toEqual(['x.pdf', 'y.pdf'])
+  })
+})
+
+describe('searchAcrossProjects in one grouped query (ADR-0114)', () => {
+  it('searches the whole page in ONE call and keeps its ranking, not the scores', async () => {
+    const [one, two] = state.reachable
+    state.hits.set(one.id, [hit('a', 0.9)])
+    state.hits.set(two.id, [hit('b', 0.4, { collectionName: 'proj_2' })])
+    state.ranking = ['b', 'a']
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(state.groupedCalls).toHaveLength(1)
+    expect(state.groupedCalls[0].collections).toEqual(['proj_1', 'proj_2', 'proj_3'])
+    expect(result.hits.map((found) => found.filename)).toEqual(['b.pdf', 'a.pdf'])
+  })
+
+  it('keeps one project’s weak documents from crowding out another project’s strong one', async () => {
+    const [one, two, three] = state.reachable
+    state.hits.set(one.id, [hit('stark', 0.95), ...Array.from({ length: 12 }, (_, n) => hit(`schwach${n}`, 0.6))])
+    state.hits.set(two.id, [hit('zwei', 0.85, { collectionName: 'proj_2' })])
+    state.hits.set(three.id, [hit('drei', 0.84, { collectionName: 'proj_3' })])
+
+    const result = await searchAcrossProjects(caller(), search({ limit: 3 }))
+
+    expect(result.hits.map((found) => found.filename)).toEqual(['stark.pdf', 'zwei.pdf', 'drei.pdf'])
+  })
+
+  it('covers a wide page per call, since a project no longer costs a search', async () => {
+    state.reachable = Array.from({ length: CROSS_PROJECT_PAGE_PROJECTS + 5 }, (_, index) => project(index + 1))
+
+    const first = await searchAcrossProjects(caller(), search({}))
+
+    expect(first).toMatchObject({
+      projectsSearched: CROSS_PROJECT_PAGE_PROJECTS,
+      nextOffset: CROSS_PROJECT_PAGE_PROJECTS,
+    })
+    expect(state.decisionScopes).toHaveLength(CROSS_PROJECT_PAGE_PROJECTS)
+  })
+
+  it('joins a wide page’s hits to their rows a bounded number of projects at a time', async () => {
+    state.reachable = Array.from({ length: CROSS_PROJECT_PAGE_PROJECTS }, (_, index) => project(index + 1))
+    for (const one of state.reachable) state.hits.set(one.id, [hit(`h${one.collectionName}`, 0.5, { collectionName: one.collectionName })])
+
+    await searchAcrossProjects(caller(), search({ limit: 20 }))
+
+    expect(state.hydratePeak).toBeGreaterThan(0)
+    expect(state.hydratePeak).toBeLessThanOrEqual(SEARCH_CONCURRENCY)
+  })
+
+  it('stops adding projects before the collections pass the backend’s cap, and pages the rest', async () => {
+    // Each project brings its own collection and 19 restricted folders: 40 of them would be 800.
+    state.reachable = Array.from({ length: CROSS_PROJECT_PAGE_PROJECTS }, (_, index) => project(index + 1))
+    for (const one of state.reachable) {
+      state.cleared.set(one.id, Array.from({ length: 19 }, (_, n) => `${one.collectionName}_r${String(n).padStart(12, '0')}`))
+    }
+    const fitting = Math.floor(BACKEND_SEARCH_MAX_COLLECTIONS / 20)
+
+    const first = await searchAcrossProjects(caller(), search({}))
+
+    expect(BACKEND_SEARCH_MAX_COLLECTIONS).toBe(500)
+    expect(state.groupedCalls[0].collections).toHaveLength(fitting * 20)
+    expect(first).toMatchObject({ projectsSearched: fitting, nextOffset: fitting, projectsInScope: CROSS_PROJECT_PAGE_PROJECTS })
+    // Decisions and permits are read over the projects searched, so a deferred one is not answered twice.
+    expect(state.decisionScopes.map((scope) => scope.projectId)).toEqual(state.reachable.slice(0, fitting).map((one) => one.id))
+
+    state.groupedCalls = []
+    const second = await searchAcrossProjects(caller(), search({ offset: first.nextOffset }))
+    expect(state.groupedCalls[0].collections).toHaveLength((CROSS_PROJECT_PAGE_PROJECTS - fitting) * 20)
+    expect(second).toMatchObject({ projectsSearched: CROSS_PROJECT_PAGE_PROJECTS - fitting, nextOffset: null })
+  })
+
+  it('searches a project cleared for more folders than the cap allows alone, cut to the cap, so a page never stalls', async () => {
+    const [one, two] = state.reachable
+    state.cleared.set(one.id, Array.from({ length: BACKEND_SEARCH_MAX_COLLECTIONS + 10 }, (_, n) => `proj_1_r${String(n).padStart(12, '0')}`))
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(state.groupedCalls[0].collections).toHaveLength(BACKEND_SEARCH_MAX_COLLECTIONS)
+    expect(state.groupedCalls[0].collections[0]).toBe('proj_1')
+    expect(state.groupedCalls[0].collections).not.toContain(two.collectionName)
+    expect(result).toMatchObject({ projectsSearched: 1, nextOffset: 1 })
+  })
+
+  it('does not even search a restricted folder from a shared chat', async () => {
+    const [one] = state.reachable
+    state.restrictedFolders = false
+    state.folders.set('proj_1_rabcdef012345', 'folder-honorare')
+    state.hits.set(one.id, [hit('honorar', 0.9, { collectionName: 'proj_1_rabcdef012345' }), hit('plan', 0.7)])
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(state.groupedCalls[0].collections).not.toContain('proj_1_rabcdef012345')
+    expect(result.hits.map((found) => found.filename)).toEqual(['plan.pdf'])
+  })
+
+  it('records the restricted folder a passage came from, and drops one whose folder cannot be named', async () => {
+    const [one] = state.reachable
+    state.folders.set('proj_1_rabcdef012345', 'folder-honorare')
+    state.hits.set(one.id, [
+      hit('honorar', 0.9, { collectionName: 'proj_1_rabcdef012345' }),
+      hit('unnamed', 0.8, { collectionName: 'proj_1_r999999999999' }),
+      hit('plan', 0.7),
+    ])
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(result.hits.map((found) => found.filename)).toEqual(['honorar.pdf', 'plan.pdf'])
+    expect(state.recorded).toEqual([{ projectIds: [one.id, one.id], folderIds: ['folder-honorare'] }])
+  })
+
+  it('leaves out a project whose access went between listing and search, and keeps the others', async () => {
+    const [one, two] = state.reachable
+    state.hits.set(one.id, [hit('a', 0.9)])
+    state.hits.set(two.id, [hit('b', 0.8, { collectionName: 'proj_2' })])
+    state.failing.add(one.id)
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(state.groupedCalls[0].collections).not.toContain('proj_1')
+    expect(result.hits.map((found) => found.filename)).toEqual(['b.pdf'])
+  })
+
+  it('reports a page no project of which could be authorized as an upstream error, not as searched and empty', async () => {
+    for (const one of state.reachable) state.failing.add(one.id)
+
+    await expect(searchAcrossProjects(caller(), search({}))).rejects.toBeInstanceOf(UpstreamError)
+    expect(state.groupedCalls).toEqual([])
+    expect(state.recorded).toEqual([])
+  })
+
+  it('surfaces a failed search as an upstream error, never as "nothing found", and records nothing', async () => {
+    state.hits.set(state.reachable[0].id, [hit('a', 0.9)])
+    state.groupedFails = true
+
+    await expect(searchAcrossProjects(caller(), search({}))).rejects.toBeInstanceOf(UpstreamError)
+    expect(state.recorded).toEqual([])
+  })
+
+  it('surfaces hits it cannot join to their documents as an upstream error, not as "nothing found", and records nothing', async () => {
+    const [one, two] = state.reachable
+    state.hits.set(one.id, [hit('a', 0.9)])
+    state.hits.set(two.id, [hit('b', 0.8, { collectionName: 'proj_2' })])
+    state.hydrateFails.add(two.id)
+
+    await expect(searchAcrossProjects(caller(), search({}))).rejects.toBeInstanceOf(UpstreamError)
+    expect(state.recorded).toEqual([])
+  })
+
+  it('filters by type and discipline INSIDE the search and asks each project for the limit, not three times it', async () => {
+    const [one] = state.reachable
+    state.hits.set(one.id, [hit('a', 0.9, { tags: ['Detail'] }), hit('b', 0.8, { tags: ['Bescheid'] })])
+
+    const result = await searchAcrossProjects(caller(), search({ documentTypes: ['Bescheid'], disciplines: ['Brandschutz'], limit: 5 }))
+
+    expect(state.groupedCalls[0]).toMatchObject({
+      filesPerCollection: 5,
+      snippetMaxChars: CROSS_PROJECT_SNIPPET_CHARS,
+      options: { filters: { document_types: ['Bescheid'], disciplines: ['Brandschutz'] } },
+    })
+    expect(result.hits).toEqual([])
+  })
+
+  it('still drops a hit whose document row no longer carries the tag: the search’s copy may lag', async () => {
+    const [one] = state.reachable
+    // The chunk still says Bescheid; a person retagged the document since.
+    state.hits.set(one.id, [hit('a', 0.9, { tags: ['Detail'], chunkTags: ['Bescheid'] }), hit('b', 0.8, { tags: ['Bescheid'] })])
+
+    const result = await searchAcrossProjects(caller(), search({ documentTypes: ['Bescheid'] }))
+
+    expect(result.hits.map((found) => found.filename)).toEqual(['b.pdf'])
+  })
+
+  it('lifts projects like the current one by its fingerprint and the one set of similarity weights', async () => {
+    const current = project(7, {
+      profile: {
+        facts: { bundesland: { value: 'wien', source: 'user_confirmed' }, bauweise: { value: ['holzbau'], source: 'user_confirmed' } },
+        goals: {},
+        unknowns: [],
+        assumptions: {},
+      } as unknown as Project['profile'],
+    })
+    state.outOfReach = [current]
+
+    await searchAcrossProjects(caller(current.id), search({}))
+    await searchAcrossProjects(caller(current.id), search({ scope: 'all' }))
+
+    expect(state.groupedCalls[0].options.boost).toEqual({
+      facts: { bundesland: 'wien', gebaeudeklasse: [], bauweise: ['holzbau'], nutzungen: [], vorhabensart: [] },
+      weights: {
+        bundesland: SIMILARITY_WEIGHTS.bundesland,
+        gebaeudeklasse: SIMILARITY_WEIGHTS.gebaeudeklasse,
+        gebaeudeklasse_adjacent: SIMILARITY_WEIGHTS.gebaeudeklasseAdjacent,
+        bauweise: SIMILARITY_WEIGHTS.bauweise,
+        nutzung: SIMILARITY_WEIGHTS.nutzung,
+        nutzung_max: SIMILARITY_WEIGHTS.nutzungMax,
+        vorhabensart: SIMILARITY_WEIGHTS.vorhabensart,
+      },
+    })
+    // `all` walks newest first by definition: nothing to be like.
+    expect(state.groupedCalls[1].options.boost).toBeNull()
   })
 })
 
@@ -817,5 +1102,185 @@ describe('periodOverlaps', () => {
     expect(periodOverlaps({ start: '2020-01-01', end: '2021-06-30' }, '2021-07-01')).toBe(false)
     expect(periodOverlaps({ start: '2026-05-01', end: null }, undefined, '2026-04-30')).toBe(false)
     expect(periodOverlaps({ start: '2020-01-01', end: null }, '2030-01-01')).toBe(true)
+  })
+})
+
+describe('the project facts a lookup narrows by', () => {
+  type Facts = Record<string, unknown>
+  const closed = { status: 'closed' as const, closedAt: new Date(), closedBy: OWNER }
+  /** A profile with these confirmed facts and these agent suggestions, as the intake and the extractor write them. */
+  const profileOf = (facts: Facts, suggested: Facts = {}): Project['profile'] => ({
+    facts: Object.fromEntries(
+      Object.entries(facts).map(([key, value]) => [
+        key,
+        { value: value as string, confidence: 'confirmed' as const, source: 'onboarding' as const, updatedAt: '' },
+      ])
+    ),
+    goals: {},
+    unknowns: [],
+    assumptions: Object.fromEntries(
+      Object.entries(suggested).map(([key, value]) => [
+        key,
+        {
+          value: value as string,
+          status: 'unconfirmed' as const,
+          reason: 'Aus den Unterlagen',
+          source: 'agent_suggested' as const,
+          updatedAt: '',
+        },
+      ])
+    ),
+  })
+  const TIROL_GK4_WOHNEN = { projectFacts: { bundesland: ['tirol'], gebaeudeklasse: [4], nutzungen: ['wohnen'] } }
+
+  /** Five projects: two match Tirol + GK 4 + Wohnen (one through a suggestion), three miss one fact each. */
+  function office(): Project[] {
+    return [
+      project(1, { ...closed, profile: profileOf({ bundesland: 'tirol', gebaeudeklasse: 4, nutzungen: ['wohnen', 'buero'] }) }),
+      project(2, { profile: profileOf({ bundesland: 'tirol', gebaeudeklasse: 3, nutzungen: ['wohnen'] }) }),
+      project(3, { ...closed, profile: profileOf({ bundesland: 'tirol', nutzungen: ['wohnen'] }, { gebaeudeklasse: 'GK 4' }) }),
+      project(4, { profile: profileOf({ bundesland: 'wien', gebaeudeklasse: 4, nutzungen: ['wohnen'] }) }),
+      // No Gebäudeklasse recorded at all: it cannot match a filter on it.
+      project(5, { profile: profileOf({ bundesland: 'tirol', nutzungen: ['wohnen'] }) }),
+    ]
+  }
+
+  it('searches only the projects whose profile holds every asked fact, and counts and pages the narrowed set', async () => {
+    state.reachable = office()
+    const [one, , three, wien] = state.reachable
+    state.hits.set(one.id, [hit('a', 0.9)])
+    state.hits.set(wien.id, [hit('wien', 0.95, { collectionName: 'proj_4' })])
+
+    const result = await searchAcrossProjects(caller(), search({ scope: 'all', ...TIROL_GK4_WOHNEN }))
+
+    expect(state.planned).toEqual([one.id, three.id])
+    expect(state.groupedCalls[0].collections).toEqual(['proj_1', 'proj_3'])
+    expect(result).toMatchObject({ projectsInScope: 2, projectsSearched: 2, nextOffset: null })
+    expect(result.hits.map((found) => found.filename)).toEqual(['a.pdf'])
+    // Decisions and permits are read over the same narrowed page, never a project the filter left out.
+    expect(state.decisionScopes.map((scope) => scope.projectId)).toEqual([one.id, three.id])
+    expect(state.permitScopes.map((scope) => scope.projectId)).toEqual([one.id, three.id])
+  })
+
+  it('selects exactly the projects whose mirrored copy the grouped search’s own fact filter would match', async () => {
+    // The copy on every chunk is `projectFactsOf` (project-facts-mirror.ts); the backend's filter is
+    // any of within a fact and all of across facts. Postgres and the copy agree on a fresh mirror.
+    state.reachable = office()
+    const wanted = TIROL_GK4_WOHNEN.projectFacts
+    const mirrorMatches = (copy: ReturnType<typeof projectFactsOf>) =>
+      wanted.bundesland.includes(copy.bundesland ?? '') &&
+      wanted.gebaeudeklasse.some((gk) => copy.gebaeudeklasse.includes(gk)) &&
+      wanted.nutzungen.some((use) => copy.nutzungen.includes(use))
+
+    await searchAcrossProjects(caller(), search({ scope: 'all', ...TIROL_GK4_WOHNEN }))
+
+    const expected = state.reachable.filter((one) => mirrorMatches(projectFactsOf(one.profile))).map((one) => one.id)
+    expect(expected).toHaveLength(2)
+    expect(state.planned).toEqual(expected)
+  })
+
+  it('does not send the filter to the grouped search: the page already carries it, and the copy may lag', async () => {
+    state.reachable = office()
+
+    await searchAcrossProjects(caller(), search({ ...TIROL_GK4_WOHNEN, documentTypes: ['Detail'] }))
+
+    expect(state.groupedCalls[0].options.filters).toEqual({ document_types: ['Detail'] })
+  })
+
+  it('narrows the likeness scopes and keeps their order and the search’s likeness lift', async () => {
+    const current = project(7, { profile: profileOf({ bundesland: 'tirol', gebaeudeklasse: 4, bauweise: ['holzbau'] }) })
+    state.outOfReach = [current]
+    state.reachable = [
+      project(1, { ...closed, profile: profileOf({ bundesland: 'tirol', gebaeudeklasse: 2, nutzungen: ['wohnen'] }) }),
+      project(2, {
+        ...closed,
+        profile: profileOf({ bundesland: 'tirol', gebaeudeklasse: 4, bauweise: ['holzbau'], nutzungen: ['wohnen'] }),
+      }),
+      project(3, {
+        ...closed,
+        profile: profileOf({ bundesland: 'wien', gebaeudeklasse: 4, bauweise: ['holzbau'], nutzungen: ['wohnen'] }),
+      }),
+    ]
+    const [low, high] = state.reachable
+
+    await searchAcrossProjects(caller(current.id), search({ scope: 'similar', projectFacts: { bundesland: ['tirol'] } }))
+
+    // The most alike first among the projects the facts left; the Viennese one is out, however alike.
+    expect(state.planned).toEqual([high.id, low.id])
+    expect(state.groupedCalls[0].options.boost).toMatchObject({ facts: { bundesland: 'tirol', gebaeudeklasse: [4] } })
+  })
+
+  it('narrows a named scope too: a named project without the facts is not searched', async () => {
+    state.reachable = office()
+    const [one, two] = state.reachable
+
+    const result = await searchAcrossProjects(
+      caller(),
+      search({ scope: 'named', projectIds: [one.id, two.id], ...TIROL_GK4_WOHNEN })
+    )
+
+    expect(state.planned).toEqual([one.id])
+    expect(result.projectsInScope).toBe(1)
+  })
+
+  it('never widens the audience: a matching project out of reach stays invisible, a shared chat searches no restricted folder', async () => {
+    const stranger = project(9, { ...closed, profile: profileOf({ bundesland: 'tirol', gebaeudeklasse: 4, nutzungen: ['wohnen'] }) })
+    state.outOfReach = [stranger]
+    state.reachable = office()
+    state.restrictedFolders = false
+    const [one] = state.reachable
+    state.folders.set('proj_1_rabcdef012345', 'folder-honorare')
+    state.hits.set(one.id, [hit('honorar', 0.9, { collectionName: 'proj_1_rabcdef012345' }), hit('plan', 0.7)])
+
+    const result = await searchAcrossProjects(
+      caller(),
+      search({ scope: 'named', projectIds: [stranger.id, one.id], ...TIROL_GK4_WOHNEN })
+    )
+
+    expect(state.planned).toEqual([one.id])
+    expect(state.groupedCalls[0].collections).toEqual(['proj_1'])
+    expect(result.hits.map((found) => found.filename)).toEqual(['plan.pdf'])
+    expect(state.recorded).toEqual([{ projectIds: [one.id], folderIds: [] }])
+  })
+
+  it('lists only the projects with the facts, and records only those', async () => {
+    state.reachable = office()
+    const [one, , three] = state.reachable
+
+    const result = await listLookupProjects(caller(), crossProjectListRequestSchema.parse(TIROL_GK4_WOHNEN))
+
+    expect(result.projects.map((found) => found.id)).toEqual([one.id, three.id])
+    expect(result.total).toBe(2)
+    expect(state.recorded).toEqual([{ projectIds: [one.id, three.id], folderIds: [] }])
+  })
+})
+
+describe('holdsFacts', () => {
+  const profileWith = (facts: Record<string, unknown>): Project['profile'] => ({
+    facts: Object.fromEntries(
+      Object.entries(facts).map(([key, value]) => [
+        key,
+        { value: value as string, confidence: 'confirmed' as const, source: 'onboarding' as const, updatedAt: '' },
+      ])
+    ),
+    goals: {},
+    unknowns: [],
+    assumptions: {},
+  })
+
+  it('is any of within a fact, all of across facts, and holds for every project without a filter', () => {
+    const hybrid = profileWith({ bundesland: 'Niederösterreich', bauweise: ['holzbau', 'stahlbeton'], vorhabensart: ['neubau'] })
+
+    expect(holdsFacts(hybrid, undefined)).toBe(true)
+    expect(holdsFacts(hybrid, {})).toBe(true)
+    expect(holdsFacts(hybrid, { bauweise: ['stahlbau', 'holzbau'] })).toBe(true)
+    expect(holdsFacts(hybrid, { bundesland: ['niederoesterreich'], vorhabensart: ['neubau'] })).toBe(true)
+    expect(holdsFacts(hybrid, { bundesland: ['niederoesterreich'], vorhabensart: ['umbau'] })).toBe(false)
+    expect(holdsFacts(null, { bauweise: ['holzbau'] })).toBe(false)
+  })
+
+  it('reads a site abroad and „noch offen" as no value, so neither matches', () => {
+    expect(holdsFacts(profileWith({ bundesland: 'ausserhalb_oesterreichs' }), { bundesland: ['wien'] })).toBe(false)
+    expect(holdsFacts(profileWith({ bauweise: ['offen'] }), { bauweise: ['holzbau'] })).toBe(false)
   })
 })

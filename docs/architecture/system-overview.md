@@ -102,7 +102,7 @@ flowchart TB
     subgraph Data["Stateful infrastructure"]
         PG[("PostgreSQL<br/>grid_app · aiq_jobs · aiq_checkpoints")]
         SEAWEED[("SeaweedFS — grid-documents bucket")]
-        CHROMA[("ChromaDB — vector store")]
+        QDRANT[("Qdrant — vector store")]
     end
 
     PURGER["purger — scheduled hard-delete worker"]
@@ -113,7 +113,7 @@ flowchart TB
     BFF -->|presign / put| SEAWEED
     GW -->|"proxy WS upgrade + REST"| API
     API --> NAT --> JOBS
-    NAT <--> CHROMA
+    NAT <--> QDRANT
     NAT -->|"job store / checkpoints"| PG
     BFF -.->|"internal memory write API (token)"| BFF
     NAT -.->|"remember tool → internal API"| BFF
@@ -128,10 +128,10 @@ flowchart TB
 | **aiq-agent / aiq-api** | Python 3.14, FastAPI, NAT, LangGraph | Stateless AI orchestration, one image run as separate roles (ADR-0082): `aiq-agent` is the `chat` role (the chat socket), `aiq-api` the `api` role (every other HTTP route), beside the `agent-worker` and `ingest-worker`. Owns the vector store and the job/checkpoint DBs. |
 | **postgres** | PostgreSQL 16 | Three logical DBs: `grid_app` (app state), `aiq_jobs` (jobs/events/summaries), `aiq_checkpoints` (LangGraph state). |
 | **seaweedfs** | SeaweedFS (S3-compatible) | Object storage for OIB PDFs and uploaded documents (`grid-documents` bucket). |
-| **ChromaDB** | shared `chroma` server (HTTP) | Vector store (collections persisted to a volume), queried by every backend role. |
+| **Qdrant** | shared `qdrant` server (HTTP) | Vector store: two physical collections behind aliases, `piloti_corpus` and `piloti_office`, persisted to a volume and queried by every backend role (ADR-0113). |
 | **purger** | same image as frontend, `node purger/index.js` | Scheduled worker that hard-deletes soft-deleted projects after the grace period. |
 | **dragonfly** | Dragonfly (Redis protocol) | Shared cache (ADR-0020): read-through caches, WS-upgrade rate limiting, citation-registry snapshots. Cache-only; both tiers fail open to in-process fallbacks. |
-| *(one-shot)* | alpine / mc | `chroma-data-permissions` (volume chown) and `seaweedfs-init` (bucket create). |
+| *(one-shot)* | alpine / mc | `seaweedfs-init` (bucket create). |
 
 The **gateway (`server.js`)** is the seam that makes the two-tier model work:
 on each WebSocket upgrade (and REST proxy) it calls an internal BFF endpoint to
@@ -196,7 +196,7 @@ GRID deliberately separates **retrieval** from **memory** — they answer
 different questions and reach the agent differently:
 
 - **Retrieval (RAG) — "the library, searched on demand."** The OIB corpus,
-  uploaded documents, and chat attachments live as embeddings in ChromaDB,
+  uploaded documents, and chat attachments live as embeddings in Qdrant,
   queried per turn and scoped by a base64url `X-Grid-Collection-Scope` header:
   `[oib_knowledge, archiv_<org>, proj_<id>, s_<conversation>]`. Legal claims
   must ground here and are cited.
@@ -213,7 +213,7 @@ level invisible outside its owner. This containment is the structural fact of
 the knowledge architecture; the source-kind chips (`baurecht | buero | projekt
 | web`) are a labelling dimension *within* it, not a second hierarchy:
 
-| Level | Documents (ChromaDB) | Learned state (`grid_app`) | Visible to |
+| Level | Documents (Qdrant) | Learned state (`grid_app`) | Visible to |
 |---|---|---|---|
 | Platform | `oib_knowledge` (OIB corpus) | platform lessons | everyone |
 | Organization | `archiv_<org>` (Archiv, ADR-0024, feature-gated) | — | that org |
@@ -256,7 +256,7 @@ internal one). → `docs/technical-reference/document-ingestion.md`.
 ### 5.7 Deletion pipeline (soft-delete → restore → hard-purge)
 Deleting a project is reversible within a grace window: it's soft-deleted and
 queued (`deletion_queue`); the **purger** worker hard-purges after
-`PROJECT_PURGE_GRACE_DAYS`, cascading DB rows, SeaweedFS objects, the Chroma
+`PROJECT_PURGE_GRACE_DAYS`, cascading DB rows, SeaweedFS objects, the Qdrant
 collection, job rows, checkpoints, and the WorkOS FGA resource. **Legal holds**
 (`legal_holds`) block purge and are re-checked before each destructive step.
 The project row is deleted last so a failed purge stays recoverable. (ADR 0011.)
@@ -371,7 +371,7 @@ marks it purged. Restore is possible only while the row is un-claimed.
 | **`aiq_jobs`** (Postgres) | backend | backend async-run info/access/events (deep research) — not the BFF `jobs` schedule table (§5.12), document summaries |
 | **`aiq_checkpoints`** (Postgres) | backend | LangGraph conversation checkpoints (thread state) |
 | **SeaweedFS** (`grid-documents`) | BFF writes, backend/purger read | OIB PDFs + uploaded documents, keyed by org/project |
-| **ChromaDB** | backend | vector collections: `oib_knowledge` (global), `archiv_<org>` (org Archiv), `proj_<id>` (per project), `s_<conversation>` (session). Memory and lessons are not in Chroma — they live in `grid_app`, with row-resident embeddings for recall ([semantic-notes.md](./semantic-notes.md)). |
+| **Qdrant** | backend | two physical collections, `piloti_corpus` (the legal corpus, `oib_knowledge`) and `piloti_office` (everything an office uploads). The logical collections `archiv_<org>`, `proj_<id>`, `<proj>_r<folder>` and `s_<conversation>` are payload fields, and a request's scope is one filter compiled in `scope_filter` (ADR-0114). Memory and lessons are not in Qdrant — they live in `grid_app`, with row-resident embeddings for recall ([semantic-notes.md](./semantic-notes.md)). |
 
 Schema evolves via Drizzle migrations (`frontends/ui/drizzle/`, applied on
 frontend start). → `docs/database/`.
@@ -404,7 +404,7 @@ frontend start). → `docs/database/`.
 | AI orchestration | NeMo Agent Toolkit (NAT) + LangGraph; the Postgres research queue for async jobs |
 | LLM | any OpenAI-compatible endpoint (reference boot floor: OpenAI GPT-5.6 Luna via OpenRouter; the served model is an admin decision at runtime) |
 | Embeddings | any OpenAI-compatible endpoint (reference: OpenAI text-embedding-3-large via OpenRouter) |
-| RAG / vector store | ChromaDB (+ LlamaIndex ingestion) |
+| RAG / vector store | Qdrant via `qdrant-client` (+ LlamaIndex ingestion) |
 | Web search | Tavily |
 | Relational DB | PostgreSQL 16 (Drizzle ORM on the BFF side) |
 | Object storage | SeaweedFS (S3-compatible) |
@@ -416,7 +416,7 @@ frontend start). → `docs/database/`.
 ## 10. Deployment topology
 
 Seven Compose services on one bridge network: `postgres`, `seaweedfs` (+ `seaweedfs-init`),
-`aiq-agent` (+ one-shot `chroma-data-permissions`), `frontend`, and `purger`.
+`aiq-agent`, `qdrant`, `frontend`, and `purger`.
 Frontend on `:3000` (the only public port for the app), backend on `:8000`,
 Postgres `:5432`, SeaweedFS `:8333/:8888`. Migrations run on frontend start; the
 OIB corpus is uploaded after first boot (admin UI or `scripts/upload_oib_corpus.py`) and ingested by the ingest workers, from jobs the upload and the base-corpus housekeeping queue. → `docs/deployment/`.

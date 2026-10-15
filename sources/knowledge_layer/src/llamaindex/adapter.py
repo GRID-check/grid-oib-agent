@@ -1,18 +1,16 @@
 """
 LlamaIndex adapter for the Knowledge Layer.
 
-This adapter provides a lightweight, no-deployment-required local solution.
 It uses:
-- ChromaDB for local vector storage (file-based, like Milvus-lite)
+- LlamaIndex's document loaders and chunking (``SentenceSplitter``)
 - Embeddings via LlamaIndex's `NVIDIAEmbedding` client pointed at an OpenAI-compatible endpoint (OpenRouter by default)
-- LlamaIndex's document loaders and chunking
+- Qdrant for every chunk, written and read through ``knowledge_layer.qdrant`` (ADR-0113)
 - Optional multimodal extraction (tables, charts, images) with VLM captioning through the same endpoint
 
 Configuration options:
-    persist_dir: Directory for ChromaDB persistence (default: /tmp/chroma_data)
-    embed_model: NVIDIA embedding model (default: nvidia/llama-nemotron-embed-vl-1b-v2)
+    embed_model: Embedding model (default: openai/text-embedding-3-large, 3072-d, via AIQ_EMBED_MODEL)
     embed_base_url: Embedding model base URL (default: https://openrouter.ai/api/v1)
-    chunk_size: Chunk size for text splitting (default: 1024, model supports up to 2048 tokens)
+    chunk_size: Chunk size for text splitting (default: 1024)
     chunk_overlap: Overlap between chunks (default: 128)
 
 Multimodal options:
@@ -41,6 +39,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from dataclasses import field
@@ -151,18 +150,6 @@ DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "openai/gpt-6-luna")
 DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://openrouter.ai/api/v1")
 
 
-# ---------------------------------------------------------------------------
-# ChromaDB client construction (embedded vs shared server).
-#
-# Horizontal scaling: when AIQ_CHROMA_URL (e.g. ``http://chroma:8000``) or
-# AIQ_CHROMA_HOST is set, every backend replica and research worker talks to ONE
-# shared Chroma server over HTTP instead of each opening its own embedded
-# PersistentClient on local disk (which pins the vector store to a single pod).
-# Unset -> today's embedded behaviour, unchanged, so local dev and single-node
-# deployments are untouched. The returned client is API-compatible either way,
-# so every downstream call site (collections, queries, count/peek, heartbeat)
-# is identical.
-# ---------------------------------------------------------------------------
 def retrieval_dependency_faults() -> list[tuple[str, BaseException]]:
     """Describe, per required module, what is actually wrong with it right now.
 
@@ -174,7 +161,7 @@ def retrieval_dependency_faults() -> list[tuple[str, BaseException]]:
     be answered per module.
 
     Each probe is a literal import rather than a loop over module names: the
-    four are known when this is written, so computing them bought nothing and
+    three are known when this is written, so computing them bought nothing and
     made the dependency graph invisible to both readers and static analysis.
     The exception type carries the distinction the report needs —
     ``ModuleNotFoundError`` means the module is genuinely absent, any other
@@ -209,15 +196,13 @@ def retrieval_dependency_faults() -> list[tuple[str, BaseException]]:
         from llama_index.embeddings.nvidia import NVIDIAEmbedding  # noqa: F401
 
     def _vector_store() -> None:
-        from llama_index.vector_stores.chroma import ChromaVectorStore  # noqa: F401
-
-    def _chroma() -> None:
-        import chromadb  # noqa: F401
+        # A presence probe only: every read and write goes through ``..qdrant``,
+        # the one package that imports the client (ADR-0113).
+        __import__("qdrant_client")
 
     _probe("llama-index-core", "llama_index.core", _core)
     _probe("llama-index-embeddings-nvidia", "llama_index.embeddings.nvidia", _embeddings)
-    _probe("llama-index-vector-stores-chroma", "llama_index.vector_stores.chroma", _vector_store)
-    _probe("chromadb", "chromadb", _chroma)
+    _probe("qdrant-client", "qdrant_client", _vector_store)
     return faults
 
 
@@ -230,10 +215,10 @@ def ensure_retrieval_dependencies() -> None:
     """Fail now, with the whole picture, rather than deep in a later call.
 
     Both initialization paths import only the piece they need first
-    (``NVIDIAEmbedding``), so a missing ``llama-index-vector-stores-chroma``
-    used to sail through ``_ensure_initialized`` and surface much later inside
-    ``_get_index`` or ``_run_ingestion`` — outside the handler that produces the
-    good diagnostic, and after the component had already reported itself ready.
+    (``NVIDIAEmbedding``), so a missing vector-store package used to sail
+    through ``_ensure_initialized`` and surface much later inside a retrieval
+    or ``_run_ingestion`` — outside the handler that produces the good
+    diagnostic, and after the component had already reported itself ready.
     Probing the full set up front means "initialized" means usable.
     """
     faults = retrieval_dependency_faults()
@@ -274,80 +259,6 @@ def _retrieval_dependency_error(cause: BaseException) -> RuntimeError:
         "(commonly a missing llama-index-core under the llama_index namespace package) -- reinstalling "
         "the whole extra, not adding a package, is the fix: uv sync --extra llamaindex"
     )
-
-
-# @environment_variable AIQ_CHROMA_HTTP_TIMEOUT_SECONDS
-# @category Knowledge Layer
-# @type float
-# @default 120
-# @required false
-# The longest one request to the shared Chroma server may take (connecting is
-# bounded at 5 s within it). chromadb's HTTP client sets no timeout of its own
-# (`httpx.Client(timeout=None)` in chromadb 1.5), so a request on a connection
-# to a Chroma pod whose node died, which sends neither FIN nor RST, never
-# returns, and every thread that makes one is lost to the process. Must exceed
-# the slowest legitimate call, a metadata scan of the largest collection.
-#: Fallback for :data:`AIQ_CHROMA_HTTP_TIMEOUT_SECONDS`.
-_CHROMA_HTTP_TIMEOUT_SECONDS = 120.0
-#: Upper bound on establishing the TCP connection, within the request timeout.
-_CHROMA_CONNECT_TIMEOUT_SECONDS = 5.0
-
-
-def _bound_chroma_http(client) -> None:
-    """Give a chromadb HTTP client's session a timeout; chromadb leaves it unbounded.
-
-    The session is private (``Client._server._session``, an ``httpx.Client``):
-    chromadb exposes connection-pool settings but no timeout. Reaching in is the
-    lesser evil. Unbounded, one dead Chroma pod drained the API's whole thread
-    pool on 2026-10-12: every ``asyncio.to_thread`` call that touched Chroma
-    blocked on a socket read that could not end, until the process was
-    restarted. ``test_chroma_http_timeout.py`` fails if a chromadb upgrade moves
-    the attribute, so the reach-in cannot go stale silently.
-    """
-    session = getattr(getattr(client, "_server", None), "_session", None)
-    if session is None:
-        logger.warning("chromadb client has no _server._session; Chroma requests stay unbounded")
-        return
-    import httpx
-
-    seconds = _env_float("AIQ_CHROMA_HTTP_TIMEOUT_SECONDS", _CHROMA_HTTP_TIMEOUT_SECONDS)
-    session.timeout = httpx.Timeout(seconds, connect=min(_CHROMA_CONNECT_TIMEOUT_SECONDS, seconds))
-
-
-def _make_chroma_client(persist_dir: str):
-    """Return a ChromaDB client: shared HTTP server when configured, else embedded."""
-    import chromadb
-    from chromadb.config import Settings
-
-    settings = Settings(anonymized_telemetry=False)
-
-    url = os.environ.get("AIQ_CHROMA_URL", "").strip()
-    host = os.environ.get("AIQ_CHROMA_HOST", "").strip()
-    port_env = os.environ.get("AIQ_CHROMA_PORT", "").strip()
-
-    if url:
-        from urllib.parse import urlparse
-
-        # A scheme-less value like "chroma:8000" parses with scheme="chroma" and
-        # hostname=None, which would silently connect to an empty host. Prepend a
-        # scheme so host:port is parsed as authority.
-        parsed = urlparse(url if "://" in url else f"http://{url}")
-        ssl = parsed.scheme == "https"
-        host = parsed.hostname or host
-        if not host:
-            raise ValueError(f"AIQ_CHROMA_URL has no host: {url!r}")
-        # URL port wins; else AIQ_CHROMA_PORT; else scheme default.
-        port = parsed.port or (int(port_env) if port_env.isdigit() else (443 if ssl else 8000))
-    elif host:
-        ssl = os.environ.get("AIQ_CHROMA_SSL", "").lower() in ("1", "true", "yes")
-        port = int(port_env) if port_env.isdigit() else (443 if ssl else 8000)
-    else:
-        os.makedirs(persist_dir, exist_ok=True)
-        return chromadb.PersistentClient(path=persist_dir, settings=settings)
-
-    client = chromadb.HttpClient(host=host, port=port, ssl=ssl, settings=settings)
-    _bound_chroma_http(client)
-    return client
 
 
 # Image extraction settings - filters out small icons/logos
@@ -589,7 +500,7 @@ class _ClaimLost(Exception):  # noqa: N818 - a signal, not an error
 # A finished job's row in the shared status store is retained this long, then
 # pruned (`ingest_status_store.prune_expired`, on the heartbeat). It is the only
 # record of a file that failed, so the file drops off the listing with it.
-# SUCCESS files stay listed: `list_files` reads them from the Chroma chunks.
+# SUCCESS files stay listed: `list_files` reads them from the indexed chunks.
 # Bounds the `ingest_jobs` table (scaling review phase-2, #13).
 FILE_TRACKING_RETENTION_SECONDS = _env_int("AIQ_FILE_TRACKING_RETENTION_SECONDS", 86400)  # 24h
 
@@ -604,8 +515,8 @@ _PRUNE_EVERY_BEATS = 120
 # Collection write versions (cross-replica).
 #
 # The premise the in-process counter rested on -- "one backend process owns the
-# store" -- is false: AIQ_CHROMA_URL points every backend replica and every
-# research worker at ONE Chroma. A version held in a module global is invisible
+# store" -- is false: every backend replica and every research worker reads ONE
+# Qdrant cluster (AIQ_QDRANT_URL). A version held in a module global is invisible
 # to every replica but its own, so a write here would leave the others serving
 # superseded results for the whole result-cache TTL. The version now lives in
 # the shared cache; these two functions are the adapter's seam onto it.
@@ -630,48 +541,23 @@ def collection_version(collection_name: str) -> int | None:
     return _collection_version.current(collection_name)
 
 
-#: ``exp(-distance)`` at cosine distance 1.0 — the score of a chunk with no
-#: relationship to the query at all. Everything below this maps to 0.0.
-_ORTHOGONAL_STORE_SCORE = math.exp(-1.0)
-
-
-def cosine_similarity_from_store_score(score: Any) -> float:
-    """Recover a true cosine similarity from the vector store's reported score.
-
-    ``llama-index-vector-stores-chroma`` reports ``math.exp(-distance)`` as the
-    node similarity, not the similarity itself, and this module mirrors that
-    transform on the lexical channel so the two agree. With ``hnsw:space=cosine``
-    Chroma defines distance as ``1 - cos(q, v)``, so the recovery is exact::
-
-        s = e^-d,  d = 1 - cos   =>   cos = 1 + ln(s)
-
-    This matters because the raw number is not a similarity and never approaches
-    zero: an *orthogonal* chunk scores ``e^-1 = 0.37`` and a contradictory one
-    ``e^-2 = 0.14``. Printed to the answering LLM as ``Relevance Score: 0.37``
-    that reads as a moderate match, and any threshold set against it is set
-    against a scale nobody intended -- the one such threshold in this codebase
-    (``surface_documents.MIN_SURFACE_SCORE = 0.35``) sits at a cosine of -0.05,
-    admitting anti-correlated chunks while documented as a quality gate.
+def unit_score(score: Any) -> float:
+    """A hit's cosine as ``Chunk.score`` holds it: within ``[0, 1]``, total on every input.
 
     Anti-correlated results floor at ``0.0`` rather than going negative:
     ``Chunk.score`` is contractually ``[0, 1]``, and "worse than unrelated" and
-    "unrelated" are the same decision for every consumer.
-
-    Total on every input -- ``None``, ``NaN``, ``0.0`` and out-of-range values all
-    return a float and never raise. That is deliberate rather than defensive:
-    ``normalize``'s except-branch does not drop a bad chunk, it substitutes one
-    whose content is ``str(raw_result)`` and whose file name is ``"unknown"``,
-    which then occupies a top-k slot and can be cited.
+    "unrelated" are the same decision for every consumer. ``None``, ``NaN`` and
+    garbage return ``0.0`` and never raise: ``normalize``'s except-branch does
+    not drop a bad chunk, it substitutes one whose content is
+    ``str(raw_result)``, which then occupies a top-k slot and can be cited.
     """
     try:
         value = float(score)
     except (TypeError, ValueError):
         return 0.0
-    if not math.isfinite(value) or value <= _ORTHOGONAL_STORE_SCORE:
+    if not math.isfinite(value):
         return 0.0
-    if value >= 1.0:
-        return 1.0
-    return min(1.0, max(0.0, 1.0 + math.log(value)))
+    return min(1.0, max(0.0, value))
 
 
 def _filters_fingerprint(filters: dict[str, Any] | None) -> str:
@@ -679,80 +565,6 @@ def _filters_fingerprint(filters: dict[str, Any] | None) -> str:
     if not filters:
         return ""
     return json.dumps(filters, sort_keys=True, default=str)
-
-
-def _field_metadata_filter(field: str, condition: Any):
-    """Translate one ``field: condition`` pair into a ``MetadataFilter``."""
-    from llama_index.core.vector_stores.types import FilterOperator
-    from llama_index.core.vector_stores.types import MetadataFilter
-
-    operators = {
-        "$eq": FilterOperator.EQ,
-        "$ne": FilterOperator.NE,
-        "$in": FilterOperator.IN,
-        "$nin": FilterOperator.NIN,
-    }
-    if isinstance(condition, dict):
-        if len(condition) != 1:
-            raise ValueError(f"Unsupported metadata filter condition for field {field!r}: {condition!r}")
-        op, value = next(iter(condition.items()))
-        if op not in operators:
-            raise ValueError(f"Unsupported metadata filter operator: {op!r}")
-        return MetadataFilter(key=field, operator=operators[op], value=value)
-    return MetadataFilter(key=field, operator=FilterOperator.EQ, value=condition)
-
-
-def _translate_filter_node(node: dict[str, Any]):
-    """Translate one filter node into ``MetadataFilters`` (nested groups supported)."""
-    from llama_index.core.vector_stores.types import FilterCondition
-    from llama_index.core.vector_stores.types import MetadataFilters
-
-    flat: list[Any] = []
-    groups: list[MetadataFilters] = []
-    for key, condition in node.items():
-        if key == "$and":
-            if not isinstance(condition, list) or not condition:
-                raise ValueError(f"Unsupported metadata filter operator: {key!r} (expects a non-empty list)")
-            children = [_translate_filter_node(child) for child in condition]
-            flattened: list[Any] = []
-            for child in children:
-                if child.condition == FilterCondition.AND:
-                    flattened.extend(child.filters)
-                else:
-                    flattened.append(child)
-            groups.append(MetadataFilters(filters=flattened, condition=FilterCondition.AND))
-        elif key == "$or":
-            if not isinstance(condition, list) or not condition:
-                raise ValueError(f"Unsupported metadata filter operator: {key!r} (expects a non-empty list)")
-            children = [_translate_filter_node(child) for child in condition]
-            groups.append(MetadataFilters(filters=children, condition=FilterCondition.OR))
-        elif key.startswith("$"):
-            raise ValueError(f"Unsupported metadata filter operator: {key!r}")
-        else:
-            flat.append(_field_metadata_filter(key, condition))
-    combined: list[Any] = flat + groups
-    if not combined:
-        raise ValueError("Unsupported metadata filter: empty group")
-    return MetadataFilters(filters=combined)
-
-
-def _to_metadata_filters(filters: dict[str, Any] | None):
-    """Translate the backend-neutral filter dict into LlamaIndex ``MetadataFilters``.
-
-    Shape (conditions AND-ed within a node; ``$or``/``$and`` group nested nodes)::
-
-        {"field": value}                              -> equality
-        {"field": {"$eq"|"$ne": v}}                   -> (not) equal
-        {"field": {"$in"|"$nin": [v1, ...]}}          -> (not) in
-        {"$and": [node, ...]}                         -> AND group
-        {"$or": [node, ...]}                          -> OR group
-
-    Returns ``None`` for empty input. Unknown operators raise ``ValueError``
-    (fail loud at the tool boundary rather than silently over-retrieving).
-    """
-    if not filters:
-        return None
-    return _translate_filter_node(filters)
 
 
 #: Metadata keys that exist for filtering, citation or diagnostics and must never be
@@ -938,24 +750,26 @@ def _stamp_chunk_metadata(
         )
 
 
-#: Collection-metadata keys recording which embedding produced a collection's vectors.
-#: Namespaced so they cannot collide with a user-supplied `metadata` dict.
+#: Collection-metadata keys recording which embedding produced a collection's vectors
+#: (``qdrant.schema.EMBED_IDENTITY_KEYS``): stamped when a Qdrant collection is
+#: created, compared before every write and every read of it.
 EMBED_FINGERPRINT_KEY = "aiq:embed_fingerprint"
 EMBED_MODEL_KEY = "aiq:embed_model"
-
-#: Collections whose fingerprint mismatch has already been reported, so a
-#: misconfiguration logs once rather than once per query.
-_reported_fingerprint_mismatches: set[str] = set()
 
 
 def embed_fingerprint(model: str, base_url: str) -> str:
     """Stable digest of the embedding identity a collection's vectors were written with.
 
-    ``base_url`` is part of the identity, not decoration: the same model name served by
-    a different provider is a different vector space, and this deployment's code default
-    (``nvidia/llama-nemotron-embed-vl-1b-v2`` on NVIDIA) differs from what compose
-    actually sets (``openai/text-embedding-3-large`` on OpenRouter), so any deployment
-    path that misses the env var writes foreign vectors into a shared collection.
+    A same-dimension model swap, or a repointed base URL, produces no error at
+    all, only silently wrong retrieval at a score distribution that looks
+    normal; this digest is what makes it fail loudly
+    (``qdrant.schema.identity_mismatch``). ``base_url`` is part of the
+    identity, not decoration: the same model name served by
+    a different provider is a different vector space. The model default
+    (``openai/text-embedding-3-large`` on OpenRouter) once differed from the code default
+    (``nvidia/llama-nemotron-embed-vl-1b-v2`` on NVIDIA), so a deployment path that missed
+    the env var wrote foreign vectors into a shared collection; a repointed base URL can
+    still do the same.
     """
     payload = json.dumps({"model": model, "base_url": (base_url or "").rstrip("/")}, sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
@@ -964,131 +778,6 @@ def embed_fingerprint(model: str, base_url: str) -> str:
 def embed_fingerprint_metadata(model: str, base_url: str) -> dict[str, str]:
     """Collection metadata recording the embedding identity, human-readable digest first."""
     return {EMBED_FINGERPRINT_KEY: embed_fingerprint(model, base_url), EMBED_MODEL_KEY: model}
-
-
-def embed_fingerprint_mismatch(collection_metadata: dict[str, Any] | None, model: str, base_url: str) -> str | None:
-    """Describe a fingerprint conflict, or ``None`` when the collection is usable.
-
-    Three states, three behaviours. **Absent** -- which is every collection deployed
-    before this existed -- is adopted silently rather than failed: "no fingerprint"
-    carries no claim, so it can only be wrong in the case that is already wrong today,
-    and a naive ``if stored != current: raise`` would brick every live corpus.
-    **Equal** proceeds. **Different** is reported.
-
-    A same-dimension model swap is the case that needs this. A different-dimension one
-    already fails loudly inside Chroma; swapping two 3072-dimension models, or repointing
-    the base URL, produces no error at all -- just silently wrong retrieval, at a score
-    distribution that looks entirely normal.
-    """
-    stored = (collection_metadata or {}).get(EMBED_FINGERPRINT_KEY)
-    if not stored:
-        return None
-    current = embed_fingerprint(model, base_url)
-    if stored == current:
-        return None
-    stored_model = (collection_metadata or {}).get(EMBED_MODEL_KEY, "unknown")
-    return (
-        f"embedding mismatch: collection was written with {stored_model!r} (fingerprint {stored}), "
-        f"but this process is configured for {model!r} at {base_url!r} (fingerprint {current}). "
-        f"Stored and query vectors are from different spaces. Restore the previous "
-        f"AIQ_EMBED_MODEL/AIQ_EMBED_BASE_URL, or delete and re-ingest the collection."
-    )
-
-
-def _cosine_distances(query_embedding: Any, embeddings: Any, count: int) -> list[float]:
-    """Cosine distances between the query vector and each fetched chunk vector.
-
-    The German sparse channel finds chunks by lexical match, so it has no distance of its
-    own, and it used to declare 1.0 for all of them. On this pipeline's scale that is a
-    cosine of EXACTLY 0.0 -- a positive claim that the chunk is orthogonal to the query,
-    not an absence of information. Three things then follow, all wrong: a relevance floor
-    above zero deletes every sparse-only hit while leaving overlapping vector hits alone,
-    `MIN_SURFACE_SCORE` does the same in the document grid, and the grounding block prints
-    `Relevance Score: 0.00` next to a chunk that may be the best answer in the corpus.
-
-    The real distance is computable for free. Chroma returns the stored vectors on the
-    same `get` that fetches the text, and the query vector is already in hand -- no extra
-    embedding call, no extra round trip.
-
-    Falls back to the neutral 1.0 per chunk if anything is missing or malformed: this is
-    the retrieval hot path and a scoring nicety must never break a search.
-    """
-    try:
-        import numpy as np
-
-        if embeddings is None or len(embeddings) != count:
-            return [1.0] * count
-        matrix = np.asarray(embeddings, dtype=float)
-        query = np.asarray(query_embedding, dtype=float)
-        norms = np.linalg.norm(matrix, axis=1) * np.linalg.norm(query)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            cosine = np.where(norms > 0, (matrix @ query) / norms, 0.0)
-        return [float(1.0 - value) for value in np.nan_to_num(cosine, nan=0.0)]
-    except Exception:  # pragma: no cover - defensive; scoring must not break retrieval
-        return [1.0] * count
-
-
-def _is_missing_collection(exc: BaseException) -> bool:
-    """True when ``get_collection`` failed because the collection does not exist.
-
-    chromadb 1.x raises ``chromadb.errors.NotFoundError`` ("Collection [x] does
-    not exist"); 0.x raised a bare ``ValueError`` with the same wording, and an
-    HTTP client may surface it as its own error class. The message is the
-    common ground, the class the precise check.
-    """
-    try:
-        from chromadb.errors import NotFoundError
-    except ImportError:  # pragma: no cover - the adapter does not run without chromadb
-        NotFoundError = None  # noqa: N806
-    if NotFoundError is not None and isinstance(exc, NotFoundError):
-        return True
-    return "does not exist" in str(exc).lower()
-
-
-def _to_chroma_where(filters: dict[str, Any] | None):
-    """Translate a backend-neutral filter dict into a Chroma ``where`` expression.
-
-    Routes through the same ``MetadataFilters`` translation the vector channel uses, so
-    the lexical channel cannot accept or reject a different filter grammar than its
-    partner. Chroma requires exactly one operator per expression and at least two
-    operands in an ``$and``/``$or``; LlamaIndex's translation normalises both, which the
-    raw dict did not. Returns ``None`` for empty input.
-    """
-    metadata_filters = _to_metadata_filters(filters)
-    if metadata_filters is None:
-        return None
-    # `_to_chroma_filter` is private to the vendor package and pinned only by a lower
-    # bound, so a minor bump can remove it. Raising here would degrade to "hybrid
-    # silently off" -- the exact failure this translation exists to eliminate -- so
-    # fall back to the local translation instead.
-    try:
-        from llama_index.vector_stores.chroma.base import _to_chroma_filter
-
-        return _to_chroma_filter(metadata_filters)
-    except ImportError:
-        logger.warning("llama-index's Chroma filter translation is unavailable; using the local fallback")
-        return _local_chroma_where(filters)
-
-
-def _local_chroma_where(filters: dict[str, Any]) -> dict[str, Any]:
-    """Minimal backend-neutral -> Chroma ``where`` translation.
-
-    Mirrors the two normalisations Chroma requires and the raw dict lacks: sibling
-    keys in one node become an explicit ``$and``, and a one-operand ``$and``/``$or``
-    collapses to the bare expression.
-    """
-    operands: list[dict[str, Any]] = []
-    for key, condition in filters.items():
-        if key in {"$and", "$or"}:
-            children = [_local_chroma_where(child) for child in condition]
-            operands.append(children[0] if len(children) == 1 else {key: children})
-        elif isinstance(condition, dict):
-            operands.append({key: condition})
-        else:
-            operands.append({key: {"$eq": condition}})
-    if not operands:
-        raise ValueError("Unsupported metadata filter: empty group")
-    return operands[0] if len(operands) == 1 else {"$and": operands}
 
 
 def _resolve_embed_api_key(base_url: str, model: str) -> str:
@@ -1674,7 +1363,7 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
     (``page_text_with_tables``).
 
     Extracted from ``_run_ingestion`` so the choice between the strategies is
-    testable without a job, a Chroma client or an embedder.
+    testable without a job, a vector store or an embedder.
     """
     from knowledge_layer.llamaindex.punkt_chunking import punkt_documents
     from knowledge_layer.llamaindex.section_chunking import section_documents
@@ -2064,7 +1753,7 @@ def _build_image_documents(
 
 
 def _looks_like_raw_pdf_or_binary(text: str) -> bool:
-    """Reject raw PDF bytes or binary-looking text before it reaches Chroma."""
+    """Reject raw PDF bytes or binary-looking text before it reaches the vector store."""
     sample = text[:4096]
     if sample.lstrip().startswith("%PDF"):
         return True
@@ -2614,6 +2303,23 @@ def _normalized_file_name(name: str | None) -> str:
     return unquote(_TMP_UPLOAD_PREFIX.sub("", name or ""))
 
 
+def _stored_name_matches(requested: str, stored: str) -> bool:
+    """Whether a chunk stored under ``stored`` belongs to the file a delete names ``requested``.
+
+    The stored ``file_name`` can diverge from the requested name in two ways:
+    a temp-upload prefix (Python's tempfile: ``tmp[8 chars]_filename``), and
+    percent-encoding, when the name was derived from a presigned-URL path at
+    ingest time (a space or umlaut stored as ``%20``/``%C3%…``). Decoding the
+    stored side lets a document ingested under an encoded name still be
+    deleted by its real, decoded filename. One rule for every reader of the
+    stored names (``delete_file``, ``QdrantStore.delete_file``).
+    """
+    from urllib.parse import unquote
+
+    stripped = _TMP_UPLOAD_PREFIX.sub("", stored or "")
+    return requested in (stripped, unquote(stripped))
+
+
 def _stored_spellings(name: str) -> set[str]:
     """The ``file_name`` values a stored version of ``name`` can carry, short of a tmp prefix.
 
@@ -2641,6 +2347,21 @@ class _PreviousVersion:
     chunk_ids: list[str] = field(default_factory=list)
     stored_names: list[str] = field(default_factory=list)
     preserved: dict[str, str] = field(default_factory=dict)
+
+
+def _tmp_upload_names(collection_name: str, spellings: list[str]) -> list[str]:
+    """The legacy ``tmp…_`` names the metadata rows know for ``spellings``; none when that store fails (logged)."""
+    from aiq_agent.knowledge import find_tmp_upload_names
+
+    try:
+        return list(find_tmp_upload_names(collection_name, spellings))
+    except Exception:  # noqa: BLE001 — it only adds legacy spellings; their version stays beside the re-upload
+        logger.warning(
+            "Could not read the tmp-prefixed names in %s; a legacy version may stay beside its re-upload",
+            collection_name,
+            exc_info=True,
+        )
+        return []
 
 
 def _read_human_set_fields(collection_name: str, found: dict[str, _PreviousVersion]) -> None:
@@ -2712,7 +2433,7 @@ def _file_info_from_job(job: IngestionJobStatus, detail: FileProgress) -> FileIn
 
 
 def _merge_file_records(indexed: FileInfo | None, recorded: FileInfo | None) -> FileInfo | None:
-    """One file from its two records: the chunks Chroma holds, and the newest job's account of it.
+    """One file from its two records: the chunks the store holds, and the newest job's account of it.
 
     The chunks say what is indexed; the job says what is happening to the file
     or why it failed. A re-upload that failed leaves the version it replaced
@@ -2734,17 +2455,37 @@ def _merge_file_records(indexed: FileInfo | None, recorded: FileInfo | None) -> 
     )
 
 
+#: The payload a file listing reads per chunk: no text, no vectors.
+_LISTING_FIELDS = (
+    "file_name",
+    "file_size",
+    "file_type",
+    "creation_date",
+    "last_modified_date",
+    "content_type",
+    "page_label",
+)
+#: Points per page of a listing scroll: payload-limited records are small.
+_LISTING_PAGE = 2048
+
+
+def _from_epoch(seconds: int | None) -> datetime | None:
+    """An ``indexed_at`` value as an aware UTC datetime; None stays None."""
+    from datetime import UTC
+
+    return datetime.fromtimestamp(seconds, UTC) if seconds is not None else None
+
+
 @register_ingestor("llamaindex")
 class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     """
     LlamaIndex-based document ingestor with optional multimodal extraction.
 
-    Uses ChromaDB for vector storage and NVIDIA embeddings.
-    Runs entirely in-process with no external deployments required.
+    Chunks with LlamaIndex, embeds through an OpenAI-compatible endpoint and
+    writes every chunk to Qdrant (``knowledge_layer.qdrant``, ADR-0113).
 
     Configuration options:
-        persist_dir: ChromaDB persistence directory (default from AIQ_CHROMA_DIR)
-        embed_model: NVIDIA embedding model name (default: nvidia/llama-nemotron-embed-vl-1b-v2)
+        embed_model: Embedding model name (default: openai/text-embedding-3-large)
         embed_base_url: Embedding model base URL (default: https://openrouter.ai/api/v1)
         chunk_size: Text chunk size (default: 1024, model supports up to 2048 tokens)
         chunk_overlap: Chunk overlap (default: 128)
@@ -2756,7 +2497,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         vlm_model: VLM for captioning (default: openai/gpt-6-luna)
 
     Environment variables:
-        AIQ_CHROMA_DIR: Default ChromaDB persistence directory
+        AIQ_QDRANT_URL: The Qdrant cluster every chunk is written to
         AIQ_EMBED_MODEL: Default embedding model name
         AIQ_EMBED_BASE_URL: Default embedding model base URL
         AIQ_EXTRACT_TABLES: Set "false" to disable table extraction (on by default)
@@ -2767,14 +2508,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         AIQ_COLLECTION_TTL_HOURS: Hours before stale collections are deleted (default: 24)
         AIQ_TTL_CLEANUP_INTERVAL_SECONDS: Seconds between cleanup runs (default: 3600)
     """
-
-    # @environment_variable AIQ_CHROMA_DIR
-    # @category Knowledge Layer
-    # @type str
-    # @default /tmp/chroma_data
-    # @required false
-    # ChromaDB persistence directory for LlamaIndex vector storage.
-    DEFAULT_PERSIST_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
 
     # @environment_variable AIQ_EMBED_MODEL
     # @category Knowledge Layer
@@ -2842,10 +2575,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         super().__init__(config)
 
         # Configuration - read from env vars with fallback to class defaults
-        self.persist_dir = self.config.get("persist_dir", self.DEFAULT_PERSIST_DIR)
         self.embed_base_url = self.config.get("embed_base_url", self.DEFAULT_EMBED_BASE_URL)
         self.embed_model_name = self.config.get("embed_model", self.DEFAULT_EMBED_MODEL)
-        # llama-nemotron-embed-vl-1b-v2 supports up to 2048 tokens
         self.chunk_size = self.config.get("chunk_size", 1024)
         self.chunk_overlap = self.config.get("chunk_overlap", 128)
 
@@ -2861,7 +2592,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         self.summary_llm = self.config.get("summary_llm")  # Resolved LangChain LLM (or None)
 
         # The jobs this process runs, as its working copy. Not what answers a
-        # question about a file: that is the shared status store and Chroma,
+        # question about a file: that is the shared status store and Qdrant,
         # because the process that asks is not the one that ran the job.
         self._jobs: dict[str, IngestionJobStatus] = {}
         self._lock = threading.RLock()  # RLock allows same thread to acquire multiple times
@@ -2879,7 +2610,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         # Bounded ingestion pool: a thread per upload gave N concurrent
         # uploads N threads all embedding against the remote API and writing
-        # into the same embedded Chroma store. Excess jobs queue (status stays
+        # into the same store. Excess jobs queue (status stays
         # PENDING until a worker picks them up) instead of piling on threads.
         # Shared FAIRLY between organisations: a FIFO here queued every office
         # behind one office's folder upload (`ingest_scheduler`).
@@ -2891,7 +2622,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         # Lazy-loaded components
         self._embed_model = None
-        self._chroma_client = None
         self._initialized = False
 
         # Build mode description
@@ -2904,7 +2634,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             mode_parts.append("images")
         mode = " + ".join(mode_parts) if len(mode_parts) > 1 else "text-only"
 
-        logger.info(f"LlamaIndexIngestor initialized: persist_dir={self.persist_dir}, mode={mode}")
+        logger.info(f"LlamaIndexIngestor initialized: mode={mode}")
 
         # Start background TTL cleanup task
         self._start_ttl_cleanup_task(COLLECTION_TTL_HOURS, TTL_CLEANUP_INTERVAL_SECONDS)
@@ -3034,22 +2764,35 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 max_retries=EMBED_MAX_RETRIES,
             )
 
-            # Ensure persist directory exists
-            os.makedirs(self.persist_dir, exist_ok=True)
-
             self._initialized = True
             logger.info(f"LlamaIndex components initialized with model: {self.embed_model_name}")
 
         except ImportError as e:
             raise _retrieval_dependency_error(e) from e
 
-    def _get_chroma_client(self):
-        """Get or create the shared ChromaDB client (thread-safe)."""
-        with self._lock:
-            if self._chroma_client is None:
-                # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
-                self._chroma_client = _make_chroma_client(self.persist_dir)
-            return self._chroma_client
+    @staticmethod
+    def _store():
+        """The process-wide Qdrant store. Reads and deletes need no embedder; a write names it (``_ingest_job``)."""
+        from ..qdrant.store import get_store
+
+        return get_store()
+
+    def _chunk_ids_of(self, collection_name: str, stored_names: list[str]) -> list[tuple[str, str]]:
+        """``(chunk_id, stored file_name)`` of every chunk stored under one of ``stored_names``."""
+        if not stored_names:
+            return []
+        from ..qdrant.schema import CHUNK_ID_FIELD
+
+        records = self._store().scroll(
+            collection_name,
+            {"file_name": {"$in": sorted(set(stored_names))}},
+            fields=[CHUNK_ID_FIELD, "file_name"],
+            page_size=_LISTING_PAGE,
+        )
+        return [
+            (str((record.payload or {}).get(CHUNK_ID_FIELD) or record.id), str((record.payload or {}).get("file_name")))
+            for record in records
+        ]
 
     def _record_file_counts(self, job: IngestionJobStatus, file_index: int, **counts: int) -> None:
         """Put extraction counts on a file's job status, where a later
@@ -3503,79 +3246,64 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         """The embedding identity to stamp on collections this ingestor writes."""
         return embed_fingerprint_metadata(self.embed_model_name, self.embed_base_url)
 
+    def _collection_info(self, name: str, chunk_count: int | None = None) -> CollectionInfo:
+        """One collection as the store holds it: its chunks, its files, when it was first and last written.
+
+        A collection is a scope on the store's points (ADR-0114), so there is
+        nothing to look up besides them. The timestamps are the oldest and
+        newest ``indexed_at`` its points carry; a collection whose points all
+        predate the field states none, which the reaper reads as "skip".
+        """
+        from ..qdrant.schema import INDEXED_AT_FIELD
+
+        store = self._store()
+        count = store.count(name) if chunk_count is None else chunk_count
+        files = len(store.file_counts(name)) if count else 0
+        return CollectionInfo(
+            name=name,
+            file_count=files,
+            chunk_count=count,
+            created_at=_from_epoch(store.newest(name, INDEXED_AT_FIELD, oldest=True) if count else None),
+            updated_at=_from_epoch(store.newest(name, INDEXED_AT_FIELD) if count else None),
+            backend=self.backend_name,
+            metadata={"embed_model": self.embed_model_name},
+        )
+
     def create_collection(
         self,
         name: str,
         description: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> CollectionInfo:
-        """Create a new ChromaDB collection."""
-        try:
-            self._ensure_initialized()
-            client = self._get_chroma_client()
+        """Answer for the collection ``name``; there is nothing to create.
 
-            # Store timestamps as ISO strings in ChromaDB metadata
-            now = datetime.utcnow()
-            now_iso = now.isoformat()
-
-            # Create collection with cosine similarity and timestamps
-            collection_metadata = {
-                "hnsw:space": "cosine",
-                "created_at": now_iso,
-                "updated_at": now_iso,
-                **self._embed_fingerprint_metadata(),
-            }
-            if description:
-                collection_metadata["description"] = description
-            if metadata:
-                collection_metadata.update(metadata)
-
-            collection = client.get_or_create_collection(
-                name=name,
-                metadata=collection_metadata,
-            )
-
-            logger.info(f"Created collection: {name}")
-
-            return CollectionInfo(
-                name=name,
-                description=description,
-                file_count=0,
-                chunk_count=collection.count(),
-                created_at=now,
-                updated_at=now,
-                backend=self.backend_name,
-                metadata={
-                    "persist_dir": self.persist_dir,
-                    "embed_model": self.embed_model_name,
-                    **collection_metadata,
-                },
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to create collection {name}: {e}")
-            raise
+        A collection is a scope on the points of one physical Qdrant collection
+        (ADR-0114), which the first write creates once it knows the vector
+        size. ``description`` is echoed and ``metadata`` dropped: nothing reads
+        either back.
+        """
+        info = self._collection_info(name)
+        return info.model_copy(update={"description": description}) if description else info
 
     def delete_collection(self, name: str) -> bool:
-        """Delete a ChromaDB collection (thread-safe)."""
+        """Delete every chunk of ``name`` and everything recorded about it.
+
+        One store, one delete: it either took every chunk or raised, and the
+        caller's retry (the purge, the reaper's next tick) starts over. The
+        job records, summaries and the cached write version go after it.
+        """
         try:
+            self._store().delete_scope(name)
             with self._lock:
-                client = self._get_chroma_client()
-                client.delete_collection(name=name)
                 # Purge the job tracking for the collection, here and in the
                 # shared store: if a deleted collection name is ever reused,
                 # list_files would resurrect old FAILED entries as phantom files.
                 self._jobs = {jid: job for jid, job in self._jobs.items() if job.collection_name != name}
             ingest_status_store.forget_collection(name)
 
-            # Clear summaries from centralized registry
             from aiq_agent.knowledge import clear_collection_summaries
 
             clear_collection_summaries(name)
-
-            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
-
-            get_chunk_text_store().delete_collection(name)
             bump_collection_version(name)
 
             logger.info(f"Deleted collection: {name}")
@@ -3594,171 +3322,32 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         except (ValueError, TypeError):
             return None
 
-    @staticmethod
-    def _get_all_metadatas(collection) -> list[dict[str, Any]]:
-        """Page through ALL chunk metadatas of a Chroma collection.
-
-        ``collection.peek(limit=N)`` only sees the first N chunks, so files
-        whose chunks sit past the window vanish from file listings (and the
-        OIB status page then misreports fully-ingested documents). Uses
-        ``get`` with limit/offset so embeddings are not fetched.
-        """
-        batch_size = 5000
-        metadatas: list[dict[str, Any]] = []
-        offset = 0
-        total = collection.count()
-        while offset < total:
-            page = collection.get(include=["metadatas"], limit=batch_size, offset=offset)
-            page_metadatas = page.get("metadatas") or []
-            if not page_metadatas:
-                break
-            metadatas.extend(page_metadatas)
-            offset += len(page_metadatas)
-        return metadatas
-
-    def _update_collection_timestamp(self, collection_name: str) -> None:
-        """Update the updated_at timestamp for a collection."""
-        try:
-            client = self._get_chroma_client()
-            collection = client.get_collection(name=collection_name)
-
-            # Get existing metadata and update the timestamp
-            # Only include user-defined metadata fields, not ChromaDB internal ones like hnsw:space
-            existing_metadata = collection.metadata or {}
-            new_metadata = {}
-
-            # Copy over user-defined fields (excluding hnsw:* which are immutable)
-            for key, value in existing_metadata.items():
-                if not key.startswith("hnsw:"):
-                    new_metadata[key] = value
-
-            new_metadata["updated_at"] = datetime.utcnow().isoformat()
-            # Stamp the embedding identity while we already hold the merged metadata, so
-            # a collection created by the ingest path -- which cannot carry metadata,
-            # since Chroma ignores it for an existing collection -- still acquires one.
-            #
-            # ONLY WHEN ABSENT. Writing it unconditionally erases the mismatch this
-            # feature exists to detect: a collection written with model A, then ingested
-            # into by a process misconfigured for model B, would have its fingerprint
-            # rewritten to B. Retrieval's check is blocked only until that ingestion, and
-            # afterwards the collection holds vectors from two spaces while reporting no
-            # conflict -- back to silently wrong retrieval, with the evidence destroyed.
-            # A stored fingerprint is a fact about vectors already written; nothing this
-            # process does can make it untrue.
-            mismatch = embed_fingerprint_mismatch(existing_metadata, self.embed_model_name, self.embed_base_url)
-            if mismatch:
-                logger.error("Collection %s: %s", collection_name, mismatch)
-            elif not existing_metadata.get(EMBED_FINGERPRINT_KEY):
-                new_metadata.update(self._embed_fingerprint_metadata())
-
-            # ChromaDB's modify() only updates the metadata fields we provide
-            collection.modify(metadata=new_metadata)
-
-            logger.debug(f"Updated timestamp for collection: {collection_name}")
-
-        except Exception as e:
-            logger.warning(f"Failed to update collection timestamp for {collection_name}: {e}")
-
     def list_collections(self) -> list[CollectionInfo]:
-        """List all ChromaDB collections (thread-safe)."""
-        try:
-            with self._lock:
-                client = self._get_chroma_client()
-                collections = client.list_collections()
+        """Every collection with at least one chunk, from one facet per physical collection.
 
-                result = []
-                for col in collections:
-                    # Get description and timestamps from metadata if available
-                    col_metadata = col.metadata or {}
-                    description = col_metadata.get("description")
-                    created_at = self._parse_timestamp(col_metadata.get("created_at"))
-                    updated_at = self._parse_timestamp(col_metadata.get("updated_at"))
-
-                    # Count unique files by examining chunk metadata
-                    # This is approximate - based on unique file_name values
-                    try:
-                        metadatas = self._get_all_metadatas(col)
-                        unique_files = set()
-                        for m in metadatas:
-                            if m and "file_name" in m:
-                                unique_files.add(m["file_name"])
-                        file_count = len(unique_files)
-                    except Exception:
-                        file_count = 0
-
-                    result.append(
-                        CollectionInfo(
-                            name=col.name,
-                            description=description,
-                            file_count=file_count,
-                            chunk_count=col.count(),
-                            created_at=created_at,
-                            updated_at=updated_at,
-                            backend=self.backend_name,
-                            metadata={
-                                "persist_dir": self.persist_dir,
-                                **col_metadata,
-                            },
-                        )
-                    )
-
-            logger.info(f"Listed {len(result)} collections")
-            return result
-
-        except Exception as e:
-            logger.error(f"Failed to list collections: {e}")
-            return []
-
-    def get_collection(self, name: str) -> CollectionInfo | None:
-        """Metadata for one collection; None only when Chroma says the collection does not exist.
-
-        Any other failure (the server unreachable, a timeout, a transport error)
-        raises. Returned as None it read as "missing": during a Chroma outage
-        ``oib_sync`` took that for a wiped index and re-ingested the whole corpus.
+        Raises when the store cannot be read. A collection with no point is
+        absent, which cannot tell "deleted" from "not imported yet", so the
+        summary reconcile never judges a collection missing from it, and
+        refuses outright when the list is empty (``routes/maintenance.py``).
         """
-        try:
-            client = self._get_chroma_client()
+        from ..qdrant.schema import Physical
 
-            try:
-                collection = client.get_collection(name=name)
-            except Exception as exc:
-                if _is_missing_collection(exc):
-                    return None
-                raise
+        store = self._store()
+        counts: dict[str, int] = {}
+        for physical in Physical:
+            counts.update(store.scope_counts(physical))
+        result = [self._collection_info(name, count) for name, count in sorted(counts.items())]
+        logger.info(f"Listed {len(result)} collections")
+        return result
 
-            col_metadata = collection.metadata or {}
-            description = col_metadata.get("description")
-            created_at = self._parse_timestamp(col_metadata.get("created_at"))
-            updated_at = self._parse_timestamp(col_metadata.get("updated_at"))
+    def get_collection(self, name: str) -> CollectionInfo:
+        """Metadata for one collection. Every name is one: an empty collection has no chunks yet.
 
-            # Count unique files
-            try:
-                metadatas = self._get_all_metadatas(collection)
-                unique_files = set()
-                for m in metadatas:
-                    if m and "file_name" in m:
-                        unique_files.add(m["file_name"])
-                file_count = len(unique_files)
-            except Exception:
-                file_count = 0
-
-            return CollectionInfo(
-                name=name,
-                description=description,
-                file_count=file_count,
-                chunk_count=collection.count(),
-                created_at=created_at,
-                updated_at=updated_at,
-                backend=self.backend_name,
-                metadata={
-                    "persist_dir": self.persist_dir,
-                    **col_metadata,
-                },
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to get collection {name}: {e}")
-            raise
+        Raises when the store cannot be reached. Returned as "missing", an
+        outage read as a wiped index: ``oib_sync`` once re-ingested the whole
+        corpus over it.
+        """
+        return self._collection_info(name)
 
     # =========================================================================
     # File Management Implementation
@@ -3850,98 +3439,63 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         the BFF answers that the document is gone
         (``document_presence``, ``_deleted_while_indexing``).
         """
-        import re
-
         try:
-            client = self._get_chroma_client()
-
-            try:
-                collection = client.get_collection(name=collection_name)
-            except Exception:
-                logger.warning(f"Collection {collection_name} not found")
-                return False
-
             file_name = self._file_name_of(file_id, collection_name)
             # First, and raising: a delete that cannot reach the status store
             # fails whole, before it has removed anything it could not retry.
             forgotten = ingest_status_store.forget_file(collection_name, file_name)
 
-            # Try exact match first
-            results = collection.get(
-                where={"file_name": file_name},
-                include=["metadatas"],
-            )
+            # Every stored spelling the delete's rule accepts: the exact name,
+            # a tmp-prefixed upload, a percent-encoded presigned-URL path.
+            spellings = [
+                stored
+                for stored in self._store().file_counts(collection_name)
+                if stored == file_name or _stored_name_matches(file_name, stored)
+            ]
+            # By the ids the store holds now, never by name: what an ingest
+            # still running under the same name adds is left alone (the
+            # docstring above).
+            chunk_ids = [chunk_id for chunk_id, _ in self._chunk_ids_of(collection_name, spellings)]
 
-            if not results["ids"]:
-                # The stored file_name metadata can diverge from the requested
-                # name in two ways, so normalise both before comparing:
-                #   1. a temp-upload prefix — Python's tempfile uses 8 random
-                #      chars: tmp[8chars]_filename;
-                #   2. percent-encoding — when the name was derived from a
-                #      presigned-URL path at ingest time (a space/umlaut was
-                #      stored as %20/%C3%…). URL-decoding both sides lets a
-                #      document ingested under an encoded name still be deleted
-                #      by its real, decoded filename.
-                from urllib.parse import unquote
-
-                tmp_prefix = re.compile(r"^tmp.{8}_")
-                all_results = collection.get(include=["metadatas"])
-                matching_ids = []
-                for i, meta in enumerate(all_results.get("metadatas", [])):
-                    stored = meta.get("file_name", "") or ""
-                    stripped = tmp_prefix.sub("", stored)
-                    if file_name in (stripped, unquote(stripped)):
-                        matching_ids.append(all_results["ids"][i])
-                if not matching_ids:
-                    # No chunks in ChromaDB. Whatever else the document left
-                    # behind — the job record of a FAILED file, the summary
-                    # row the inventory is built from, the lexical mirror — is
-                    # forgotten regardless: a delete that returned early here
-                    # left a file with no chunks in the agent's inventory for
-                    # good, and every later delete took the same early exit.
-                    if forgotten:
-                        logger.info(f"Removed {forgotten} job record(s) of file {file_name}")
-                    else:
-                        logger.warning(f"No chunks found for file_name={file_name}; clearing its summary and text")
-
-                    from aiq_agent.knowledge import unregister_summary
-
-                    unregister_summary(collection_name, file_name, permanent=permanent)
-
-                    from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
-
-                    get_chunk_text_store().delete_by_file(collection_name, file_name)
-                    # True only when something of the file was actually removed.
-                    return forgotten > 0
-                results = {"ids": matching_ids}
-
-            collection.delete(ids=results["ids"])
-            bump_collection_version(collection_name)
-            logger.info(f"Deleted {len(results['ids'])} chunks for file {file_name}")
-
-            # Remove from centralized summary registry
             from aiq_agent.knowledge import unregister_summary
 
+            if not chunk_ids:
+                # No chunks. Whatever else the document left behind — the job
+                # record of a FAILED file, the summary row the inventory is
+                # built from — is forgotten regardless: a delete that returned
+                # early here left a file with no chunks in the agent's
+                # inventory for good, and every later delete took the same exit.
+                if forgotten:
+                    logger.info(f"Removed {forgotten} job record(s) of file {file_name}")
+                else:
+                    logger.warning(f"No chunks found for file_name={file_name}; clearing its summary")
+                unregister_summary(collection_name, file_name, permanent=permanent)
+                # True only when something of the file was actually removed.
+                return forgotten > 0
+
+            self._store().delete_chunks(collection_name, chunk_ids)
+            bump_collection_version(collection_name)
+            logger.info(f"Deleted {len(chunk_ids)} chunks for file {file_name}")
             unregister_summary(collection_name, file_name, permanent=permanent)
-
-            # Drop the lexical mirror for this file, scoped to THIS collection: the
-            # same file_name legitimately exists in the base corpus and in a project
-            # upload, and deleting one must not blind the other.
-            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
-
-            get_chunk_text_store().delete_by_file(collection_name, file_name)
-
             return True
 
         except Exception as e:
             logger.error(f"Failed to delete file {file_id}: {e}")
             return False
 
-    def _indexed_files(self, collection_name: str, collection) -> dict[str, FileInfo]:
-        """``file_name -> FileInfo`` for each file the collection holds chunks of (Chroma says what is indexed)."""
+    def _indexed_files(self, collection_name: str) -> dict[str, FileInfo]:
+        """``file_name -> FileInfo`` for each file the collection holds chunks of: the store says what is indexed.
+
+        One payload-limited scroll over the collection (no chunk text). The
+        document's facts come from its metadata row, which the routes merge in;
+        what only the chunks know (how many, which pages, which content types)
+        comes from here, and the drift checks compare the two
+        (``routes/maintenance.py``, ``factory.reconcile_collection_summaries``).
+        """
         stats: dict[str, dict[str, Any]] = {}
-        for m in self._get_all_metadatas(collection):
-            if not m or "file_name" not in m:
+        for record in self._store().scroll(collection_name, None, fields=_LISTING_FIELDS, page_size=_LISTING_PAGE):
+            m = record.payload or {}
+            if "file_name" not in m:
                 continue
             seen = stats.setdefault(m["file_name"], {"chunk_count": 0, "content_types": set(), "pages": set()})
             seen["chunk_count"] += 1
@@ -3964,7 +3518,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 uploaded_at=self._parse_timestamp(seen.get("creation_date")),
                 ingested_at=self._parse_timestamp(seen.get("last_modified_date")),
                 metadata={
-                    "content_types": list(seen["content_types"]),
+                    "content_types": sorted(seen["content_types"]),
                     "page_count": len(seen["pages"]),
                     "file_type": seen.get("file_type"),
                 },
@@ -3985,20 +3539,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         """List all files in a collection, the same in every process.
 
         Two shared records make the answer, and neither is this process's
-        memory: the chunks in Chroma say which files are indexed, and the job
+        memory: the chunks in Qdrant say which files are indexed, and the job
         rows in the status store say which are being read or failed, and why
         (``_merge_file_records``). A file's id is derived from its collection
         and name (``stable_file_id``), so two calls, and two processes, agree.
         """
         try:
-            client = self._get_chroma_client()
-
-            try:
-                collection = client.get_collection(name=collection_name)
-            except Exception:
-                return []
-
-            indexed = self._indexed_files(collection_name, collection)
+            indexed = self._indexed_files(collection_name)
             recorded = self._recorded_files(collection_name)
 
             result = []
@@ -4024,9 +3571,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         Used exclusively by the reconciliation backfill (see
         ``aiq_agent.knowledge.factory.reconcile_collection_summaries``) to derive
         a deterministic fallback summary for a document that is present in the
-        vector index but missing from the summaries table. Queries Chroma
-        directly for chunks tagged with this ``file_name`` — the same metadata
-        key ingestion writes onto every chunk in ``_run_ingestion`` — and
+        vector index but missing from the summaries table. Reads the file's
+        first chunks in reading order (a structural fetch: no embedding) and
         concatenates their text, capped at ``max_chars``.
 
         Not part of the ``BaseIngestor`` interface: the reconciliation driver in
@@ -4034,29 +3580,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         backends can opt in without a forced interface change. Returns ``None``
         on any lookup failure or when the file has no indexed text chunks.
         """
-        try:
-            client = self._get_chroma_client()
-            collection = client.get_collection(name=collection_name)
-        except Exception as e:
-            logger.warning(
-                "Reconciliation: collection %s not found while sampling text for %s: %s",
-                collection_name,
-                file_name,
-                e,
-            )
-            return None
+        from aiq_agent.knowledge.base import READING_ORDER
+
+        from ..qdrant import reads as qdrant_reads
 
         try:
-            results = collection.get(where={"file_name": file_name}, include=["documents"], limit=5)
+            hits = qdrant_reads.fetch(collection_name, {"file_name": file_name}, 5, READING_ORDER)
         except Exception as e:
             logger.warning("Reconciliation: failed to fetch chunks for %s in %s: %s", file_name, collection_name, e)
             return None
 
-        documents = [doc for doc in (results.get("documents") or []) if doc]
-        if not documents:
-            return None
-
-        combined = "\n".join(documents)
+        combined = "\n".join(hit.text for hit in hits[:5] if hit.text)
         return combined[:max_chars] if combined else None
 
     def get_document_visual_details(self, collection_name: str, file_name: str) -> list[dict[str, Any]]:
@@ -4079,21 +3613,21 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         for v1 chunks and non-drawings). Sorted by page, then content type,
         then segment.
         """
+        from ..qdrant.schema import TEXT_FIELD
+
+        visual = {"file_name": file_name, "content_type": {"$in": ["drawing", "image", "chart"]}}
         try:
-            client = self._get_chroma_client()
-            collection = client.get_collection(name=collection_name)
-            results = collection.get(where={"file_name": file_name}, include=["documents", "metadatas"])
+            records = list(self._store().scroll(collection_name, visual))
         except Exception as e:
             logger.warning("Visual details lookup failed for %s in %s: %s", file_name, collection_name, e)
             return []
 
-        documents = results.get("documents") or []
-        metadatas = results.get("metadatas") or []
         items: list[dict[str, Any]] = []
-        for text, meta in zip(documents, metadatas):
-            meta = meta or {}
+        for record in records:
+            meta = record.payload or {}
+            text = meta.get(TEXT_FIELD) or ""
             content_type = meta.get("content_type")
-            if content_type not in ("drawing", "image", "chart") or not text:
+            if not text:
                 continue
             # Strip the "[DRAWING from page N]\n\n" / "[IMAGE …]" prefix so the FE
             # shows the description, not the internal marker.
@@ -4111,7 +3645,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             except (TypeError, ValueError):
                 segment_count = 1
             # The v2 structured payload rides along parsed, so the FE never
-            # has to know it is stored as a JSON string in Chroma metadata.
+            # has to know it is stored as a JSON string on the point.
             structured = None
             raw_data = meta.get("drawing_data")
             if raw_data:
@@ -4226,9 +3760,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # carries the upload URL.
             logger.warning("Failed to upload thumbnail: %s", type(error).__name__)
 
-    def _find_previous_versions(
-        self, chroma_collection, collection_name: str, incoming_names: list[str]
-    ) -> dict[str, _PreviousVersion]:
+    def _find_previous_versions(self, collection_name: str, incoming_names: list[str]) -> dict[str, _PreviousVersion]:
         """Find the chunks of any EARLIER upload of these file names, keyed by
         normalized name, so a re-upload can REPLACE its predecessor instead of
         coexisting with it. Reads only; nothing is deleted here.
@@ -4251,15 +3783,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         Matching mirrors delete_file's normalization (tmp[8]_ prefix strip plus
         percent-decoding), because stored names carry either form depending on
-        how the file reached the backend. The read is a ``$in`` filter over
+        how the file reached the backend. The read is a ``file_name`` filter over
         the spellings a stored version can carry (:func:`_stored_spellings`,
         plus the tmp-prefixed names the metadata rows know), so it costs the
         chunks of the files being replaced, not the collection: it used to read
         every chunk's metadata, which on the OIB corpus was one full scan per
         PDF. A legacy tmp-prefixed version with no metadata row is not found,
-        and stays beside its re-upload as it always did. Defensive: the lookup
-        failing must never fail the ingest — worst case is the pre-existing
-        duplicate behavior, logged.
+        and stays beside its re-upload as it always did, and so is one whose
+        row the metadata store could not be asked about (logged).
+
+        Raises when Qdrant cannot answer after the store's retries
+        (``store.with_retry``). "No predecessor" would let the write go on and
+        leave both versions answering every search; the write needs Qdrant
+        anyway, so the file fails before anything is written, where a person
+        sees it and the previous version stays whole.
 
         The caller holds :func:`_replacement_lock_key`'s lock from here until
         the file has been retired or discarded: two jobs for one name would
@@ -4278,57 +3815,48 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         percent-encoding) is dropped at retirement, and the new row takes them
         over from here.
         """
-        found: dict[str, _PreviousVersion] = {}
-        try:
-            normalize = _normalized_file_name
-            targets = {normalize(name) for name in incoming_names if name}
-            targets.discard("")
-            if not targets:
-                return found
-            from aiq_agent.knowledge import find_tmp_upload_names
+        from ..qdrant.store import with_retry
 
-            spellings = {spelling for name in incoming_names if name for spelling in _stored_spellings(name)}
-            spellings.update(find_tmp_upload_names(collection_name, sorted(spellings)))
-            existing = chroma_collection.get(where={"file_name": {"$in": sorted(spellings)}}, include=["metadatas"])
-            for chunk_id, meta in zip(existing.get("ids", []), existing.get("metadatas", []) or [], strict=False):
-                stored = (meta or {}).get("file_name", "") or ""
-                if normalize(stored) not in targets:
-                    continue
-                version = found.setdefault(normalize(stored), _PreviousVersion())
-                version.chunk_ids.append(chunk_id)
-                if stored not in version.stored_names:
-                    version.stored_names.append(stored)
-        except Exception:  # noqa: BLE001 — replacement must never break ingestion
-            logger.warning(
-                "Could not look up previous versions before ingest; duplicate chunks may remain", exc_info=True
-            )
-            return {}
+        found: dict[str, _PreviousVersion] = {}
+        normalize = _normalized_file_name
+        targets = {normalize(name) for name in incoming_names if name}
+        targets.discard("")
+        if not targets:
+            return found
+        spellings = {spelling for name in incoming_names if name for spelling in _stored_spellings(name)}
+        spellings.update(_tmp_upload_names(collection_name, sorted(spellings)))
+        chunks = with_retry(
+            f"read the previous versions in {collection_name}",
+            lambda: self._chunk_ids_of(collection_name, sorted(spellings)),
+        )
+        for chunk_id, stored in chunks:
+            if normalize(stored) not in targets:
+                continue
+            version = found.setdefault(normalize(stored), _PreviousVersion())
+            version.chunk_ids.append(chunk_id)
+            if stored not in version.stored_names:
+                version.stored_names.append(stored)
         if found:
             _read_human_set_fields(collection_name, found)
         return found
 
-    def _retire_previous_version(
-        self, chroma_collection, collection_name: str, file_name: str, previous: _PreviousVersion | None
-    ) -> None:
+    def _retire_previous_version(self, collection_name: str, file_name: str, previous: _PreviousVersion | None) -> None:
         """Delete a replaced version once its successor is in the vector store.
 
         By the chunk ids collected before the job, never by name: the new
-        version carries the same ``file_name`` and would go with it — in Chroma,
-        and in the lexical mirror, which is why the mirror is cleaned with
-        ``delete_chunks`` rather than ``delete_by_file``. For the same reason
-        the metadata row is dropped only under a stored spelling OTHER than
-        ``file_name``: the row under ``file_name`` is the new version's row, and
-        keeping it is what keeps the Dokumentart, title and folder a person set.
+        version carries the same ``file_name`` and would go with it. For the
+        same reason the metadata row is dropped only under a stored spelling
+        OTHER than ``file_name``: the row under ``file_name`` is the new
+        version's row, and keeping it is what keeps the Dokumentart, title and
+        folder a person set.
         """
         if previous is None or not previous.chunk_ids:
             return
         try:
             from aiq_agent.knowledge import unregister_summary
-            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
 
-            chroma_collection.delete(ids=previous.chunk_ids)
+            self._store().delete_chunks(collection_name, previous.chunk_ids)
             bump_collection_version(collection_name)
-            get_chunk_text_store().delete_chunks(collection_name, previous.chunk_ids)
             for stored in previous.stored_names:
                 if stored != file_name:
                     # Permanent: this spelling never returns, and what a person set on
@@ -4352,18 +3880,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         with self._lock:
             return file_index < len(job.file_details) and job.file_details[file_index].screening == "quarantined"
 
-    def _retire_held_predecessor(
-        self, chroma_collection, collection_name: str, file_name: str, previous: _PreviousVersion
-    ) -> None:
+    def _retire_held_predecessor(self, collection_name: str, file_name: str, previous: _PreviousVersion) -> None:
         """Take a quarantined re-upload's predecessor out of retrieval.
 
         A quarantine holds the whole document from everyone but its uploader and
         its reviewers (ADR-0086), the earlier screened version included, and it
         lasts until a reviewer releases or deletes it, not for the minutes a
         reading takes. Its earlier chunks would answer retrieval for a document
-        no member may open, so they go now: from Chroma and the lexical mirror,
-        by the ids collected before the job, exactly as
-        :meth:`_retire_previous_version` takes them.
+        no member may open, so they go now, by the ids collected before the
+        job, exactly as :meth:`_retire_previous_version` takes them.
 
         Unlike that retirement no metadata row goes, under any spelling: no new
         version has written its row, and the rows carry what people set (the
@@ -4374,11 +3899,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         if not previous.chunk_ids:
             return
         try:
-            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
-
-            chroma_collection.delete(ids=previous.chunk_ids)
+            self._store().delete_chunks(collection_name, previous.chunk_ids)
             bump_collection_version(collection_name)
-            get_chunk_text_store().delete_chunks(collection_name, previous.chunk_ids)
             logger.info(
                 "Took %d chunk(s) of the previous version of a quarantined re-upload out of %s",
                 len(previous.chunk_ids),
@@ -4391,59 +3913,68 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 exc_info=True,
             )
 
-    def _chunk_ids_under(self, chroma_collection, file_name: str) -> set[str] | None:
-        """The ids stored under exactly ``file_name``, or None when they could not be read."""
-        try:
-            return set(chroma_collection.get(where={"file_name": file_name}, include=[]).get("ids") or [])
-        except Exception:  # noqa: BLE001 — without it a failure is not cleaned up, and says so
-            logger.warning("Could not read the chunks of %s before indexing it", file_name, exc_info=True)
-            return None
+    def _discard_partial_version(self, collection_name: str, file_name: str, attempted: list[str] | None) -> None:
+        """Delete what a failed attempt wrote, and nothing it found there.
 
-    def _nodes_stored(self, chroma_collection, file_name: str, before: set[str] | None, documents: list) -> int:
-        """How many chunks this attempt added under ``file_name``.
-
-        The difference against ``before``, read under the replacement lock, so a
-        previous version still answering to the name is not counted. When
-        either read fails, the Document count is the only number left, and the
-        log says the count is a floor.
-        """
-        after = self._chunk_ids_under(chroma_collection, file_name)
-        if before is None or after is None:
-            logger.warning("Chunk count for %s is the document count, not the node count", file_name)
-            return len(documents)
-        return len(after - before)
-
-    def _discard_partial_version(
-        self, chroma_collection, collection_name: str, file_name: str, before: set[str] | None
-    ) -> None:
-        """Delete what a failed attempt inserted, and nothing it found there.
-
-        A file can fail after some of its chunks are in (an embedding batch
-        times out halfway through a long PDF). Those chunks carry the same
+        A file can fail after some of its chunks are in (a write batch times
+        out halfway through a long PDF). Those chunks carry the same
         ``file_name`` as the previous version the failure keeps, so left alone
         they sat beside it: part of a version nobody meant to publish,
-        retrieved with it. ``before`` is what answered to the name when this
-        attempt started, read under the replacement lock, so the difference is
-        exactly this attempt's chunks. Unknown ``before`` deletes nothing.
+        retrieved with it. ``attempted`` is every chunk id this attempt sent:
+        fresh node ids, so none of them names a chunk of the previous version,
+        and an id that never landed deletes nothing. None: nothing was sent.
         """
-        if before is None:
+        if not attempted:
             return
         try:
-            inserted = sorted((self._chunk_ids_under(chroma_collection, file_name) or set()) - before)
-            if not inserted:
-                return
-            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
-
-            chroma_collection.delete(ids=inserted)
+            self._store().delete_chunks(collection_name, attempted)
             bump_collection_version(collection_name)
-            get_chunk_text_store().delete_chunks(collection_name, inserted)
             logger.warning(
-                "Discarded %d chunk(s) a failed ingest of %s left in %s", len(inserted), file_name, collection_name
+                "Discarded up to %d chunk(s) a failed ingest of %s left in %s",
+                len(attempted),
+                file_name,
+                collection_name,
             )
         except Exception:  # noqa: BLE001 — the file already reads FAILED; this must not mask why
             logger.warning(
                 "Could not discard the partial chunks of %s; they sit beside the kept version", file_name, exc_info=True
             )
+
+    def _embedded_records(self, documents: list[Any], *, chunk_size: int, chunk_overlap: int) -> list[Any]:
+        """``documents`` split into chunks and embedded: the records the store writes.
+
+        The splitter is what ``VectorStoreIndex.from_documents`` ran under
+        ``Settings``: a ``SentenceSplitter`` at the job's chunk size and
+        overlap, built per job here instead of set on the process-wide
+        ``Settings`` two concurrent jobs shared. What is embedded is each
+        chunk's EMBED rendering (its metadata header, minus the keys
+        ``_stamp_chunk_metadata`` excluded, then its text); what is stored is
+        the bare text. The model is passed explicitly, never read off a global.
+        ``documents`` are one file's, so a record's ``ordinal`` (its index in
+        the chunker's output) is its place in the file: what orders the chunks
+        of one page, whose node ids are random.
+        """
+        from llama_index.core.node_parser import SentenceSplitter
+        from llama_index.core.schema import MetadataMode
+
+        from ..qdrant.payload import ChunkRecord
+
+        nodes = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap).get_nodes_from_documents(documents)
+        if not nodes:
+            return []
+        vectors = self._embed_model.get_text_embedding_batch(
+            [node.get_content(metadata_mode=MetadataMode.EMBED) for node in nodes], show_progress=False
+        )
+        return [
+            ChunkRecord(
+                chunk_id=node.node_id,
+                text=node.get_content(metadata_mode=MetadataMode.NONE),
+                embedding=[float(value) for value in vector],
+                metadata=dict(node.metadata),
+                ordinal=ordinal,
+            )
+            for ordinal, (node, vector) in enumerate(zip(nodes, vectors, strict=True))
+        ]
 
     @staticmethod
     def _deleted_while_indexing(config: dict[str, Any], collection_name: str) -> bool:
@@ -4619,19 +4150,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # Initialize components
             self._ensure_initialized()
 
-            # Import LlamaIndex components
-            from llama_index.core import Settings
-            from llama_index.core import StorageContext
-            from llama_index.core import VectorStoreIndex
-            from llama_index.vector_stores.chroma import ChromaVectorStore
-
-            # Configure LlamaIndex settings
-            Settings.embed_model = self._embed_model
             # Resolved once: the splitter runs with it, and the metadata header is
             # budgeted against it (`_stamp_chunk_metadata`), never the default.
             chunk_size = config.get("chunk_size", self.chunk_size)
-            Settings.chunk_size = chunk_size
-            Settings.chunk_overlap = config.get("chunk_overlap", self.chunk_overlap)
+            chunk_overlap = config.get("chunk_overlap", self.chunk_overlap)
 
             # Get multimodal settings from config or instance defaults
             extract_tables = config.get("extract_tables", self.extract_tables)
@@ -4659,43 +4181,22 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
             ocr_model = _transcription.resolve_ocr_model(base_vlm_model, vlm_override)
 
-            # Set up ChromaDB client (use shared client if using default persist_dir).
-            # In shared-server mode _make_chroma_client ignores persist_dir and
-            # returns the one server client regardless of branch.
-            persist_dir = config.get("persist_dir", self.persist_dir)
-            if persist_dir == self.persist_dir:
-                chroma_client = self._get_chroma_client()
-            else:
-                chroma_client = _make_chroma_client(persist_dir)
-
-            # Get or create collection
-            chroma_collection = chroma_client.get_or_create_collection(
-                name=collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
-
             # Refuse to add vectors from a different embedding space to an existing
-            # collection. Retrieval performs the same check, but only on the read path
-            # and only in the retriever class -- so a misconfigured process could still
-            # WRITE foreign vectors here, and the collection would then hold two spaces
-            # permanently. Failing the job instead leaves the corpus consistent and the
-            # cause named. Absent fingerprint is adopted, as everywhere else.
-            mismatch = embed_fingerprint_mismatch(
-                chroma_collection.metadata, self.embed_model_name, self.embed_base_url
-            )
-            if mismatch:
-                raise ValueError(f"Refusing to ingest into {collection_name}: {mismatch}")
+            # collection, before a single page is read or embedded. Retrieval
+            # performs the same check on the read path; without it here a
+            # misconfigured process could still WRITE foreign vectors, and the
+            # collection would then hold two spaces permanently. The write itself
+            # checks again when it creates the collection (`schema.ensure_collection`).
+            from ..qdrant.store import get_store
 
-            # Set up vector store
-            vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-            storage_context = StorageContext.from_defaults(vector_store=vector_store)
+            identity = self._embed_fingerprint_metadata()
+            get_store(identity).check_identity(collection_name)
 
             # Track extraction stats
             total_chunks = 0
             total_tables = 0
             total_charts = 0
             total_images = 0
-            index = None
 
             # Original filenames for temp file uploads (avoids tmp prefix in metadata)
             original_filenames = config.get("original_filenames", [])
@@ -4729,9 +4230,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 previous = None
                 retired = False
                 deleted = False
-                # What answered to this name before the attempt inserted
-                # anything; None until indexing starts and again once it is in.
-                chunks_before: set[str] | None = None
+                # The chunk ids this attempt sent to the store; None until the
+                # write starts and again once the file is in.
+                attempted: list[str] | None = None
                 file_name = original_filenames[i] if i < len(original_filenames) else Path(file_path).name
                 # The PDF rendition the BFF made of a Word or presentation
                 # original (ADR-0071), when it sent one: every byte the PDF
@@ -4750,7 +4251,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     from aiq_agent.knowledge.leader_lock import keyed_lock
 
                     file_scope.enter_context(keyed_lock(_replacement_lock_key(collection_name, file_name)))
-                    previous = self._find_previous_versions(chroma_collection, collection_name, [file_name]).get(
+                    previous = self._find_previous_versions(collection_name, [file_name]).get(
                         _normalized_file_name(file_name)
                     )
 
@@ -5312,74 +4813,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         file_name=file_name,
                     )
 
+                    # Embedding is the expensive step; a run that lost its claim
+                    # stops before it.
+                    self._assert_still_owner(job_id)
+                    records = self._embedded_records(all_documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
                     # The last moment a run that lost its claim can stop with
                     # nothing of this file written: the new owner indexes it.
                     self._assert_still_owner(job_id)
-                    # Create/update index with all documents
-                    chunks_before = self._chunk_ids_under(chroma_collection, file_name)
-                    if index is None:
-                        # First successful file - create new index
-                        # The model passed explicitly, not read off the global
-                        # `Settings`: whatever else sets that global (the retriever
-                        # once set it to the query model, whose timeout is sized for
-                        # one short text) must not decide how a batch is embedded.
-                        index = VectorStoreIndex.from_documents(
-                            all_documents,
-                            storage_context=storage_context,
-                            embed_model=self._embed_model,
-                            show_progress=False,
-                        )
-                    else:
-                        # Subsequent files - insert into existing index
-                        for doc in all_documents:
-                            index.insert(doc)
+                    # Into Qdrant, the one store (ADR-0113). A failure fails the
+                    # file, and the attempt's ids are discarded below.
+                    attempted = [record.chunk_id for record in records]
+                    from ..qdrant import writes as qdrant_writes
 
-                    # Mirror this file's chunk text into the knowledge database so the
-                    # German lexical channel can search it. The ids are read back FROM
-                    # Chroma rather than derived from the documents: the node parser runs
-                    # inside from_documents/insert, so the llama-index node id -- which is
-                    # the chunk_id fusion keys on -- does not exist until after indexing.
-                    # Fail-open: a mirror failure must never fail a file that is already
-                    # safely in the vector store.
-                    try:
-                        from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
-
-                        mirrored = chroma_collection.get(
-                            where={"file_name": file_name},
-                            include=["documents", "metadatas"],
-                        )
-                        mirrored_ids = mirrored.get("ids") or []
-                        mirrored_docs = mirrored.get("documents") or []
-                        mirrored_meta = mirrored.get("metadatas") or []
-                        # The previous version still answers to this name until
-                        # it is retired below; mirroring it again is wasted work.
-                        retiring = set(previous.chunk_ids) if previous else set()
-                        get_chunk_text_store().upsert_many(
-                            collection_name,
-                            [
-                                {
-                                    "chunk_id": chunk_id,
-                                    "body": mirrored_docs[index] if index < len(mirrored_docs) else "",
-                                    # The STORED file_name, not the local one: delete_file
-                                    # resolves tmp-prefixed names, and the mirror has to be
-                                    # deletable by whatever key delete looks up.
-                                    "file_name": (
-                                        (mirrored_meta[index] or {}).get("file_name") or file_name
-                                        if index < len(mirrored_meta)
-                                        else file_name
-                                    ),
-                                    "page_label": (
-                                        (mirrored_meta[index] or {}).get("page_label", "")
-                                        if index < len(mirrored_meta)
-                                        else ""
-                                    ),
-                                }
-                                for index, chunk_id in enumerate(mirrored_ids)
-                                if chunk_id not in retiring
-                            ],
-                        )
-                    except Exception as mirror_error:
-                        logger.warning("Chunk text mirror skipped for %s: %s", file_name, mirror_error)
+                    qdrant_writes.write_chunks(collection_name, file_name, records, identity=identity, config=config)
 
                     # The document may have been deleted while this attempt
                     # ran: by a delete that did not wait for the replacement
@@ -5389,8 +4835,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # metadata row. The predecessor is NOT retired: under this
                     # name it may already be a new document's first version.
                     if self._deleted_while_indexing(config, collection_name):
-                        self._discard_partial_version(chroma_collection, collection_name, file_name, chunks_before)
-                        chunks_before = None
+                        self._discard_partial_version(collection_name, file_name, attempted)
+                        attempted = None
                         deleted = True
                         self._update_file_status(job, i, FileStatus.FAILED, error=DOCUMENT_DELETED_DURING_INGEST)
                         logger.warning(
@@ -5403,16 +4849,16 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # The nodes this attempt stored, not the Documents it handed
                     # the splitter: a 40-page PDF is 40 Documents and several
                     # hundred nodes, and the metadata row's chunk count said 40.
-                    chunks_created = self._nodes_stored(chroma_collection, file_name, chunks_before, all_documents)
+                    chunks_created = len(records)
                     total_chunks += chunks_created
 
                     self._update_file_status(job, i, FileStatus.SUCCESS, chunks_created=chunks_created)
-                    chunks_before = None
+                    attempted = None
 
                     # The new version is in the vector store: only now does the
                     # one it replaces go. A second file of the same normalized
                     # name later in this job finds THIS version as its previous.
-                    self._retire_previous_version(chroma_collection, collection_name, file_name, previous)
+                    self._retire_previous_version(collection_name, file_name, previous)
                     retired = True
 
                     # Drawing PDFs (text-sparse) whose LLM summary failed fall
@@ -5616,13 +5062,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 except Exception as e:
                     logger.exception(f"Error processing file {file_path}")
                     self._update_file_status(job, i, FileStatus.FAILED, error=str(e), exc=e)
-                    self._discard_partial_version(chroma_collection, collection_name, file_name, chunks_before)
+                    self._discard_partial_version(collection_name, file_name, attempted)
                 finally:
                     # Still under the replacement lock: a quarantined re-upload
                     # holds its whole document (ADR-0086) until a reviewer
                     # acts, so its predecessor stops answering now.
                     if previous is not None and not retired and not deleted and self._quarantined(job, i):
-                        self._retire_held_predecessor(chroma_collection, collection_name, file_name, previous)
+                        self._retire_held_predecessor(collection_name, file_name, previous)
                         retired = True
                     file_scope.close()
                     # A predecessor still here had a re-upload that did not
@@ -5655,7 +5101,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # Reconciliation backstop, BEFORE the job reads as terminal: a caller
             # that waits for COMPLETED and then lists the collection must find
             # every row (the BFF's settle does exactly that). Catch any document that ingested
-            # successfully (visible/searchable in Chroma) but whose summary row
+            # successfully (visible/searchable in Qdrant) but whose summary row
             # silently failed to register — e.g. both the LLM summary and tag
             # classification calls failed. Runs at the end of every ingestion
             # job inside the knowledge layer, so every caller (the Knowledge
@@ -5694,7 +5140,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     "tables_extracted": total_tables,
                     "charts_extracted": total_charts,
                     "images_captioned": total_images,
-                    "persist_dir": persist_dir,
                     "collection_name": collection_name,
                     "embed_model": self.embed_model_name,
                     "extraction_mode": extraction_mode,
@@ -5703,8 +5148,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # Persist the terminal status so any replica serves the final result.
             self._persist(job)
 
-            # Update collection's updated_at timestamp
-            self._update_collection_timestamp(collection_name)
             # Invalidate any cached retrieval results for this collection.
             bump_collection_version(collection_name)
 
@@ -5792,16 +5235,16 @@ class LlamaIndexRetriever(BaseRetriever):
     """
     LlamaIndex-based document retriever.
 
-    Uses ChromaDB for vector storage and NVIDIA embeddings.
+    Embeds the query through an OpenAI-compatible endpoint and reads Qdrant
+    (``knowledge_layer.qdrant``, ADR-0113).
 
     Configuration options:
-        persist_dir: ChromaDB persistence directory (default from AIQ_CHROMA_DIR)
         embed_model: Embedding model id (default from AIQ_EMBED_MODEL)
         top_k: Default number of results (default: 10)
         hybrid_search: Enable lexical+vector hybrid retrieval (default from AIQ_HYBRID_RETRIEVAL)
 
     Environment variables:
-        AIQ_CHROMA_DIR: Default ChromaDB persistence directory
+        AIQ_QDRANT_URL: The Qdrant cluster every chunk is written to
         AIQ_EMBED_MODEL: Default embedding model name
         AIQ_EMBED_BASE_URL: Default embedding model base URL
         AIQ_RETRIEVER_TOP_K: Default top_k value
@@ -5809,7 +5252,6 @@ class LlamaIndexRetriever(BaseRetriever):
     """
 
     # Default configuration from environment variables
-    DEFAULT_PERSIST_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
     DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "openai/text-embedding-3-large")
     DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://openrouter.ai/api/v1")
     # @environment_variable AIQ_RETRIEVER_TOP_K
@@ -5824,8 +5266,8 @@ class LlamaIndexRetriever(BaseRetriever):
     # @type bool
     # @default true
     # @required false
-    # Enable the lexical+vector hybrid retrieval channel (exact-term Chroma
-    # `$contains` passes fused with the vector results via reciprocal rank fusion).
+    # Enable the lexical channels beside the dense one: German BM25 and the
+    # exact-term phrase channels, fused in Qdrant by reciprocal rank fusion.
     DEFAULT_HYBRID_SEARCH = os.environ.get("AIQ_HYBRID_RETRIEVAL", "true").strip().lower() not in {
         "0",
         "false",
@@ -5838,7 +5280,6 @@ class LlamaIndexRetriever(BaseRetriever):
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config)
 
-        self.persist_dir = self.config.get("persist_dir", self.DEFAULT_PERSIST_DIR)
         self.embed_model_name = self.config.get("embed_model", self.DEFAULT_EMBED_MODEL)
         self.embed_base_url = self.config.get("embed_base_url", self.DEFAULT_EMBED_BASE_URL)
         self.default_top_k = self.config.get("top_k", self.DEFAULT_TOP_K)
@@ -5847,15 +5288,8 @@ class LlamaIndexRetriever(BaseRetriever):
 
         # Lazy-loaded components
         self._embed_model = None
-        self._chroma_client = None
         self._initialized = False
         self._init_lock = threading.Lock()
-
-        # Rebuilding a VectorStoreIndex per query is pure overhead; cache one
-        # per collection. The short TTL heals the rare delete-and-recreate of
-        # a collection under the same name.
-        self._index_cache: dict[str, tuple[float, Any]] = {}
-        self._index_cache_lock = threading.Lock()
 
         # Query-embedding LRU: the knowledge tool fans one query out across
         # every collection in scope, and each retrieval embedded the same
@@ -5871,10 +5305,11 @@ class LlamaIndexRetriever(BaseRetriever):
         # the same question, and without this the loser embedded twice.
         self._embed_inflight: dict[tuple[str, str], _InflightEmbedding] = {}
 
-        # Document frequency of each exact term, per collection size, so the
-        # `$contains` channel's DF ceiling costs one `get` per new term rather
-        # than one per retrieval. See `_selective_exact_terms`.
-        self._exact_term_df: dict[tuple[str, int, str], int] = {}
+        # Document frequency of each BM25 and exact term, per collection size,
+        # as Qdrant counts it (a phrase on the word-tokenized text index), so
+        # pricing a term costs one count per new term rather than one per
+        # retrieval (`_qdrant_lexical_inputs`).
+        self._qdrant_term_df: dict[tuple[str, int, str], int] = {}
 
         # Result cache for static corpora (the shared OIB knowledge base):
         # identical questions recur across users and conversations, and the
@@ -5884,9 +5319,8 @@ class LlamaIndexRetriever(BaseRetriever):
         self._result_cache_order: list[tuple[str, int, str, int, str]] = []
         self._result_cache_lock = threading.Lock()
 
-        logger.info(f"LlamaIndexRetriever initialized: persist_dir={self.persist_dir}")
+        logger.info("LlamaIndexRetriever initialized")
 
-    INDEX_CACHE_TTL_SECONDS = 60
     # @environment_variable AIQ_QUERY_EMBED_CACHE_SIZE
     # @category Knowledge Layer
     # @type int
@@ -5948,52 +5382,15 @@ class LlamaIndexRetriever(BaseRetriever):
                 timeout=QUERY_EMBED_TIMEOUT_SECONDS,
                 max_retries=EMBED_MAX_RETRIES,
             )
-            # Not installed as the process-wide `Settings.embed_model`: every
-            # index this retriever builds is handed the model explicitly
-            # (`_get_index`), and the global would put this 3 s query model
-            # under anything else in the process that reads it.
-
-            # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
-            self._chroma_client = _make_chroma_client(self.persist_dir)
+            # Not installed as the process-wide `Settings.embed_model`: the
+            # global would put this 3 s query model under anything else in the
+            # process that reads it.
 
             self._initialized = True
             logger.info("LlamaIndex retriever components initialized")
 
         except ImportError as e:
             raise _retrieval_dependency_error(e) from e
-
-    def _get_index(self, collection_name: str):
-        """Return a cached VectorStoreIndex for the collection, or None if missing."""
-        from llama_index.core import VectorStoreIndex
-        from llama_index.vector_stores.chroma import ChromaVectorStore
-
-        now = time.monotonic()
-        with self._index_cache_lock:
-            cached = self._index_cache.get(collection_name)
-            if cached and now - cached[0] < self.INDEX_CACHE_TTL_SECONDS:
-                return cached[1]
-
-        try:
-            chroma_collection = self._chroma_client.get_collection(name=collection_name)
-        except Exception as e:
-            logger.warning(f"Collection '{collection_name}' not found: {e}")
-            return None
-
-        # Fail loudly rather than answering from a foreign vector space. Raising here
-        # surfaces through _retrieve_sync as success=False, so the layer drops out with a
-        # WARNING instead of taking the whole chat surface down over a config typo.
-        mismatch = embed_fingerprint_mismatch(chroma_collection.metadata, self.embed_model_name, self.embed_base_url)
-        if mismatch:
-            if collection_name not in _reported_fingerprint_mismatches:
-                _reported_fingerprint_mismatches.add(collection_name)
-                logger.error("Collection '%s' %s", collection_name, mismatch)
-            raise RuntimeError(f"Collection '{collection_name}' {mismatch}")
-
-        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        index = VectorStoreIndex.from_vector_store(vector_store, embed_model=self._embed_model)
-        with self._index_cache_lock:
-            self._index_cache[collection_name] = (now, index)
-        return index
 
     async def retrieve(
         self,
@@ -6004,7 +5401,7 @@ class LlamaIndexRetriever(BaseRetriever):
     ) -> RetrievalResult:
         """Retrieve documents matching the query.
 
-        The embedding call and the Chroma query are synchronous; they run in a
+        The embedding call and the Qdrant query are synchronous; they run in a
         worker thread so a retrieval never stalls the server's event loop (and
         the per-collection fan-out in the knowledge tool actually parallelizes).
         """
@@ -6031,51 +5428,52 @@ class LlamaIndexRetriever(BaseRetriever):
         filters: dict[str, Any] | None = None,
         limit: int = 500,
     ) -> list[Chunk] | None:
-        """Every chunk matching the regex ``pattern``, via Chroma's own ``$regex``.
+        """Every chunk matching the regex ``pattern`` (``qdrant.retrieval.find_text``).
 
         The vector store is the source of truth for chunk text, so this reads it
-        there rather than from the lexical mirror, which a deployment may not
-        have backfilled. No embedding, no ranking: a filter over the collection.
-        Chroma evaluates ``$regex`` with Rust's ``regex`` crate (Unicode ``\\s``,
-        ``\\b`` and ``(?i)``); ``$contains`` was byte-exact, so a mixed-case
-        original or a line break inside a phrase was a false „Keine Fundstelle“.
-        A collection that does not exist is an empty answer, not a failure; any
-        other store error raises, so the caller can say the search did not run.
+        there. No embedding, no ranking: a scroll over the collection, narrowed
+        on the server by the words every match must hold and decided by the
+        regex. A collection with no chunks is an empty answer, not a failure;
+        a store error raises, so the caller can say the search did not run.
         """
         return await asyncio.to_thread(self._find_text_sync, collection_name, pattern, filters, limit)
+
+    async def fetch(
+        self,
+        collection_name: str,
+        filters: dict[str, Any] | None,
+        limit: int,
+        order_by: str | None = None,
+    ) -> list[Chunk] | None:
+        """The chunks ``filters`` admits, by scroll, with no query vector and no ranking.
+
+        No embedding and no lazy adapter start-up: nothing here needs the
+        embedder (``qdrant/reads.py``).
+        """
+        return await asyncio.to_thread(self._fetch_sync, collection_name, filters, limit, order_by)
+
+    def _fetch_sync(
+        self, collection_name: str, filters: dict[str, Any] | None, limit: int, order_by: str | None
+    ) -> list[Chunk]:
+        from ..qdrant import reads as qdrant_reads
+
+        chunks = [self._chunk_from_hit(hit) for hit in qdrant_reads.fetch(collection_name, filters, limit, order_by)]
+        for rank, chunk in enumerate(chunks):
+            chunk.retrieval_rank = rank
+        return chunks
 
     def _find_text_sync(
         self, collection_name: str, pattern: str, filters: dict[str, Any] | None, limit: int
     ) -> list[Chunk]:
         if not pattern or limit <= 0:
             return []
-        self._ensure_initialized()
-        try:
-            collection = self._chroma_client.get_collection(name=collection_name)
-        except Exception as exc:
-            # An absent collection holds no text, so it is an empty answer. Any
-            # other failure (the store down, a timeout) propagates: returned as
-            # [] it read as a reliable „Keine Fundstelle“ during an outage.
-            if _is_missing_collection(exc):
-                return []
-            raise
-        fetched = collection.get(
-            where=_to_chroma_where(filters),
-            where_document={"$regex": pattern},
-            limit=limit,
-            include=["documents", "metadatas"],
-        )
-        ids = fetched.get("ids") or []
-        # Distance 0: every returned chunk matches the pattern, so none ranks
-        # above another. The caller orders them by document and page.
-        return self._chunks_from_raw_query(
-            {
-                "ids": [ids],
-                "documents": [fetched.get("documents") or []],
-                "metadatas": [fetched.get("metadatas") or []],
-                "distances": [[0.0] * len(ids)],
-            }
-        )
+        from ..qdrant import retrieval as qdrant_retrieval
+
+        # Every returned chunk matches, so none ranks above another; the
+        # caller orders them by document and page (cosine 1.0).
+        return [
+            self._chunk_from_hit(hit) for hit in qdrant_retrieval.find_text(collection_name, pattern, filters, limit)
+        ]
 
     def _warm_sync(self, query: str) -> None:
         self._ensure_initialized()
@@ -6191,33 +5589,7 @@ class LlamaIndexRetriever(BaseRetriever):
                     logger.info(f"Static retrieval cache hit for collection {collection_name}")
                     return cached
 
-            index = self._get_index(collection_name)
-            if index is None:
-                return RetrievalResult(
-                    chunks=[],
-                    query=query,
-                    backend=self.backend_name,
-                    success=False,
-                    error_message=f"Collection '{collection_name}' not found",
-                )
-
-            from llama_index.core.schema import QueryBundle
-
-            # Embed once (LRU) and hand the vector to the retriever, so the
-            # per-collection fan-out of one query hits the embedding API once.
-            retriever_kwargs: dict[str, Any] = {"similarity_top_k": top_k}
-            metadata_filters = _to_metadata_filters(filters)
-            if metadata_filters is not None:
-                retriever_kwargs["filters"] = metadata_filters
-            retriever = index.as_retriever(**retriever_kwargs)
-            query_bundle = QueryBundle(query_str=query, embedding=self._embed_query_cached(query))
-            nodes = retriever.retrieve(query_bundle)
-
-            # Normalize results to Chunk schema
-            chunks = [self.normalize(node) for node in nodes]
-
-            if self.hybrid_search:
-                chunks = self._hybrid_lexical_boost(query, collection_name, top_k, filters, chunks)
+            chunks = self._qdrant_chunks(query, collection_name, top_k, filters)
 
             # State each hit's rank in this collection's FINAL order, after the lexical
             # fusion has had its say. `_rank_channel` in register.py documents reading it
@@ -6258,196 +5630,164 @@ class LlamaIndexRetriever(BaseRetriever):
                 error_message=f"Retrieval failed: {str(e)[:500]}",
             )
 
-    def _selective_exact_terms(self, collection, collection_name: str, terms: list[str]) -> list[str]:
-        """Keep the exact terms whose document frequency leaves them worth retrieving.
+    def _identity(self) -> dict[str, str]:
+        """The embedder this retriever's query vectors come from, as Qdrant collection metadata holds it."""
+        return embed_fingerprint_metadata(self.embed_model_name, self.embed_base_url)
 
-        One id-only ``collection.get`` per term measures it against the LIVE collection.
-        "OIB is noise" is a property of this corpus rather than of German, so the
-        frequency is measured and never listed (``german_text``'s module docstring
-        states the rule this follows). For the ubiquitous term the measurement REPLACES
-        the vector query that used to run, so the common case gets cheaper.
+    def _qdrant_chunks(
+        self, query: str, collection_name: str, top_k: int, filters: dict[str, Any] | None
+    ) -> list[Chunk]:
+        """One Query API call fusing dense, German BM25 and exact-term channels.
 
-        The cache key is ``(collection, chunk count, term)``. The term set is tiny and
-        stays stable while the corpus does, and a changed count invalidates it. An
-        in-place edit leaving the count identical keeps the old frequency. That is
-        acceptable for a noise heuristic, and it is why nothing downstream treats this
-        as a correctness gate.
-
-        It runs unlocked, unlike the caches beside it. Those keep an ordering list a
-        race would corrupt; the worst a race costs here is measuring one term twice.
-        Locking would hold the lock across a Chroma round trip and serialise the
-        per-collection fan-out this retriever exists to run in parallel.
-
-        Fails OPEN. An unmeasurable frequency keeps the term, so a Chroma that cannot
-        answer ``get`` degrades to the previous behaviour instead of to no lexical
-        channel at all.
+        The channels run server-side: the dense ranking, BM25 over the chunk
+        text (with the EN->DE glossary terms), and per selective exact term the
+        dense ranking restricted to chunks containing it. ``hybrid_search`` off
+        leaves the dense channel alone.
         """
-        from .hybrid import selective_terms
+        from ..qdrant import retrieval as qdrant_retrieval
 
-        try:
-            total = collection.count()
-        except Exception as e:  # noqa: BLE001 - selectivity is an optimisation, never a gate
-            logger.warning("Exact-term frequencies unavailable (%s); keeping all terms", e)
-            return terms
+        embedding = self._embed_query_cached(query)
+        lexical_text, terms = "", []
+        if self.hybrid_search:
+            lexical_text, terms = self._qdrant_lexical_inputs(query, collection_name)
+        hits = qdrant_retrieval.search(
+            collection_name,
+            vector=embedding,
+            lexical_text=lexical_text,
+            top_k=top_k,
+            filters=filters,
+            exact_terms=terms,
+            identity=self._identity(),
+        )
+        return [self._chunk_from_hit(hit) for hit in hits]
 
-        frequencies: dict[str, int] = {}
-        for term in terms:
-            key = (collection_name, total, term)
-            frequency = self._exact_term_df.get(key)
-            if frequency is None:
-                try:
-                    matched = collection.get(where_document={"$contains": term}, include=[])
-                    frequency = len(matched.get("ids") or [])
-                except Exception as e:  # noqa: BLE001 - see the fail-open note above
-                    logger.warning("Frequency of exact term %r unmeasurable (%s); keeping it", term, e)
-                    frequencies[term] = 1
-                    continue
-                if len(self._exact_term_df) >= _EXACT_TERM_DF_CACHE_MAX:
-                    self._exact_term_df.clear()
-                self._exact_term_df[key] = frequency
-            frequencies[term] = frequency
-
-        return selective_terms(frequencies, total)
-
-    def _hybrid_lexical_boost(
+    async def search_grouped(
         self,
         query: str,
-        collection_name: str,
-        top_k: int,
+        collection_names: list[str],
+        groups: int,
+        group_size: int,
+        filters: dict[str, Any] | None = None,
+        boost: dict[str, Any] | None = None,
+    ) -> list[tuple[str, list[Chunk]]]:
+        """One fused ranking over ``collection_names``, grouped per collection."""
+        return await asyncio.to_thread(
+            self._search_grouped_sync, query, collection_names, groups, group_size, filters, boost
+        )
+
+    def _search_grouped_sync(
+        self,
+        query: str,
+        collection_names: list[str],
+        groups: int,
+        group_size: int,
         filters: dict[str, Any] | None,
-        chunks: list[Chunk],
-    ) -> list[Chunk]:
-        """Run one Chroma ``$contains`` pass per exact query term and RRF-fuse with the vector results.
+        boost: dict[str, Any] | None,
+    ) -> list[tuple[str, list[Chunk]]]:
+        from ..qdrant import retrieval as qdrant_retrieval
 
-        The vector channel stays first so it wins ties. Any failure degrades to the plain
-        vector results (fail-open): the lexical channel is an enhancement, never a gate.
+        self._ensure_initialized()
+        lexical_text, terms = "", []
+        if self.hybrid_search:
+            lexical_text, terms = self._qdrant_lexical_inputs(query, collection_names)
+        grouped = qdrant_retrieval.search_grouped(
+            collection_names,
+            vector=self._embed_query_cached(query),
+            lexical_text=lexical_text,
+            groups=groups,
+            group_size=group_size,
+            identity=self._identity(),
+            filters=filters,
+            boost=boost,
+            exact_terms=terms,
+        )
+        return [(scope, [self._grouped_chunk(hit) for hit in hits]) for scope, hits in grouped]
+
+    def _grouped_chunk(self, hit: Any) -> Chunk:
+        """A grouped hit as a Chunk that also states its place in the one fused ranking."""
+        from aiq_agent.knowledge.base import FUSED_SCORE_KEY
+
+        chunk = self._chunk_from_hit(hit)
+        chunk.metadata[FUSED_SCORE_KEY] = float(hit.fused)
+        return chunk
+
+    def embed_query(self, text: str) -> list[float]:
+        """``text`` as the production embedder's query vector, from the same LRU and in-flight dedupe a search uses."""
+        self._ensure_initialized()
+        return self._embed_query_cached(text)
+
+    def embedding_identity(self) -> dict[str, str]:
+        """The embedder behind :meth:`embed_query`, as Qdrant collection metadata records it."""
+        return self._identity()
+
+    def _qdrant_lexical_inputs(self, query: str, collection_names: str | Sequence[str]) -> tuple[str, list[str]]:
+        """The BM25 query text and the selective exact terms, both priced against the searched collections.
+
+        The BM25 terms go through the rule the German mirror has always applied
+        (``german_text.select_terms``): a term absent from the collection or on
+        more than a quarter of it is dropped, and with no alphabetic term left
+        BM25 is not asked at all. Empty beats noisy. Sent unpriced, BM25 ranked
+        whole Richtlinien for „OIB-RL 2“ on the digit and for a file name on
+        „ausgabe mai 2023“, and fusion promoted that over the dense hits:
+        exact-id MRR 0.30 against Chroma's 0.53 (``qdrant-gates-2026-10.md``).
+        The candidates leave out what BM25 must not be asked for at any price
+        (``retrieval.bm25_candidates``: umlaut stopwords, file-name pieces).
+
+        Several collections (cross-project grouped search) are priced over their
+        union, the corpus BM25's IDF is computed over.
+
+        Fails open to the unpriced inputs: pricing sharpens the channels, it
+        never gates a search.
         """
+        from aiq_agent.common import german_text
+
+        from ..qdrant import retrieval as qdrant_retrieval
+        from .hybrid import extract_exact_terms
+        from .hybrid import selective_terms
+
+        exact = extract_exact_terms(query) if extract_exact_terms is not None else []
+        candidates = qdrant_retrieval.bm25_candidates(query, extra_terms=self._expansion_terms(query))
         try:
-            from .hybrid import extract_exact_terms
-            from .hybrid import reciprocal_rank_fusion
+            if len(self._qdrant_term_df) >= _EXACT_TERM_DF_CACHE_MAX:
+                self._qdrant_term_df.clear()
+            total, frequencies = qdrant_retrieval.term_frequencies(
+                collection_names, [*candidates, *exact], cache=self._qdrant_term_df
+            )
+        except Exception as e:  # noqa: BLE001 - same fail-open as the Chroma path's pricing
+            logger.warning("Term frequencies unavailable (%s); BM25 and exact terms unpriced", e)
+            return self._bm25_text(query), exact
+        lexical = german_text.select_terms(candidates, frequencies, total)
+        terms = selective_terms({term: frequencies[term] for term in exact}, total) if exact else []
+        return " ".join(lexical), terms
 
-            terms = extract_exact_terms(query) if extract_exact_terms is not None else []
+    @staticmethod
+    def _expansion_terms(query: str) -> list[str]:
+        """The EN->DE glossary terms the German mirror is given for ``query``; none when unavailable."""
+        try:
+            from aiq_agent.common.query_expansion import expansion_terms
 
-            embedding = self._embed_query_cached(query)
-            collection = self._chroma_client.get_collection(name=collection_name)
-            # Translate through the SAME grammar the vector channel uses. Passing the
-            # backend-neutral dict straight to Chroma diverged on two shapes it rejects
-            # but LlamaIndex accepts -- a node with sibling keys (an implicit AND) and a
-            # single-element `$and`/`$or` group. Since the base collection always carries
-            # the `exclude_file_names` clause, any caller filter with two keys made the
-            # lexical pass raise, and the fail-open below turned hybrid off for exactly
-            # the filtered queries, visible only in a log line.
-            where = _to_chroma_where(filters)
-            # A `$contains` pass is a FILTER over the dense ranking, so a term that is
-            # on nearly every chunk hands the vector channel straight back and RRF then
-            # counts that ranking twice -- demoting every chunk only the German sparse
-            # channel found. Price the terms against the live collection first, the same
-            # rule and the same constants the sparse channel has always used.
-            if terms:
-                terms = self._selective_exact_terms(collection, collection_name, terms)
-            channels: list[list[Chunk]] = [chunks]
-            for term in terms:
-                raw = collection.query(
-                    query_embeddings=[embedding],
-                    n_results=top_k,
-                    where_document={"$contains": term},
-                    where=where,
-                )
-                channels.append(self._chunks_from_raw_query(raw))
+            return list(expansion_terms(query))
+        except Exception:  # noqa: BLE001 - the glossary widens recall, it never gates a search
+            logger.debug("Query expansion unavailable for the BM25 channel", exc_info=True)
+            return []
 
-            # German sparse channel: a real lexical index over the mirrored chunk text,
-            # solving the inflection, Austrian-ß and umlaut cases Chroma's byte-level
-            # `$contains` cannot. An EMPTY result is normal and means "no usable lexical
-            # signal" -- the document-frequency ceiling fired, or the query is English --
-            # never an error.
-            try:
-                from aiq_agent.common.query_expansion import expansion_terms
-                from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+    @classmethod
+    def _bm25_text(cls, query: str) -> str:
+        """The unpriced BM25 query: the question plus the EN->DE glossary terms the German mirror was given.
 
-                lexical_ids = get_chunk_text_store().search(
-                    collection_name, query, limit=top_k, extra_terms=expansion_terms(query)
-                )
-                if lexical_ids:
-                    fetched = collection.get(
-                        ids=lexical_ids, include=["documents", "metadatas", "embeddings"], where=where
-                    )
-                    fetched_ids = fetched.get("ids") or []
-                    german_channel = self._chunks_from_raw_query(
-                        {
-                            "ids": [fetched_ids],
-                            "documents": [fetched.get("documents") or []],
-                            "metadatas": [fetched.get("metadatas") or []],
-                            "distances": [_cosine_distances(embedding, fetched.get("embeddings"), len(fetched_ids))],
-                        }
-                    )
-                    # Restore the store's ranking: `collection.get` does not preserve it,
-                    # and RRF consumes rank position.
-                    rank = {chunk_id: index for index, chunk_id in enumerate(lexical_ids)}
-                    german_channel.sort(key=lambda chunk: rank.get(chunk.chunk_id, len(rank)))
-                    channels.append(german_channel)
-            except Exception as lexical_error:
-                logger.warning("German sparse channel unavailable: %s", lexical_error)
-
-            # Only the vector channel: nothing to fuse. This replaces the old early
-            # return on `not terms`, which would have made the sparse channel dead for
-            # the 71.7% of German questions that produce no exact term -- precisely the
-            # population it exists to serve.
-            if len(channels) == 1:
-                return chunks
-
-            fused = reciprocal_rank_fusion(channels, top_n=top_k)
-            if fused:
-                logger.info(
-                    f"Hybrid retrieval fused {len(chunks)} vector + {len(terms)} lexical channel(s) "
-                    f"into {len(fused)} chunks for collection {collection_name}"
-                )
-                return fused
-            return chunks
-        except Exception as e:
-            logger.warning(f"Hybrid lexical boost failed, falling back to vector-only retrieval: {e}")
-            return chunks
-
-    def _chunks_from_raw_query(self, raw: dict[str, Any]) -> list[Chunk]:
-        """Convert a raw Chroma ``collection.query`` result dict into normalized Chunks.
-
-        The raw query returns per-query-embedding lists; we always send exactly one
-        embedding, so each key's first list is the one we want. Cosine distances map to
-        the store's own ``exp(-distance)`` scale, mirroring what the vector channel
-        receives from ``ChromaVectorStore`` so the two channels stay comparable.
-
-        Node reconstruction goes through ``metadata_dict_to_node`` -- the same helper
-        the vector path uses -- rather than a hand-built ``TextNode``. That is not a
-        tidiness preference: ``node_id`` is a read-only *property* over the ``id_``
-        field, so ``TextNode(node_id=...)`` was silently discarded by pydantic and every
-        lexical chunk was born with a fresh ``uuid4``. Since reciprocal rank fusion keys
-        on ``chunk_id``, no chunk could ever match across the two channels: fusion
-        degenerated into channel-major concatenation, the same passage was emitted twice
-        under two different ids, and the duplicates displaced genuine vector hits. The
-        helper also restores the clean node metadata instead of Chroma's raw row, which
-        carries a full JSON copy of the chunk's own text in ``_node_content``.
+        What BM25 receives only when pricing fails (``_qdrant_lexical_inputs``).
         """
+        return " ".join([query, *cls._expansion_terms(query)])
+
+    def _chunk_from_hit(self, hit: Any) -> Chunk:
+        """A Qdrant hit as a Chunk, through ``normalize``, with the hit's true cosine as its score."""
         from llama_index.core.schema import NodeWithScore
         from llama_index.core.schema import TextNode
-        from llama_index.core.vector_stores.utils import metadata_dict_to_node
 
-        ids = raw.get("ids", [[]])[0]
-        documents = raw.get("documents", [[]])[0]
-        metadatas = raw.get("metadatas", [[]])[0]
-        distances = raw.get("distances", [[]])[0]
+        from ..qdrant.payload import chunk_metadata
 
-        nodes: list[NodeWithScore] = []
-        for index, chunk_id in enumerate(ids):
-            distance = distances[index] if index < len(distances) else 1.0
-            metadata = metadatas[index] if index < len(metadatas) and metadatas[index] else {}
-            text = documents[index] if index < len(documents) else ""
-            try:
-                node = metadata_dict_to_node(metadata, text=text)
-            except Exception:
-                # Rows written before `_node_content` existed, or by a non-llama-index
-                # writer. `id_`, not `node_id` -- see the docstring.
-                node = TextNode(text=text or "", id_=chunk_id, metadata=metadata)
-            nodes.append(NodeWithScore(node=node, score=math.exp(-float(distance))))
-        return [self.normalize(node) for node in nodes]
+        node = TextNode(text=hit.text, id_=hit.chunk_id, metadata=chunk_metadata(hit.payload))
+        return self.normalize(NodeWithScore(node=node, score=float(hit.cosine)))
 
     def normalize(self, raw_result: Any) -> Chunk:
         """Convert LlamaIndex NodeWithScore to universal Chunk."""
@@ -6515,7 +5855,7 @@ class LlamaIndexRetriever(BaseRetriever):
             return Chunk(
                 chunk_id=node.node_id if hasattr(node, "node_id") else str(uuid.uuid4()),
                 content=node.get_content() if hasattr(node, "get_content") else str(node),
-                score=cosine_similarity_from_store_score(score),
+                score=unit_score(score),
                 file_name=file_name,
                 page_number=page_number,
                 display_citation=display_citation,
@@ -6535,42 +5875,7 @@ class LlamaIndexRetriever(BaseRetriever):
             )
 
     async def health_check(self) -> bool:
-        """Check if ChromaDB is accessible."""
-        try:
-            if self._chroma_client:
-                self._chroma_client.heartbeat()
-            return True
-        except Exception:
-            return False
+        """Whether Qdrant, the one store this retriever reads, answers."""
+        from ..qdrant import retrieval as qdrant_retrieval
 
-
-# =============================================================================
-# Utility Functions
-# =============================================================================
-
-
-def list_collections(persist_dir: str | None = None) -> list[dict[str, Any]]:
-    """List all ChromaDB collections.
-
-    Args:
-        persist_dir: ChromaDB persistence directory.
-                     Defaults to AIQ_CHROMA_DIR env var or /tmp/chroma_data.
-    """
-    if persist_dir is None:
-        persist_dir = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
-    try:
-        # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
-        client = _make_chroma_client(persist_dir)
-        collections = client.list_collections()
-
-        return [
-            {
-                "name": col.name,
-                "backend": "llamaindex",
-                "count": col.count(),
-            }
-            for col in collections
-        ]
-    except Exception as e:
-        logger.error(f"Error listing LlamaIndex collections: {e}")
-        return []
+        return await asyncio.to_thread(qdrant_retrieval.healthy)

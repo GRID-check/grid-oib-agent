@@ -7,7 +7,7 @@ previous upload. A person's confirmed link and a dismissed suggestion survive a
 re-read. And no name of a held file reaches the model (ADR-0086).
 
 The unit tests drive ``fassungen`` directly; the end-to-end ones run
-``_run_ingestion`` over a real SQLite store and a real Chroma collection with a
+``_run_ingestion`` over a real SQLite store and a real Qdrant collection with a
 model that answers by the kind of prompt it is given.
 """
 
@@ -432,29 +432,6 @@ class TestRecordFassungenWithAChoice:
 # ---------------------------------------------------------------------------
 
 
-class _IndexIntoChroma:
-    """Stands in for ``VectorStoreIndex``: writes each document as one chunk, unembedded."""
-
-    @classmethod
-    def from_documents(cls, documents, storage_context, **_kwargs):
-        index = cls(storage_context.vector_store.client)
-        for document in documents:
-            index.insert(document)
-        return index
-
-    def __init__(self, collection):
-        self._collection = collection
-
-    def insert(self, document):
-        metadata = {key: value for key, value in document.metadata.items() if value is not None}
-        self._collection.add(
-            ids=[str(uuid.uuid4())],
-            documents=[document.get_content()],
-            metadatas=[metadata],
-            embeddings=[[0.1, 0.2, 0.3]],
-        )
-
-
 class _Model:
     """A summary model that answers by the kind of prompt it is given, and remembers them."""
 
@@ -486,15 +463,11 @@ class _Model:
 def stores(tmp_path):
     from aiq_agent.knowledge import configure_summary_db
     from aiq_agent.knowledge import factory
-    from aiq_agent.knowledge.chunk_text_store import configure_chunk_text_store
-    from aiq_agent.knowledge.chunk_text_store import reset_chunk_text_store
 
     factory._document_metadata_store = None
     configure_summary_db(f"sqlite:///{tmp_path / 'summaries.db'}")
-    mirror = configure_chunk_text_store(f"sqlite:///{tmp_path / 'mirror.db'}")
-    yield mirror
+    yield
     factory._document_metadata_store = None
-    reset_chunk_text_store()
 
 
 @pytest.fixture()
@@ -503,14 +476,13 @@ def model():
 
 
 @pytest.fixture()
-def live_ingestor(tmp_path, monkeypatch, model):
+def live_ingestor(tmp_path, monkeypatch, model, qdrant_store):
     from aiq_agent.knowledge import document_classification
+    from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
 
-    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma"), "generate_summary": True, "summary_llm": model})
-    ing._embed_model = MagicMock()
+    ing = LlamaIndexIngestor({"generate_summary": True, "summary_llm": model})
+    ing._embed_model = FakeEmbedder()
     ing._initialized = True
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", _IndexIntoChroma)
-    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
     monkeypatch.setattr(document_classification, "classify_document_tags", lambda *_a, **_k: ["Grundriss"])
     return ing
 
@@ -551,18 +523,10 @@ def _documents(collection):
 
 def _seed_previous_version(ing, stores, collection_name, file_name):
     from aiq_agent.knowledge import register_summary
+    from sources.knowledge_layer.tests.qdrant_testing import record
+    from sources.knowledge_layer.tests.qdrant_testing import write
 
-    collection = ing._get_chroma_client().get_or_create_collection(collection_name, metadata={"hnsw:space": "cosine"})
-    collection.add(
-        ids=["old-1"],
-        documents=["Alte Fassung Seite eins"],
-        metadatas=[{"file_name": file_name, "page_label": "1"}],
-        embeddings=[[0.1, 0.2, 0.3]],
-    )
-    stores.upsert_many(
-        collection_name,
-        [{"chunk_id": "old-1", "body": "Alte Fassung Seite eins", "file_name": file_name, "page_label": "1"}],
-    )
+    write(collection_name, [record("Alte Fassung Seite eins", file_name, chunk_id="old-1")])
     register_summary(collection_name, file_name, "Die alte Statik.")
 
 

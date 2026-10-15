@@ -178,6 +178,13 @@ backwards, and it logs a warning. A deployed ref that is not a `sha-` tag, or a
 commit the checkout does not know, is a warning, not a failure. Each service's
 move is logged as `<service>: <deployed ref> -> <resolved ref>`.
 
+Below the guard sits a **floor** nothing passes, a rollback included
+(`deploy/pulumi/scripts/vector-store-floor.sh`): the backend image must have
+been built for the vector store the deployed program runs. The program and
+image disagree when one commit still has `deploy/pulumi/src/data/chroma.ts`
+(the Chroma tier, removed by ADR-0113) and the other does not. Prod's job runs
+the same check on the tag `Pulumi.prod.yaml` pins.
+
 The committed stack file cannot say what is deployed: CI's `pulumi config set`
 never reaches git, so `pulumi config get grid-oib:backendImage` on a fresh
 checkout is empty and `imageTag` reads `latest` whatever is running. That is why
@@ -227,6 +234,15 @@ the downgrade guard.
    three** services to that tag, after verifying GHCR has it for all three.
 3. It goes through the identical gates and the identical gated rollout — surge,
    readiness soak, drain. Nothing special-cases a rollback.
+
+**A rollback by tag deploys the current program with older images**, so it
+works only while the two still fit together. Across a change to what the
+program deploys, it does not. The one such change today is Chroma's removal
+(ADR-0113): a backend from before it, under a program without Chroma, answers
+from an empty per-pod store and loses every upload, and the floor above refuses
+the tag. Going back across it is a revert of that change on `develop`, with
+every write Qdrant took since lost:
+[`qdrant-runbook.md`, "Rollback"](qdrant-runbook.md#rollback).
 
 For a change to the deployment *program* itself (not just the image), check out
 the previous commit and `pulumi up` from there. `pulumi cancel` only abandons an

@@ -38,7 +38,7 @@ _SHELF_OF_SOURCE: dict[str, str] = {"projekt": "project", "buero": "archiv"}
 # ---------------------------------------------------------------------------
 # The three constants below were calibrated against `Chunk.score` when it was
 # the vector store's raw `exp(-distance)`. `Chunk.score` is now a TRUE COSINE
-# similarity (`cosine_similarity_from_store_score`), so the literal numbers no
+# similarity (the Qdrant search returns each hit's cosine), so the literal numbers no
 # longer mean what they meant, and each has been converted rather than re-tuned:
 # the intended behaviour is preserved, nobody's judgement is overridden here.
 #

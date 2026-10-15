@@ -60,11 +60,11 @@ def test_a_broken_install_is_not_reported_as_missing(break_import) -> None:
 
 
 def test_a_genuinely_absent_module_is_reported_as_missing(break_import) -> None:
-    break_import("chromadb", ModuleNotFoundError("No module named 'chromadb'", name="chromadb"))
+    break_import("qdrant_client", ModuleNotFoundError("No module named 'qdrant_client'", name="qdrant_client"))
 
     findings = retrieval_dependency_report()
 
-    assert any(f.startswith("chromadb: not installed") for f in findings), findings
+    assert any(f.startswith("qdrant-client: not installed") for f in findings), findings
 
 
 def test_a_missing_transitive_dependency_is_not_reported_as_missing(break_import) -> None:
@@ -90,9 +90,9 @@ def test_a_missing_transitive_dependency_is_not_reported_as_missing(break_import
 
 def test_the_preflight_raises_when_any_module_is_unusable(break_import) -> None:
     """`ensure_retrieval_dependencies` is what makes "initialized" mean usable."""
-    break_import("llama_index.vector_stores.chroma", _BROKEN_CORE)
+    break_import("qdrant_client", _BROKEN_CORE)
 
-    with pytest.raises(RuntimeError, match="llama-index-vector-stores-chroma: installed but broken"):
+    with pytest.raises(RuntimeError, match="qdrant-client: installed but broken"):
         ensure_retrieval_dependencies()
 
 
@@ -150,7 +150,7 @@ def test_the_ingestor_raise_site_preflights_the_same_way(break_import) -> None:
     """Both entry points, or the guarantee is only half true."""
     from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
 
-    break_import("llama_index.vector_stores.chroma", _BROKEN_CORE)
+    break_import("qdrant_client", _BROKEN_CORE)
 
     ingestor = LlamaIndexIngestor.__new__(LlamaIndexIngestor)
     ingestor._initialized = False
@@ -158,5 +158,5 @@ def test_the_ingestor_raise_site_preflights_the_same_way(break_import) -> None:
     with pytest.raises(RuntimeError) as exc_info:
         ingestor._ensure_initialized()
 
-    assert "llama-index-vector-stores-chroma: installed but broken" in str(exc_info.value)
+    assert "qdrant-client: installed but broken" in str(exc_info.value)
     assert exc_info.value.__cause__ is _BROKEN_CORE

@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from aiq_agent.knowledge.collection_pages import page_sort_key
 from aiq_agent.knowledge.schema import AvailableDocument
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -137,7 +136,7 @@ def test_a_real_run_without_document_ids_exits_zero_and_stores_by_file_name(monk
     monkeypatch.setattr("aiq_agent.knowledge.configure_summary_db", lambda url: None)
     monkeypatch.setattr("aiq_agent.knowledge.get_available_documents", lambda collection: [_doc()])
     monkeypatch.setattr("aiq_agent.knowledge.permit_records_client.store_permit_record", fake_store)
-    monkeypatch.setattr(backfill, "make_page_fetcher", lambda chroma_dir: _fetch)
+    monkeypatch.setattr(backfill, "make_page_fetcher", lambda: _fetch)
     monkeypatch.setattr(backfill, "build_extraction_llm", lambda: FakeLLM())
 
     exit_code = backfill.main(["--organization-id", "org_1", "--collection", "proj_1"])
@@ -161,6 +160,19 @@ def test_a_document_with_no_indexed_text_fails_and_the_batch_goes_on():
     assert len(store.calls) == 1
 
 
+def test_an_unreachable_store_fails_that_document_and_the_batch_goes_on(caplog):
+    def fetch(collection, file_name):
+        if file_name == "down.pdf":
+            raise ConnectionError("qdrant down")
+        return _fetch(collection, file_name)
+
+    with caplog.at_level("WARNING"):
+        stats, store = _run([_doc("down.pdf"), _doc()], fetch=fetch, ids={"ma37.pdf": "d1", "down.pdf": "d2"})
+
+    assert (stats.failed, stats.stored) == (1, 1)
+    assert "could not be read" in caplog.text and "no indexed text" not in caplog.text
+
+
 def test_no_record_from_the_model_is_not_a_failure_and_is_not_stored():
     stats, store = _run([_doc()], llm=FakeLLM({"record": None}))
     assert (stats.no_record, stats.failed) == (1, 0)
@@ -173,11 +185,6 @@ def test_the_pages_reach_the_model_in_page_order_under_their_markers():
     shown = llm.messages[1].content
     assert shown.index("[Seite 2]") < shown.index("zweite")
     assert "[Seite 1]" in shown
-
-
-def test_chunks_are_ordered_by_numeric_page_label():
-    ordered = sorted([("10", "c"), ("2", "b"), (None, "a"), ("1", "z")], key=page_sort_key)
-    assert [text for _, text in ordered] == ["a", "z", "b", "c"]
 
 
 def test_the_document_id_file_must_be_a_flat_string_map(tmp_path):

@@ -93,7 +93,9 @@ from .routes.norms import add_norm_routes
 from .routes.note_embeddings import add_note_embedding_routes
 from .routes.oib import add_oib_routes
 from .routes.project_experience import add_project_experience_routes
+from .routes.project_facts import add_project_facts_routes
 from .routes.ris import add_ris_routes
+from .routes.similar_passages import add_similar_passages_routes
 from .routes.skill_review import add_skill_review_routes
 from .routes.skills import add_skill_routes
 from .startup_banner import log_boot_line
@@ -325,6 +327,12 @@ def api_routers(llm_configs: Mapping[str, Any]) -> tuple[Callable[[APIRouter], N
         # words: one vision call for the pair, cached (CONTEXT.md, „Fassung").
         add_fassung_compare_routes,
         add_document_search_routes,
+        # A project's facts and status onto its points, for the cross-project
+        # search's filters and likeness (design: qdrant-retrieval-design §7).
+        add_project_facts_routes,
+        # Passages like the one a person is reading, across what they may read:
+        # the viewer's „Im Büro behandelt“ (qdrant-retrieval-design §6).
+        add_similar_passages_routes,
         add_generate_summary_routes,
         add_cleanup_proposal_routes,
         # Where an upload belongs, judged once per batch from the folders'

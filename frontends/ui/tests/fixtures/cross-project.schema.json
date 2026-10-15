@@ -97,6 +97,87 @@
             "format": "uuid"
           },
           "maxItems": 20
+        },
+        "projectFacts": {
+          "type": "object",
+          "properties": {
+            "bundesland": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "wien",
+                  "niederoesterreich",
+                  "oberoesterreich",
+                  "steiermark",
+                  "kaernten",
+                  "salzburg",
+                  "tirol",
+                  "vorarlberg",
+                  "burgenland"
+                ]
+              },
+              "maxItems": 9
+            },
+            "gebaeudeklasse": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 5
+            },
+            "bauweise": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "mauerwerk_massivbau",
+                  "stahlbeton",
+                  "holzbau",
+                  "stahlbau"
+                ]
+              },
+              "maxItems": 4
+            },
+            "nutzungen": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "wohnen",
+                  "buero",
+                  "handel",
+                  "gastro",
+                  "beherbergung",
+                  "versammlung",
+                  "bildung",
+                  "gesundheit",
+                  "produktion",
+                  "garage",
+                  "landwirtschaft",
+                  "technik"
+                ]
+              },
+              "maxItems": 12
+            },
+            "vorhabensart": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "neubau",
+                  "zubau",
+                  "umbau",
+                  "sanierung",
+                  "nutzungsaenderung",
+                  "abbruch",
+                  "aussenanlagen"
+                ]
+              },
+              "maxItems": 7
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [
@@ -714,6 +795,87 @@
         },
         "limit": {
           "type": "integer"
+        },
+        "projectFacts": {
+          "type": "object",
+          "properties": {
+            "bundesland": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "wien",
+                  "niederoesterreich",
+                  "oberoesterreich",
+                  "steiermark",
+                  "kaernten",
+                  "salzburg",
+                  "tirol",
+                  "vorarlberg",
+                  "burgenland"
+                ]
+              },
+              "maxItems": 9
+            },
+            "gebaeudeklasse": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 5
+            },
+            "bauweise": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "mauerwerk_massivbau",
+                  "stahlbeton",
+                  "holzbau",
+                  "stahlbau"
+                ]
+              },
+              "maxItems": 4
+            },
+            "nutzungen": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "wohnen",
+                  "buero",
+                  "handel",
+                  "gastro",
+                  "beherbergung",
+                  "versammlung",
+                  "bildung",
+                  "gesundheit",
+                  "produktion",
+                  "garage",
+                  "landwirtschaft",
+                  "technik"
+                ]
+              },
+              "maxItems": 12
+            },
+            "vorhabensart": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "neubau",
+                  "zubau",
+                  "umbau",
+                  "sanierung",
+                  "nutzungsaenderung",
+                  "abbruch",
+                  "aussenanlagen"
+                ]
+              },
+              "maxItems": 7
+            }
+          },
+          "additionalProperties": false
         },
         "answerMessageId": {
           "anyOf": [

@@ -327,33 +327,23 @@ def test_the_exact_mode_is_never_withheld_as_a_repeat_of_the_ranked_one():
     assert ranked == fetch_signature({"name": "knowledge_search", "args": {"query": "ba-03", "match": "meaning"}})
 
 
-def test_the_store_query_finds_every_spelling_and_honours_a_file_filter():
-    """Against a real Chroma: the `$regex` pattern and the file filter are what the store accepts."""
-    chromadb = pytest.importorskip("chromadb")
-    from knowledge_layer.llamaindex.adapter import LlamaIndexRetriever
-
-    client = chromadb.EphemeralClient()
-    collection = client.get_or_create_collection(f"proj_{id(client)}")
-    collection.add(
-        ids=["a", "b", "c", "d"],
-        documents=["Firma Müller liefert", "MUELLER haftet", "nichts", "Brandabschnitt BA-03"],
-        metadatas=[
-            {"file_name": "a.pdf", "page_label": "1"},
-            {"file_name": "b.pdf", "page_label": "2"},
-            {"file_name": "a.pdf", "page_label": "3"},
-            {"file_name": "c.pdf", "page_label": "4"},
+def test_the_store_query_finds_every_spelling_and_honours_a_file_filter(qdrant_store):
+    """Against a real Qdrant: the pattern and the file filter are what the store accepts."""
+    retriever = _store_retriever()
+    _seed(
+        "proj_find",
+        [
+            ("a.pdf", "Firma Müller liefert", 1, {}),
+            ("b.pdf", "MUELLER haftet", 2, {}),
+            ("a.pdf", "nichts", 3, {}),
+            ("c.pdf", "Brandabschnitt BA-03", 4, {}),
+            ("d.pdf", "Brandabschnitt BA-03", 5, {}),
         ],
-        embeddings=[[0.1, 0.2], [0.2, 0.1], [0.3, 0.3], [0.5, 0.1]],
     )
-    retriever = LlamaIndexRetriever.__new__(LlamaIndexRetriever)
-    retriever._chroma_client = client
-    retriever._ensure_initialized = lambda: None
 
-    found = retriever._find_text_sync(collection.name, phrase_pattern(["Müller"]), None, 50)
+    found = retriever._find_text_sync("proj_find", phrase_pattern(["Müller"]), None, 50)
     assert sorted((chunk.file_name, chunk.page_number) for chunk in found) == [("a.pdf", 1), ("b.pdf", 2)]
-    narrowed = retriever._find_text_sync(
-        collection.name, phrase_pattern(["BA-03"]), {"file_name": {"$in": ["c.pdf"]}}, 50
-    )
+    narrowed = retriever._find_text_sync("proj_find", phrase_pattern(["BA-03"]), {"file_name": {"$in": ["c.pdf"]}}, 50)
     assert [chunk.file_name for chunk in narrowed] == ["c.pdf"]
     assert retriever._find_text_sync("no_such_collection", "x", None, 5) == []
 
@@ -373,39 +363,31 @@ def turn_shelves(monkeypatch):
     return install
 
 
-def _chroma_retriever():
-    chromadb = pytest.importorskip("chromadb")
+def _store_retriever():
+    """The production retriever over the test's Qdrant (``qdrant_store``), with no embedder: exact mode needs none."""
     from knowledge_layer.llamaindex.adapter import LlamaIndexRetriever
 
-    client = chromadb.EphemeralClient()
     retriever = LlamaIndexRetriever.__new__(LlamaIndexRetriever)
-    retriever._chroma_client = client
     retriever._ensure_initialized = lambda: None
-    return client, retriever
+    return retriever
 
 
-def _seed(client, name: str, rows: list[tuple[str, str, int, dict]]) -> None:
-    collection = client.get_or_create_collection(name)
-    collection.add(
-        ids=[f"{name}-{index}" for index in range(len(rows))],
-        documents=[row[1] for row in rows],
-        metadatas=[{"file_name": row[0], "page_label": str(row[2]), **row[3]} for row in rows],
-        embeddings=[[0.1, 0.2]] * len(rows),
-    )
+def _seed(name: str, rows: list[tuple[str, str, int, dict]]) -> None:
+    """Write ``(file_name, text, page, metadata)`` rows into collection ``name``, as ingestion writes chunks."""
+    from sources.knowledge_layer.tests.qdrant_testing import record
+    from sources.knowledge_layer.tests.qdrant_testing import write
+
+    write(name, [record(text, file_name, page_label=str(page), **meta) for file_name, text, page, meta in rows])
 
 
 class TestExactSearchReadsTheBaseCorpusLikeTheRankedSearch:
     """An excluded edition and a cover page are not evidence in either mode."""
 
     @pytest.fixture
-    def corpus(self, monkeypatch, search_with):
-        import uuid
-
-        client, retriever = _chroma_retriever()
-        suffix = uuid.uuid4().hex[:8]
-        base, project = f"base_{suffix}", f"proj_{suffix}"
+    def corpus(self, monkeypatch, search_with, qdrant_store):
+        retriever = _store_retriever()
+        base, project = "base_exact", "proj_exact"
         _seed(
-            client,
             base,
             [
                 ("oib-rl_2_2023.pdf", "Brandabschnitt EI 90 gilt", 3, {"chunking": "punkt"}),
@@ -413,7 +395,7 @@ class TestExactSearchReadsTheBaseCorpusLikeTheRankedSearch:
                 ("oib-rl_2_2023.pdf", "Deckblatt EI 90", 1, {"chunking": "page"}),
             ],
         )
-        _seed(client, project, [("Notiz.docx", "Firma Müller, EI 90", 1, {})])
+        _seed(project, [("Notiz.docx", "Firma Müller, EI 90", 1, {})])
         monkeypatch.setattr(
             "aiq_agent.knowledge.scoping.get_scoped_collections_from_context",
             lambda: [ScopedCollection(base, Shelf.BASE), ScopedCollection(project, Shelf.PROJECT)],
@@ -469,15 +451,16 @@ class _FailingStore(_TextStore):
 
 
 class TestAStoreOutageIsNeverANo:
-    def test_the_adapter_raises_on_an_outage_and_answers_empty_for_a_missing_collection(self):
-        _client, retriever = _chroma_retriever()
+    def test_the_adapter_raises_on_an_outage_and_answers_empty_for_an_empty_collection(self, qdrant_store, monkeypatch):
+        from knowledge_layer.qdrant import store as store_module
+
+        retriever = _store_retriever()
         assert retriever._find_text_sync("no_such_collection_xyz", "x", None, 5) == []
 
-        class _Down:
-            def get_collection(self, name):
-                raise ConnectionError("chroma down")
+        def down(*_args, **_kwargs):
+            raise ConnectionError("qdrant down")
 
-        retriever._chroma_client = _Down()
+        monkeypatch.setattr(store_module.QdrantStore, "scroll", down)
         with pytest.raises(ConnectionError):
             retriever._find_text_sync("proj_1", "x", None, 5)
 
@@ -547,12 +530,10 @@ def test_the_pattern_reverses_the_transliteration_and_bounds_its_length():
     assert phrase_pattern(["ä" * 2000]) is None
 
 
-def test_the_store_finds_the_umlaut_form_of_a_transliterated_phrase():
-    import uuid
-
-    client, retriever = _chroma_retriever()
-    name = f"rev_{uuid.uuid4().hex[:8]}"
-    _seed(client, name, [("a.pdf", "Firma Müller, Müllerstraße 3", 1, {}), ("b.pdf", "Müller Straße", 2, {})])
+def test_the_store_finds_the_umlaut_form_of_a_transliterated_phrase(qdrant_store):
+    retriever = _store_retriever()
+    name = "rev_umlaut"
+    _seed(name, [("a.pdf", "Firma Müller, Müllerstraße 3", 1, {}), ("b.pdf", "Müller Straße", 2, {})])
 
     def files(phrase: str) -> set[str]:
         return {chunk.file_name for chunk in retriever._find_text_sync(name, phrase_pattern([phrase]), None, 5)}
@@ -580,18 +561,15 @@ _ORIGINALS = [
 ]
 
 
-@pytest.fixture(scope="module")
-def originals_store():
-    import uuid
-
-    client, retriever = _chroma_retriever()
-    name = f"orig_{uuid.uuid4().hex[:8]}"
-    _seed(client, name, [(file_name, text, 1, {}) for file_name, text in _ORIGINALS])
-    return name, retriever
+@pytest.fixture
+def originals_store(qdrant_store):
+    name = "orig_spellings"
+    _seed(name, [(file_name, text, 1, {}) for file_name, text in _ORIGINALS])
+    return name, _store_retriever()
 
 
 class TestTheStoreFindsWhatAPersonWouldFind:
-    """Against a real Chroma: the store's `$regex` and the Python re-check agree on each case."""
+    """Against a real Qdrant: the server's narrowing and the Python re-check agree on each case."""
 
     @pytest.fixture
     def store(self, originals_store):

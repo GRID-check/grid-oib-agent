@@ -18,7 +18,7 @@ the same small parsers on both sides, not two regex dialects.
 
 It lives in ``aiq_agent.common`` because both Python consumers already import
 from here, while importing anything under ``knowledge_layer.llamaindex`` loads
-LlamaIndex and Chroma (five seconds) into a process that only wants a regex.
+LlamaIndex (seconds) into a process that only wants a regex.
 
 Characters
 ----------

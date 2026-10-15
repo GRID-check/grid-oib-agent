@@ -344,11 +344,6 @@ def main():
         default="test_collection",
         help="Collection name for testing (default: test_collection)",
     )
-    parser.add_argument(
-        "--chroma-dir",
-        default="/tmp/chroma_e2e_test",
-        help="ChromaDB persistence directory (default: /tmp/chroma_e2e_test)",
-    )
     parser.add_argument("--no-cleanup", action="store_true", help="Don't delete collection after test")
     parser.add_argument("--text-only", action="store_true", help="Skip VLM-based extraction (faster, text only)")
     args = parser.parse_args()
@@ -371,14 +366,13 @@ def main():
     print("\nConfiguration:")
     print(f"  Test File:    {test_file}")
     print(f"  Collection:   {args.collection}")
-    print(f"  ChromaDB Dir: {args.chroma_dir}")
+    print(f"  Qdrant:       {os.environ.get('AIQ_QDRANT_URL', '(AIQ_QDRANT_URL not set)')}")
     print(f"  Text Only:    {args.text_only}")
     print(f"  Cleanup:      {not args.no_cleanup}")
 
     # Initialize ingestor
     print("\nInitializing LlamaIndex ingestor...")
     config = {
-        "persist_dir": args.chroma_dir,
         "extract_tables": not args.text_only,
         "extract_images": not args.text_only,
         "extract_charts": not args.text_only,
@@ -390,7 +384,6 @@ def main():
 
         ingestor = get_ingestor("llamaindex", config)
         print(f"  Backend: {ingestor.backend_name}")
-        print(f"  Persist Dir: {ingestor.persist_dir}")
     except Exception as e:
         print(f"ERROR: Failed to initialize ingestor: {e}")
         sys.exit(1)

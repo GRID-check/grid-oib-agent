@@ -58,7 +58,7 @@ export function installWeb(
         template: {
           metadata: { labels },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             imagePullSecrets,
             terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
             securityContext: { runAsNonRoot: true, runAsUser: UID.web, runAsGroup: UID.web },

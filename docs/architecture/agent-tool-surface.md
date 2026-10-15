@@ -282,7 +282,10 @@ been uploaded and read).
   the files filed in it or under it (`browse._files_by_collection`, the
   exact mode's resolver), and only those are ranked. It used to filter the
   shelf's top `3 × top_k`, so a folder whose passages ranked lower came back
-  empty while holding what was asked.
+  empty while holding what was asked. The folder is a payload condition
+  on the Qdrant points (`folder_ancestors`), together with `doc_class` and
+  the superseded exclusion, and none of them over-fetches
+  (`qdrant/prefilter.py`). The post-filter still runs over what comes back.
 - **Fassungen: marks in `list_files`, and older ones out of the ranking
   (ADR-0099).** A row a PERSON confirmed as replaced reads `ersetzt durch <neuer>
   (bestätigt)`; the newer one `ersetzt <älterer> (bestätigt)` and, when a change
@@ -299,8 +302,10 @@ been uploaded and read).
   has its row are read from `document_metadata` at search time
   (`DocumentMetadataStore.get_superseded_files`) and sent as `file_name NOT IN`, so
   a replaced file cannot outrank its replacement on similarity alone, and a link
-  made or lifted a minute ago applies to the next search. A call that names the file
-  (`file_name=`) hides nothing, and says nothing. When files were left out the result
+  made or lifted a minute ago applies to the next search. Under Qdrant the
+  search filters on the mirrored `superseded` flag instead, and the same
+  Postgres list drops any hit whose flag the mirror has not caught up with.
+  A call that names the file (`file_name=`) hides nothing, and says nothing. When files were left out the result
   opens with `Ältere Fassungen ausgeblendet: <Namen> — mit file_name=… gezielt
   lesbar.` (five names, then „und n weitere“), through the notice slot so the
   grounding block's hash still matches. `match="exact"` is a literal search and

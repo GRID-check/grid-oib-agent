@@ -529,6 +529,27 @@ class TestTheOverviewIsNotBuriedInRankedHits:
         # Ten ranked, eight past the top-k cap, four of those beside the overview.
         assert span["dropped_by_family"] == _config().top_k - reg._FAMILY_RANKED_HITS
 
+    async def test_the_span_says_how_the_members_were_read(self, corpus, monkeypatch):
+        """``family_read``: "retrieve" when the probe was embedded, "fetch" when read by filter alone."""
+        store = corpus(MEMBERS, ranked=_ranked_many())
+        span: dict = {}
+
+        def _capture(*, tool_name, search_input, picks):
+            span.update(search_input)
+
+        monkeypatch.setattr("aiq_agent.observability.retrieval_trace.emit_retrieval_span", _capture)
+        await _search()
+        assert span["family_read"] == "retrieve"
+
+        async def _fetch(collection_name, filters, limit, order_by=None):
+            return [chunk.model_copy(deep=True) for chunk in store.outlines.get(_outline_file(filters), [])]
+
+        store.fetch = _fetch
+        span.clear()
+        out = await _search()
+        assert span["family_read"] == "fetch"
+        assert _citations(out)[:4] == [f"{MEMBERS[number]}, p.2" for number in ("2", "2.1", "2.2", "2.3")]
+
     async def test_an_ordinary_search_drops_nothing_for_a_family(self, corpus, monkeypatch):
         corpus(MEMBERS, ranked=_ranked_many())
         span: dict = {}

@@ -1,63 +1,69 @@
-"""Tests for the metadata-filter wiring in the LlamaIndex adapter (norm-registry Phase 0)."""
+"""The backend-neutral filter grammar, as the store compiles it (``qdrant.scope.translate``).
+
+Every caller (``knowledge_search``'s filters, ``read_passage``, the prefilter)
+speaks one grammar; this pins what each shape means once it reaches Qdrant,
+and that an unknown shape fails loud at the tool boundary instead of
+silently over-retrieving. The server-side meaning of a compiled filter is
+pinned in ``test_qdrant_store.py`` and ``test_page_chunk_exclusion.py``.
+"""
 
 import pytest
 from knowledge_layer.llamaindex.adapter import _filters_fingerprint
-from knowledge_layer.llamaindex.adapter import _to_metadata_filters
-from llama_index.core.vector_stores.types import FilterOperator
+from knowledge_layer.qdrant.scope import translate
+from qdrant_client import models
 
 
-class TestToMetadataFilters:
-    def test_none_and_empty_become_none(self):
-        assert _to_metadata_filters(None) is None
-        assert _to_metadata_filters({}) is None
+def _conditions(flt: models.Filter) -> list[models.FieldCondition]:
+    """Every field condition in ``flt``, depth first."""
+    found: list[models.FieldCondition] = []
+    for part in (flt.must or []) + (flt.should or []) + (flt.must_not or []):
+        found.extend(_conditions(part) if isinstance(part, models.Filter) else [part])
+    return found
+
+
+class TestTranslate:
+    def test_empty_raises(self):
+        with pytest.raises(ValueError, match="empty group"):
+            translate({})
 
     def test_bare_value_means_eq(self):
-        result = _to_metadata_filters({"rank": "normativ"})
+        flt = translate({"doc_class": "normativ"})
 
-        assert result is not None
-        assert len(result.filters) == 1
-        assert result.filters[0].key == "rank"
-        assert result.filters[0].operator == FilterOperator.EQ
-        assert result.filters[0].value == "normativ"
+        (condition,) = flt.must
+        assert condition.key == "doc_class"
+        assert condition.match == models.MatchValue(value="normativ")
 
     def test_explicit_operators(self):
-        result = _to_metadata_filters(
+        flt = translate(
             {
-                "edition_status": {"$eq": "current"},
-                "role": {"$nin": ["diff"]},
-                "doc_id": {"$in": ["oib-rl-2", "oib-rl-3"]},
-                "rank": {"$ne": "plan_parzelle"},
+                "richtlinie": {"$eq": "2"},
+                "chunking": {"$nin": ["page"]},
+                "file_name": {"$in": ["oib-rl-2.pdf", "oib-rl-3.pdf"]},
+                "doc_class": {"$ne": "plan"},
             }
         )
 
-        assert result is not None
-        ops = {f.key: f.operator for f in result.filters}
-        assert ops == {
-            "edition_status": FilterOperator.EQ,
-            "role": FilterOperator.NIN,
-            "doc_id": FilterOperator.IN,
-            "rank": FilterOperator.NE,
-        }
-        values = {f.key: f.value for f in result.filters}
-        assert values["role"] == ["diff"]
-        assert values["doc_id"] == ["oib-rl-2", "oib-rl-3"]
+        eq, nin, in_, ne = flt.must
+        assert eq.must[0].match == models.MatchValue(value="2")
+        assert nin.must_not[0].match == models.MatchAny(any=["page"])
+        assert in_.must[0].match == models.MatchAny(any=["oib-rl-2.pdf", "oib-rl-3.pdf"])
+        assert ne.must_not[0].match == models.MatchValue(value="plan")
 
-    def test_multiple_fields_and_ed(self):
-        result = _to_metadata_filters({"a": 1, "b": 2, "c": 3})
+    def test_multiple_fields_are_anded(self):
+        flt = translate({"doc_class": "a", "richtlinie": "2", "chunking": "punkt"})
 
-        assert result is not None
-        assert len(result.filters) == 3
+        assert len(flt.must) == 3 and not flt.should
 
     def test_unknown_operator_fails_loud(self):
-        with pytest.raises(ValueError, match="Unsupported metadata filter operator"):
-            _to_metadata_filters({"rank": {"$regex": ".*"}})
+        with pytest.raises(ValueError, match="Unsupported metadata filter condition"):
+            translate({"doc_class": {"$regex": ".*"}})
 
-    def test_non_mapping_value_passthrough_as_eq(self):
-        result = _to_metadata_filters({"country": "at"})
+    def test_unindexed_field_fails_loud(self):
+        with pytest.raises(ValueError, match="not an indexed payload field"):
+            translate({"rank": "normativ"})
 
-        assert result is not None
-        assert result.filters[0].operator == FilterOperator.EQ
-        assert result.filters[0].value == "at"
+    def test_nin_of_nothing_excludes_nothing(self):
+        assert translate({"file_name": {"$nin": []}}).must_not == []
 
 
 class TestFiltersFingerprint:
@@ -77,48 +83,38 @@ class TestFiltersFingerprint:
 
 
 class TestNestedLogicalFilters:
-    def test_or_group_translates_to_nested_or(self):
-        from llama_index.core.vector_stores.types import FilterCondition
+    def test_or_group_translates_to_should(self):
+        flt = translate({"$or": [{"punkt_id": "a"}, {"punkt_id": "b"}]})
 
-        result = _to_metadata_filters({"$or": [{"doc_id": "a"}, {"doc_id": "b"}]})
-
-        assert result is not None
-        assert result.condition == FilterCondition.AND
-        assert len(result.filters) == 1
-        or_group = result.filters[0]
-        assert or_group.condition == FilterCondition.OR
-        assert len(or_group.filters) == 2
-        branch = or_group.filters[0]
-        assert branch.filters[0].key == "doc_id"
-        assert branch.filters[0].operator == FilterOperator.EQ
+        assert len(flt.should) == 2
+        assert [c.match.value for c in _conditions(flt)] == ["a", "b"]
 
     def test_and_group_preserves_operators(self):
-        result = _to_metadata_filters(
-            {"$and": [{"role": {"$nin": ["diff"]}}, {"edition_status": {"$nin": ["superseded"]}}]}
-        )
+        flt = translate({"$and": [{"chunking": {"$nin": ["page"]}}, {"doc_class": {"$nin": ["plan"]}}]})
 
-        nested = result.filters[0]
-        keys = {(f.key, f.operator) for f in nested.filters}
-        assert ("role", FilterOperator.NIN) in keys
-        assert ("edition_status", FilterOperator.NIN) in keys
+        assert len(flt.must) == 2
+        assert all(part.must_not for part in flt.must)
+        assert {c.key for c in _conditions(flt)} == {"chunking", "doc_class"}
 
     def test_mixed_fields_and_or_group_are_anded(self):
-        result = _to_metadata_filters(
+        flt = translate(
             {
                 "file_name": {"$nin": ["x.pdf"]},
-                "$or": [{"edition_status": {"$ne": "superseded"}}, {"doc_id": "d", "edition": "e"}],
+                "$or": [{"doc_class": {"$ne": "plan"}}, {"punkt_id": "d", "richtlinie": "e"}],
             }
         )
 
-        assert len(result.filters) == 2
-        assert result.filters[0].key == "file_name"
-        or_group = result.filters[1]
-        and_branch = or_group.filters[1]
-        assert {f.key for f in and_branch.filters} == {"doc_id", "edition"}
+        file_part, or_part = flt.must
+        assert file_part.must_not[0].key == "file_name"
+        assert {c.key for c in _conditions(or_part.should[1])} == {"punkt_id", "richtlinie"}
+
+    def test_empty_logical_group_raises(self):
+        with pytest.raises(ValueError, match="expects a non-empty list"):
+            translate({"$or": []})
 
     def test_unknown_operator_inside_nested_group_raises(self):
-        with pytest.raises(ValueError, match="Unsupported metadata filter operator"):
-            _to_metadata_filters({"$or": [{"role": {"$regex": "x"}}]})
+        with pytest.raises(ValueError, match="Unsupported metadata filter condition"):
+            translate({"$or": [{"doc_class": {"$regex": "x"}}]})
 
     def test_fingerprint_covers_nested_structure(self):
         a = _filters_fingerprint({"$or": [{"doc_id": "a"}, {"doc_id": "b"}]})

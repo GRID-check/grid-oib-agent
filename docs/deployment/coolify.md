@@ -14,7 +14,7 @@ model. **Use it, not `docker-compose.yaml`, on Coolify.**
 ## 1. What the stack looks like
 
 Services build from this repo (no external image pulls required after the
-NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma`,
+NVIDIA base-image removal — see §2, apart from the stock `qdrant/qdrant`,
 `dragonflydb/dragonfly` and `gotenberg/gotenberg` images):
 
 | Service | Role | Exposed publicly? |
@@ -24,7 +24,7 @@ NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma`,
 | `aiq-api` | Python FastAPI backend, **`api` role** (`GRID_ROLE=api`): every other HTTP route (knowledge, jobs and SSE, LLM utilities, admin) — port 8000. The frontend, `purger` and `housekeeping` call it with `BACKEND_URL`. Mirrors the K8s `aiq-api` Deployment | No (internal) |
 | `agent-worker` | Deep-research worker (`GRID_ROLE=worker`): claims jobs from Postgres and runs them off the web tier. Mirrors the K8s worker Deployment | No (internal) |
 | `ingest-worker` | Ingestion tier (`GRID_ROLE=ingest-worker`): the one process that claims the durable ingest queue `POST /v1/ingest` fills (ADR-0076). Without it uploads sit pending. Mirrors the K8s ingest-worker Deployment | No (internal) |
-| `chroma` | Shared ChromaDB vector server — port 8000. One store every backend role (`aiq-agent`, `aiq-api`, `agent-worker`, `ingest-worker`) queries over HTTP. Mirrors the K8s Chroma StatefulSet | No (internal) |
+| `qdrant` | Shared Qdrant vector store (ADR-0113) — port 6333, with the API key Coolify generates (`SERVICE_PASSWORD_QDRANT`). One store every backend role (`aiq-agent`, `aiq-api`, `agent-worker`, `ingest-worker`) queries over HTTP. Mirrors the K8s Qdrant StatefulSet, single node | No (internal) |
 | `seaweedfs` | S3-compatible object storage — port 8333 | **Yes** (presigned PDF URLs) |
 | `postgres` | Three logical DBs: `aiq_jobs`, `aiq_checkpoints`, `grid_app` | No (internal) |
 | `dragonfly` | Redis-protocol shared cache + conversation bus (ADR-0020/0028) | No (internal) |
@@ -39,9 +39,9 @@ NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma`,
 > research jobs to Postgres and the `agent-worker` service claims and executes
 > them (`FOR UPDATE SKIP LOCKED`), so token-heavy runs scale and crash
 > independently of the chat tier, and every backend role reads and writes the
-> shared `chroma` server. The value is fixed: a job submitted by the chat role is
-> streamed and cancelled by the `aiq-api` role (ADR-0082). See §7 for the one-time re-ingestion this implies on
-> an existing embedded-Chroma deployment.
+> shared `qdrant` store. The value is fixed: a job submitted by the chat role is
+> streamed and cancelled by the `aiq-api` role (ADR-0082). See §7 for moving the
+> vectors of a stack that ran Chroma.
 
 Only **frontend** and **seaweedfs** get a public domain. Everything else talks over
 the internal Coolify network.
@@ -107,6 +107,7 @@ which are generated per deployment and stay consistent across the stack:
 | `SERVICE_PASSWORD_POSTGRES` | Auto-generated Postgres password (embedded in every DB URL) |
 | `SERVICE_PASSWORD_SEAWEEDFS` | Auto-generated SeaweedFS secret key |
 | `SERVICE_PASSWORD_INTERNALTOKEN` | Auto-generated shared token for the single-writer memory endpoint |
+| `SERVICE_PASSWORD_QDRANT` | Auto-generated Qdrant API key: the `qdrant` service requires it, the backend roles send it (`AIQ_QDRANT_API_KEY`) |
 
 Because these are stable per stack, each preview environment self-configures its
 own domains, DB password, and internal token with no manual input.
@@ -304,14 +305,14 @@ preview exists. Public reachability comes entirely from the proxy + FQDN vars.
 ### The cost of OIB ingestion per preview
 
 There is no baked seed. Each fresh preview starts with an empty corpus table and
-an empty Chroma volume, so it answers nothing from the OIB knowledge base until
+an empty Qdrant volume, so it answers nothing from the OIB knowledge base until
 the operator uploads the PDFs, and each upload is then **embedded** — real
 OpenRouter embedding spend and a few minutes of warm-up, once per new
 environment (a redeploy of the *same* environment reuses the already-embedded
 corpus and pays nothing).
 
 For a heavy stack like this, previews are not free (each = backend + Postgres +
-SeaweedFS + Chroma). Consider **limiting previews to labelled PRs** and a single
+SeaweedFS + Qdrant). Consider **limiting previews to labelled PRs** and a single
 always-on **staging** environment for day-to-day demos so the corpus is embedded
 once and then reused across redeploys.
 
@@ -337,12 +338,12 @@ So chat, web search, **and** the knowledge base all work with just
 > `AIQ_EMBED_MODEL` + `AIQ_EMBED_BASE_URL` at query time match what embedded the
 > corpus. Keep the compose defaults
 > (`openai/text-embedding-3-large` @ OpenRouter); changing the embedder means the
-> persisted vectors must be re-generated (wipe the Chroma volume; the next base-corpus
+> persisted vectors must be re-generated (wipe the Qdrant volume; the next base-corpus
 > sync cycle re-ingests every file).
 
 ---
 
-## 7. The OIB knowledge base: object storage, a table, and the Chroma server
+## 7. The OIB knowledge base: object storage, a table, and the Qdrant store
 
 The OIB knowledge base is **not** baked into the image, and the backend keeps no
 volume for it (ADR-0082 step A2):
@@ -352,20 +353,25 @@ volume for it (ADR-0082 step A2):
   `oib_corpus_files` table in the knowledge database (Postgres). The same table
   records, per file, which bytes and which chunking version the index was built
   from. There is no `data/oib` mount and no registry file.
-- **Embeddings** — held by the shared `chroma` server on its own persistent
-  volume (`chroma_data`, mounted at `/data`). Every `aiq-agent` and
-  `agent-worker` reaches it at `AIQ_CHROMA_URL` (`http://chroma:8000`). There is
-  no embedded fallback in this file.
+- **Embeddings** — held by the shared `qdrant` store on its own persistent
+  volume (`qdrant_data`, mounted at `/qdrant/storage`). Every backend role
+  reaches it at `AIQ_QDRANT_URL` (`http://qdrant:6333`) with the generated key.
+  There is no embedded fallback in this file. `qdrant/qdrant:v1.19.2` is pinned
+  (`QDRANT_IMAGE` overrides): self-hosted Qdrant upgrades one minor at a time.
 
-> **The Chroma server image MUST match the backend's `chromadb` client version.**
-> The two share a wire protocol that changed incompatibly at 1.0: a **1.x client
-> against a 0.5.x server fails every ingestion with `KeyError('_type')`**, and
-> 1.x moved the API/health surface from `/api/v1` to `/api/v2`. The backend
-> currently ships `chromadb` **1.5.9**, so the server is pinned to
-> `chromadb/chroma:1.5.9` (override with `CHROMA_IMAGE`). Chroma 1.x is a Rust
-> server configured by a baked `/config.yaml` (`persist_path: /data`) — the old
-> `IS_PERSISTENT`/`PERSIST_DIRECTORY` env vars are ignored; persistence comes
-> from the `/data` volume mount. Bump the image only in lockstep with the client.
+> **Upgrading from a stack that ran Chroma.** The `chroma` service is gone, and
+> its `chroma_data` volume is no longer declared: nothing in the file mounts or
+> removes it, but deleting the Coolify resource may offer to delete its volumes,
+> so do neither before the move. The new release answers nothing from
+> what Chroma held until the vectors are moved once with the exporter and
+> importer. Coolify starts every service on a deploy, the housekeeping clock
+> included, so the order is: stop, export from `<uuid>_chroma_data`, set
+> `AIQ_VECTOR_IMPORT_PENDING=true`, deploy, stop the app services at once,
+> import on the `<uuid>` network with `aiq-api`'s environment, remove the
+> variable, restart ([`qdrant-runbook.md`](qdrant-runbook.md), "Migrating from
+> Chroma", "On Coolify"). Without the variable, the first base-corpus sync
+> takes the empty store for a reset and re-embeds the whole corpus. Delete the
+> volume once the new release has served for a while.
 
 > **Upgrading from a stack that kept the corpus on the `aiq-data` volume.** The
 > backend no longer mounts it. The one-shot `legacy-corpus-import` service reads
@@ -394,15 +400,15 @@ redeploys of the same environment; each preview gets its own set.
 |---|---|---|---|
 | `postgres-data` | `/var/lib/postgresql/data` | All app + job + checkpoint state | **Everything** |
 | `seaweedfs-data` | `/data` | Project/Archiv user document uploads (presigned serving) | All files |
-| `chroma_data` | `/data` (in `chroma`) | Shared Chroma server vector index (incl. the OIB corpus embeddings) | Re-ingest needed |
+| `qdrant_data` | `/qdrant/storage` (in `qdrant`) | Shared Qdrant vector store (incl. the OIB corpus embeddings) | Re-ingest needed |
 
 > **The OIB base corpus is in SeaweedFS, not on a backend volume.** Its source
 > PDFs are objects under `base-corpus/` in the `grid-documents` bucket (so
 > `seaweedfs-data` holds them next to the project/Archiv uploads), listed in the
-> `oib_corpus_files` table in `postgres-data`; its embeddings are on the Chroma
-> server's volume. The backend (`aiq-agent`, `agent-worker`) mounts no volume at
+> `oib_corpus_files` table in `postgres-data`; its embeddings are on the Qdrant
+> volume. The backend (`aiq-agent`, `agent-worker`) mounts no volume at
 > all, and the copy of a PDF it keeps for rendering and ingestion is a cache under
-> `/tmp` that it rebuilds on demand. Deleting the Chroma volume costs a
+> `/tmp` that it rebuilds on demand. Deleting the Qdrant volume costs a
 > re-ingestion (the next sync cycle does it); deleting `seaweedfs-data` or
 > `postgres-data` loses the corpus.
 
@@ -452,7 +458,7 @@ docker compose -f docker-compose.coolify.yaml up -d
 | Concern | Dev compose | Coolify compose |
 |---|---|---|
 | Container names | fixed (`aiq-agent`, …) | none (Coolify namespaces) |
-| Deep-research execution | dedicated `agent-worker` + shared `chroma` server (mirrors K8s) |
+| Deep-research execution | dedicated `agent-worker` + shared `qdrant` store (mirrors K8s) |
 | Docker network | custom `aiq-network` (bridge) | none declared — Coolify's managed per-stack network (avoids dual-homed 504/DNS failures) |
 | Host ports | published (3000, 8000, 5432, 8333/8888) | none — proxy + FQDN vars |
 | Secrets | `deploy/.env` literals | Coolify UI (`${VAR:?}`) + generated passwords; `OPENROUTER_API_KEY`, `TAVILY_API_KEY`, `GRID_ADMIN_TOKEN` all required |

@@ -142,9 +142,33 @@ sees, and the content is fetched only when it is relevant.
 The model climbs when one of the catalog's triggers fires. `scope: similar`
 is the default; `closed` walks only the closed projects in the same
 most-alike order (what the turn's precedent prefetch searches), and `all`
-(newest first) and `named` remain available. The budgets
-stay: 8 projects per call, 4 at a time, a 900-character passage, and
-per-project attribution.
+(newest first) and `named` remain available. One call covers a page of up to
+40 projects, and at most the backend's 500 collections, in one grouped query
+(ADR-0114), with a 900-character passage and per-project attribution; `offset`
+pages on.
+
+**Narrowing by project facts.** When the question names the kind of project
+(„nur Projekte in Tirol", „Wohnbauten der GK 4", „unsere Holzbau-Neubauten"),
+`search` and `find` take `project_facts`: tokens from the intake wizard's own
+vocabularies for Bundesland, Gebäudeklasse, Bauweise, Nutzungen and
+Vorhabensart. Within a fact any value matches, across facts all must. The BFF
+judges them on each project's profile (the confirmed facts, else the agent's
+suggestion from its documents, as the likeness reads them), over the reach the
+audience already has. Facts only narrow:
+
+- they never add a project the audience could not reach, and never a
+  restricted folder to a shared chat;
+- in `similar` and `closed` the likeness order and the search's likeness lift
+  still rank what is left, so „Tirol" with `similar` gives the Tyrolean
+  projects most like this one first; `all` stays newest first and `named` is
+  narrowed too;
+- the count of projects in scope, the paging, and the decisions and permits
+  all describe the narrowed set.
+
+A project whose profile does not record a fact does not match it, and many
+profiles still lack a Gebäudeklasse. The answer therefore names the facts it
+was narrowed by and says that projects without them are missing, so the model
+does not conclude „we never did that" from a filter.
 
 ## What changed against the first build
 

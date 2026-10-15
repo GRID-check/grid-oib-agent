@@ -1,7 +1,7 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
-import { LANGFUSE } from "../constants";
+import { LANGFUSE, QDRANT } from "../constants";
 
 /**
  * The SeaweedFS S3 identity set — who can touch which bucket.
@@ -36,6 +36,8 @@ import { LANGFUSE } from "../constants";
  * | `grid` | BFF, purger, PG backups | object CRUD on the platform buckets and, when enabled, every tenant bucket. No `Admin` — it cannot create or drop a bucket. |
  * | `grid-backend-read` | aiq-agent tier (ADR-0039) | `Read` on document buckets ONLY. |
  * | `grid-tenant-admin` | provisioning + purge paths | `Admin` on the tenant bucket PREFIX and nothing else. |
+ * | `grid-langfuse` | Langfuse (ADR-0044) | object CRUD on the Langfuse bucket only. |
+ * | `grid-qdrant` | Qdrant (ADR-0113) | object CRUD on the snapshot bucket only. |
  *
  * The split between `grid` and `grid-tenant-admin` is the point: SeaweedFS
  * cannot express "may create a bucket but not delete one" — `Admin:<bucket>`
@@ -97,6 +99,7 @@ export function s3IdentityCatalog({
   tenantBucketPrefix,
   provisioning,
   langfuseBucket,
+  qdrantBucket,
 }: {
   documentsBucket: string;
   platformBuckets: string[];
@@ -108,6 +111,12 @@ export function s3IdentityCatalog({
    * NOT in the `grid` identity's scope; see below.
    */
   langfuseBucket?: string;
+  /**
+   * The Qdrant snapshot bucket (ADR-0113), when that tier is deployed. Withheld
+   * from `grid` like the Langfuse bucket: a snapshot is a full copy of every
+   * office's chunk text and vectors, and the BFF has no reason to read one.
+   */
+  qdrantBucket?: string;
 }): S3IdentityShape[] {
   // `Read:grid-org-*` — the star is matched by prefix, so this covers every
   // bucket the tenant provisioner will ever create without covering
@@ -122,7 +131,7 @@ export function s3IdentityCatalog({
   // output in their most unredacted form. Langfuse reaches its own bucket with
   // its own identity below. Excluding it here is what keeps adding a platform
   // bucket from silently widening an existing credential.
-  const gridBuckets = platformBuckets.filter((bucket) => bucket !== langfuseBucket);
+  const gridBuckets = platformBuckets.filter((bucket) => bucket !== langfuseBucket && bucket !== qdrantBucket);
 
   const perBucket = (action: string): string[] => [
     ...gridBuckets.map((bucket) => `${action}:${bucket}`),
@@ -186,6 +195,17 @@ export function s3IdentityCatalog({
     });
   }
 
+  if (qdrantBucket) {
+    identities.push({
+      name: QDRANT.s3Identity,
+      // Object CRUD on exactly one bucket, for the reasons the Langfuse entry
+      // gives. `List` and `Write` (which covers DeleteObject) are both needed:
+      // Qdrant lists its snapshots and the CronJob deletes the expired ones
+      // through Qdrant's API.
+      actions: OBJECT_ACTIONS.map((action) => `${action}:${qdrantBucket}`),
+    });
+  }
+
   return identities;
 }
 
@@ -204,13 +224,16 @@ export function renderS3Config(
       cfg.seaweedfs.tenantAdminSecretKey,
       pulumi.output(cfg.langfuse.s3AccessKey),
       cfg.langfuse.s3SecretKey,
+      pulumi.output(cfg.qdrant.snapshots.s3AccessKey),
+      cfg.qdrant.snapshots.s3SecretKey,
     ])
-    .apply(([ak, sk, brak, brsk, taak, task, lfak, lfsk]) => {
+    .apply(([ak, sk, brak, brsk, taak, task, lfak, lfsk, qdak, qdsk]) => {
       const credentials: Record<string, { accessKey: string; secretKey: string }> = {
         grid: { accessKey: ak, secretKey: sk },
         "grid-backend-read": { accessKey: brak, secretKey: brsk },
         "grid-tenant-admin": { accessKey: taak, secretKey: task },
         [LANGFUSE.s3Identity]: { accessKey: lfak, secretKey: lfsk },
+        [QDRANT.s3Identity]: { accessKey: qdak, secretKey: qdsk },
       };
 
       const identities = s3IdentityCatalog({
@@ -219,6 +242,7 @@ export function renderS3Config(
         tenantBucketPrefix,
         provisioning,
         langfuseBucket: cfg.langfuse.enabled ? LANGFUSE.bucket : undefined,
+        qdrantBucket: QDRANT.snapshotBucket,
       }).map((identity) => ({
         name: identity.name,
         credentials: [credentials[identity.name]],

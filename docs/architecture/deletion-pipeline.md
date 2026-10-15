@@ -13,7 +13,7 @@ GRID has no working deletion story. Today:
 - Session/conversation deletion leaks LangGraph checkpoints.
 - There is no organization offboarding at all.
 
-Enterprise customers (~40 target orgs) require reliable data deletion (GDPR Art. 17 / security questionnaires). Deletion must span five stores that cannot be updated atomically: `grid_app` Postgres, `aiq_jobs` Postgres, `aiq_checkpoints` Postgres, SeaweedFS, Chroma, plus WorkOS (FGA resources / orgs).
+Enterprise customers (~40 target orgs) require reliable data deletion (GDPR Art. 17 / security questionnaires). Deletion must span five stores that cannot be updated atomically: `grid_app` Postgres, `aiq_jobs` Postgres, `aiq_checkpoints` Postgres, SeaweedFS, the vector store (Chroma then, Qdrant since ADR-0113), plus WorkOS (FGA resources / orgs).
 
 ## Design principles
 
@@ -85,7 +85,7 @@ Grace periods are config values; the architecture is identical at 0. All grace p
 
 ### Purger service
 
-New docker-compose service `purger`: **same image as the frontend, different command** (`node purger/index.js`). *(Revised from the original `aiq_api`-image idea during implementation planning: `grid_app` Postgres is owned by the frontend — single-writer rule — so the purger is plain-JS in `frontends/ui/purger/`, and the Python backend instead exposes one internal maintenance endpoint for its stores.)* No new codebase, no inbound ports. It holds all credentials (grid_app DB, aiq_jobs DB, aiq_checkpoints DB, SeaweedFS, Chroma dir/API, WorkOS API key) — acceptable as a privileged internal service. "Spawn on demand" was rejected: it requires docker-socket access from an app container (root-equivalent, fails enterprise security review). A sleeping poll loop costs ~zero.
+New docker-compose service `purger`: **same image as the frontend, different command** (`node purger/index.js`). *(Revised from the original `aiq_api`-image idea during implementation planning: `grid_app` Postgres is owned by the frontend — single-writer rule — so the purger is plain-JS in `frontends/ui/purger/`, and the Python backend instead exposes one internal maintenance endpoint for its stores.)* No new codebase, no inbound ports. It holds all credentials (grid_app DB, aiq_jobs DB, aiq_checkpoints DB, SeaweedFS, the vector store's API, WorkOS API key) — acceptable as a privileged internal service. "Spawn on demand" was rejected: it requires docker-socket access from an app container (root-equivalent, fails enterprise security review). A sleeping poll loop costs ~zero.
 
 Loop, every 60s:
 
@@ -113,7 +113,7 @@ For each row: set `status='purging'`, run the entity's step list, then set `purg
 
 **Document** (`documents` row still present; pointers from row):
 1. Delete SeaweedFS object at `storage_key`
-2. Delete Chroma chunks for that file (existing backend `DELETE /v1/collections/{collection}/documents`)
+2. Delete the file's vector chunks (existing backend `DELETE /v1/collections/{collection}/documents`)
 3. Delete `document_metadata` row (`aiq_jobs`) for (collection, filename)
 4. Delete `documents` row
 
@@ -287,7 +287,7 @@ the row went first that request was refused and the collection was left behind.
 
 **Project**:
 1. Gather pointers: `collectionName`, SeaweedFS prefix `org/{orgId}/project/{projectId}/`, all conversation ids for the project, and every other distinct `documents.collection_name` of the project — the restricted folders' collections, `<collectionName>_r<12 hex>` (ADR-0087), which hold chunks the project's own collection does not
-2. Delete Chroma collection (existing `DELETE /v1/collections/{name}`; also clears its `document_metadata` rows), then each chat's `s_` collection and each restricted folder's collection, one backend call each with the legal hold re-checked before each; a failure aborts the purge before any row is deleted
+2. Delete the project's vector collection (existing `DELETE /v1/collections/{name}`; also clears its `document_metadata` rows), then each chat's `s_` collection and each restricted folder's collection, one backend call each with the legal hold re-checked before each; a failure aborts the purge before any row is deleted
 2b. Delete the Langfuse traces of every gathered conversation id, one chat at a time with the hold re-checked before each; a failure aborts the purge before any row is deleted. A logged no-op without Langfuse configured
 3. Delete `aiq_jobs` rows (`job_info`, `job_access`, `job_events`) for jobs referencing that collection
 4. Delete LangGraph checkpoints for all gathered conversation ids
@@ -312,9 +312,9 @@ Content deletion (their messages' *text*, files they uploaded) stays with the ow
 3. Delete the WorkOS organization (and remaining FGA resources)
 4. Finalize queue row
 
-Python-side steps (Chroma collection + summaries, `aiq_jobs` rows, LangGraph checkpoints) are performed by the backend's internal `POST /v1/maintenance/purge-project-resources` endpoint, guarded by `GRID_INTERNAL_API_TOKEN`; the purger calls it as its first step. WorkOS calls use the same `@workos-inc/node` SDK and API key the UI uses.
+Python-side steps (vector collection + summaries, `aiq_jobs` rows, LangGraph checkpoints) are performed by the backend's internal `POST /v1/maintenance/purge-project-resources` endpoint, guarded by `GRID_INTERNAL_API_TOKEN`; the purger calls it as its first step. WorkOS calls use the same `@workos-inc/node` SDK and API key the UI uses.
 
-Beside it, `POST /v1/maintenance/reconcile-summaries` (same guard) forgets summary rows — the agent's document inventory — whose file holds no chunks in the vector store, the rows a per-document delete orphaned before `delete_file` learned to forget both together. Body: `{ collections?: string[], dry_run?: boolean }`; answer: `{ status, dry_run, collections_scanned, orphans_found, orphans_forgotten, forgotten: [{ collection, file_name }], failures: [{ collection, error }] }`. It fails per collection, treats a file that is tracked in any status or still in flight as held, and refuses (503) rather than guesses when the vector store cannot be listed. The BFF's orphaned-vector sweep (`lib/platform/vector-reconcile.ts`, Platform → Vector maintenance) calls it as its second half over the collections it just chunk-reconciled, so the OIB corpus is never in scope from there. The same sweep runs on a clock: `POST /api/internal/maintenance/reconcile-vectors` (token-guarded `internalApiRoute`, cross-tenant by declaration) is called by the `vector-reconcile` CronJob in `deploy/pulumi/src/app/workers.ts` — the `storage-alerts` shape, weekly on Sunday 03:00 UTC by default (`vectorReconcileSchedule`, `vectorReconcileEnabled`; rows in `deploy/pulumi/README.md`). The manual run on the page and the scheduled one are the same function, so the page stays the place to run it now and read the counts. Compose has no scheduler for either sweep; an operator there points `cron` at the internal route.
+Beside it, `POST /v1/maintenance/reconcile-summaries` (same guard) forgets summary rows — the agent's document inventory — whose file holds no chunks in the vector store, the rows a per-document delete orphaned before `delete_file` learned to forget both together. Body: `{ collections?: string[], dry_run?: boolean }`; answer: `{ status, dry_run, collections_scanned, orphans_found, orphans_forgotten, forgotten: [{ collection, file_name }], failures: [{ collection, error }], collections_absent: string[] }`. It judges files only inside collections the store holds points of: a collection with none is listed in `collections_absent` and keeps every row, because Qdrant lists no empty collection and absence is what a collection the import from Chroma has not reached, or a restore has not brought back, looks like (a whole collection's rows go with the purge route above, `clear_collection_summaries`). It fails per collection, treats a file that is tracked in any status or still in flight as held, and refuses (503) rather than guesses when the vector store cannot be listed or holds no point at all. The BFF's orphaned-vector sweep (`lib/platform/vector-reconcile.ts`, Platform → Vector maintenance) calls it as its second half over the collections it just chunk-reconciled, so the OIB corpus is never in scope from there. Its third half copies every project's facts onto its chunks (`syncAllProjectFacts`), and its fourth sends the same collections, 25 per call, to `POST /v1/maintenance/refresh-document-facts` (same guard; body `{ collections: string[] }`, 1–100; answer `{ status, collections_scanned, files_refreshed, failures: [{ collection, error }] }`, `409` without a Qdrant store), which copies every document's person-set facts (tags, Dokumentart, the superseded mark, the folder) onto its points again with `writes.copy_facts`: the copy after an edit never raises, so this is what repairs one that failed. The same sweep runs on a clock: `POST /api/internal/maintenance/reconcile-vectors` (token-guarded `internalApiRoute`, cross-tenant by declaration) is called by the `vector-reconcile` CronJob in `deploy/pulumi/src/app/workers.ts` — the `storage-alerts` shape, weekly on Sunday 03:00 UTC by default (`vectorReconcileSchedule`, `vectorReconcileEnabled`; rows in `deploy/pulumi/README.md`). The manual run on the page and the scheduled one are the same function, so the page stays the place to run it now and read the counts. Compose has no scheduler for either sweep; an operator there points `cron` at the internal route.
 
 ### API surface (Next.js BFF)
 
@@ -372,7 +372,7 @@ One caution for honest positioning: this makes the *product capable of* GDPR-con
 
 ## Testing (static verify workflow — no local docker runs)
 
-- Unit: reaper claim query semantics **including the legal-hold guard (entity-level and org-level holds block purge; release resumes it)**; each step's idempotency with mocked stores (S3 client, Chroma adapter, DBs); org fan-out waiting logic; enqueue idempotency; user-erasure anonymization leaves org data coherent.
+- Unit: reaper claim query semantics **including the legal-hold guard (entity-level and org-level holds block purge; release resumes it)**; each step's idempotency with mocked stores (S3 client, vector-store adapter, DBs); org fan-out waiting logic; enqueue idempotency; user-erasure anonymization leaves org data coherent.
 - Component: `TypeToConfirmDialog` (button disabled until exact match), Recently-deleted list + restore.
 - Route tests: soft-delete endpoints set `deleted_at` + enqueue and never hard-delete; permission checks (org admin / owner).
 - Migration reviewed statically; verify `notDeleted` filter applied to all list queries.

@@ -16,6 +16,12 @@
 
 /** Container UIDs baked into the images (verified against the Dockerfiles). */
 export const UID = {
+  /**
+   * Qdrant. The standard `qdrant/qdrant` image is built with `USER_ID=0` and
+   * would run as root; `qdrant-helm` runs it as 1000 and so do we. Everything
+   * it writes is on the data PVC (owned via `fsGroup`) or an emptyDir.
+   */
+  qdrant: 1000,
   /** Backend image (`deploy/Dockerfile`): `USER 1000:1000`. */
   backend: 1000,
   /** Frontend image (`frontends/ui/deploy/Dockerfile`): user `nextjs` = 1001. */
@@ -33,7 +39,6 @@ export const PORT = {
   frontend: 3000,
   /** Astro Node standalone adapter default port (`frontends/web/Dockerfile`). */
   web: 4321,
-  chroma: 8000,
   redis: 6379,
   postgres: 5432,
   seaweedS3: 8333,
@@ -63,6 +68,24 @@ export const PORT = {
   clickhouseNative: 9000,
   /** Gotenberg API (office → PDF, ADR-0070). Upstream default. */
   gotenberg: 3000,
+  /** Qdrant REST API: clients, probes and the snapshot CronJob. Upstream default. */
+  qdrantHttp: 6333,
+  /** Qdrant gRPC API, which `qdrant-client` prefers (`prefer_grpc`). Upstream default. */
+  qdrantGrpc: 6334,
+  /**
+   * Qdrant peer-to-peer (Raft consensus, shard transfer, forwarded requests).
+   * Only the Qdrant pods themselves may dial it: `qdrant-peers` in
+   * `network-policies.ts`.
+   */
+  qdrantP2p: 6335,
+  /**
+   * Qdrant's dedicated metrics listener (`service.metrics_port`, 1.19): it
+   * serves `/metrics` and nothing else, WITHOUT the API key (every other path
+   * answers 404), so the collector scrapes it holding no credential. Our
+   * choice, not an upstream default: unset, Qdrant opens no such port. Only the
+   * collector may dial it (`allow-collector-to-qdrant-metrics`).
+   */
+  qdrantMetrics: 6336,
 } as const;
 
 /**
@@ -189,20 +212,6 @@ export const DATA_RESOURCES = {
   },
   dragonflyRequests: { cpu: "50m", memory: "128Mi" },
   dragonflyCpuLimit: "500m", // memory limit is the `dragonflyMemoryLimit` knob
-  /**
-   * One Chroma serves every tier's reads and the whole ingest tier's writes. In
-   * the 2026-10 incident its 512Mi request reserved almost nothing on a node it
-   * shared with three ingest workers, and that node went NotReady with Chroma
-   * on it. The request now reserves half the limit, so the
-   * scheduler keeps real room for it; the limit is the headroom a reindex burst
-   * gets (the limits were live-patched on prod that night and are codified
-   * here; the request was raised with them).
-   * A change here rolls the single replica: a short outage of retrieval.
-   */
-  chroma: {
-    requests: { cpu: "1", memory: "3Gi" },
-    limits: { cpu: "4", memory: "6Gi" },
-  },
   /**
    * The single-node topology: one process doing all three jobs. Left exactly as
    * it was before ADR-0043 so that `seaweedfsTopology: single` stays a true
@@ -623,4 +632,154 @@ export const POSTGRES_DIRECT_RESERVE = {
    * keeps its namespace in Postgres.
    */
   filerPerReplica: 40,
+} as const;
+
+/**
+ * Qdrant (ADR-0113) — the fixed parts of the vector store that replaces Chroma.
+ *
+ * What is a knob (`config.ts` → `qdrant`): the image, the replica count, the
+ * envelope, the volume size, the snapshot schedule and retention, and every
+ * credential. What is here: the names that the StatefulSet, the Services, the
+ * NetworkPolicies, the S3 identity catalogue and the snapshot CronJob must all
+ * agree on. `docs/architecture/qdrant-retrieval-design.md` §9 has the reasoning.
+ */
+export const QDRANT = {
+  /** StatefulSet, ClusterIP Service and `app.kubernetes.io/name`. */
+  name: "qdrant",
+  /**
+   * Headless governing Service. Peers address each other as
+   * `qdrant-<n>.qdrant-headless.<ns>` for cluster bootstrap, and the snapshot
+   * CronJob reaches every peer by the same name.
+   */
+  headless: "qdrant-headless",
+  /** The Secret the pods and the snapshot CronJob read their keys from. */
+  secret: "qdrant-credentials", // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+  /** CronJob name and `app.kubernetes.io/name` of its pods. */
+  snapshotJob: "qdrant-snapshot",
+  /**
+   * Key prefix in `snapshotBucket` under which the snapshot CronJob records
+   * `GET /aliases` on every pass (`aliases-YYYY-MM-DD-HH-MM-SS.json`): aliases
+   * live in consensus, not in any collection snapshot, and every client
+   * addresses the store through them.
+   */
+  aliasesPrefix: "aliases/",
+  /** ConfigMap holding the Prometheus alerting rules for the cluster (`qdrant-alerts.ts`). */
+  alertRules: "qdrant-alert-rules",
+  /**
+   * `app.kubernetes.io/name` an operator gives a throwaway pod to reach the
+   * client ports (the runbook's `kubectl run … --labels`): a named caller in
+   * `allow-app-to-qdrant`, so a restore or a shard move can be driven from
+   * inside the namespace without borrowing a workload's label.
+   */
+  opsLabel: "qdrant-ops",
+  /**
+   * The built-in web dashboard at the edge (`qdrantDashboardEnabled`, off by
+   * default; `platform/qdrant-dashboard.ts`). The SecurityPolicy attaches to
+   * the route by name, and cert-manager names the certificate after the
+   * listener's `certificateRefs`, so each of these is one decision.
+   */
+  dashboard: {
+    routeName: "grid-qdrant-dashboard",
+    listenerName: "https-qdrant",
+    tlsSecret: "grid-qdrant-tls", // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+    policyName: "grid-qdrant-dashboard-auth",
+    /** Holds the platform Connect application's client secret, key `client-secret`. */
+    oidcSecret: "qdrant-dashboard-oidc", // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+    /** Where the Qdrant server serves the dashboard's static files. */
+    path: "/dashboard",
+  },
+  /**
+   * The SeaweedFS bucket shard snapshots are uploaded to (`snapshots_config`
+   * s3). A platform bucket: the init Job creates it, and it is withheld from
+   * the general-purpose `grid` identity like the Langfuse one.
+   */
+  snapshotBucket: "qdrant-snapshots",
+  /**
+   * Dedicated S3 identity: object CRUD on `snapshotBucket` and nothing else
+   * (`s3IdentityCatalog`). Qdrant needs List and Delete as well as Write, to
+   * list and expire its own snapshots.
+   */
+  s3Identity: "grid-qdrant",
+  /**
+   * Shards and replicas of the tenant collection on a cluster, fixed when the
+   * backend creates it (`AIQ_QDRANT_SHARD_NUMBER`, `AIQ_QDRANT_REPLICATION_FACTOR`).
+   * Open-source Qdrant cannot reshard, so 6 fits 1, 2, 3 and 6 nodes. With RF 2
+   * a lost peer keeps every shard readable and the 3-peer Raft quorum intact,
+   * and writes keep going: the backend creates the collection with write
+   * consistency 1, so a write is acknowledged once ONE replica holds it. The
+   * other replica is durable only after Qdrant re-syncs it from the WAL
+   * (`wal_delta`) when its peer returns; losing the acknowledging peer for
+   * good before that loses the write, and nothing else holds the vectors: the
+   * document comes back by re-indexing it (a project reindex). Transient write
+   * failures (connection, timeout, 5xx) are retried in the backend with
+   * backoff, never a 4xx.
+   * One peer gets the backend's own default of 1 and 1.
+   */
+  tenantShards: 6,
+  tenantReplicationFactor: 2,
+  /** Any value satisfies SeaweedFS; the SigV4 signature only needs one to be set. */
+  s3Region: "us-east-1",
+  /**
+   * The snapshot CronJob's image. Pinned: `curlimages/curl` is Alpine with
+   * busybox `sh`, `sed` and `date`, which is all the script uses.
+   */
+  curlImage: "curlimages/curl:8.16.0",
+} as const;
+
+/**
+ * The one-shot move of the retired Chroma store into Qdrant (ADR-0113,
+ * `app/chroma-migration-job.ts`). Fixed parts only; whether it runs, how much
+ * scratch it gets and how long the deploy waits for it are knobs (`config.ts`
+ * → `chromaMigration`). Remove with the Job once every stack has run it.
+ */
+export const CHROMA_MIGRATION = {
+  /** Job name and `app.kubernetes.io/name` of its pod: a named caller in `allow-app-to-qdrant`. */
+  name: "chroma-migration",
+  /** The ConfigMap that carries `deploy/migration/chroma_export.py` into the pod. */
+  exporterConfigMap: "chroma-migration-exporter",
+  /**
+   * What the exporter reads: the `chroma` Service of the server the previous
+   * release runs, in the same namespace. It still serves while the Job runs,
+   * because Pulumi deletes the resources a program dropped after every create
+   * and update, and only on a deploy that succeeded. Chroma is not withheld
+   * from rule 2 of the NetworkPolicies (`allow-same-namespace`), so the pod
+   * reaches it; egress is not restricted.
+   */
+  sourceUrl: "http://chroma:8000",
+  /**
+   * Where the exporter runs. Not the Chroma server image the deployment ran
+   * (`chromadb/chroma:1.5.9`): since 1.0 that is the Rust binary on Debian with
+   * no Python in it (checked on the 1.5.9 image: entrypoint `dumb-init --
+   * chroma`, no interpreter in any layer). A pinned uv on Python 3.12 instead,
+   * and `uv run --script` installs the `chromadb` the exporter pins in its
+   * inline metadata, which must equal that server's version.
+   */
+  exporterImage: "ghcr.io/astral-sh/uv:0.11.32-python3.12-trixie-slim",
+  /**
+   * Exporter: installing `chromadb`, then one page of a collection at a time
+   * over HTTP (1,000 chunks, about 60 MB of JSON at 3072 dimensions).
+   */
+  exporterResources: {
+    requests: { cpu: "1", memory: "2Gi" },
+    limits: { cpu: "4", memory: "4Gi" },
+  },
+  /** Importer: reads the export in batches and upserts it over HTTP. */
+  importerResources: {
+    requests: { cpu: "500m", memory: "1Gi" },
+    limits: { cpu: "2", memory: "4Gi" },
+  },
+  /**
+   * No retry, in the pod or in a new one (with `restartPolicy: Never`). A
+   * failed step leaves its pod, its log and the scratch claim holding the
+   * export for the operator to read. Under `OnFailure` the Job controller
+   * deletes a pod that exhausts its retries, and with it the log and the
+   * ephemeral claim, so a failure kept no evidence of why.
+   *
+   * There is deliberately no `ttlSecondsAfterFinished` either. Kubernetes
+   * would delete the finished Job after it, a `pulumi refresh` would then drop
+   * it from the state, and the next `up` would create it again: a second
+   * import of an old export, bringing back the chunks of every document
+   * deleted since. The Job is removed when `chromaMigration` is switched off.
+   */
+  backoffLimit: 0,
 } as const;

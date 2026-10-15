@@ -8,12 +8,14 @@ file (its best-scoring chunk), sorted by score descending.
 
 import logging
 import os
+from typing import Any
 
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
 from fastapi import Request
 
+from aiq_agent.knowledge.base import FUSED_SCORE_KEY
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.schema import Chunk
 from aiq_agent.knowledge.scoping import _normalize_collection_name
@@ -24,6 +26,8 @@ from aiq_agent.project_context import GridRequestContext
 from ..models.requests import DocumentSearchHit
 from ..models.requests import DocumentSearchRequest
 from ..models.requests import DocumentSearchResponse
+from ..models.requests import GroupedDocumentSearchRequest
+from ..models.requests import GroupedSearchFilters
 from .collections import _require_ingestor
 from .collections import require_collection
 
@@ -152,8 +156,129 @@ def _aggregate_hits(
     return hits[:top_k_files]
 
 
+#: Chunks fetched per collection for each document a group may return: a
+#: document's best chunk is not always its first-ranked one.
+GROUP_CHUNKS_PER_FILE = 3
+
+
+def _fused(chunk: Chunk) -> float:
+    """A chunk's place in the one fused ranking (``FUSED_SCORE_KEY``); 0 from a backend that states none."""
+    value = chunk.metadata.get(FUSED_SCORE_KEY)
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def _ranked_group_hits(
+    grouped: list[tuple[str, list[Chunk]]], files_per_group: int, snippet_max_chars: int
+) -> list[DocumentSearchHit]:
+    """Every group's best documents as one list, ordered DOCUMENT by document across the groups.
+
+    Each document is represented by its best chunk in the fused ranking, at
+    most ``files_per_group`` per collection, and the documents are ordered by
+    that chunk's fused score, ties in group order. A group-major list (the
+    best collection's documents, then the next collection's) would let one
+    project's weak documents fill a caller's first page ahead of another
+    project's strong one. The order IS the ranking: a caller keeps it rather
+    than re-sorting by ``score``, each document's cosine.
+
+    ``collection`` is the group key, the collection that was searched and
+    authorized, never what a chunk's own metadata claims (the
+    single-collection search makes the same choice in the BFF).
+    """
+    ranked: list[tuple[float, int, int, DocumentSearchHit]] = []
+    for group_index, (collection, chunks) in enumerate(grouped):
+        best: dict[str, Chunk] = {}
+        for chunk in chunks:
+            current = best.get(chunk.file_name)
+            if current is None or (_fused(chunk), chunk.score) > (_fused(current), current.score):
+                best[chunk.file_name] = chunk
+        documents = sorted(best.values(), key=lambda chunk: (_fused(chunk), chunk.score), reverse=True)
+        for file_index, chunk in enumerate(documents[:files_per_group]):
+            hit = DocumentSearchHit(
+                file_name=chunk.file_name,
+                score=chunk.score,
+                snippet=_snippet(chunk.content, snippet_max_chars),
+                page_number=chunk.page_number,
+                collection=collection,
+            )
+            ranked.append((-_fused(chunk), group_index, file_index, hit))
+    ranked.sort(key=lambda entry: entry[:3])
+    return [entry[3] for entry in ranked]
+
+
+#: A superseded Fassung stays out of the ranking (ADR-0099: search leaves it out
+#: unless asked for by name, and the grouped search names no file). ``$ne``
+#: keeps a point the mirror has not stamped yet, as ``knowledge_search``'s
+#: pre-filter and the similar-passages query do; the BFF checks the row again.
+CURRENT_FASSUNGEN: dict[str, Any] = {"superseded": {"$ne": True}}
+
+
+def grouped_filters(filters: GroupedSearchFilters | None) -> dict[str, Any]:
+    """The typed request filters in the retriever's filter grammar, always with the superseded exclusion.
+
+    The grammar is what ``knowledge_layer.qdrant.scope`` compiles into the
+    scope filter, so these become pre-filters inside the one query. Each
+    tag group is a separate any-of, as the BFF's ``matchesTags`` reads them.
+    """
+    if filters is None:
+        return CURRENT_FASSUNGEN
+    parts: list[dict[str, Any]] = []
+    for group in (filters.document_types, filters.disciplines):
+        if group:
+            parts.append({"tags": {"$in": list(group)}})
+    if filters.project_facts is not None:
+        facts = filters.project_facts.model_dump(mode="json")
+        for key, value in facts.items():
+            values = [value] if isinstance(value, str) else list(value or [])
+            if values:
+                parts.append({f"project_facts.{key}": {"$in": values}})
+    if filters.project_status:
+        parts.append({"project_status": {"$in": list(filters.project_status)}})
+    if not parts:
+        return CURRENT_FASSUNGEN
+    return {"$and": [*parts, CURRENT_FASSUNGEN]}
+
+
 def add_document_search_routes(router: APIRouter):
     """Add semantic document-search routes to the FastAPI app."""
+
+    @router.post(
+        "/v1/collections/search",
+        response_model=DocumentSearchResponse,
+        tags=["documents"],
+        summary="One semantic search ranked across many collections",
+    )
+    async def search_across_collections(
+        request: GroupedDocumentSearchRequest, http_request: Request
+    ) -> DocumentSearchResponse:
+        """Rank every named collection's documents in one query (Qdrant, ADR-0114).
+
+        Every collection must be in the caller's signed scope, as for the
+        single-collection search. Qdrant is the only store (ADR-0113), so the
+        BFF has nothing to fall back to: a failed search is a 500, as for the
+        single-collection search, and the BFF surfaces it as an upstream error.
+        """
+        collections = list(dict.fromkeys(request.collections))
+        for collection in collections:
+            _authorize_collection(http_request, collection)
+        from aiq_agent.knowledge.factory import get_active_retriever
+
+        try:
+            grouped = await get_active_retriever().search_grouped(
+                request.query,
+                collections,
+                groups=request.groups,
+                group_size=request.files_per_group * GROUP_CHUNKS_PER_FILE,
+                filters=grouped_filters(request.filters),
+                boost=request.boost.model_dump(mode="json") if request.boost else None,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except Exception as e:
+            logger.exception("Grouped document search failed")
+            raise HTTPException(status_code=500, detail="grouped document search failed") from e
+        return DocumentSearchResponse(
+            hits=_ranked_group_hits(grouped, request.files_per_group, request.snippet_max_chars)
+        )
 
     @router.post(
         "/v1/collections/{collection_name}/search",

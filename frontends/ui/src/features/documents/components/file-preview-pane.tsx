@@ -58,6 +58,8 @@ import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { FileExtChip } from './file-ext-chip'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { PdfDocumentView } from '@/features/knowledge/components/pdf-document-view'
+import { SimilarPassagesDialog } from '@/features/similar-passages/components/similar-passages-dialog'
+import type { SimilarPassagesRequest } from '@/lib/similar-passages/types'
 import { useSeenOnce } from '@/hooks/use-seen-once'
 import {
   DeleteDocumentDialog,
@@ -732,6 +734,19 @@ export function FilePreviewPane({
   // now, on the card where the failure is actually read.
   const handleReingest = useCallback(() => void actions.reingest(), [actions])
 
+  // „Im Büro behandelt" for a passage the reader selects: only in a document
+  // Piloti has read (an unread one has no passages to compare), opened large
+  // with the rail of similar passages beside it.
+  const [similarAsk, setSimilarAsk] = useState<SimilarPassagesRequest | null>(null)
+  const findSimilar = isCitable(file)
+    ? ({ text, page }: { text: string; page: number }) =>
+        setSimilarAsk({
+          document: { kind: 'stored', documentId: file.id },
+          passage: { text, page, cited: false },
+          projectId: projectId ?? null,
+        })
+    : undefined
+
   return (
     <div className="@container bg-card flex h-full min-h-0 flex-col">
       {/* Peek chrome lives on the host — this header is the modal/expanded one,
@@ -989,6 +1004,13 @@ export function FilePreviewPane({
         />
       )}
 
+      <SimilarPassagesDialog
+        request={similarAsk}
+        source={{ src: documentFileUrl(file.id), fileName: actions.name, title: actions.name }}
+        onClose={() => setSimilarAsk(null)}
+      />
+
+
       {/* Body split — document preview on the left, indexed metadata on the
           right. Two independently-scrolling columns side-by-side in the wide
           Dateien modal (`@2xl`+); a SINGLE vertical scroll (preview capped, all
@@ -1114,6 +1136,7 @@ export function FilePreviewPane({
                     title={actions.name}
                     page={shownPage === 'turning' ? null : (shownPage ?? shownFinding?.page ?? null)}
                     highlight={shownPage === null ? (shownFinding?.highlight ?? null) : null}
+                    onFindSimilar={findSimilar}
                     onLoadError={handlePdfFailed}
                     ground={peeking ? 'host' : 'stage'}
                     pageOverlay={(page) => (

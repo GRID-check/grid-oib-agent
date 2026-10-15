@@ -1125,6 +1125,30 @@ class DocumentMetadataStore:
         """The confirmed ``superseded_by`` of the rows among ``filenames`` that have one."""
         return self._get_column_batch(collection, filenames, "superseded_by")
 
+    def files_linked_to(self, collection: str, newer: str) -> list[str]:
+        """The rows whose stored ``superseded_by`` names ``newer``, whether or not ``newer`` has a row (sync).
+
+        What a register or an unregister of ``newer`` changes the meaning of: the
+        link counts only while ``newer`` has its row (:meth:`get_superseded_files`),
+        so each of these rows reads as replaced or as current again. Fail-open to
+        ``[]``.
+        """
+        from sqlalchemy import text
+
+        try:
+            with self._sync_engine.connect() as conn:
+                rows = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(
+                        f"SELECT filename FROM {TABLE_NAME} WHERE collection = :collection AND superseded_by = :newer"
+                    ),
+                    {"collection": collection, "newer": newer},
+                )
+                return sorted(row[0] for row in rows)
+        except Exception as e:
+            logger.warning("Failed to read the files linked to %s in %s: %s", newer, collection, e)
+            return []
+
     def get_superseded_files(self, collection: str) -> dict[str, str]:
         """Every file of ``collection`` a person replaced, with the file that replaced it (sync).
 
@@ -1181,16 +1205,36 @@ class DocumentMetadataStore:
 
         Returns the number of rows re-filed (0 when nothing was under it).
         """
+        return self.rewrite_folder_paths_moved(collection, from_path, to_path)[0]
+
+    def rewrite_folder_paths_moved(self, collection: str, from_path: str, to_path: str | None) -> tuple[int, list[str]]:
+        """:meth:`rewrite_folder_paths`, returning the files it re-filed beside the count.
+
+        The names are read in the same transaction as the two updates, before
+        them, so they are the rows those updates move; the count is still the
+        updates' own.
+        """
         from sqlalchemy import text
 
         prefix = (from_path or "").strip().strip("/")
         if not prefix:
-            return 0
+            return 0, []
         target = (to_path or "").strip().strip("/")
 
         updated = 0
         try:
             with self._sync_engine.connect() as conn:
+                moved = [
+                    row[0]
+                    for row in conn.execute(
+                        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                        text(
+                            f"SELECT filename FROM {TABLE_NAME} WHERE collection = :collection "
+                            "AND (folder_path = :prefix OR folder_path LIKE :pattern ESCAPE '\\')"
+                        ),
+                        {"collection": collection, "prefix": prefix, "pattern": f"{_escape_like(prefix)}/%"},
+                    )
+                ]
                 exact = conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
@@ -1222,9 +1266,9 @@ class DocumentMetadataStore:
                 conn.commit()
         except Exception as e:
             logger.warning("Failed to rewrite folder paths under %r in %s: %s", from_path, collection, e)
-            return 0
+            return 0, []
         logger.info("Re-filed %d document(s) from %r to %r in %s", updated, prefix, target, collection)
-        return updated
+        return updated, moved
 
     # ------------------------------------------------------------------
     # Column-level helpers (shared by tags/doc_class/display_title accessors)
@@ -1538,6 +1582,44 @@ class DocumentMetadataStore:
         except Exception as e:
             logger.warning("Failed to get metadata for %s: %s", collection, e)
             return []
+
+    def get_many(self, collection: str, filenames: list[str]) -> list[AvailableDocument]:
+        """The rows of ``filenames`` only (sync): what a change to one file needs, not the whole collection.
+
+        ``superseded_by`` reads as in :meth:`get_all`: a link counts only while
+        the newer document still has its row. ``supersedes`` is left unset,
+        because deriving it takes every row of the collection.
+        """
+        if not filenames:
+            return []
+        from sqlalchemy import bindparam
+        from sqlalchemy import text
+
+        select = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            f"SELECT {_DOCUMENT_COLUMNS} FROM {TABLE_NAME} WHERE collection = :collection AND filename IN :filenames"
+        ).bindparams(bindparam("filenames", expanding=True))
+        present = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            f"SELECT filename FROM {TABLE_NAME} WHERE collection = :collection AND filename IN :filenames"
+        ).bindparams(bindparam("filenames", expanding=True))
+        try:
+            with self._sync_engine.connect() as conn:
+                documents = [
+                    self._row_to_document(row, collection)
+                    for row in conn.execute(select, {"collection": collection, "filenames": list(filenames)})
+                ]
+                newer = sorted({doc.superseded_by for doc in documents if doc.superseded_by})
+                kept = (
+                    {row[0] for row in conn.execute(present, {"collection": collection, "filenames": newer})}
+                    if newer
+                    else set()
+                )
+        except Exception as e:
+            logger.warning("Failed to get metadata of %d file(s) in %s: %s", len(filenames), collection, e)
+            return []
+        for doc in documents:
+            if doc.superseded_by and doc.superseded_by not in kept:
+                doc.superseded_by = None
+        return documents
 
     async def get_all_async(self, collection: str) -> list[AvailableDocument]:
         """Get all documents with metadata for a collection (async)."""

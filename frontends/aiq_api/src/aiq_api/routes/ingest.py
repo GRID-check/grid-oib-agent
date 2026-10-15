@@ -173,6 +173,11 @@ def _job_config(request: IngestRequest, organization_id: str | None, dispatch_ke
             config["project_id"] = request.project_id
         if request.user_id:
             config["user_id"] = request.user_id
+    # The project's facts for the chunks' payload (`qdrant.writes.enrichment`), as
+    # plain data so they ride the durable queue's JSON payload unchanged.
+    if request.project_facts is not None:
+        config["project_facts"] = request.project_facts.facts.model_dump(mode="json")
+        config["project_status"] = request.project_facts.status
     # The document's id, so the pipeline can ask the BFF for a PUT slot per
     # raster it extracts (`knowledge_layer.llamaindex.image_store`). Without
     # it the captions are indexed and the rasters discarded, which is what

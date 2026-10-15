@@ -156,7 +156,7 @@ export function installClickHouse(
         serviceName: `${name}-headless`,
         replicas: 1,
         // Retain across delete/scale: this is the trace store. Matches the k8s
-        // default, pinned against a future default flip (as in chroma.ts).
+        // default, pinned against a future default flip (as in qdrant.ts).
         persistentVolumeClaimRetentionPolicy: { whenDeleted: "Retain", whenScaled: "Retain" },
         ...orderedRollout(ROLLOUT.dataPlane),
         selector: { matchLabels: labels },

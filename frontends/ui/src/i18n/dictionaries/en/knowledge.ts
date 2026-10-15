@@ -61,6 +61,7 @@ export const knowledge = {
     copyQuote: 'Copy as citation',
     quoteCopied: 'Citation copied',
     copyFailed: 'Could not copy',
+    findSimilar: 'Check your projects',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
     zoomFitted: 'Zoom {percent}%, fitted',
@@ -93,6 +94,36 @@ export const knowledge = {
     passwordLabel: 'Password',
     passwordSubmit: 'Open document',
     passwordIncorrect: 'That password is not correct.',
+  },
+  // "Handled in your office": has the office dealt with the passage the reader is
+  // looking at, and where. Only what they may read is searched.
+  similar: {
+    title: 'Handled in your office',
+    action: 'Check your projects',
+    forPassage: 'Check where your office has dealt with this passage',
+    close: 'Close “Handled in your office”',
+    backToSource: 'Back to the passage',
+    found: '{count, plural, one {Found in # project} other {Found in # projects}}',
+    foundWithArchiv:
+      '{count, plural, one {Found in # project and the Büroablage} other {Found in # projects and the Büroablage}}',
+    foundOnlyArchiv: 'Found in the Büroablage',
+    loading: 'Piloti is checking your projects…',
+    emptyTitle: 'Not handled in your office yet',
+    emptyBody:
+      'Checked this project, {count, plural, one {# other project} other {# other projects}} and the Büroablage.',
+    failedTitle: 'That did not work just now',
+    failedBody: 'Please try again in a moment.',
+    heldTitle: 'This document is still being screened',
+    heldBody: 'Once screening is done, Piloti can check your projects.',
+    retry: 'Try again',
+    groupCurrent: 'This project',
+    groupArchiv: 'Büroablage',
+    groupClosed: 'closed',
+    standDate: 'Dated {date}',
+    page: 'p. {page}',
+    open: 'Open',
+    openPassage: 'Open {document}, page {page}',
+    openPassageNoPage: 'Open {document}',
   },
   // The RIS reader: a legal source read INSIDE Piloti, not in a browser tab.
   risViewer: {

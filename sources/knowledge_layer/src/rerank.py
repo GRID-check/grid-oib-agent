@@ -1,7 +1,7 @@
 """Relevance reranking of retrieved chunks against the query.
 
-The default Chroma path is pure vector top-k, so the retrieved set is ordered by
-embedding proximity rather than by whether a chunk actually answers the question.
+Retrieval ranks by embedding proximity and lexical overlap (the fused dense and
+BM25 channels), not by whether a chunk actually answers the question.
 Reranking converts that recall into precision, and it is the stage that pays for
 over-fetching in the first place.
 

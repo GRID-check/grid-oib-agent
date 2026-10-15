@@ -31,6 +31,8 @@ backend:
   # (see below) and this line is what replaces it.
   - 'frontends/benchmarks/**'
   - 'sources/**'
+  # The one-time Chroma exporter's own tests (`be:test:migration`).
+  - 'deploy/migration/**'
   - 'tests/**'
   - 'ci/**'
   - 'configs/**'

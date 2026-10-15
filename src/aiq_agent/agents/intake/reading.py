@@ -9,8 +9,8 @@ FIND where a value is; they are the shared NAT tools, bound unchanged, and
 
 ``read_document`` reads the indexed text page by page from the collection's
 chunks, the reader the closed-project reading uses
-(``knowledge/collection_pages.read_pages``, through the same Chroma client as
-``aiq_api.routes.project_experience``), so nothing is parsed again. It reads
+(``knowledge/collection_pages.read_pages``, a structural fetch from the vector
+store in reading order), so nothing is parsed again. It reads
 only documents of the run's own project shelves: the scope the BFF signed into
 the run's envelope, which for an intake is the project's main collection
 (ADR-0111, decision 6), never the corpus and never a restricted folder.
@@ -147,12 +147,10 @@ async def project_documents() -> list[ProjectDocument]:
 
 
 def fetch_document_pages(collection: str, file_name: str) -> list[tuple[Any, str]] | None:
-    """``(page_label, chunk text)`` of one file from its collection's chunks. Blocking."""
+    """``(page_label, chunk text)`` of one file from its collection's chunks. Blocking; raises on a store outage."""
     from aiq_agent.knowledge.collection_pages import read_pages
-    from aiq_agent.knowledge.factory import get_active_retriever
 
-    retriever = get_active_retriever()
-    return read_pages(retriever._get_chroma_client(), collection, file_name)
+    return read_pages(collection, file_name)
 
 
 def _names_of(document: ProjectDocument) -> list[str]:

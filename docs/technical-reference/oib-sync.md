@@ -1,6 +1,6 @@
 # OIB Richtlinien Sync
 
-How the base corpus (the OIB, Österreichisches Institut für Bautechnik, Richtlinien and the other documents the platform owner uploads) is stored and ingested into the `oib_knowledge` ChromaDB collection. ADR-0082 step A2.
+How the base corpus (the OIB, Österreichisches Institut für Bautechnik, Richtlinien and the other documents the platform owner uploads) is stored and ingested into the `oib_knowledge` collection in Qdrant. ADR-0082 step A2.
 
 There is one design and no switch: the corpus lives in object storage, one table says what is in it, and every file that is not indexed yet becomes one job on the durable ingest queue (ADR-0076), run by the ingest workers. Nothing is ingested in the web process. The code is `src/aiq_agent/corpus_store.py` (storage, table, cache), `src/aiq_agent/oib_sync.py` (ingestion), `src/aiq_agent/oib_status.py` (the status view) and `frontends/aiq_api/src/aiq_api/routes/oib.py` (the routes).
 
@@ -49,7 +49,7 @@ OR chunk_format_version IS DISTINCT FROM CHUNK_FORMAT_VERSION
 | An upload that replaces a file | `sha256` changed, `ingested_sha256` is still the old one |
 | A failed ingestion | Nothing was recorded as ingested, so the rule keeps firing, but no new job is queued: the file reads `failed` (see below) until its bytes change or an admin re-indexes it |
 | A change to chunking or to what a chunk carries | Bump `CHUNK_FORMAT_VERSION` in `oib_sync.py`; every file's recorded version differs (and its job id changes), so the next cycle queues the whole corpus again. The ingestor replaces a document's chunks by name once the new version is indexed, so the re-ingest is not additive |
-| A Chroma server that was wiped or repointed | The cycle sees rows claiming ingestion while the collection is empty, forgets every `ingested_sha256` and re-ingests |
+| A Qdrant cluster that was wiped or repointed (`AIQ_QDRANT_URL`) | The cycle sees rows claiming ingestion while the collection is empty, forgets every `ingested_sha256` and re-ingests |
 | An admin's "re-index" | `POST /v1/admin/oib/reingest` clears `ingested_sha256` and `failed_job_id` for the named files, drops their finished or failed job and queues a new one |
 
 The hash and version are written only after the file's job reached `FileStatus.SUCCESS`, and only if the row still holds the bytes that were ingested (`mark_ingested` is a conditional update), so a file replaced while it was being ingested still needs ingestion afterwards. The worker never writes the table; whoever reads the job's status next does (`oib_sync.settle`, called by the sync cycle and by the status view).
@@ -119,7 +119,7 @@ What calls it: ingestion, `GET /v1/oib/documents/{file_name}` (the PDF viewer; 4
 
 ## The status view
 
-`GET /v1/oib/status` merges the table with the Chroma file listing and with the file's job in the ingest status store, one entry per file. It calls `oib_sync.settle` first, so a file whose job has just finished reads `ingested` at once instead of at the next cycle:
+`GET /v1/oib/status` merges the table with the Qdrant file listing and with the file's job in the ingest status store, one entry per file. It calls `oib_sync.settle` first, so a file whose job has just finished reads `ingested` at once instead of at the next cycle:
 
 | State | Meaning |
 |-------|---------|
@@ -160,8 +160,8 @@ The fields per file are `file_name`, `state`, `size_bytes`, `chunk_count`, `inge
 | `FRONTEND_INTERNAL_URL`, `GRID_INTERNAL_API_TOKEN` | none | How the backend reaches the BFF to write and delete objects |
 | `SEAWEED_ENDPOINT`, `SEAWEED_ACCESS_KEY`, `SEAWEED_SECRET_KEY`, `SEAWEED_BUCKET` | none, none, none, `grid-documents` | The read-only credential and bucket the backend downloads with |
 | `GRID_INGEST_QUEUE` | on when a database is set | `off` turns the durable ingest queue off. The base corpus then cannot be ingested: uploads and sync cycles fail loudly |
-| `OIB_COLLECTION_NAME` | `oib_knowledge` | Target ChromaDB collection |
-| `AIQ_CHROMA_URL` / `AIQ_CHROMA_DIR` | none / `/tmp/chroma_data` | The shared Chroma server, or the embedded store's directory (Compose and local development only) |
+| `OIB_COLLECTION_NAME` | `oib_knowledge` | Target collection (a scope in Qdrant's corpus collection) |
+| `AIQ_QDRANT_URL` | none (required) | The Qdrant cluster every chunk is stored in |
 
 ---
 
@@ -184,10 +184,10 @@ which sends each PDF through `POST /v1/admin/oib/documents` (header `X-Admin-Tok
 ```python
 from aiq_agent.knowledge.factory import get_ingestor
 
-ingestor = get_ingestor("llamaindex", {"persist_dir": CHROMA_DIR})
+ingestor = get_ingestor("llamaindex")
 ```
 
-With `AIQ_CHROMA_URL` set (every Kubernetes and Coolify deployment) the adapter talks to the shared Chroma server and `persist_dir` is unused.
+The adapter reaches Qdrant at `AIQ_QDRANT_URL`, in every deployment and in local development alike.
 
 ---
 
@@ -209,7 +209,7 @@ src/aiq_agent/oib_sync.py ──────────► src/aiq_agent/corpus
        ├── knowledge_layer.llamaindex.adapter   (prepare_job; the worker runs the job)
        ├── aiq_agent.knowledge.ingest_status_store (job outcomes, read by settle)
        ├── aiq_agent.knowledge.leader_lock
-       └── ChromaDB (oib_knowledge collection)
+       └── Qdrant (oib_knowledge scope)
 ```
 
 The OIB collection is included as the default `base_collection` in every query's scope (see [Collection Scoping](collection-scoping.md)).

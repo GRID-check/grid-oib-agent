@@ -1,0 +1,8 @@
+---
+features:
+  - >
+    Ask about a kind of project, such as "our residential new builds" or
+    "Gebäudeklasse 4 in Tirol", and Piloti looks only at the office's projects
+    whose brief records those facts, still listing the ones most like yours
+    first. It says when projects were left out because their brief does not
+    record a fact, so a gap does not read as "we never did that".

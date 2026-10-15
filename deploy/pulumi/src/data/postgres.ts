@@ -840,7 +840,7 @@ export function installPostgres(
         template: {
           metadata: { labels: commonLabels("pg-init") },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             restartPolicy: "OnFailure",
             ...onNodeGroup(cfg.nodeGroups.app),
             containers: [

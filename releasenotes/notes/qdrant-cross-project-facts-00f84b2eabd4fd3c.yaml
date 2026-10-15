@@ -1,0 +1,14 @@
+---
+operators:
+  - >
+    A search across an office's other projects filters by document type and
+    discipline inside the search, and lifts passages from projects like the
+    current one instead of choosing by that likeness which projects to search.
+    It lists the strongest documents across projects first, so one project no
+    longer fills the page with its weaker documents.
+  - >
+    Each project's facts and status are copied onto its documents in Qdrant
+    when the brief or the status changes and when a document is filed. The
+    weekly vector maintenance copies them again, with every document's tags,
+    Dokumentart and replaced-Fassung mark, so a failed copy no longer hides a
+    document from a filtered search. Run it once after the Chroma migration.

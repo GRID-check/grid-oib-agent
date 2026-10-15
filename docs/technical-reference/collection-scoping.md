@@ -1,6 +1,6 @@
 # Collection Scoping
 
-Controls which ChromaDB collections are searched for each knowledge retrieval request. The scope is computed in the Next.js BFF and propagated to the Python backend via an HTTP header.
+Controls which knowledge collections are searched for each knowledge retrieval request. The scope is computed in the Next.js BFF and propagated to the Python backend via an HTTP header.
 
 ---
 

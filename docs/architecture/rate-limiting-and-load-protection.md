@@ -505,7 +505,8 @@ than an admission.
   `grid.queue.oldest_age_seconds`, `grid.queue.claim_latency_ms`,
   `grid.queue.job_duration_seconds{kind}` and `grid.queue.dead_total` are
   instruments on the OpenTelemetry API. Nothing installs a `MeterProvider` and
-  the collector has no metrics pipeline, so they are no-ops: the Aspire
+  the collector's one metrics pipeline scrapes Qdrant, not OTLP, so they are
+  no-ops: the Aspire
   dashboard was their only consumer and is retired. Depth and age are readable
   from Postgres (the KEDA scalers read them there); the rest need a sink before
   a queue is tuned from them, which is the owner's call.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as pulumi from "@pulumi/pulumi";
-import { loadConfig } from "./config";
+import { RETIRED_VECTOR_KEYS, loadConfig } from "./config";
 import { baseStackConfig } from "./test-support/stack-config";
 
 // `new pulumi.Config()` (config.ts:873) namespaces every key by the PROJECT
@@ -92,16 +92,185 @@ describe("tenant bucket prefix", () => {
   });
 });
 
-describe("the backend's vector store", () => {
-  // The backend keeps no volume (ADR-0082). An embedded store would deploy
-  // cleanly, answer from an empty index after every restart, and look healthy.
-  it("refuses to run without the shared Chroma server", () => {
-    const error = loadWith({ "grid-oib:chromaEnabled": "false" });
-    expect(error?.message).toMatch(/chromaEnabled=false is not supported/);
+describe("the retired Chroma tier and vector switch (ADR-0113)", () => {
+  // Each would read as a setting: `qdrantEnabled: false` as "no Qdrant",
+  // `vectorBackend: chroma` as "reads stay on Chroma". Neither is true, so the
+  // plan names the key instead of deploying past it.
+  it.each([
+    ["chromaEnabled", "true"],
+    ["chromaImage", "chromadb/chroma:1.5.9"],
+    ["chromaStorageSize", "20Gi"],
+    ["qdrantEnabled", "false"],
+    ["vectorBackend", "chroma"],
+  ])("refuses a stack that still sets %s", (key, value) => {
+    const error = loadWith({ [`grid-oib:${key}`]: value });
+    expect(error?.message).toMatch(new RegExp(`grid-oib:${key} is retired: Qdrant is the only vector store`));
+    expect(error?.message).toMatch(/pulumi config rm/);
   });
 
-  it("accepts the shared Chroma server", () => {
-    expect(loadWith({ "grid-oib:chromaEnabled": "true" })).toBeNull();
+  it("names every retired key at once", () => {
+    const all = Object.fromEntries(RETIRED_VECTOR_KEYS.map((k) => [`grid-oib:${k}`, "x"]));
+    expect(loadWith(all)?.message).toMatch(
+      /grid-oib:chromaEnabled, grid-oib:chromaImage, grid-oib:chromaStorageSize, grid-oib:qdrantEnabled, grid-oib:vectorBackend are retired/,
+    );
+  });
+});
+
+describe("the Chroma migration Job's knobs", () => {
+  it("is off by default, and waits 40 minutes for the Job: inside the pipeline's hour", () => {
+    pulumi.runtime.setAllConfig(baseStackConfig());
+    expect(loadConfig().chromaMigration).toEqual({ enabled: false, scratchSize: "50Gi", timeoutMinutes: 40 });
+  });
+
+  it("takes another scratch size and timeout from the stack", () => {
+    pulumi.runtime.setAllConfig({
+      ...baseStackConfig(),
+      "grid-oib:chromaMigration": "true",
+      "grid-oib:chromaMigrationScratchSize": "80Gi",
+      "grid-oib:chromaMigrationTimeoutMinutes": "120",
+    });
+    expect(loadConfig().chromaMigration).toEqual({ enabled: true, scratchSize: "80Gi", timeoutMinutes: 120 });
+  });
+
+  it("refuses a timeout that is not a whole number of minutes", () => {
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), "grid-oib:chromaMigrationTimeoutMinutes": "0" });
+    expect(() => loadConfig()).toThrow(/chromaMigrationTimeoutMinutes must be a whole number/);
+  });
+});
+
+describe("Qdrant (ADR-0113)", () => {
+  it("defaults the cluster to the design's shape", () => {
+    pulumi.runtime.setAllConfig(baseStackConfig());
+    const cfg = loadConfig();
+    expect(cfg.qdrant).toMatchObject({
+      image: "qdrant/qdrant:v1.19.2",
+      replicas: 3,
+      cpu: "4",
+      memory: "16Gi",
+      storageSize: "100Gi",
+      quotas: { memoryPercent: 90, diskPercent: 85 },
+      snapshots: { schedule: "30 1 * * *", retentionDays: 7, s3AccessKey: "grid-qdrant" },
+    });
+  });
+
+  // Qdrant refuses an unknown variant at start, on every peer at once.
+  it("refuses a low-memory mode Qdrant does not know, and accepts the two it does", () => {
+    const error = loadWith({ "grid-oib:qdrantLowMemoryMode": "bogus" });
+    expect(error?.message).toMatch(/qdrantLowMemoryMode must be one of no_resident, no_populate/);
+    expect(loadWith({ "grid-oib:qdrantLowMemoryMode": "no_populate" })).toBeNull();
+  });
+
+  // The rotation key is accepted as a read-write key by every peer.
+  it("refuses a rotation key equal to the read-only key", () => {
+    const error = loadWith({ "grid-oib:qdrantAltApiKey": "qd-ro" });
+    expect(error?.message).toMatch(/qdrantAltApiKey must differ from grid-oib:qdrantReadOnlyApiKey/);
+    expect(loadWith({ "grid-oib:qdrantAltApiKey": "qd-next" })).toBeNull();
+  });
+
+  // 100 is no quota at all, and 0 refuses every write.
+  it.each([
+    ["qdrantQuotaMemoryPercent", "100"],
+    ["qdrantQuotaDiskPercent", "0"],
+    ["qdrantQuotaDiskPercent", "85.5"],
+  ])("refuses %s=%s", (key, value) => {
+    const error = loadWith({ [`grid-oib:${key}`]: value });
+    expect(error?.message).toMatch(new RegExp(`${key} must be a whole percentage between 1 and 99`));
+  });
+
+  // Open-source Qdrant answers anyone without a key, and it is always deployed.
+  it("names every missing credential at once, on any stack", () => {
+    const error = loadWith({}, ["grid-oib:qdrantApiKey", "grid-oib:qdrantReadOnlyApiKey", "grid-oib:qdrantS3SecretKey"]);
+    expect(error?.message).toMatch(
+      /grid-oib:qdrantApiKey, grid-oib:qdrantReadOnlyApiKey, grid-oib:qdrantS3SecretKey are required \(Qdrant is always deployed/,
+    );
+  });
+
+  it("refuses a read-only key equal to the read-write key", () => {
+    const error = loadWith({ "grid-oib:qdrantReadOnlyApiKey": "qd-rw" });
+    expect(error?.message).toMatch(/qdrantReadOnlyApiKey must differ from grid-oib:qdrantApiKey/);
+  });
+
+  it("refuses a snapshot S3 secret shared with another identity", () => {
+    const error = loadWith({ "grid-oib:qdrantS3SecretKey": "s3-secret" });
+    expect(error?.message).toMatch(/qdrantS3SecretKey must differ from grid-oib:seaweedfsSecretKey/);
+  });
+
+  // Two voters lose quorum when either fails.
+  it("refuses two replicas and accepts one", () => {
+    expect(loadWith({ "grid-oib:qdrantReplicas": "2" })?.message).toMatch(
+      /qdrantReplicas=2 is refused/,
+    );
+    expect(loadWith({ "grid-oib:qdrantReplicas": "1" })).toBeNull();
+  });
+
+  it("refuses a snapshot schedule that is not 5-field cron", () => {
+    const error = loadWith({ "grid-oib:qdrantSnapshotSchedule": "0 30 1 * * *" });
+    expect(error?.message).toMatch(/qdrantSnapshotSchedule must be a 5-field cron/);
+  });
+
+  it("refuses a tenant prefix that would cover the snapshot bucket", () => {
+    const error = loadWith({ "grid-oib:seaweedfsTenantBucketPrefix": "qdrant-" });
+    expect(error?.message).toMatch(/is a prefix of the platform bucket "qdrant-snapshots"/);
+  });
+});
+
+describe("Qdrant's dashboard at the edge", () => {
+  const connectApp = {
+    "grid-oib:otelOidcIssuer": "https://grid.authkit.app",
+    "grid-oib:otelOidcClientId": "client_otel",
+    "grid-oib:otelOidcClientSecret": "otel-client-secret", // pragma: allowlist secret
+  };
+
+  it("is off by default, on the qdrant.<baseDomain> host", () => {
+    pulumi.runtime.setAllConfig(baseStackConfig());
+    const cfg = loadConfig();
+    expect(cfg.qdrant.dashboard).toEqual({ enabled: false, domain: "qdrant.example.test" });
+    expect(cfg.dns.hosts).not.toContain("qdrant.example.test");
+  });
+
+  it("joins the DNS host set when on, and takes an overridden host", () => {
+    pulumi.runtime.setAllConfig({
+      ...baseStackConfig(),
+      ...connectApp,
+      "grid-oib:qdrantDashboardEnabled": "true",
+      "grid-oib:qdrantDashboardDomain": "vectors.example.test",
+    });
+    const cfg = loadConfig();
+    expect(cfg.qdrant.dashboard).toEqual({ enabled: true, domain: "vectors.example.test" });
+    expect(cfg.dns.hosts).toContain("vectors.example.test");
+  });
+
+  // The zone check runs over the same host list, so a dashboard host outside
+  // the zone is caught before Cloudflare appends the zone to it.
+  it("is covered by the zone check when DNS is managed", () => {
+    const error = loadWith({
+      ...connectApp,
+      "grid-oib:qdrantDashboardEnabled": "true",
+      "grid-oib:qdrantDashboardDomain": "qdrant.elsewhere.test",
+      "grid-oib:loadBalancerIp": "203.0.113.10",
+      "grid-oib:dnsEnabled": "true",
+      "grid-oib:dnsZoneId": "zone-abc123",
+      "grid-oib:dnsZoneName": "example.test",
+      "grid-oib:cloudflareApiToken": "cf-token", // pragma: allowlist secret
+    });
+    expect(error?.message).toMatch(/qdrant\.elsewhere\.test is not inside it/);
+  });
+
+  it("refuses the template placeholder host", () => {
+    const error = loadWith({ "grid-oib:qdrantDashboardDomain": "qdrant.example.com" });
+    expect(error?.message).toMatch(/grid-oib:qdrantDashboardDomain is still the template placeholder/);
+  });
+
+  // The gate is the only thing between the public host and the store.
+  it("refuses to turn on without the Connect application, naming what is missing", () => {
+    const error = loadWith({
+      "grid-oib:qdrantDashboardEnabled": "true",
+      "grid-oib:otelOidcIssuer": "https://grid.authkit.app",
+    });
+    expect(error?.message).toMatch(
+      /qdrantDashboardEnabled needs the platform WorkOS Connect application .*missing grid-oib:otelOidcClientId, grid-oib:otelOidcClientSecret/,
+    );
+    expect(loadWith({ ...connectApp, "grid-oib:qdrantDashboardEnabled": "true" })).toBeNull();
   });
 });
 

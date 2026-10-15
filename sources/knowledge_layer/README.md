@@ -12,8 +12,8 @@ uv pip install -e "sources/knowledge_layer[llamaindex]"
 
 ## The backend
 
-There is one: `llamaindex` (LlamaIndex over ChromaDB, embeddings and the VLM
-through OpenRouter). It is the production backend, and it has been since the
+There is one: `llamaindex` (LlamaIndex for loading and chunking, Qdrant as the
+one vector store, embeddings and the VLM through OpenRouter). It is the production backend, and it has been since the
 first commit: every Piloti deployment has run on it.
 
 This package once also carried a second backend, a client for NVIDIA's hosted

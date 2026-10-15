@@ -20,6 +20,14 @@ const COMPONENT = "otel-collector";
 const OTLP_GRPC_PORT = 4317;
 const OTLP_HTTP_PORT = 4318;
 const HEALTH_PORT = 13133;
+/**
+ * The `prometheus` exporter's listener: every series the collector scrapes,
+ * re-exposed in the Prometheus text format for whatever reads metrics. Nothing
+ * does yet; see `metricsPipeline`.
+ */
+export const METRICS_EXPORT_PORT = 8889;
+/** How often each Qdrant peer is scraped. Alert rules assume at least two scrapes in their shortest `for`. */
+const QDRANT_SCRAPE_INTERVAL = "30s";
 
 export interface OtelCollector {
   deployment: k8s.apps.v1.Deployment;
@@ -35,14 +43,15 @@ export interface OtelCollector {
  * OTLP in-cluster to this Service — no API key on the producers. The collector
  * is the ONLY holder of the credentials its consumers need (Langfuse's ingestion
  * key; PostHog's public project token sits in the ConfigMap). It batches and
- * applies memory back-pressure. It carries a traces pipeline (to Langfuse) and
- * a logs pipeline (to PostHog); there is no metrics pipeline,
- * because nothing consumes metrics (the Aspire dashboard was the only consumer
- * and has been retired). Swapping or adding a backend later is a config change
- * HERE, not in any app.
+ * applies memory back-pressure. It carries a traces pipeline (to Langfuse), a
+ * logs pipeline (to PostHog) and, with Qdrant deployed, a metrics pipeline that
+ * scrapes every Qdrant peer. No producer sends OTLP metrics (the Aspire
+ * dashboard was their only consumer and has been retired). Swapping or adding
+ * a backend later is a config change HERE, not in any app.
  *
- * NetworkPolicy: none needed — same-namespace ingress is already allowed and
- * egress is open by design (see network-policies.ts).
+ * NetworkPolicy: same-namespace ingress is already allowed and egress is open
+ * by design (see network-policies.ts); the scrape of Qdrant's metrics port is
+ * the one connection out of it that needs a rule of its own (rule 18).
  */
 export function installOtelCollector(
   cfg: GridConfig,
@@ -55,6 +64,12 @@ export function installOtelCollector(
    * byte-identical to what it was before Langfuse existed.
    */
   langfuseSecretName?: pulumi.Input<string>,
+  /**
+   * Every Qdrant peer's metrics listener (`host:port`), when Qdrant is
+   * deployed. Undefined leaves the collector without a metrics pipeline, as
+   * before Qdrant existed.
+   */
+  qdrantMetricsTargets?: pulumi.Input<string[]>,
 ): OtelCollector {
   const labels = commonLabels(COMPONENT);
   const name = COMPONENT;
@@ -128,9 +143,9 @@ export function installOtelCollector(
   //
   // The project token is PostHog's public `phc_` key (it ships in the browser
   // bundle), so it sits in the ConfigMap as plain config, unlike the Langfuse
-  // credential, which arrives by env reference. Hence no env var on the
-  // pod and no secret checksum: a changed token changes the ConfigMap and the
-  // collector reads it from there. Keyed off `cfg.posthog.logsEnabled`, which
+  // credential, which arrives by env reference. Hence no env var on the pod: a
+  // changed token changes the ConfigMap, whose digest on the pod template
+  // (below) restarts the collector to read it. Keyed off `cfg.posthog.logsEnabled`, which
   // already implies host + token + observability, so the exporter can never be
   // written without its endpoint.
   const posthogLogs = cfg.posthog.logsEnabled;
@@ -194,14 +209,16 @@ export function installOtelCollector(
 
   // ${env:LANGFUSE_OTLP_AUTH} is interpolated by the collector at startup from
   // the container env (secretKeyRef below) — the key never sits in the ConfigMap.
-  const collectorConfig = `
+  const collectorConfig = (qdrant: string[] | undefined): string => {
+    const metrics = qdrant ? metricsPipeline(qdrant) : undefined;
+    return `
 receivers:
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:${OTLP_GRPC_PORT}
       http:
-        endpoint: 0.0.0.0:${OTLP_HTTP_PORT}
+        endpoint: 0.0.0.0:${OTLP_HTTP_PORT}${metrics?.receiver ?? ""}
 
 processors:
   memory_limiter:
@@ -212,7 +229,7 @@ processors:
     timeout: 5s
     send_batch_size: 1024${posthogProcessor}
 
-exporters:${nopExporter}${langfuseExporter}${posthogExporter}
+exporters:${nopExporter}${langfuseExporter}${posthogExporter}${metrics?.exporter ?? ""}
 
 extensions:
   health_check:
@@ -220,14 +237,18 @@ extensions:
 
 service:
   extensions: [health_check]
-  pipelines:${tracesPipeline}${nopLogsPipeline}${posthogPipeline}
+  pipelines:${tracesPipeline}${nopLogsPipeline}${posthogPipeline}${metrics?.pipeline ?? ""}
 `;
+  };
 
+  const config: pulumi.Input<string> = qdrantMetricsTargets
+    ? pulumi.output(qdrantMetricsTargets).apply((targets) => collectorConfig(targets))
+    : collectorConfig(undefined);
   const configMap = new k8s.core.v1.ConfigMap(
     COMPONENT,
     {
       metadata: { name: `${COMPONENT}-config`, namespace, labels },
-      data: { "collector.yaml": collectorConfig },
+      data: { "collector.yaml": config },
     },
     { provider, dependsOn },
   );
@@ -250,9 +271,15 @@ service:
             // keeps presenting a retired key after a rotation while `pulumi up`
             // reports success — and the symptom is the quietest one in the
             // tier: the exporter 401s and telemetry simply stops.
+            //
+            // The config is in the digest for the same reason: the collector
+            // reads its file once, at start, and the ConfigMap keeps its name,
+            // so a new pipeline (Qdrant turned on, a PostHog token changed)
+            // would otherwise wait for the next unrelated restart.
             annotations: secretChecksumAnnotations(
               secretChecksum({
                 ...(cfg.langfuse.enabled ? { "langfuse-otlp-auth": langfuseOtlpBasicAuth(cfg) } : {}),
+                "collector.yaml": config,
               }),
             ),
           },
@@ -274,6 +301,7 @@ service:
                   { containerPort: OTLP_GRPC_PORT, name: "otlp-grpc" },
                   { containerPort: OTLP_HTTP_PORT, name: "otlp-http" },
                   { containerPort: HEALTH_PORT, name: "health" },
+                  ...(qdrantMetricsTargets ? [{ containerPort: METRICS_EXPORT_PORT, name: "metrics" }] : []),
                 ],
                 env: [
                   // Present only when Langfuse is deployed. The collector
@@ -333,6 +361,9 @@ service:
         ports: [
           { port: OTLP_GRPC_PORT, targetPort: OTLP_GRPC_PORT, name: "otlp-grpc" },
           { port: OTLP_HTTP_PORT, targetPort: OTLP_HTTP_PORT, name: "otlp-http" },
+          ...(qdrantMetricsTargets
+            ? [{ port: METRICS_EXPORT_PORT, targetPort: METRICS_EXPORT_PORT, name: "metrics" }]
+            : []),
         ],
       },
     },
@@ -340,4 +371,53 @@ service:
   );
 
   return { deployment, service, configMap };
+}
+
+/**
+ * The metrics pipeline: scrape every Qdrant peer, re-expose the series.
+ *
+ * Nothing in this stack stores or evaluates metrics. The collector has no
+ * metrics backend to export to, so the `prometheus` exporter is the minimum
+ * that makes them consumable: `otel-collector:8889/metrics` holds every peer's
+ * series, each labelled `peer`, for a Prometheus, Grafana Alloy or any other
+ * scraper to read, and for `kubectl port-forward` until one exists. A backend
+ * later is one more exporter on this pipeline. The alert rules that read
+ * these names are `data/qdrant-alerts.ts`.
+ *
+ * Per peer, by its headless name: `/metrics` reports only the peer that
+ * answers. The metrics port needs no key (`PORT.qdrantMetrics`), so the
+ * collector holds no Qdrant credential. `up{job="qdrant"}` is the receiver's
+ * own series and is what a dead peer looks like.
+ */
+export function metricsPipeline(targets: string[]): { receiver: string; exporter: string; pipeline: string } {
+  const staticConfigs = targets
+    .map(
+      (target) => `
+            - targets: ["${target}"]
+              labels:
+                peer: ${target.split(".")[0]}`,
+    )
+    .join("");
+  return {
+    receiver: `
+  prometheus/qdrant:
+    config:
+      scrape_configs:
+        - job_name: qdrant
+          scrape_interval: ${QDRANT_SCRAPE_INTERVAL}
+          scrape_timeout: 10s
+          metrics_path: /metrics
+          static_configs:${staticConfigs}`,
+    exporter: `
+  prometheus:
+    endpoint: 0.0.0.0:${METRICS_EXPORT_PORT}
+    # A peer that stops answering stops refreshing its series; they leave the
+    # export after this, while \`up\` keeps reporting the peer as down.
+    metric_expiration: 5m`,
+    pipeline: `
+    metrics/qdrant:
+      receivers: [prometheus/qdrant]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]`,
+  };
 }

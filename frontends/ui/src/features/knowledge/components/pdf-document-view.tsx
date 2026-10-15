@@ -43,7 +43,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
-import { AlertTriangle, Check, ExternalLink, LockKeyhole, Quote, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Check, ExternalLink, LockKeyhole, Quote, RotateCcw, TextSearch } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { FloatingNote } from '@/components/ui/floating-toolbar'
@@ -54,6 +54,7 @@ import { cn } from '@/lib/utils'
 import { REPLAY_BLOCK_CLASS } from '@/lib/analytics/posthog-config'
 import { capturePosthog } from '@/lib/analytics/posthog'
 import { useTranslations } from '@/i18n'
+import { SIMILAR_PASSAGE_TEXT_MIN } from '@/lib/similar-passages/types'
 import {
   documentParameters,
   loadPdfjs,
@@ -122,6 +123,13 @@ export interface PdfDocumentViewProps {
    * for someone who is not citing anything.
    */
   quoteFormat?: (quote: { text: string; page: number }) => string
+  /**
+   * Look for passages like the one the READER selected („Im Büro behandelt"):
+   * the selection's words and the page they are on. Left unset, the offer is
+   * not made. Like `quoteFormat` a callback, not a component: who may be
+   * searched and where the answer is shown belong to whoever opened the viewer.
+   */
+  onFindSimilar?: (passage: { text: string; page: number }) => void
   /**
    * The document could not be opened (pdf.js failed to load, the stream
    * refused, the bytes are not a PDF). Left unset, the viewer shows its own
@@ -346,6 +354,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   highlightColor,
   regions,
   quoteFormat,
+  onFindSimilar,
   onLoadError,
   ground = 'stage',
   pageOverlay,
@@ -823,7 +832,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   const readSelection = useCallback((): void => {
     const frameNode = scrollRef.current
     const content = contentRef.current
-    if (!quoteFormat || !frameNode || !content) return
+    if (!(quoteFormat || onFindSimilar) || !frameNode || !content) return
 
     const selection = document.getSelection()
     const range =
@@ -857,7 +866,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
       x: rect.left - origin.left,
       y: rect.top - origin.top,
     })
-  }, [quoteFormat])
+  }, [quoteFormat, onFindSimilar])
 
   /**
    * Ask on RELEASE, not on every `selectionchange`: mid-drag the offer would
@@ -866,7 +875,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
    */
   useEffect(() => {
     const frameNode = scrollRef.current
-    if (!quoteFormat || !frameNode) return
+    if (!(quoteFormat || onFindSimilar) || !frameNode) return
 
     const collapse = (): void => {
       const selection = document.getSelection()
@@ -881,7 +890,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
       frameNode.removeEventListener('keyup', readSelection)
       document.removeEventListener('selectionchange', collapse)
     }
-  }, [quoteFormat, readSelection, doc])
+  }, [quoteFormat, onFindSimilar, readSelection, doc])
 
   // The offer is placed in the page stack's coordinates, and a zoom step moves
   // every word under it. Re-measuring keeps it on the sentence.
@@ -1143,11 +1152,16 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
                 scrolls sideways from its left edge instead of being clipped on
                 both. */}
             <div ref={contentRef} className="relative mx-auto flex w-fit min-w-full flex-col items-center gap-3">
-              {quote && quoteFormat && (
+              {quote && (quoteFormat || onFindSimilar) && (
                 <QuoteBar
                   selection={quote}
                   state={copied}
-                  onCopy={() => void copyQuote()}
+                  onCopy={quoteFormat ? () => void copyQuote() : undefined}
+                  onFindSimilar={
+                    onFindSimilar && quote.text.length >= SIMILAR_PASSAGE_TEXT_MIN
+                      ? () => onFindSimilar({ text: quote.text, page: quote.page })
+                      : undefined
+                  }
                 />
               )}
               {doc &&
@@ -1353,8 +1367,11 @@ const PdfPasswordPrompt: FC<{ incorrect: boolean; onSubmit: (password: string) =
 const QuoteBar: FC<{
   selection: QuoteSelection
   state: 'idle' | 'done' | 'failed'
-  onCopy: () => void
-}> = ({ selection, state, onCopy }) => {
+  /** Copy the selection as a citation; absent where the viewer is not citing anything. */
+  onCopy?: () => void
+  /** Look for passages like the selection; absent where nobody asked for it, or the selection is too short. */
+  onFindSimilar?: () => void
+}> = ({ selection, state, onCopy, onFindSimilar }) => {
   const t = useTranslations('knowledge')
   const label =
     state === 'done'
@@ -1370,26 +1387,45 @@ const QuoteBar: FC<{
       // would otherwise hang the bar outside the frame and clip it.
       style={{ left: Math.max(0, selection.x), top: selection.y }}
     >
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={onCopy}
-        // `bg-card` is load-bearing, not decoration: the outline variant is
-        // transparent, and this bar floats over the rendered PAGE, which is
-        // paper-white in both themes. In dark mode that put near-white label
-        // text on white paper — a control that was, measurably, invisible
-        // exactly where it is offered.
-        className="bg-card shadow-sm"
-      >
-        {state === 'done' ? (
-          <Check aria-hidden className="size-3.5" />
-        ) : (
-          <Quote aria-hidden className="size-3.5" />
+      <span className="flex items-center gap-1.5">
+        {onCopy && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={onCopy}
+            // `bg-card` is load-bearing, not decoration: the outline variant is
+            // transparent, and this bar floats over the rendered PAGE, which is
+            // paper-white in both themes. In dark mode that put near-white label
+            // text on white paper — a control that was, measurably, invisible
+            // exactly where it is offered.
+            className="bg-card shadow-sm"
+          >
+            {state === 'done' ? (
+              <Check aria-hidden className="size-3.5" />
+            ) : (
+              <Quote aria-hidden className="size-3.5" />
+            )}
+            {label}
+          </Button>
         )}
-        {label}
-      </Button>
+        {onFindSimilar && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={onFindSimilar}
+            // On paper-white, as the copy button beside it (see `bg-card` above).
+            className="bg-card shadow-sm"
+            data-testid="pdf-find-similar"
+          >
+            <TextSearch aria-hidden className="size-3.5" />
+            {t('viewer.findSimilar')}
+          </Button>
+        )}
+      </span>
     </div>
   )
 }

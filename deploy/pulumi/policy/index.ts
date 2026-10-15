@@ -52,6 +52,17 @@ function containersOf(pod: PodSpec | undefined): Container[] {
   return [...(pod.containers ?? []), ...(pod.initContainers ?? [])];
 }
 
+/**
+ * StatefulSets that have carried `podManagementPolicy` since they were created,
+ * with the value they were created with. Writing the field is only a replace
+ * when it CHANGES an existing object, so a StatefulSet born with it and never
+ * changed is safe. Qdrant needs `Parallel`: under `OrderedReady` the second
+ * peer waits on the first one's readiness while the first waits on a quorum
+ * (deploy/pulumi/src/data/qdrant.ts). Add an entry only for a StatefulSet that
+ * does not exist yet anywhere, in the same change that creates it.
+ */
+const CREATED_WITH_POD_MANAGEMENT_POLICY: Record<string, string> = { qdrant: "Parallel" };
+
 /** An image reference is immutable if it is digest-pinned or version-tagged. */
 function isImmutableRef(image: string): boolean {
   if (image.includes("@sha256:")) return true;
@@ -172,14 +183,17 @@ export default new PolicyPack("grid-oib-guardrails", {
         "replicas / ordinals / template / updateStrategy / " +
         "persistentVolumeClaimRetentionPolicy / minReadySeconds to be updated in place, so " +
         "writing this field onto an existing StatefulSet makes Pulumi plan a REPLACE — for " +
-        "seaweedfs that is a storage outage, and for chroma the vector index. `OrderedReady` " +
-        "is already the default when the field is unset.",
+        "seaweedfs that is a storage outage, and for clickhouse the trace store. `OrderedReady` " +
+        "is already the default when the field is unset. The one exception is a StatefulSet " +
+        "created with the field and never changed (`CREATED_WITH_POD_MANAGEMENT_POLICY`).",
       enforcementLevel: "mandatory",
       validateResource: validateResourceOfType(
         k8s.apps.v1.StatefulSet,
         (statefulSet, _args, report: ReportViolation) => {
           const policy = statefulSet.spec?.podManagementPolicy;
           if (policy === undefined) return;
+          const name = statefulSet.metadata?.name ?? "";
+          if (CREATED_WITH_POD_MANAGEMENT_POLICY[name] === policy) return;
           report(
             `StatefulSet "${statefulSet.metadata?.name ?? "<unnamed>"}" sets ` +
               `podManagementPolicy="${policy}", an immutable field: on an existing ` +

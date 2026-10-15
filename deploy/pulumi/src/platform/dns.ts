@@ -57,7 +57,8 @@ export interface ManagedDns {
  * Every public host this stack serves, in Gateway listener order.
  *
  * `langfuseDomain` appears only when its tier is actually deployed, mirroring
- * the conditional `https-langfuse` listener: a record for a host with no listener resolves, answers with the
+ * the conditional `https-langfuse` listener, and `qdrantDashboardDomain` only
+ * when `qdrantDashboardEnabled` adds `https-qdrant`: a record for a host with no listener resolves, answers with the
  * wrong certificate, and reads as a broken deployment rather than a disabled
  * feature.
  *
@@ -70,12 +71,14 @@ export function managedHosts(args: {
   appDomain: string;
   s3Domain: string;
   langfuseDomain?: string;
+  qdrantDashboardDomain?: string;
 }): string[] {
   return [
     args.webDomain,
     args.appDomain,
     args.s3Domain,
     ...(args.langfuseDomain !== undefined ? [args.langfuseDomain] : []),
+    ...(args.qdrantDashboardDomain !== undefined ? [args.qdrantDashboardDomain] : []),
   ];
 }
 

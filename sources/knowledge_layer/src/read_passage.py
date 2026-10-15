@@ -491,15 +491,6 @@ def _punkt_sort_key(chunk: Any) -> tuple:
     )
 
 
-def _int_metadata(chunk: Any, key: str) -> int:
-    """An integer chunk-metadata field, ``0`` when absent or not a number."""
-    raw = (getattr(chunk, "metadata", None) or {}).get(key)
-    try:
-        return int(str(raw).strip())
-    except ValueError:
-        return 0
-
-
 def _document_order(chunk: Any) -> tuple[int, int]:
     """Where a tenant section sits in its document: section ordinal, then first line.
 
@@ -508,12 +499,16 @@ def _document_order(chunk: Any) -> tuple[int, int]:
     came back in alphabetical order of their headings. ``(0, 0)`` for an OIB chunk,
     which carries neither, so their order is unchanged.
     """
-    return (_int_metadata(chunk, "section_order"), _int_metadata(chunk, "line_start"))
+    from aiq_agent.knowledge.base import section_position
+
+    return section_position(getattr(chunk, "metadata", None))[:2]
 
 
 def _table_part(chunk: Any) -> int:
     """A row group's or section chunk's 1-based position, ``0`` for anything that is not one."""
-    return _int_metadata(chunk, "table_part") or _int_metadata(chunk, "section_part")
+    from aiq_agent.knowledge.base import section_position
+
+    return section_position(getattr(chunk, "metadata", None))[2]
 
 
 def _punkt_depth(chunk: Any) -> int | None:
@@ -707,6 +702,8 @@ class FamilyMember:
     title: str
     chunks: tuple[Any, ...]
     entries: tuple[OutlineEntry, ...]
+    #: Read by filter alone, with no embedding (``BaseRetriever.fetch``).
+    structural: bool = False
 
 
 @dataclass(frozen=True)
@@ -723,6 +720,8 @@ class FamilyOverview:
     members: tuple[FamilyMember, ...]
     chunks: tuple[Any, ...]
     trailer: str
+    #: Every member was read by filter alone, with no embedding.
+    structural: bool = False
 
     @property
     def opened_files(self) -> frozenset[str]:
@@ -816,16 +815,17 @@ async def _read_member(target: PassageTarget, number: str) -> FamilyMember | Non
     deployment does not carry contributes no passage, no Gliederung and no
     line in the preamble.
     """
-    chunks, entries, failures = await outline_for([target], _fetch_query(target.file_name, None, None))
-    if not chunks:
-        if failures:
-            logger.warning("Family member %s could not be read", target.file_name, exc_info=failures[0])
+    outline = await outline_for([target], _fetch_query(target.file_name, None, None))
+    if not outline.chunks:
+        if outline.failures:
+            logger.warning("Family member %s could not be read", target.file_name, exc_info=outline.failures[0])
         return None
     return FamilyMember(
         number=number,
         title=_member_title(target.file_name),
-        chunks=tuple(_scope_chunks(chunks)[:_MAX_FAMILY_SCOPE_CHUNKS]),
-        entries=tuple(entry for entry in entries if entry.depth == 1),
+        chunks=tuple(_scope_chunks(outline.chunks)[:_MAX_FAMILY_SCOPE_CHUNKS]),
+        entries=tuple(entry for entry in outline.entries if entry.depth == 1),
+        structural=outline.structural,
     )
 
 
@@ -875,6 +875,7 @@ async def family_overview(entries: Sequence[Any], family_key: str) -> FamilyOver
         members=members,
         chunks=chunks,
         trailer=_family_trailer(members),
+        structural=all(member.structural for member in members),
     )
 
 
@@ -1028,23 +1029,46 @@ def _fetch_query(document: str, punkt: str | None, page: int | None) -> str:
     The filter has already decided which chunks exist, so this only orders a set
     the caller is taking whole — it is never a search. It still names the locus
     rather than being empty, because an empty string embeds to nothing useful and
-    some stores refuse it.
+    some stores refuse it. A backend that reads by filter (``BaseRetriever.fetch``)
+    never sees it; it is then only the label the result names itself by.
     """
     return _locus_label(document, punkt, page)
 
 
-async def _fetch(target: PassageTarget, filters: dict[str, Any], query: str, top_k: int) -> list[Any]:
-    """One filtered fetch against one collection, stamped with where it came from."""
+async def _structural_fetch(retriever: Any, collection: str, filters: dict[str, Any], top_k: int) -> list[Any] | None:
+    """The chunks by filter alone, in reading order, when the backend reads that way; else ``None``.
+
+    No probe, no embedding, no ranking (``BaseRetriever.fetch``). The cut is in
+    reading order and never splits a tie, so every sort below keeps what it
+    would have kept from the whole set.
+    """
+    from aiq_agent.knowledge.base import READING_ORDER
+
+    fetch = getattr(retriever, "fetch", None)
+    if fetch is None:
+        return None
+    return await fetch(collection_name=collection, filters=filters, limit=top_k, order_by=READING_ORDER)
+
+
+async def _fetch(target: PassageTarget, filters: dict[str, Any], query: str, top_k: int) -> tuple[list[Any], bool]:
+    """One filtered fetch against one collection, stamped with where it came from.
+
+    The second value says whether it was a structural fetch. A backend that
+    cannot read by filter is asked through ``retrieve`` with the probe text.
+    """
     from aiq_agent.knowledge.factory import get_active_retriever
 
     retriever = get_active_retriever()
-    result = await retriever.retrieve(
-        query=query,
-        collection_name=target.collection,
-        top_k=top_k,
-        filters=filters,
-    )
-    chunks = list(getattr(result, "chunks", None) or [])
+    chunks = await _structural_fetch(retriever, target.collection, filters, top_k)
+    structural = chunks is not None
+    if chunks is None:
+        result = await retriever.retrieve(
+            query=query,
+            collection_name=target.collection,
+            top_k=top_k,
+            filters=filters,
+        )
+        chunks = list(getattr(result, "chunks", None) or [])
     # Same stamping the search's per-collection fan-out does: this is the
     # last point at which the stratum is known for free, and nothing
     # downstream may recover a shelf from a collection id (ADR-0047).
@@ -1052,25 +1076,45 @@ async def _fetch(target: PassageTarget, filters: dict[str, Any], query: str, top
         chunk.metadata.setdefault("collection", target.collection)
         if target.shelf:
             chunk.metadata.setdefault("shelf", target.shelf)
-    return chunks
+    return chunks, structural
 
 
-async def _fetch_all(
-    targets: list[PassageTarget], filters_for, query: str, top_k: int
-) -> tuple[list[Any], list[BaseException]]:
+@dataclass(frozen=True)
+class Fetched:
+    """What one gathered fetch returned: the chunks, the failures, and whether every read was structural."""
+
+    chunks: list[Any]
+    failures: list[BaseException]
+    structural: bool
+
+
+async def _fetch_all(targets: list[PassageTarget], filters_for, query: str, top_k: int) -> Fetched:
     """One filtered fetch per target, gathered. Failures are returned, not raised:
     one unreachable collection must not refuse the document that did answer."""
     fetched = await asyncio.gather(
         *(_fetch(target, filters_for(target.file_name), query, top_k) for target in targets),
         return_exceptions=True,
     )
-    chunks = [chunk for group in fetched if not isinstance(group, BaseException) for chunk in group]
-    return chunks, [group for group in fetched if isinstance(group, BaseException)]
+    answered = [group for group in fetched if not isinstance(group, BaseException)]
+    return Fetched(
+        chunks=[chunk for chunks, _structural in answered for chunk in chunks],
+        failures=[group for group in fetched if isinstance(group, BaseException)],
+        structural=bool(answered) and all(structural for _chunks, structural in answered),
+    )
 
 
-async def outline_for(
-    targets: list[PassageTarget], query: str
-) -> tuple[list[Any], list[OutlineEntry], list[BaseException]]:
+@dataclass(frozen=True)
+class Outline:
+    """One document's top structure as :func:`outline_for` read it."""
+
+    chunks: list[Any]
+    entries: list[OutlineEntry]
+    failures: list[BaseException]
+    #: Read by filter alone, with no embedding (``BaseRetriever.fetch``).
+    structural: bool
+
+
+async def outline_for(targets: list[PassageTarget], query: str) -> Outline:
     """One document's top structure: its outline chunks, its Gliederung, what broke.
 
     The middle of an outline, shared by the two callers that need it: this
@@ -1084,9 +1128,9 @@ async def outline_for(
     here, because only the caller knows what to do with them: one document
     falls back to its opening pages, a family member contributes nothing.
     """
-    fetched, failures = await _fetch_all(targets, _outline_filters, query, _MAX_OUTLINE_CHUNKS)
-    chunks = [chunk for chunk in fetched if _is_outline_chunk(chunk)]
-    return chunks, _outline_entries(chunks), failures
+    fetched = await _fetch_all(targets, _outline_filters, query, _MAX_OUTLINE_CHUNKS)
+    chunks = [chunk for chunk in fetched.chunks if _is_outline_chunk(chunk)]
+    return Outline(chunks, _outline_entries(chunks), fetched.failures, fetched.structural)
 
 
 @register_function(config_type=ReadPassageConfig)
@@ -1225,12 +1269,10 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         # A page read fetches the window's chunks and keeps those covering the
         # page, so it may not stop at the passage bound before filtering.
         top_k = _MAX_PASSAGE_CHUNKS if page is None else _MAX_OUTLINE_CHUNKS
-        fetched, failures = await _fetch_all(
-            targets, lambda file_name: _passage_filters(file_name, punkt, page), query, top_k
-        )
-        chunks = [chunk for chunk in fetched if _addresses(chunk, punkt, page)]
-        if failures and not chunks:
-            logger.warning("read_passage: every fetch failed for %r", query, exc_info=failures[0])
+        fetched = await _fetch_all(targets, lambda file_name: _passage_filters(file_name, punkt, page), query, top_k)
+        chunks = [chunk for chunk in fetched.chunks if _addresses(chunk, punkt, page)]
+        if fetched.failures and not chunks:
+            logger.warning("read_passage: every fetch failed for %r", query, exc_info=fetched.failures[0])
             return await _miss(document, targets, _store_silent_message(query))
         if not chunks:
             return await _miss(document, targets, _no_passage_message(document, punkt, page))
@@ -1250,11 +1292,12 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
             return refusal
 
         query = _fetch_query(document, None, None)
-        chunks, entries, failures = await outline_for(targets, query)
-        if not chunks:
-            return await _opening_passages(document, targets, query, failures)
+        outline = await outline_for(targets, query)
+        entries = outline.entries
+        if not outline.chunks:
+            return await _opening_passages(document, targets, query, outline.failures)
 
-        passages = _scope_chunks(chunks)[:_MAX_PASSAGE_CHUNKS]
+        passages = _scope_chunks(outline.chunks)[:_MAX_PASSAGE_CHUNKS]
         # The Gliederung travels as the block's trailer rather than being glued
         # on here: the renderer files the records under the hash of the bytes it
         # returns, and a byte added afterwards costs this tool the structured
@@ -1283,8 +1326,9 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         """
         from .register import _format_results
 
-        fetched, page_failures = await _fetch_all(targets, _whole_document_filters, query, _MAX_OUTLINE_CHUNKS)
-        broke = failures + page_failures
+        whole = await _fetch_all(targets, _whole_document_filters, query, _MAX_OUTLINE_CHUNKS)
+        fetched = whole.chunks
+        broke = failures + whole.failures
         if not fetched and broke:
             logger.warning("read_passage: every outline fetch failed for %r", query, exc_info=broke[0])
             return await _miss(document, targets, _store_silent_message(query))

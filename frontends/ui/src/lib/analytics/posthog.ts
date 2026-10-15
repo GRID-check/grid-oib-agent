@@ -120,6 +120,8 @@ export type PostHogEvent =
   | 'document_uploaded'
   | 'chat_message_sent'
   | 'report_exported'
+  | 'similar_passages_searched'
+  | 'similar_passage_opened'
 
 let initialized = false
 

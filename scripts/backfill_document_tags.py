@@ -18,17 +18,16 @@ TEXT SOURCE
 -----------
 Tags are classified from the best available text for each document:
 
-1. Preferred — the document's already-indexed chunk text. The LlamaIndex/Chroma
-   backend exposes a cheap per-file fetch
-   (``collection.get(where={"file_name": ...}, include=["documents"])``), so the
-   first few chunks are concatenated up to
+1. Preferred — the document's already-indexed chunk text, read back from Qdrant
+   by a filter on the file (``aiq_agent.knowledge.collection_pages.read_pages``,
+   no embedding), so the first chunks in reading order are concatenated up to
    :data:`document_classification.CLASSIFY_MAX_INPUT_CHARS`. This is the same
    text ingestion classifies from, so a backfilled tag set matches what a fresh
    ingest would have produced.
 2. Fallback — the stored SUMMARY text, always present on every row (the
    ``summary`` column is NOT NULL). Used whenever the chunk fetch is
-   unavailable: a non-LlamaIndex/Chroma deployment, a missing/empty chroma dir,
-   a collection or file not found in Chroma, or any fetch error. Classifying
+   unavailable: ``AIQ_QDRANT_URL`` unset, a file with no chunks in Qdrant, or
+   any fetch error. Classifying
    from the one-sentence summary is a lower-fidelity but ACCEPTABLE source per
    FB-8.
 
@@ -55,8 +54,8 @@ STORE ACCESS
 ------------
 The summaries DB is taken from ``AIQ_SUMMARY_DB`` (same env var the deployment
 sets, default ``sqlite+aiosqlite:///./summaries.db``), overridable with
-``--summary-db``. The Chroma directory is ``AIQ_CHROMA_DIR`` (default
-``/tmp/chroma_data``), overridable with ``--chroma-dir``.
+``--summary-db``. The chunk text is read from the Qdrant cluster at
+``AIQ_QDRANT_URL`` (``AIQ_QDRANT_API_KEY`` when it requires one).
 
 EXIT CODES
 ----------
@@ -84,7 +83,6 @@ from aiq_agent.knowledge.schema import AvailableDocument
 logger = logging.getLogger(__name__)
 
 DEFAULT_SUMMARY_DB = os.environ.get("AIQ_SUMMARY_DB", "sqlite+aiosqlite:///./summaries.db")
-DEFAULT_CHROMA_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
 
 # Type alias: fetch representative chunk text for a document, or None if the
 # indexed text is unavailable (caller then falls back to the summary).
@@ -158,48 +156,30 @@ def build_summary_llm() -> _OpenAICompatLLM:
 
 
 # =============================================================================
-# Chunk-text fetch (preferred text source; Chroma per-file get)
+# Chunk-text fetch (preferred text source; a per-file read from Qdrant)
 # =============================================================================
 
 
-def make_chunk_text_fetcher(chroma_dir: str) -> ChunkTextFetcher | None:
-    """Build a best-effort per-file chunk-text fetcher over the Chroma store.
+def make_chunk_text_fetcher() -> ChunkTextFetcher | None:
+    """Build a best-effort per-file chunk-text fetcher over the Qdrant store.
 
-    Returns ``None`` (so callers fall back to summaries throughout) when Chroma
-    is unavailable — the package is not installed, or the directory cannot be
-    opened. The returned callable is itself fail-soft per document.
+    Returns ``None`` (so callers fall back to summaries throughout) when no
+    store is configured (``AIQ_QDRANT_URL`` unset). The returned callable
+    answers None for a file with no indexed text and raises when the store
+    cannot be read, which fails that row (``process_row``).
     """
-    try:
-        import chromadb
-    except ImportError:
-        logger.info("chromadb not installed; classifying from stored summaries only.")
+    if not os.environ.get("AIQ_QDRANT_URL", "").strip():
+        logger.info("AIQ_QDRANT_URL is not set; classifying from stored summaries only.")
         return None
-
-    if not os.path.isdir(chroma_dir):
-        logger.info("Chroma dir %s not found; classifying from stored summaries only.", chroma_dir)
-        return None
-
-    try:
-        client = chromadb.PersistentClient(path=chroma_dir)
-    except Exception as e:  # noqa: BLE001 - fail soft to summary source
-        logger.warning("Could not open Chroma at %s (%s); using stored summaries.", chroma_dir, e)
-        return None
+    from aiq_agent.knowledge.collection_pages import read_pages
 
     def fetch(collection: str, file_name: str) -> str | None:
-        try:
-            col = client.get_collection(name=collection)
-        except Exception:
-            return None
-        try:
-            result = col.get(where={"file_name": file_name}, include=["documents"])
-        except Exception:
-            return None
-        documents = (result or {}).get("documents") or []
-        if not documents:
+        pages = read_pages(collection, file_name)
+        if not pages:
             return None
         parts: list[str] = []
         total = 0
-        for chunk in documents:
+        for _page, chunk in pages:
             if not chunk:
                 continue
             parts.append(chunk)
@@ -266,7 +246,11 @@ def process_row(
     # Preferred: indexed chunk text; fallback: the always-present summary.
     text = None
     if text_fetcher is not None:
-        text = text_fetcher(collection, file_name)
+        try:
+            text = text_fetcher(collection, file_name)
+        except Exception as e:  # noqa: BLE001 - an outage is not "no text": never classify from the summary over it
+            logger.warning("[fail] %s/%s the vector store could not be read: %s", collection, file_name, e)
+            return FAILED
     source = "chunks"
     if not text:
         text = doc.summary
@@ -362,11 +346,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_SUMMARY_DB,
         help="Summaries DB URL (default: $AIQ_SUMMARY_DB or sqlite+aiosqlite:///./summaries.db).",
     )
-    parser.add_argument(
-        "--chroma-dir",
-        default=DEFAULT_CHROMA_DIR,
-        help="Chroma persistence dir for the preferred chunk-text source (default: $AIQ_CHROMA_DIR).",
-    )
     return parser.parse_args(argv)
 
 
@@ -400,7 +379,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("%s", e)
         return 2
 
-    text_fetcher = make_chunk_text_fetcher(args.chroma_dir)
+    text_fetcher = make_chunk_text_fetcher()
 
     stats = run_backfill(
         collections=collections,

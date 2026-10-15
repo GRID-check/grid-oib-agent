@@ -19,8 +19,8 @@ embedded by the same model or not at all.
 comparable to vectors from the same model, and a model swap is a config change
 away. Every response carries ``fingerprint``; the caller stores it next to the
 vector and treats a mismatch as "not embedded yet" rather than comparing across
-models — the same rule ``embed_fingerprint_mismatch`` enforces for Chroma
-collections, applied to a column.
+models — the same rule ``qdrant.schema.identity_mismatch`` enforces for the
+vector store's collections, applied to a column.
 
 Never raises and never answers non-200: an unavailable embedder degrades both
 callers to their lexical path, which is worse but correct.

@@ -279,7 +279,7 @@ export function installSplitSeaweedFS(
         template: {
           metadata: { labels: masterLabels },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             securityContext: { fsGroup: 1000 },
             topologySpreadConstraints: spreadAcrossNodes(masterLabels),
             ...onNodeGroup(cfg.nodeGroups.data),

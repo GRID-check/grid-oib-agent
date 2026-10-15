@@ -19,7 +19,7 @@
  *
  * It is also the half that costs data. `documents.project_id` is `ON DELETE
  * CASCADE`, so such a row would be deleted by a project purge WITHOUT going
- * through `deleteSessionDocument`, the only path that first purges the Chroma
+ * through `deleteSessionDocument`, the only path that first purges the vector-store
  * chunks and the SeaweedFS objects. The row would go and the bytes would stay.
  *
  * Nothing violates it today — `uploadSessionDocument` passes `projectId: null`

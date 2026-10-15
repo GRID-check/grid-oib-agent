@@ -173,3 +173,38 @@ class TestSubtreeRewrite:
         assert store.rewrite_folder_paths("proj_a", "Brandschutz", "Feuer") == 1
 
         assert store.get_folder_path("proj_b", "plan.pdf") == "Brandschutz"
+
+    def test_the_rewrite_names_exactly_the_files_it_moved(self, store):
+        """What the vector-store mirror re-files: the moved rows, not the whole collection."""
+        _file(store, "a.pdf", "Brandschutz")
+        _file(store, "b.pdf", "Brandschutz/Fluchtwege")
+        _file(store, "sibling.pdf", "Brandschutzkonzepte")
+        _file(store, "root.pdf", None)
+        store.register("proj_b", "a.pdf", "Another project's file")
+        store.set_folder_path("proj_b", "a.pdf", "Brandschutz")
+
+        count, moved = store.rewrite_folder_paths_moved("proj_a", "Brandschutz", None)
+        assert (count, sorted(moved)) == (2, ["a.pdf", "b.pdf"])
+        assert store.get_folder_path("proj_a", "b.pdf") == "Fluchtwege"
+        assert store.get_folder_path("proj_b", "a.pdf") == "Brandschutz"
+
+
+class TestRowsOfSomeFiles:
+    """``get_many``: one file's facts without reading the collection."""
+
+    def test_reads_only_the_named_rows_and_guards_the_fassung_link(self, store):
+        _file(store, "alt.pdf", "Statik")
+        _file(store, "neu.pdf", None)
+        _file(store, "verwaist.pdf", None)
+        _file(store, "anderes.pdf", None)
+        assert store.set_superseded_by("proj_a", "alt.pdf", "neu.pdf") is True
+        assert store.set_superseded_by("proj_a", "verwaist.pdf", "geloescht.pdf") is True
+
+        documents = {doc.file_name: doc for doc in store.get_many("proj_a", ["alt.pdf", "verwaist.pdf", "fehlt.pdf"])}
+
+        assert sorted(documents) == ["alt.pdf", "verwaist.pdf"]
+        assert documents["alt.pdf"].superseded_by == "neu.pdf"
+        assert documents["alt.pdf"].folder_path == "Statik"
+        # The newer file has no row: as in get_all, the older one is current again.
+        assert documents["verwaist.pdf"].superseded_by is None
+        assert store.get_many("proj_a", []) == []

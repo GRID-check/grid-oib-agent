@@ -46,6 +46,7 @@ import {
   invalidateProjectProfileCaches,
 } from './prompt-view'
 import { buildProjectSummaryText } from './brief-view'
+import { syncProjectFacts } from '@/lib/cross-project/project-facts-mirror'
 import {
   isPatchAlreadyApplied,
   normalizeProfilePatchOperations,
@@ -276,6 +277,10 @@ async function persistProfile(
   // the 5-min TTL. This is the single choke point for the wizard save and agent
   // patches, so both write paths are covered here.
   await invalidateProjectProfileCaches(projectId, organizationId)
+  // The same choke point copies the fingerprint onto the project's chunks, for
+  // the cross-project search's filters and lift. Never throws: the save is
+  // committed, and the weekly sync repairs a copy that failed.
+  await syncProjectFacts(organizationId, projectId)
   return updated
 }
 

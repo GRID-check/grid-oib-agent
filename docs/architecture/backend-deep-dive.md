@@ -13,7 +13,7 @@ Docker Compose (`deploy/compose/docker-compose.yaml`):
 - **seaweedfs** — object storage, bucket `grid-documents`. Published to the host at
   `localhost:8333`; internal DNS name `seaweedfs:8333`.
 - **aiq-agent** — FastAPI + NeMo Agent Toolkit (NAT)
-  scheduler/worker + in-process ChromaDB. Runs the LangGraph workflow and the
+  scheduler/worker; every chunk lives in Qdrant (ADR-0113). Runs the LangGraph workflow and the
   async deep-research jobs.
 - **frontend** — Next.js 16 BFF + a Node WebSocket proxy (`frontends/ui/server.js`).
 - **dragonfly** — Redis-protocol shared cache (ADR-0020): read-through caches
@@ -644,10 +644,12 @@ prose from ("Opened … (Projekt, Ordner Brandschutz/Fluchtwege)"). A file at th
 root gets no `Ordner` at all — absence must read as absence, not as a folder the
 user never made.
 
-**Retrieval.** `knowledge_search` takes `folder=`, applied post-merge alongside
-`doc_class` / `title_contains` / `file_name` so it works uniformly across the
-base, session and project layers, and it covers the **subtree**: `Brandschutz`
-also reads `Brandschutz/Fluchtwege`. `_format_results` emits an `Ordner:` line
+**Retrieval.** `knowledge_search` takes `folder=`, which narrows the ranking
+to the folder's files before retrieval and is checked again post-merge
+alongside `doc_class` / `title_contains` / `file_name`, so it works uniformly
+across the base, session and project layers, and it covers the **subtree**:
+`Brandschutz` also reads `Brandschutz/Fluchtwege`. The narrowing is a payload
+condition on `folder_ancestors` inside the search (`qdrant/prefilter.py`). `_format_results` emits an `Ordner:` line
 per hit so a cited passage can say where its document lives. The store read
 (`_resolve_folder_paths`) is one batched query per in-scope collection and fails
 open to an empty map — which means "at the root", so a `folder=`-scoped search
@@ -704,7 +706,7 @@ in front of the answering agent (ADR-0052).
 ### Document summaries & `available_documents` (SQL side-table, distinct from the vector index)
 
 Two separate stores back "documents" and are **architecturally distinct**:
-the **ChromaDB vector index** that `knowledge_search`/`knowledge_retrieval`
+the **Qdrant vector index** that `knowledge_search`/`knowledge_retrieval`
 queries (what's actually retrievable), and a **SQL `document_metadata`
 side-table** (`DocumentMetadataStore`,
 `src/aiq_agent/knowledge/document_metadata_store.py` + `factory.py
@@ -819,7 +821,7 @@ together:
    primary summary path failed silently — this is a backstop, not a silent
    fix). Backends may optionally expose `get_document_text_sample()` to give
    the fallback a real text sample; `LlamaIndexIngestor` does, reading chunk
-   text back out of Chroma. The per-job call is **scoped** to the job's own
+   text back out of Qdrant (a structural fetch). The per-job call is **scoped** to the job's own
    successful files (`file_names=[...]`), so the caller's known-indexed set is
    diffed directly and the full `list_files` metadata scan — O(collection
    size) on every single-file upload, painful on the large `oib_knowledge`
@@ -831,7 +833,7 @@ ungating `fallback_summary_from_text` from tag success) and make "ingested ⇒
 visible in `available_documents`" hold for every ingestion path — a document
 that finishes ingestion always gets a `document_metadata` row, either from the
 primary LLM path or, on backfill, from the reconciliation pass. The two
-stores remain architecturally distinct (SQL side-table vs. ChromaDB vector
+stores remain architecturally distinct (SQL side-table vs. Qdrant vector
 index), so this is a structural backstop rather than a merge of the two
 sources — see backlog T3-10 for the closed status and rationale.
 
@@ -950,7 +952,7 @@ segment's scale. The full structured analysis rides on the chunk as
 `drawing_data` (JSON string, embed-excluded), so re-chunking or the detail
 view never needs the VLM again. The same descriptions
 are browsable by the user, under the summary: `get_document_visual_details`
-reads the visual chunks back from Chroma — each item now carrying `segment`
+reads the visual chunks back from Qdrant — each item now carrying `segment`
 and the parsed `structured` payload — and the file-preview pane's
 **„Auf den Seiten"** section loads them with any document that has visual
 content (`page-readings.tsx`; `GET /api/documents/{id}/visual-details`
@@ -1209,6 +1211,9 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    or display title). `_apply_agent_filters` applies them post-merge with an
    over-fetch factor of 3 (`_AGENT_FILTER_OVERFETCH`): retrieval asks for 3×
    `top_k` candidates so the filters still leave ≥ `top_k` results. `doc_class`
+   (and `folder`, and the superseded exclusion) run inside the vector search
+   as payload conditions, so only `title_contains` and `file_name` still
+   over-fetch (`qdrant/prefilter.py`). `doc_class`
    and titles are **store-authoritative**: `_resolve_doc_classes` /
    `_resolve_display_titles` build `(collection, file_name) → value` maps via
    `aiq_agent.knowledge.factory` (`get_document_doc_classes` /
@@ -1224,13 +1229,13 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
 
 2. **Hybrid lexical + vector retrieval (RRF)** — gated on `AIQ_HYBRID_RETRIEVAL`
    (default on, config key `hybrid_search` in the knowledge layer YAML block).
-   When enabled, `LlamaIndexRetriever` issues an additional exact-term lexical
-   query per collection: `extract_exact_terms` (token-based, shared utility in
-   `src/aiq_agent/common/legal_terms.py` — deliberately **no regex**) pulls up to
-   three technical tokens from the query, matched via Chroma's
-   `where_document: {"$contains": term}`. The lexical channel is fused with the
-   vector channel using **reciprocal rank fusion** (`reciprocal_rank_fusion` in
-   `llamaindex/hybrid.py`, Cormack `k=60`, vector channel wins ties). This fixes
+   When enabled, `LlamaIndexRetriever` adds lexical channels to the dense one
+   in the same Qdrant query: German BM25 over the chunk text, and per selective
+   exact term (`extract_exact_terms`, token-based, shared utility in
+   `src/aiq_agent/common/legal_terms.py` — deliberately **no regex**; up to
+   three technical tokens) the dense ranking restricted to chunks containing
+   it (`qdrant/search.py`). The channels are fused server-side by **reciprocal
+   rank fusion** (`k=60`). This fixes
    exact-keyword misses (e.g. a norm number or a precise term that the embedding
    model did not weight) without an embedding re-index.
 
@@ -2079,9 +2084,9 @@ loads house voice, offers and org skills through `use_skill`
   fixed (§6, "Silent summary-row loss on double LLM failure"); the LLM calls
   themselves can still fail silently, just without the visibility consequence
   anymore.
-- **`available_documents` vs. ChromaDB divergence — mitigated 2026-07-16** —
+- **`available_documents` vs. vector-index divergence — mitigated 2026-07-16** —
   the SQL summaries side-table that feeds `available_documents` can still, in
-  principle, diverge from what's indexed in ChromaDB (they remain
+  principle, diverge from what's indexed in Qdrant (they remain
   architecturally distinct stores), but the reconciliation backfill (§6) now
   closes every gap the double-LLM-failure case could produce, and the
   deep-research prompts no longer gate document *awareness* on the list being

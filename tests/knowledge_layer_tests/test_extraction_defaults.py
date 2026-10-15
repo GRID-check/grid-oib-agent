@@ -12,13 +12,14 @@ and the count the cap left out lands on the file's job status).
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock
 
 import pytest
 from knowledge_layer.llamaindex import adapter
 from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
 
 from aiq_agent.common.credential_resolution import ResolvedCredential
+from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
+from sources.knowledge_layer.tests.qdrant_testing import capture_indexed_documents
 
 _SWITCHES = ("AIQ_EXTRACT_TABLES", "AIQ_EXTRACT_IMAGES", "AIQ_EXTRACT_CHARTS")
 
@@ -56,7 +57,7 @@ def test_an_ingestor_built_without_config_extracts_everything(tmp_path, monkeypa
         # The class reads the env once at import; re-read it the same way.
         monkeypatch.setattr(LlamaIndexIngestor, attr, adapter._env_switch(name))
 
-    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+    ing = LlamaIndexIngestor({})
 
     assert (ing.extract_tables, ing.extract_images, ing.extract_charts) == (True, True, True)
 
@@ -69,7 +70,7 @@ def test_the_corpus_sync_leaves_the_switches_to_the_adapter(monkeypatch):
     for name in _SWITCHES:
         monkeypatch.delenv(name, raising=False)
     seen = {}
-    monkeypatch.setattr(oib_sync, "get_ingestor", lambda backend, config: seen.update(config))
+    monkeypatch.setattr(oib_sync, "get_ingestor", lambda backend, config=None: seen.update(config or {}))
 
     oib_sync._get_oib_ingestor()
 
@@ -209,16 +210,15 @@ def summary_db(tmp_path):
 
 
 @pytest.fixture
-def ingestor(tmp_path, monkeypatch):
+def ingestor(tmp_path, monkeypatch, qdrant_store):
     # The deployed default: no switch in the env, none named in the config.
     for name in _SWITCHES:
         monkeypatch.delenv(name, raising=False)
         monkeypatch.setattr(LlamaIndexIngestor, f"DEFAULT_{name[4:]}", adapter._env_switch(name))
-    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
-    ing._embed_model = MagicMock()
+    ing = LlamaIndexIngestor({})
+    ing._embed_model = FakeEmbedder()
     ing._initialized = True
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", MagicMock())
-    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
+    capture_indexed_documents(monkeypatch, into=_INDEXED)
     return ing
 
 
@@ -232,13 +232,12 @@ def _wait_terminal(ing, job_id, timeout=30):
     raise AssertionError("ingestion job did not terminate in time")
 
 
-def _indexed_documents():
-    import llama_index.core
+#: What each file of the running test's jobs handed to chunking and embedding (``ingestor`` records it).
+_INDEXED: list[list] = []
 
-    documents = []
-    for call in llama_index.core.VectorStoreIndex.from_documents.call_args_list:
-        documents.extend(call.args[0])
-    return documents
+
+def _indexed_documents():
+    return [document for documents in _INDEXED for document in documents]
 
 
 class _Pipeline:

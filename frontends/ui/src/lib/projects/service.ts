@@ -46,6 +46,7 @@ import { rearmOneShotsSkippedWhileParked } from '@/lib/tasks/repository'
 import { shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { memberReader } from '@/lib/documents/visibility'
 import { withServedEvidence } from './memory-evidence'
+import { syncProjectFacts } from '@/lib/cross-project/project-facts-mirror'
 import {
   clearanceOf,
   customFolderNames,
@@ -523,6 +524,9 @@ export async function setProjectStatus(
     throw new ConflictError('The project changed meanwhile.', { reason: 'invalid-transition', from, to: change.status })
   }
   if (change.status === 'active') await rearmParkedOneShots(projectId, session.organizationId)
+  // The status is on every chunk of the project, for the cross-project search's
+  // filters (design §7). Never throws; the weekly sync repairs a failed copy.
+  await syncProjectFacts(session.organizationId, projectId)
 
   await recordAuditEvent({
     organizationId: session.organizationId,

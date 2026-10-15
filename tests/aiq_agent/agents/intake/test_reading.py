@@ -75,7 +75,7 @@ class TestReadDocument:
 
     async def test_a_failing_store_is_text_not_an_exception(self, project, read_log, monkeypatch):
         def broken(collection, name):
-            raise RuntimeError("chroma down")
+            raise RuntimeError("vector store down")
 
         monkeypatch.setattr(reading, "fetch_document_pages", broken)
         text = await _read(file_name="Baubeschreibung.pdf")
@@ -193,3 +193,23 @@ class TestTheBudget:
 
         result = await middleware.awrap_tool_call(_request("list_files"), handler)
         assert result.status == "error" and "list_files failed" in result.content
+
+
+class TestReadsThePagesFromTheVectorStore:
+    """``fetch_document_pages`` against a real Qdrant: the pages in order, an absent file as None."""
+
+    def test_a_document_reads_page_by_page_in_order(self, qdrant_store):  # noqa: ARG002
+        from sources.knowledge_layer.tests import qdrant_testing as qt
+
+        qt.write(
+            "proj_intake",
+            [
+                qt.record("Seite zwei: Bauweise geschlossen", "Baubeschreibung.pdf", page_label="2"),
+                qt.record("Seite eins: Gebäudeklasse 4", "Baubeschreibung.pdf", page_label="1"),
+            ],
+        )
+
+        pages = reading.fetch_document_pages("proj_intake", "Baubeschreibung.pdf")
+
+        assert pages == [("1", "Seite eins: Gebäudeklasse 4"), ("2", "Seite zwei: Bauweise geschlossen")]
+        assert reading.fetch_document_pages("proj_intake", "Fehlt.pdf") is None

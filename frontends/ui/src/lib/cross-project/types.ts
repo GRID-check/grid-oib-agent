@@ -11,14 +11,16 @@
 import { z } from 'zod'
 import { PERMIT_RECORD_KINDS, PERMIT_REQUIREMENT_KINDS } from '@/lib/db/schema/permit-records'
 import { DISCIPLINE_TAGS, DOCUMENT_TYPE_TAGS } from '@/lib/documents/tag-vocabulary'
+import { experienceVocabulary } from '@/lib/project-experience/vocabulary'
 import { PROJECT_STATUSES, type ProjectStatus } from '@/lib/projects/project-status'
 
 /**
- * How many projects one search call searches at most: one collection search
- * per project (plus the restricted collections the reader may read), so this is
- * the bound on fan-out. A wider scope pages with `offset`.
+ * How many projects one search call covers. The backend ranks every collection
+ * of the page in ONE query (ADR-0114), so a project costs no search of its own,
+ * only the authorization and row lookups each of its hits needs. A wider scope
+ * pages with `offset`.
  */
-export const CROSS_PROJECT_PAGE_PROJECTS = 8
+export const CROSS_PROJECT_PAGE_PROJECTS = 40
 /** How many named projects one call may name. */
 export const CROSS_PROJECT_MAX_NAMED = 20
 /** How many hits one search returns at most, across every project it searched. */
@@ -49,6 +51,44 @@ export const isoDay = z
   .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value), {
     message: 'Not a calendar day',
   })
+
+/** The tokens the intake wizard stores for one fingerprint fact, „noch offen" left out. */
+function factTokens(key: 'bundesland' | 'bauweise' | 'nutzungen' | 'vorhabensart'): [string, ...string[]] {
+  const tokens = experienceVocabulary()[key].options.map((option) => option.token)
+  // A site abroad has no Land the similarity reads (`similarityFacts`), so no project could match it.
+  const kept = key === 'bundesland' ? tokens.filter((token) => token !== 'ausserhalb_oesterreichs') : tokens
+  const [first, ...rest] = kept
+  if (first === undefined) throw new Error(`The intake definition has no tokens for ${key}`)
+  return [first, ...rest]
+}
+
+/** The intake's own vocabularies, read off its definition, so the filter cannot drift from what a profile holds. */
+export const CROSS_PROJECT_FACT_BUNDESLAENDER = factTokens('bundesland')
+export const CROSS_PROJECT_FACT_BAUWEISEN = factTokens('bauweise')
+export const CROSS_PROJECT_FACT_NUTZUNGEN = factTokens('nutzungen')
+export const CROSS_PROJECT_FACT_VORHABENSARTEN = factTokens('vorhabensart')
+
+/**
+ * Only projects with these facts (the fingerprint, `similarity.ts`): within a
+ * fact any of its values, across facts all of them; a fact left out does not
+ * narrow. Read as the similarity reads a profile (`similarityFacts`: the
+ * confirmed facts, else the agent's suggestion from the documents), so a
+ * project whose profile does not record a fact does not match it. A filter
+ * only narrows the audience's reach, never widens it. Strict: a fact this
+ * schema does not know is refused rather than ignored, because an ignored
+ * filter would answer for projects the asker excluded.
+ */
+export const crossProjectFactsSchema = z
+  .object({
+    bundesland: z.array(z.enum(CROSS_PROJECT_FACT_BUNDESLAENDER)).min(1).max(CROSS_PROJECT_FACT_BUNDESLAENDER.length),
+    gebaeudeklasse: z.array(z.number().int().min(1).max(5)).min(1).max(5),
+    bauweise: z.array(z.enum(CROSS_PROJECT_FACT_BAUWEISEN)).min(1).max(CROSS_PROJECT_FACT_BAUWEISEN.length),
+    nutzungen: z.array(z.enum(CROSS_PROJECT_FACT_NUTZUNGEN)).min(1).max(CROSS_PROJECT_FACT_NUTZUNGEN.length),
+    vorhabensart: z.array(z.enum(CROSS_PROJECT_FACT_VORHABENSARTEN)).min(1).max(CROSS_PROJECT_FACT_VORHABENSARTEN.length),
+  })
+  .partial()
+  .strict()
+export type CrossProjectFacts = z.infer<typeof crossProjectFactsSchema>
 
 /**
  * The answer the turn is writing (`answer_message_id(conversation, turn)`, a
@@ -94,6 +134,14 @@ export const crossProjectSearchRequestSchema = z.object({
    * order behind it.
    */
   order: z.array(z.string().uuid()).max(CROSS_PROJECT_MAX_NAMED).default([]),
+  /**
+   * Only projects with these facts ({@link crossProjectFactsSchema}), applied to
+   * whatever the scope covers before a page is cut, so `projectsInScope`,
+   * paging, decisions and permits all count the narrowed set. In a `similar` or
+   * `closed` scope the likeness order and the search's likeness lift still rank
+   * what is left.
+   */
+  projectFacts: crossProjectFactsSchema.optional(),
 })
 export type CrossProjectSearchRequest = z.infer<typeof crossProjectSearchRequestSchema>
 
@@ -223,6 +271,8 @@ export const crossProjectListRequestSchema = z.object({
   to: isoDay.optional(),
   /** Every project listed is recorded on the conversation, so the default stays small. */
   limit: z.number().int().min(1).max(CROSS_PROJECT_MAX_LISTED).default(10),
+  /** Only projects with these facts, as the search reads them. */
+  projectFacts: crossProjectFactsSchema.optional(),
   answerMessageId,
 })
 export type CrossProjectListRequest = z.infer<typeof crossProjectListRequestSchema>

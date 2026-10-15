@@ -206,22 +206,37 @@ def _ranked_chunk(file_name: str, page: int, collection: str = PROJECT) -> Chunk
     )
 
 
+def _folder_keys(filters) -> list[str]:
+    """Every ``folder_ancestors`` value a filter names, ``$and`` groups included."""
+    if not isinstance(filters, dict):
+        return []
+    found = [filters["folder_ancestors"]] if "folder_ancestors" in filters else []
+    for child in filters.get("$and") or []:
+        found.extend(_folder_keys(child))
+    return found
+
+
 class _RankedStore:
-    """A ranking retriever. It honours ``file_name $in`` the way the store does, and otherwise returns best-first."""
+    """A ranking retriever. It honours ``folder_ancestors`` the way the store does, and otherwise returns best-first.
+
+    The folder a chunk's points carry is its document's (``payload.document_facts``).
+    """
 
     backend_name = "fake"
     embed_model_name = "fake-embedder"
 
-    def __init__(self, pools: dict[str, list[Chunk]]):
+    def __init__(self, pools: dict[str, list[Chunk]], folders: dict[str, str]):
         self.pools = pools
+        self.folders = folders
         self.calls: list[dict] = []
 
     async def retrieve(self, query, collection_name, top_k, filters=None):
+        from sources.knowledge_layer.src.qdrant.prefilter import folder_ancestors
+
         self.calls.append({"collection": collection_name, "top_k": top_k, "filters": filters})
         pool = self.pools.get(collection_name, [])
-        allowed = ((filters or {}).get("file_name") or {}).get("$in")
-        if allowed is not None:
-            pool = [chunk for chunk in pool if chunk.file_name in allowed]
+        for key in _folder_keys(filters):
+            pool = [chunk for chunk in pool if key in folder_ancestors(self.folders.get(chunk.file_name))]
         return RetrievalResult(
             chunks=[chunk.model_copy(deep=True) for chunk in pool[:top_k]],
             query=query,
@@ -244,7 +259,7 @@ def ranked(monkeypatch):
     monkeypatch.setattr("sources.knowledge_layer.src.register._initialize_ingestor", lambda config, llm: None)
 
     def install(documents: list[AvailableDocument], pools: dict[str, list[Chunk]]) -> _RankedStore:
-        store = _RankedStore(pools)
+        store = _RankedStore(pools, {doc.file_name: doc.folder_path for doc in documents if doc.folder_path})
         set_turn_documents(documents)
         monkeypatch.setattr("sources.knowledge_layer.src.register._get_retriever", lambda config: store)
         _folders(monkeypatch, {doc.file_name: doc.folder_path for doc in documents if doc.folder_path})
@@ -281,7 +296,10 @@ class TestRankedSearchNarrowsBeforeRanking:
         await _ranked_search(query="Fluchtwege", folder="03_Einreichung")
 
         project_calls = [call for call in store.calls if call["collection"] == PROJECT]
-        assert [call["filters"] for call in project_calls] == [{"file_name": {"$in": ["Anschreiben.pdf", "x.pdf"]}}]
+        # One payload condition for the subtree, never a list of its files.
+        assert [call["filters"] for call in project_calls] == [
+            {"$and": [{"folder_ancestors": "03_einreichung"}, {"superseded": {"$ne": True}}]}
+        ]
         assert {call["collection"] for call in store.calls} == {PROJECT}
 
     async def test_a_folder_outranked_on_the_whole_shelf_still_returns_its_passages(self, ranked):
@@ -310,8 +328,10 @@ class TestRankedSearchNarrowsBeforeRanking:
 
         out = await _ranked_search(query="Fluchtwege")
 
-        assert [call["filters"] for call in store.calls if call["collection"] == PROJECT] == [None]
-        assert all("$in" not in repr(call["filters"]) for call in store.calls)
+        assert [call["filters"] for call in store.calls if call["collection"] == PROJECT] == [
+            {"superseded": {"$ne": True}}
+        ]
+        assert all("folder_ancestors" not in repr(call["filters"]) for call in store.calls)
         assert "y.pdf, p.1" in _cited(out)
 
     async def test_a_base_document_in_the_folder_keeps_the_page_exclusion_beside_the_narrowing(self, ranked):
@@ -326,6 +346,5 @@ class TestRankedSearchNarrowsBeforeRanking:
         out = await _ranked_search(query="Fluchtwege", folder="03_Einreichung")
 
         [base_call] = [call for call in store.calls if call["collection"] == BASE]
-        assert base_call["filters"]["chunking"] == {"$ne": "page"}
-        assert base_call["filters"]["file_name"] == {"$in": ["oib-rl_3.pdf"]}
+        assert base_call["filters"] == {"$and": [{"chunking": {"$ne": "page"}}, {"folder_ancestors": "03_einreichung"}]}
         assert "oib-rl_3.pdf, p.2" in _cited(out)

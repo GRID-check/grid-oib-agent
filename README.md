@@ -11,7 +11,7 @@ A planning office runs its work in Piloti: every project, every process, the who
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)](https://nextjs.org)
 [![Tailwind v4](https://img.shields.io/badge/Tailwind-v4-38BDF8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Multi--Agent-1C3C3C)](https://langchain-ai.github.io/langgraph/)
-[![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector--Store-F5A623)](https://trychroma.com)
+[![Qdrant](https://img.shields.io/badge/Qdrant-Vector--Store-DC244C)](https://qdrant.tech)
 [![SeaweedFS](https://img.shields.io/badge/SeaweedFS-S3--Storage-C72E49)](https://github.com/seaweedfs/seaweedfs)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docker.com)
 
@@ -57,7 +57,7 @@ flowchart TB
         NAT["NeMo Agent Toolkit"]
         LG["LangGraph<br/>Piloti → (escalate?) clarify → deep researcher"]
         JOBS["Research queue (Postgres) — deep-research jobs"]
-        CHROMA["ChromaDB — oib_knowledge + proj_* + mem_*"]
+        QDRANT["Qdrant — piloti_corpus + piloti_office"]
     end
 
     subgraph Storage["Infrastructure"]
@@ -77,9 +77,9 @@ flowchart TB
     BFF -->|HTTP| FAST
     BFF -->|internal write API| BFF
     FAST --> NAT --> LG --> JOBS
-    LG <--> CHROMA
+    LG <--> QDRANT
     BFF -->|upload| SEAWEED
-    FAST -.->|/v1/ingest| CHROMA
+    FAST -.->|/v1/ingest| QDRANT
     PURGER --> DB
     PURGER --> SEAWEED
     WFS --> DB
@@ -98,7 +98,7 @@ flowchart TB
 
 Two distinct knowledge systems:
 
-- **Retrieval (RAG)** — the OIB corpus, uploaded documents, and chat attachments, embedded in ChromaDB and searched **on demand**, scoped per request via `X-Grid-Collection-Scope`.
+- **Retrieval (RAG)** — the OIB corpus, uploaded documents, and chat attachments, embedded in Qdrant and searched **on demand**, scoped per request via `X-Grid-Collection-Scope`, which compiles to one payload filter (ADR-0114).
 - **Memory & context** — the intake profile and agent-curated project/org memory, **injected into every turn** as base64url-encoded headers. Memory is written only through a token-guarded internal BFF endpoint, keeping `grid_app` single-writer.
 
 See [`docs/architecture/backend-deep-dive.md`](docs/architecture/backend-deep-dive.md) and [`docs/architecture/project-memory-design.md`](docs/architecture/project-memory-design.md).
@@ -129,7 +129,7 @@ open http://localhost:3000
 
 > **LLM-agnostic.** Piloti runs against **any OpenAI-compatible API** — OpenRouter, a self-hosted vLLM/Ollama server, Azure OpenAI, NVIDIA NIM, etc. The LLM/embedding provider is not baked in: point the `base_url`, `model_name`, and API-key env at your endpoint in the workflow config (`configs/*.yml`) and set `CONFIG_FILE` accordingly. The shipped **reference config** is `configs/config_oib_openrouter.yml` (OpenAI GPT-5.6 Luna + `text-embedding-3-large`, both via OpenRouter).
 
-The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-init`), `aiq-agent` (+ a one-shot `chroma-data-permissions`), `frontend`, the `purger` deletion worker, and the `workflow-scheduler` cron worker (ADR-0023; a clean no-op unless workflows are enabled).
+The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-init`), `aiq-agent`, the shared `qdrant` vector store, `frontend`, the `purger` deletion worker, and the `workflow-scheduler` cron worker (ADR-0023; a clean no-op unless workflows are enabled).
 
 ## Tech Stack
 
@@ -138,7 +138,7 @@ The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-ini
 | **Frontend** | Next.js 16, React 18, TypeScript, **shadcn/ui + Tailwind v4** | The workspace UI: projects, files, model, chat, tasks |
 | **Backend** | Python 3.14, FastAPI, Uvicorn | AI endpoint server (`aiq_api` plugin) |
 | **AI Orchestration** | NeMo Agent Toolkit (NAT), LangGraph | Multi-agent pipeline + async jobs |
-| **RAG** | ChromaDB, LlamaIndex | Chunking · embeddings · scoped retrieval |
+| **RAG** | Qdrant (`qdrant-client`), LlamaIndex | Chunking · embeddings · scoped retrieval |
 | **LLM + Embeddings** | **Any OpenAI-compatible endpoint** — reference config: OpenAI GPT-5.6 Luna via OpenRouter | Reasoning, classification, cards, embeddings |
 | **Web Search** | Tavily | Context beyond the office's documents and the legal corpus |
 | **Database** | PostgreSQL, Drizzle ORM | Projects, conversations, documents, memory, deletion queue |
@@ -207,5 +207,5 @@ scripts need. Bare `pytest` already tests `src/` through `pyproject.toml`.
 ---
 
 <div align="center">
-  <p>Built on the <a href="https://www.nvidia.com/en-us/ai/">NVIDIA AI-Q Blueprint</a> · <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a> · <a href="https://trychroma.com/">ChromaDB</a> · <a href="https://workos.com/">WorkOS</a></p>
+  <p>Built on the <a href="https://www.nvidia.com/en-us/ai/">NVIDIA AI-Q Blueprint</a> · <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a> · <a href="https://qdrant.tech/">Qdrant</a> · <a href="https://workos.com/">WorkOS</a></p>
 </div>

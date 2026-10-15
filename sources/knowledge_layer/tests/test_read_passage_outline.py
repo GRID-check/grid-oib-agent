@@ -510,13 +510,13 @@ class TestWhatTheStoreIsAsked:
         assert len(store.calls) == 1
 
     def test_both_filters_survive_the_real_translator(self):
-        """The dialect is the adapter's, not this module's opinion of it: an
-        operator it cannot translate raises at the tool boundary rather than
-        silently over-retrieving."""
-        from knowledge_layer.llamaindex.adapter import _to_metadata_filters
+        """The dialect is the store's, not this module's opinion of it: an
+        operator or field it cannot translate raises at the tool boundary
+        rather than silently over-retrieving."""
+        from knowledge_layer.qdrant.scope import translate
 
-        assert _to_metadata_filters(rp._outline_filters(OIB)) is not None
-        assert _to_metadata_filters(rp._whole_document_filters(OIB)) is not None
+        assert translate(rp._outline_filters(OIB)) is not None
+        assert translate(rp._whole_document_filters(OIB)) is not None
 
 
 class TestADocumentWhosePageLabelIsNotAPage:

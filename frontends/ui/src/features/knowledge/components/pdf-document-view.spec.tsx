@@ -5,6 +5,7 @@ import {
   FAKE_FRAME_WIDTH,
   fakePdfjsRuntime,
   fakeTextRun as run,
+  selectRenderedText,
   type FakePdfState,
 } from '@/test-utils/pdfjs-fake'
 import { PdfDocumentView, pointOnPage } from './pdf-document-view'
@@ -28,21 +29,6 @@ vi.mock('../lib/pdfjs-runtime', () => fakePdfjsRuntime(state))
  */
 
 const restoreObservers = { current: () => {} }
-
-/**
- * Select everything inside a node, the way a drag across it would.
- *
- * happy-dom has a Selection but no layout, so `getBoundingClientRect` on the
- * range is all zeros — which is exactly what the component treats as "at the
- * top-left of the page stack", and is not what any assertion here is about.
- */
-const selectWithin = (node: Element): void => {
-  const range = document.createRange()
-  range.selectNodeContents(node)
-  const selection = document.getSelection()!
-  selection.removeAllRanges()
-  selection.addRange(range)
-}
 
 beforeEach(() => {
   vi.mocked(capturePosthog).mockClear()
@@ -272,32 +258,43 @@ describe('PdfDocumentView', () => {
    */
   it('does not re-reveal the passage when the reader zooms', async () => {
     state.pages = [{ items: [run('Die Frist betraegt vier Wochen', 700, 180)] }]
-    render(
-      <PdfDocumentView
-        src="/api/doc.pdf"
-        title="doc.pdf"
-        page={1}
-        highlight="Die Frist betraegt vier Wochen"
-      />,
-    )
-    await screen.findByTestId('passage-mark')
-
-    const frame = screen.getByTestId('pdf-scroll')
+    // Spied before render. The opening settles on an animation frame once page
+    // 1's shape lands (`scrollToRects(hit, false)`), and under load that frame
+    // can fire after the mark is on screen: a spy put on the frame only then
+    // caught the settle and read it as a zoom re-reveal.
     const scrollTo = vi.fn()
-    frame.scrollTo = scrollTo
+    const original = HTMLElement.prototype.scrollTo
+    HTMLElement.prototype.scrollTo = scrollTo
+    try {
+      render(
+        <PdfDocumentView
+          src="/api/doc.pdf"
+          title="doc.pdf"
+          page={1}
+          highlight="Die Frist betraegt vier Wochen"
+        />,
+      )
+      await screen.findByTestId('passage-mark')
+      await waitFor(() =>
+        expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' })),
+      )
+      scrollTo.mockClear()
 
-    fireEvent.click(screen.getByLabelText('Zoom in'))
-    await waitFor(() => expect(screen.getByText('125%')).toBeTruthy())
+      fireEvent.click(screen.getByLabelText('Zoom in'))
+      await waitFor(() => expect(screen.getByText('125%')).toBeTruthy())
 
-    // The mark survives the zoom — it is still the answer to the click.
-    expect(screen.getByTestId('passage-mark')).toBeTruthy()
-    // But the frame is not yanked back to it.
-    expect(scrollTo).not.toHaveBeenCalled()
+      // The mark survives the zoom — it is still the answer to the click.
+      expect(screen.getByTestId('passage-mark')).toBeTruthy()
+      // But the frame is not yanked back to it.
+      expect(scrollTo).not.toHaveBeenCalled()
 
-    // The spy is wired correctly: asking to go back DOES scroll. Without this,
-    // "not called" would pass just as well against a broken assertion.
-    fireEvent.click(screen.getByRole('button', { name: 'Go to passage' }))
-    expect(scrollTo).toHaveBeenCalled()
+      // The spy is wired correctly: asking to go back DOES scroll. Without this,
+      // "not called" would pass just as well against a broken assertion.
+      fireEvent.click(screen.getByRole('button', { name: 'Go to passage' }))
+      expect(scrollTo).toHaveBeenCalled()
+    } finally {
+      HTMLElement.prototype.scrollTo = original
+    }
   })
 
   /**
@@ -310,8 +307,7 @@ describe('PdfDocumentView', () => {
     state.pages = [{ items: [run('Die Frist betraegt vier Wochen', 700, 180)] }]
     render(<PdfDocumentView src="/api/doc.pdf" title="doc.pdf" />)
 
-    const layer = await screen.findByTestId('pdf-text-layer')
-    expect(layer.textContent).toContain('Die Frist betraegt vier Wochen')
+    await selectRenderedText('Die Frist betraegt vier Wochen')
   })
 
   it('re-scales the text layer with the zoom instead of rebuilding it', async () => {
@@ -482,8 +478,7 @@ describe('PdfDocumentView', () => {
         quoteFormat={({ text, page }) => `„${text}“ — doc.pdf, S. ${page}`}
       />,
     )
-    const layer = (await screen.findAllByTestId('pdf-text-layer'))[1]!
-    selectWithin(layer)
+    await selectRenderedText('Die Frist betraegt vier Wochen')
 
     fireEvent.pointerUp(screen.getByTestId('pdf-scroll'))
     fireEvent.click(await screen.findByText('Copy as citation'))
@@ -501,11 +496,39 @@ describe('PdfDocumentView', () => {
     // browser's own — but there is no citation to build, so no offer is made.
     state.pages = [{ items: [run('Die Frist betraegt vier Wochen', 700, 180)] }]
     render(<PdfDocumentView src="/api/doc.pdf" title="doc.pdf" />)
-    const layer = await screen.findByTestId('pdf-text-layer')
-    selectWithin(layer)
+    await selectRenderedText('Die Frist betraegt vier Wochen')
 
     fireEvent.pointerUp(screen.getByTestId('pdf-scroll'))
     expect(screen.queryByTestId('pdf-quote-bar')).toBeNull()
+  })
+
+  /**
+   * „Im Büro behandelt" on a selection: the words and the page go to whoever
+   * opened the viewer, which decides who may be searched. The Files pane cites
+   * nothing, so it gets this offer alone, without the copy beside it.
+   */
+  it('offers similar passages for a selection, with its words and page, and no citation where none is built', async () => {
+    const onFindSimilar = vi.fn()
+    state.pages = [{ items: [] }, { items: [run('Die Frist betraegt vier Wochen', 700, 180)] }]
+
+    render(<PdfDocumentView src="/api/doc.pdf" title="doc.pdf" onFindSimilar={onFindSimilar} />)
+    await selectRenderedText('Die Frist betraegt vier Wochen')
+    fireEvent.pointerUp(screen.getByTestId('pdf-scroll'))
+    fireEvent.click(await screen.findByTestId('pdf-find-similar'))
+
+    expect(onFindSimilar).toHaveBeenCalledWith({ text: 'Die Frist betraegt vier Wochen', page: 2 })
+    expect(screen.getByRole('button', { name: /Check your projects/ })).toBeTruthy()
+    expect(screen.queryByText('Copy as citation')).toBeNull()
+  })
+
+  it('does not offer similar passages for a few words, which say too little to find another like them', async () => {
+    state.pages = [{ items: [run('Frist', 700, 40)] }]
+    render(<PdfDocumentView src="/api/doc.pdf" title="doc.pdf" onFindSimilar={vi.fn()} quoteFormat={(q) => q.text} />)
+    await selectRenderedText('Frist')
+    fireEvent.pointerUp(screen.getByTestId('pdf-scroll'))
+
+    expect(await screen.findByText('Copy as citation')).toBeTruthy()
+    expect(screen.queryByTestId('pdf-find-similar')).toBeNull()
   })
 
   it('marks a cited region on its page, as shares of the page box (#433)', async () => {

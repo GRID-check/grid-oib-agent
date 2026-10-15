@@ -5,7 +5,7 @@ onward is a warm process, the way a worker serves turns) and prints a timeline
 per turn, relative to the turn's start:
 
     HTTP  <start>ms +<duration>ms <host><path>       every async provider call
-    SYNC  <phase> <start>ms +<duration>ms <query>     the retriever's embed, lexical and retrieve
+    SYNC  <phase> <start>ms +<duration>ms <query>     the retriever's embed, store and retrieve
 
 Read it for the order of the startup steps (decision, query embedding,
 retrieval, rerank, sufficiency verdicts, requery, first ``/responses`` call)
@@ -92,7 +92,7 @@ def _patch_retriever() -> None:
 
     retriever._retrieve_sync = timed("retrieve", retriever._retrieve_sync)
     retriever._embed_query_cached = timed("embed", retriever._embed_query_cached)
-    retriever._hybrid_lexical_boost = timed("lexical", retriever._hybrid_lexical_boost)
+    retriever._qdrant_chunks = timed("store", retriever._qdrant_chunks)
 
 
 async def _run(config: Path, questions: list[str]) -> None:

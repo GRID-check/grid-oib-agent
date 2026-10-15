@@ -12,6 +12,7 @@ another version.
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -30,11 +31,16 @@ def _pinned() -> str:
 
 
 def _dockerfiles() -> list[Path]:
-    return sorted(
-        path
-        for path in REPO_ROOT.rglob("*Dockerfile*")
-        if path.is_file() and "node_modules" not in path.parts and ".git" not in path.parts
-    )
+    """The Dockerfiles git tracks: what the repo ships, not whatever lies on disk.
+
+    A walk of the directory also found the Dockerfiles inside agent worktrees
+    under `.claude/worktrees/` (another checkout, often of an older commit) and
+    failed the gate on files this tree does not contain.
+    """
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*Dockerfile*"], cwd=REPO_ROOT, capture_output=True, check=True
+    ).stdout.decode("utf-8")
+    return sorted(REPO_ROOT / name for name in listed.split("\0") if name and (REPO_ROOT / name).is_file())
 
 
 def test_the_images_copy_bun_from_somewhere() -> None:

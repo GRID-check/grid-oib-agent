@@ -24,4 +24,7 @@ The deployment side (Langfuse's workloads, its access gates, retention) is
 [`deployment/kubernetes.md`](../deployment/kubernetes.md) § Langfuse. The Aspire
 dashboard ([ADR-0029](../adr/0029-aspire-dashboard-telemetry.md)) is retired:
 traces are read in Langfuse, WARN+ logs in PostHog, and the collector
-(`deployment/kubernetes.md` §9) is what feeds both.
+(`deployment/kubernetes.md` §9) is what feeds both. Infrastructure metrics are
+the exception that lives outside both: the collector scrapes the Qdrant peers
+and re-exposes the series for a scraper the stack does not run yet, with the
+alert rules beside them ([`deployment/qdrant-runbook.md`](../deployment/qdrant-runbook.md)).

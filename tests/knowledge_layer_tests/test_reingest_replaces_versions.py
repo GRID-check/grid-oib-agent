@@ -17,13 +17,15 @@ no chunks at all. The end-to-end tests at the bottom pin exactly that.
 - exact-name predecessors are found; tmp-prefixed and percent-encoded stored
   names (the two forms ``delete_file`` already normalizes) match their plain
   re-upload; other files are never touched, and nothing is deleted by the find;
-- the find reads the files being replaced, by a ``$in`` filter over their
-  spellings, never the whole collection (once one full scan per OIB PDF);
-- retirement deletes by the COLLECTED ids, in Chroma and in the lexical mirror,
-  bumps the collection version, and drops the metadata row only under a stored
-  spelling other than the new name (the row under the new name is the new
-  version's row, and keeps what people set);
-- a failure in either step never fails the ingest;
+- the find reads the files being replaced, by a ``file_name`` filter over
+  their spellings, never the whole collection (once one full scan per OIB PDF);
+- retirement deletes by the COLLECTED ids, bumps the collection version, and
+  drops the metadata row only under a stored spelling other than the new name
+  (the row under the new name is the new version's row, and keeps what people
+  set);
+- a retirement failure never fails the ingest; a find Qdrant cannot answer,
+  after the store's retries, fails the file before anything is written,
+  because writing then would leave both versions answering;
 - a file that fails after some of its chunks went in takes exactly those chunks
   back out, and the previous version stays whole;
 - two jobs for one name replace one after the other: the one that finishes last
@@ -36,7 +38,6 @@ no chunks at all. The end-to-end tests at the bottom pin exactly that.
 import json
 import threading
 import time
-import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -44,36 +45,29 @@ import pytest
 from knowledge_layer.llamaindex import adapter as adapter_module
 from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
 from knowledge_layer.llamaindex.adapter import _PreviousVersion
+from knowledge_layer.qdrant import store as store_module
+
+from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
+from sources.knowledge_layer.tests.qdrant_testing import chunk_texts
+from sources.knowledge_layer.tests.qdrant_testing import record
+from sources.knowledge_layer.tests.qdrant_testing import write
 
 
 @pytest.fixture()
-def ingestor():
-    """A bare instance — neither step touches adapter state."""
+def ingestor(qdrant_store):
+    """A bare instance on a real store — neither step touches adapter state."""
     return object.__new__(LlamaIndexIngestor)
 
 
-def _collection(chunks: dict[str, str]) -> MagicMock:
-    """A fake Chroma collection: ``chunks`` maps chunk id → stored file_name.
-
-    Honours a ``file_name`` ``$in`` filter the way Chroma does, so a test sees
-    what the filtered read can and cannot reach.
-    """
-
-    def get(where=None, **_kwargs):
-        wanted = (where or {}).get("file_name", {}).get("$in")
-        hits = {cid: name for cid, name in chunks.items() if wanted is None or name in wanted}
-        return {"ids": list(hits), "metadatas": [{"file_name": name} for name in hits.values()]}
-
-    collection = MagicMock()
-    collection.get.side_effect = get
-    return collection
+def _collection(scope: str, chunks: dict[str, str]) -> None:
+    """Seed ``scope`` with ``chunks``: chunk id → stored file_name."""
+    write(scope, [record(f"Text von {cid}", name, chunk_id=cid) for cid, name in chunks.items()])
 
 
 @pytest.fixture()
 def registries(monkeypatch):
-    """Capture the summary/lexical-mirror cleanup and the version bump."""
+    """Capture the summary cleanup and the version bump."""
     unregistered: list[tuple[str, str]] = []
-    mirror_deleted: list[tuple[str, list[str]]] = []
     bumped: list[str] = []
 
     from aiq_agent import knowledge
@@ -83,11 +77,6 @@ def registries(monkeypatch):
         "unregister_summary",
         lambda coll, name, permanent=False: unregistered.append((coll, name) if permanent else (coll, name, "kept")),
     )
-    store = MagicMock()
-    store.delete_chunks.side_effect = lambda coll, ids: mirror_deleted.append((coll, sorted(ids)))
-    from aiq_agent.knowledge import chunk_text_store
-
-    monkeypatch.setattr(chunk_text_store, "get_chunk_text_store", lambda: store)
     monkeypatch.setattr(adapter_module, "bump_collection_version", lambda name: bumped.append(name))
     # What people set on the previous versions' rows: empty unless a test says.
     human_set: dict[str, dict] = {"doc_class": {}, "display_title": {}, "folder_path": {}, "tags": {}}
@@ -106,14 +95,7 @@ def registries(monkeypatch):
         "find_tmp_upload_names",
         lambda coll, names: [row for row in rows if adapter_module._normalized_file_name(row) in names],
     )
-    return {
-        "unregistered": unregistered,
-        "mirror": mirror_deleted,
-        "store": store,
-        "bumped": bumped,
-        "human_set": human_set,
-        "rows": rows,
-    }
+    return {"unregistered": unregistered, "bumped": bumped, "human_set": human_set, "rows": rows}
 
 
 # ---------------------------------------------------------------------------
@@ -122,18 +104,16 @@ def registries(monkeypatch):
 
 
 def test_same_name_predecessor_is_found_and_nothing_is_deleted_yet(ingestor, registries):
-    collection = _collection({"c1": "statik-standard.pdf", "c2": "statik-standard.pdf", "c3": "anderes-dokument.pdf"})
+    _collection("proj_1", {"c1": "statik-standard.pdf", "c2": "statik-standard.pdf", "c3": "anderes-dokument.pdf"})
 
-    found = ingestor._find_previous_versions(collection, "proj_1", ["statik-standard.pdf"])
+    found = ingestor._find_previous_versions("proj_1", ["statik-standard.pdf"])
 
     assert list(found) == ["statik-standard.pdf"]
     assert sorted(found["statik-standard.pdf"].chunk_ids) == ["c1", "c2"]
     assert found["statik-standard.pdf"].stored_names == ["statik-standard.pdf"]
-    collection.delete.assert_not_called()
+    assert sorted(chunk_texts("proj_1")) == ["c1", "c2", "c3"]
     assert registries["bumped"] == []
     assert registries["unregistered"] == []
-    registries["store"].delete_chunks.assert_not_called()
-    registries["store"].delete_by_file.assert_not_called()
 
 
 def test_tmp_prefixed_and_percent_encoded_stored_names_match(ingestor, registries):
@@ -141,11 +121,9 @@ def test_tmp_prefixed_and_percent_encoded_stored_names_match(ingestor, registrie
     # copy (tmp[8 chars]_) and a presigned-URL-derived percent encoding. The
     # tmp spelling is random, so the find learns it from the metadata rows.
     registries["rows"].append("tmpa1b2c3d4_statik-standard.pdf")
-    collection = _collection(
-        {"c1": "tmpa1b2c3d4_statik-standard.pdf", "c2": "statik%20standard.pdf", "c3": "bleibt.pdf"}
-    )
+    _collection("proj_1", {"c1": "tmpa1b2c3d4_statik-standard.pdf", "c2": "statik%20standard.pdf", "c3": "bleibt.pdf"})
 
-    found = ingestor._find_previous_versions(collection, "proj_1", ["statik-standard.pdf", "statik standard.pdf"])
+    found = ingestor._find_previous_versions("proj_1", ["statik-standard.pdf", "statik standard.pdf"])
 
     assert found["statik-standard.pdf"].chunk_ids == ["c1"]
     assert found["statik-standard.pdf"].stored_names == ["tmpa1b2c3d4_statik-standard.pdf"]
@@ -153,13 +131,21 @@ def test_tmp_prefixed_and_percent_encoded_stored_names_match(ingestor, registrie
     assert found["statik standard.pdf"].stored_names == ["statik%20standard.pdf"]
 
 
-def test_the_find_filters_by_name_instead_of_reading_the_collection(ingestor, registries):
-    collection = _collection({"c1": "statik standard.pdf", "c2": "anderes.pdf"})
+def test_the_find_filters_by_name_instead_of_reading_the_collection(ingestor, registries, monkeypatch):
+    _collection("oib_knowledge", {"c1": "statik standard.pdf", "c2": "anderes.pdf"})
+    asked: list = []
+    real = store_module.QdrantStore.scroll
 
-    ingestor._find_previous_versions(collection, "oib_knowledge", ["statik standard.pdf"])
+    def recording(self, scope, filters=None, *extra, **kwargs):
+        asked.append(filters)
+        return real(self, scope, filters, *extra, **kwargs)
 
-    collection.get.assert_called_once()
-    spellings = collection.get.call_args.kwargs["where"]["file_name"]["$in"]
+    monkeypatch.setattr(store_module.QdrantStore, "scroll", recording)
+
+    ingestor._find_previous_versions("oib_knowledge", ["statik standard.pdf"])
+
+    assert len(asked) == 1
+    spellings = asked[0]["file_name"]["$in"]
     assert "statik standard.pdf" in spellings
     assert "statik%20standard.pdf" in spellings
     assert "anderes.pdf" not in spellings
@@ -167,24 +153,64 @@ def test_the_find_filters_by_name_instead_of_reading_the_collection(ingestor, re
 
 def test_a_tmp_prefixed_version_without_a_metadata_row_is_not_found(ingestor, registries):
     """The price of the filtered read: nothing names that spelling, so it stays."""
-    collection = _collection({"c1": "tmpa1b2c3d4_statik.pdf"})
-    assert ingestor._find_previous_versions(collection, "proj_1", ["statik.pdf"]) == {}
+    _collection("proj_1", {"c1": "tmpa1b2c3d4_statik.pdf"})
+    assert ingestor._find_previous_versions("proj_1", ["statik.pdf"]) == {}
 
 
 def test_first_upload_finds_nothing(ingestor, registries):
-    assert ingestor._find_previous_versions(_collection({"c1": "vorhanden.pdf"}), "proj_1", ["neu.pdf"]) == {}
+    _collection("proj_1", {"c1": "vorhanden.pdf"})
+    assert ingestor._find_previous_versions("proj_1", ["neu.pdf"]) == {}
 
 
-def test_empty_and_blank_names_are_ignored(ingestor, registries):
-    collection = _collection({"c1": "statik-standard.pdf"})
-    assert ingestor._find_previous_versions(collection, "proj_1", ["", None]) == {}
-    collection.get.assert_not_called()
+def test_empty_and_blank_names_are_ignored(ingestor, registries, monkeypatch):
+    monkeypatch.setattr(store_module.QdrantStore, "scroll", lambda *a, **k: pytest.fail("read for no name"))
+    assert ingestor._find_previous_versions("proj_1", ["", None]) == {}
 
 
-def test_a_failed_lookup_finds_nothing_and_never_fails_the_ingest(ingestor, registries):
-    collection = MagicMock()
-    collection.get.side_effect = RuntimeError("chroma down")
-    assert ingestor._find_previous_versions(collection, "proj_1", ["statik.pdf"]) == {}
+def test_a_lookup_qdrant_cannot_answer_raises_after_the_stores_retries(ingestor, registries, monkeypatch):
+    """Answered as "no predecessor", the write would go on and leave both versions answering searches."""
+    calls = []
+
+    def down(*args, **kwargs):
+        calls.append(1)
+        raise ConnectionError("qdrant down")
+
+    monkeypatch.setattr(store_module.QdrantStore, "scroll", down)
+    monkeypatch.setattr(store_module, "_sleep", lambda seconds: None)
+
+    with pytest.raises(ConnectionError):
+        ingestor._find_previous_versions("proj_1", ["statik.pdf"])
+    assert len(calls) == len(store_module.RETRY_BACKOFF_SECONDS) + 1
+
+
+def test_a_transient_failure_of_the_lookup_is_retried(ingestor, registries, monkeypatch):
+    _collection("proj_1", {"c1": "statik.pdf"})
+    real = store_module.QdrantStore.scroll
+    failures = [ConnectionError("peer restarting")]
+
+    def flaky(self, *args, **kwargs):
+        if failures:
+            raise failures.pop()
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(store_module.QdrantStore, "scroll", flaky)
+    monkeypatch.setattr(store_module, "_sleep", lambda seconds: None)
+
+    assert ingestor._find_previous_versions("proj_1", ["statik.pdf"])["statik.pdf"].chunk_ids == ["c1"]
+
+
+def test_a_failed_tmp_name_lookup_still_finds_the_chunks_under_the_plain_name(ingestor, registries, monkeypatch):
+    """The metadata store only adds legacy ``tmp…_`` spellings; its outage costs those, not the replacement."""
+    from aiq_agent import knowledge
+
+    _collection("proj_1", {"c1": "statik.pdf"})
+
+    def down(collection, names):
+        raise RuntimeError("metadata store down")
+
+    monkeypatch.setattr(knowledge, "find_tmp_upload_names", down)
+
+    assert ingestor._find_previous_versions("proj_1", ["statik.pdf"])["statik.pdf"].chunk_ids == ["c1"]
 
 
 def test_what_people_set_on_the_previous_version_is_carried(ingestor, registries):
@@ -192,9 +218,9 @@ def test_what_people_set_on_the_previous_version_is_carried(ingestor, registries
     registries["human_set"]["doc_class"]["tmpa1b2c3d4_statik.pdf"] = "tragwerk"
     registries["human_set"]["display_title"]["tmpa1b2c3d4_statik.pdf"] = "Statik Bauteil B"
     registries["human_set"]["folder_path"]["tmpa1b2c3d4_statik.pdf"] = "/Einreichung"
-    collection = _collection({"c1": "tmpa1b2c3d4_statik.pdf", "c2": "bleibt.pdf"})
+    _collection("proj_1", {"c1": "tmpa1b2c3d4_statik.pdf", "c2": "bleibt.pdf"})
 
-    found = ingestor._find_previous_versions(collection, "proj_1", ["statik.pdf"])
+    found = ingestor._find_previous_versions("proj_1", ["statik.pdf"])
 
     assert found["statik.pdf"].preserved == {
         "doc_class": "tragwerk",
@@ -206,8 +232,9 @@ def test_what_people_set_on_the_previous_version_is_carried(ingestor, registries
 def test_a_persons_tags_on_the_previous_version_are_carried_as_json(ingestor, registries):
     registries["rows"].append("tmpa1b2c3d4_statik.pdf")
     registries["human_set"]["tags"]["tmpa1b2c3d4_statik.pdf"] = ["Schnitt", "Brandschutz"]
+    _collection("proj_1", {"c1": "tmpa1b2c3d4_statik.pdf"})
 
-    found = ingestor._find_previous_versions(_collection({"c1": "tmpa1b2c3d4_statik.pdf"}), "proj_1", ["statik.pdf"])
+    found = ingestor._find_previous_versions("proj_1", ["statik.pdf"])
 
     assert isinstance(found["statik.pdf"].preserved["tags"], str)
     assert json.loads(found["statik.pdf"].preserved["tags"]) == ["Schnitt", "Brandschutz"]
@@ -219,8 +246,9 @@ def test_a_persons_tags_are_carried_from_the_real_store(ingestor, stores):
 
     register_summary("proj_p", "statik.pdf", "Die alte Statik.", tags=["Grundriss"])
     set_document_tags_by_person("proj_p", "statik.pdf", ["Schnitt"])
+    _collection("proj_p", {"c1": "statik.pdf"})
 
-    found = ingestor._find_previous_versions(_collection({"c1": "statik.pdf"}), "proj_p", ["statik.pdf"])
+    found = ingestor._find_previous_versions("proj_p", ["statik.pdf"])
 
     assert json.loads(found["statik.pdf"].preserved["tags"]) == ["Schnitt"]
 
@@ -230,8 +258,9 @@ def test_the_classifiers_tags_on_the_previous_version_are_not_carried(ingestor, 
     from aiq_agent.knowledge import register_summary
 
     register_summary("proj_m", "statik.pdf", "Die alte Statik.", tags=["Grundriss"])
+    _collection("proj_m", {"c1": "statik.pdf"})
 
-    found = ingestor._find_previous_versions(_collection({"c1": "statik.pdf"}), "proj_m", ["statik.pdf"])
+    found = ingestor._find_previous_versions("proj_m", ["statik.pdf"])
 
     assert found["statik.pdf"].chunk_ids == ["c1"]
     assert "tags" not in found["statik.pdf"].preserved
@@ -244,8 +273,9 @@ def test_a_failed_metadata_read_still_finds_the_chunks(ingestor, registries, mon
         raise RuntimeError("metadata store down")
 
     monkeypatch.setattr(knowledge, "get_document_doc_classes", broken)
+    _collection("proj_1", {"c1": "statik.pdf"})
 
-    found = ingestor._find_previous_versions(_collection({"c1": "statik.pdf"}), "proj_1", ["statik.pdf"])
+    found = ingestor._find_previous_versions("proj_1", ["statik.pdf"])
 
     assert found["statik.pdf"].chunk_ids == ["c1"]
     assert found["statik.pdf"].preserved == {}
@@ -257,118 +287,84 @@ def test_a_failed_metadata_read_still_finds_the_chunks(ingestor, registries, mon
 
 
 def test_retiring_deletes_the_collected_ids_and_keeps_the_row_under_the_new_name(ingestor, registries):
-    collection = MagicMock()
+    _collection("proj_1", {"c1": "statik.pdf", "c2": "statik.pdf", "new": "statik.pdf"})
     previous = _PreviousVersion(chunk_ids=["c1", "c2"], stored_names=["statik.pdf"])
 
-    ingestor._retire_previous_version(collection, "proj_1", "statik.pdf", previous)
+    ingestor._retire_previous_version("proj_1", "statik.pdf", previous)
 
-    collection.delete.assert_called_once_with(ids=["c1", "c2"])
+    # By name, the delete would take the new version's chunk too.
+    assert sorted(chunk_texts("proj_1")) == ["new"]
     assert registries["bumped"] == ["proj_1"]
-    assert registries["mirror"] == [("proj_1", ["c1", "c2"])]
-    # By name, the mirror delete would take the new version's rows too.
-    registries["store"].delete_by_file.assert_not_called()
     # The row under the new name IS the new version's row.
     assert registries["unregistered"] == []
 
 
 def test_retiring_drops_the_row_under_another_spelling(ingestor, registries):
+    _collection("proj_1", {"c1": "tmpa1b2c3d4_statik.pdf"})
     previous = _PreviousVersion(chunk_ids=["c1"], stored_names=["tmpa1b2c3d4_statik.pdf"])
 
-    ingestor._retire_previous_version(MagicMock(), "proj_1", "statik.pdf", previous)
+    ingestor._retire_previous_version("proj_1", "statik.pdf", previous)
 
     assert registries["unregistered"] == [("proj_1", "tmpa1b2c3d4_statik.pdf")]
 
 
 def test_retiring_nothing_touches_nothing(ingestor, registries):
-    collection = MagicMock()
-    ingestor._retire_previous_version(collection, "proj_1", "statik.pdf", None)
-    ingestor._retire_previous_version(collection, "proj_1", "statik.pdf", _PreviousVersion())
-    collection.delete.assert_not_called()
+    _collection("proj_1", {"c1": "statik.pdf"})
+    ingestor._retire_previous_version("proj_1", "statik.pdf", None)
+    ingestor._retire_previous_version("proj_1", "statik.pdf", _PreviousVersion())
+    assert sorted(chunk_texts("proj_1")) == ["c1"]
     assert registries["bumped"] == []
 
 
-def test_a_retirement_failure_never_fails_the_ingest(ingestor, registries):
-    collection = MagicMock()
-    collection.delete.side_effect = RuntimeError("chroma down")
+def test_a_retirement_failure_never_fails_the_ingest(ingestor, registries, monkeypatch):
+    def down(*args, **kwargs):
+        raise ConnectionError("qdrant down")
+
+    monkeypatch.setattr(store_module.QdrantStore, "delete_chunks", down)
     # Must swallow: the new version is already in; worst case is a duplicate.
-    ingestor._retire_previous_version(collection, "proj_1", "statik.pdf", _PreviousVersion(chunk_ids=["c1"]))
+    ingestor._retire_previous_version("proj_1", "statik.pdf", _PreviousVersion(chunk_ids=["c1"]))
+    assert registries["bumped"] == []
 
 
 # ---------------------------------------------------------------------------
-# End to end through _run_ingestion: a real Chroma collection, no embedding
+# End to end through _run_ingestion: a real Qdrant, a stand-in embedder
 # ---------------------------------------------------------------------------
-
-
-class _IndexIntoChroma:
-    """Stands in for ``VectorStoreIndex``: writes each document as one chunk, unembedded."""
-
-    @classmethod
-    def from_documents(cls, documents, storage_context, **_kwargs):
-        index = cls(storage_context.vector_store.client)
-        for document in documents:
-            index.insert(document)
-        return index
-
-    def __init__(self, collection):
-        self._collection = collection
-
-    def insert(self, document):
-        metadata = {key: value for key, value in document.metadata.items() if value is not None}
-        self._collection.add(
-            ids=[str(uuid.uuid4())],
-            documents=[document.get_content()],
-            metadatas=[metadata],
-            embeddings=[[0.1, 0.2, 0.3]],
-        )
 
 
 @pytest.fixture()
 def stores(tmp_path):
-    """A temp SQLite metadata store and lexical mirror for the whole job."""
+    """A temp SQLite metadata store for the whole job."""
     from aiq_agent.knowledge import configure_summary_db
     from aiq_agent.knowledge import factory
-    from aiq_agent.knowledge.chunk_text_store import configure_chunk_text_store
-    from aiq_agent.knowledge.chunk_text_store import reset_chunk_text_store
 
     factory._document_metadata_store = None
     configure_summary_db(f"sqlite:///{tmp_path / 'summaries.db'}")
-    mirror = configure_chunk_text_store(f"sqlite:///{tmp_path / 'mirror.db'}")
-    yield mirror
+    yield
     factory._document_metadata_store = None
-    reset_chunk_text_store()
 
 
 @pytest.fixture()
-def live_ingestor(tmp_path, monkeypatch):
+def live_ingestor(qdrant_store):
     llm = MagicMock()
     llm.invoke.return_value = MagicMock(content="Eine Statik.")
-    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma"), "generate_summary": False, "summary_llm": llm})
-    ing._embed_model = MagicMock()
+    ing = LlamaIndexIngestor({"generate_summary": False, "summary_llm": llm})
+    ing._embed_model = FakeEmbedder()
     ing._initialized = True
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", _IndexIntoChroma)
-    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
     return ing
 
 
 def _seed_previous_version(ing, stores, collection_name: str, file_name: str) -> None:
-    """The version already live: two chunks, their mirror rows, a row a person edited."""
+    """The version already live: two chunks and a row a person edited."""
     from aiq_agent.knowledge import register_summary
     from aiq_agent.knowledge import set_document_display_title
     from aiq_agent.knowledge import set_document_doc_class
     from aiq_agent.knowledge import set_document_folder_path
 
-    collection = ing._get_chroma_client().get_or_create_collection(collection_name, metadata={"hnsw:space": "cosine"})
-    collection.add(
-        ids=["old-1", "old-2"],
-        documents=["Alte Fassung Seite eins", "Alte Fassung Seite zwei"],
-        metadatas=[{"file_name": file_name, "page_label": "1"}, {"file_name": file_name, "page_label": "2"}],
-        embeddings=[[0.1, 0.2, 0.3], [0.3, 0.2, 0.1]],
-    )
-    stores.upsert_many(
+    write(
         collection_name,
         [
-            {"chunk_id": "old-1", "body": "Alte Fassung Seite eins", "file_name": file_name, "page_label": "1"},
-            {"chunk_id": "old-2", "body": "Alte Fassung Seite zwei", "file_name": file_name, "page_label": "2"},
+            record("Alte Fassung Seite eins", file_name, chunk_id="old-1", page_label="1"),
+            record("Alte Fassung Seite zwei", file_name, chunk_id="old-2", page_label="2"),
         ],
     )
     register_summary(collection_name, file_name, "Die alte Statik.")
@@ -388,8 +384,7 @@ def _wait_terminal(ing, job_id, timeout=30):
 
 
 def _chunks(ing, collection_name: str) -> dict[str, str]:
-    got = ing._get_chroma_client().get_collection(collection_name).get(include=["documents"])
-    return dict(zip(got["ids"], got["documents"], strict=True))
+    return chunk_texts(collection_name)
 
 
 def test_a_reupload_that_fails_keeps_the_previous_version(tmp_path, monkeypatch, live_ingestor, stores):
@@ -414,9 +409,31 @@ def test_a_reupload_that_fails_keeps_the_previous_version(tmp_path, monkeypatch,
     # from, and the collection's file list still reports the name as indexed.
     assert status.status.value == "failed"
     assert sorted(_chunks(live_ingestor, "proj_fail")) == ["old-1", "old-2"]
-    assert stores.count("proj_fail") == 2
     assert get_document_doc_class("proj_fail", "statik.pdf") == "tragwerk"
     assert [doc.summary for doc in get_available_documents("proj_fail")] == ["Die alte Statik."]
+
+
+def test_a_reupload_whose_predecessor_cannot_be_read_fails_and_writes_nothing(
+    tmp_path, monkeypatch, live_ingestor, stores
+):
+    from aiq_agent.knowledge import get_available_documents
+
+    _seed_previous_version(live_ingestor, stores, "proj_down", "statik.txt")
+
+    def down(self, collection_name, stored_names):
+        raise ConnectionError("qdrant down")
+
+    monkeypatch.setattr(LlamaIndexIngestor, "_chunk_ids_of", down)
+    monkeypatch.setattr(store_module, "_sleep", lambda seconds: None)
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Neue Fassung der Statik.", encoding="utf-8")
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_down", config={"original_filenames": ["statik.txt"]})
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert status.file_details[0].status.value == "failed"
+    assert sorted(_chunks(live_ingestor, "proj_down")) == ["old-1", "old-2"]
+    assert [doc.summary for doc in get_available_documents("proj_down")] == ["Die alte Statik."]
 
 
 def test_a_reupload_with_no_vlm_key_keeps_the_previous_image(tmp_path, monkeypatch, live_ingestor, stores):
@@ -434,7 +451,6 @@ def test_a_reupload_with_no_vlm_key_keeps_the_previous_image(tmp_path, monkeypat
 
     assert status.file_details[0].error_message.startswith("vlm_not_configured")
     assert sorted(_chunks(live_ingestor, "proj_img")) == ["old-1", "old-2"]
-    assert stores.count("proj_img") == 2
 
 
 def test_a_quarantined_reupload_retires_the_previous_version_and_keeps_its_row(tmp_path, live_ingestor, stores):
@@ -465,7 +481,6 @@ def test_a_quarantined_reupload_retires_the_previous_version_and_keeps_its_row(t
 
     assert status.file_details[0].screening == "quarantined"
     assert _chunks(live_ingestor, "proj_held") == {}
-    assert stores.count("proj_held") == 0
     assert get_document_doc_class("proj_held", "lohn.txt") == "tragwerk"
     assert get_document_display_title("proj_held", "lohn.txt") == "Statik Bauteil B"
 
@@ -490,7 +505,7 @@ def test_a_reupload_that_passes_its_screen_replaces_the_previous_version(tmp_pat
 
 
 def test_a_reupload_that_indexes_replaces_the_previous_version(tmp_path, live_ingestor, stores):
-    """Old chunks and mirror rows go; the new ones and the row a person edited stay."""
+    """Old chunks go; the new ones and the row a person edited stay."""
     from aiq_agent.knowledge import get_available_documents
     from aiq_agent.knowledge import get_document_display_title
     from aiq_agent.knowledge import get_document_doc_class
@@ -507,9 +522,6 @@ def test_a_reupload_that_indexes_replaces_the_previous_version(tmp_path, live_in
     chunks = _chunks(live_ingestor, "proj_ok")
     assert "old-1" not in chunks and "old-2" not in chunks
     assert list(chunks.values()) == ["Neue Fassung der Statik mit geänderter Bewehrung."]
-    # The new version's mirror row survives the retirement of the old ones.
-    assert stores.count("proj_ok") == 1
-    assert stores.search("proj_ok", "Bewehrung") == list(chunks)
     assert get_document_doc_class("proj_ok", "statik.txt") == "tragwerk"
     assert get_document_display_title("proj_ok", "statik.txt") == "Statik Bauteil B"
     assert get_document_folder_paths("proj_ok", ["statik.txt"]) == {"statik.txt": "/Einreichung"}
@@ -623,58 +635,68 @@ def _two_page_pdf(monkeypatch, tmp_path):
 _TEXT_ONLY = {"extract_tables": False, "extract_images": False, "extract_charts": False}
 
 
+def _one_point_per_request(monkeypatch) -> list[list[str]]:
+    """Write every chunk in a request of its own, and record each request's chunk ids."""
+    monkeypatch.setattr(store_module, "UPSERT_BATCH", 1)
+    requests: list[list[str]] = []
+    real = store_module.QdrantStore._point
+
+    def recorded(scope, chunk, enrichment):
+        requests.append([chunk.chunk_id])
+        return real(scope, chunk, enrichment)
+
+    monkeypatch.setattr(store_module.QdrantStore, "_point", staticmethod(recorded))
+    return requests
+
+
 def test_a_reupload_that_fails_halfway_takes_its_own_chunks_back_out(tmp_path, monkeypatch, live_ingestor, stores):
-    """Page one is in when page two's embedding fails: page one goes, the old version stays."""
-    inserted: list[str] = []
-
-    class _FailsOnSecondInsert(_IndexIntoChroma):
-        def insert(self, document):
-            if inserted:
-                raise RuntimeError("embedding batch timed out")
-            super().insert(document)
-            new_ids = [cid for cid in self._collection.get()["ids"] if not cid.startswith("old-")]
-            inserted.extend(new_ids)
-            # A lexical-mirror row for it, as a mirror that ran early would leave.
-            stores.upsert_many(
-                "proj_half",
-                [{"chunk_id": cid, "body": "Neu", "file_name": "statik.pdf", "page_label": "1"} for cid in new_ids],
-            )
-
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", _FailsOnSecondInsert)
+    """Page one is in when page two's write fails: page one goes, the old version stays."""
+    requests = _one_point_per_request(monkeypatch)
     _seed_previous_version(live_ingestor, stores, "proj_half", "statik.pdf")
+    store = store_module.get_store()
+    real_upsert = store.client.upsert
+    landed: list[str] = []
+
+    def fails_on_the_second(collection_name, points, **kwargs):
+        if landed:
+            raise ValueError("write refused")  # a 4xx: not retried
+        landed.extend(str(point.payload["chunk_id"]) for point in points)
+        return real_upsert(collection_name, points, **kwargs)
+
     upload = _two_page_pdf(monkeypatch, tmp_path)
+    requests.clear()
+    monkeypatch.setattr(store.client, "upsert", fails_on_the_second)
 
     job_id = live_ingestor.submit_job(
         [str(upload)], "proj_half", config={"original_filenames": ["statik.pdf"], **_TEXT_ONLY}
     )
     status = _wait_terminal(live_ingestor, job_id)
 
-    assert len(inserted) == 1
+    assert len(landed) == 1 and len(requests) == 2
     assert status.file_details[0].status.value == "failed"
     assert _chunks(live_ingestor, "proj_half") == {
         "old-1": "Alte Fassung Seite eins",
         "old-2": "Alte Fassung Seite zwei",
     }
-    assert stores.count("proj_half") == 2
 
 
 def test_two_jobs_for_one_name_leave_only_the_later_version(tmp_path, monkeypatch, live_ingestor, stores):
     """Job B waits for job A's replacement, then replaces A's version in turn.
 
     Without the lock both jobs collect the same old ids, both retire them, and
-    both new versions stay: A is held inside its insert while B would run.
+    both new versions stay: A is held inside its embedding while B would run.
     """
     a_inside = threading.Event()
     release_a = threading.Event()
+    real = LlamaIndexIngestor._embedded_records
 
-    class _HoldsJobA(_IndexIntoChroma):
-        def insert(self, document):
-            if "Fassung A" in document.get_content():
-                a_inside.set()
-                assert release_a.wait(10)
-            super().insert(document)
+    def holds_job_a(self, documents, **kwargs):
+        if any("Fassung A" in document.get_content() for document in documents):
+            a_inside.set()
+            assert release_a.wait(10)
+        return real(self, documents, **kwargs)
 
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", _HoldsJobA)
+    monkeypatch.setattr(LlamaIndexIngestor, "_embedded_records", holds_job_a)
     _seed_previous_version(live_ingestor, stores, "proj_race", "statik.txt")
     upload_a = tmp_path / "a.txt"
     upload_a.write_text("Fassung A", encoding="utf-8")
@@ -691,7 +713,6 @@ def test_two_jobs_for_one_name_leave_only_the_later_version(tmp_path, monkeypatc
     assert _wait_terminal(live_ingestor, job_a).file_details[0].status.value == "success"
     assert _wait_terminal(live_ingestor, job_b).file_details[0].status.value == "success"
     assert list(_chunks(live_ingestor, "proj_race").values()) == ["Fassung B"]
-    assert stores.count("proj_race") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -734,22 +755,25 @@ def _no_metadata_row(collection_name: str, file_name: str) -> None:
 
 
 def test_a_delete_during_a_reupload_leaves_no_chunks(tmp_path, monkeypatch, live_ingestor, stores, presence):
-    """Window (a): the delete runs on another replica between two inserts.
+    """Window (a): the delete runs on another replica between two writes.
 
     ``delete_file`` does not wait for the replacement lock, so it removes the
     old version and page one, and page two goes in after it. The check after
     indexing takes page two back out, and no metadata row comes back.
     """
     deleted: list[bool] = []
-
-    class _DeletedBetweenInserts(_IndexIntoChroma):
-        def insert(self, document):
-            super().insert(document)
-            if not deleted:
-                deleted.append(live_ingestor.delete_file("statik.pdf", "proj_del"))
-
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", _DeletedBetweenInserts)
+    _one_point_per_request(monkeypatch)
     _seed_previous_version(live_ingestor, stores, "proj_del", "statik.pdf")
+    store = store_module.get_store()
+    real_upsert = store.client.upsert
+
+    def deleted_between_writes(collection_name, points, **kwargs):
+        result = real_upsert(collection_name, points, **kwargs)
+        if not deleted:
+            deleted.append(live_ingestor.delete_file("statik.pdf", "proj_del"))
+        return result
+
+    monkeypatch.setattr(store.client, "upsert", deleted_between_writes)
     upload = _two_page_pdf(monkeypatch, tmp_path)
     # Present when the job starts reading the file; gone by the time it is in.
     presence.answers = [True]
@@ -761,7 +785,6 @@ def test_a_delete_during_a_reupload_leaves_no_chunks(tmp_path, monkeypatch, live
     assert deleted == [True]
     # The second page really did land after the delete; the check removed it.
     assert _chunks(live_ingestor, "proj_del") == {}
-    assert stores.count("proj_del") == 0
     _no_metadata_row("proj_del", "statik.pdf")
     assert status.file_details[0].status.value == "failed"
     assert status.file_details[0].error_message == adapter_module.DOCUMENT_DELETED_DURING_INGEST
@@ -779,7 +802,6 @@ def test_a_dispatch_for_a_deleted_document_indexes_nothing(tmp_path, live_ingest
     status = _wait_terminal(live_ingestor, job_id)
 
     assert _chunks(live_ingestor, "proj_gone") == {}
-    assert stores.count("proj_gone") == 0
     # Not even the fallback summary the end-of-job reconciliation writes for
     # a successful file: this one is not successful.
     _no_metadata_row("proj_gone", "gone.txt")
@@ -805,7 +827,6 @@ def test_a_deleted_document_does_not_retire_what_now_answers_to_its_name(tmp_pat
     _wait_terminal(live_ingestor, job_id)
 
     assert sorted(_chunks(live_ingestor, "proj_new")) == ["old-1", "old-2"]
-    assert stores.count("proj_new") == 2
     assert [doc.summary for doc in get_available_documents("proj_new")] == ["Die alte Statik."]
     assert get_document_doc_class("proj_new", "statik.txt") == "tragwerk"
 
@@ -824,7 +845,6 @@ def test_an_unreachable_bff_keeps_the_new_version(tmp_path, monkeypatch, live_in
 
     assert status.file_details[0].status.value == "success"
     assert list(_chunks(live_ingestor, "proj_down").values()) == ["Neue Fassung der Statik."]
-    assert stores.count("proj_down") == 1
 
 
 def test_a_document_that_still_exists_is_replaced_as_before(tmp_path, live_ingestor, stores, presence):
@@ -889,7 +909,6 @@ def test_a_run_that_lost_its_claim_stops_before_writing(tmp_path, live_ingestor,
     live_ingestor.run_prepared(prepared, still_owner=lambda: next(answers))
 
     assert _chunks(live_ingestor, "proj_lost") == {}
-    assert stores.count("proj_lost") == 0
     # Only the PROCESSING write from before the claim was lost; nothing after.
     assert [job.status.value for job in written] == ["processing"]
     assert prepared.job_id not in live_ingestor._jobs

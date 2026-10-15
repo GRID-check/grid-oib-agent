@@ -22,6 +22,27 @@ what it hands out on the conversation before it answers, and refuses when the
 audience changed mid-lookup. This tool echoes the envelope and words the
 answer. See ``client.py``.
 
+## Project facts narrow; likeness still ranks
+
+``project_facts`` lets ``search`` and ``find`` keep only projects with given
+facts („nur Tirol, GK 4", „nur Wohnbau-Neubauten"). The model passes one flat
+list of tokens (the five vocabularies share none, so a token names its fact),
+which keeps the schema riding on every call to one enum of 37 values; the tool
+groups them into the BFF's ``projectFacts``. Within a fact any value matches,
+across facts all must. A value no vocabulary holds is refused, never dropped:
+a dropped value would answer for projects the asker excluded.
+
+The BFF judges the facts on each project's Postgres profile, over what the
+audience may already reach and before the page is cut, so a filter only ever
+narrows, and the counts, paging, decisions and permits all describe the
+narrowed set. It does not send them to Qdrant as a ``project_facts`` filter:
+the page already holds only matching projects, and the chunks' mirrored copy
+can lag. In ``similar`` and ``closed`` the likeness order and the search's
+likeness lift still rank what the facts left; ``all`` stays newest first, and
+``named`` is narrowed too. A project whose profile does not record a fact does
+not match it, and the answer says so, so the model does not read absence as
+„never done".
+
 ## What the model may do with an answer
 
 A search hit is rendered as an ordinary grounding hit (ADR-0061), with a
@@ -44,6 +65,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import date
 from typing import Annotated
 from typing import Any
@@ -120,6 +142,71 @@ def _normalized(value: object) -> object:
 Action = Annotated[Literal["search", "find", "brief"], BeforeValidator(_normalized)]
 Scope = Annotated[Literal["similar", "closed", "all", "named"], BeforeValidator(_normalized)]
 
+#: The project facts a lookup narrows by, as one flat token per value, with the
+#: label a reader sees. The intake wizard's own vocabularies
+#: (``intake-definition.ts``; the BFF validates against them, ``crossProjectFactsSchema``),
+#: „noch offen" and a site abroad left out because no project can match either.
+#: The five vocabularies share no token, so one flat list says which fact each
+#: value belongs to, and the schema the model sees stays one short enum.
+#: ``test_project_lookup.py`` holds these to the BFF's JSON Schema.
+_FACT_LABELS: dict[str, dict[str, str]] = {
+    "bundesland": {token: label for token, label in BUNDESLAND_TOKENS.items() if label},
+    "gebaeudeklasse": {f"gk{grade}": f"GK {grade}" for grade in range(1, 6)},
+    "bauweise": {
+        "mauerwerk_massivbau": "Mauerwerk/Massivbau",
+        "stahlbeton": "Stahlbeton",
+        "holzbau": "Holzbau",
+        "stahlbau": "Stahlbau",
+    },
+    "nutzungen": {
+        "wohnen": "Wohnen",
+        "buero": "Büro/Verwaltung",
+        "handel": "Handel",
+        "gastro": "Gastronomie",
+        "beherbergung": "Beherbergung",
+        "versammlung": "Versammlung",
+        "bildung": "Bildung/Betreuung",
+        "gesundheit": "Gesundheit/Pflege",
+        "produktion": "Produktion/Gewerbe/Lager",
+        "garage": "Garage",
+        "landwirtschaft": "Landwirtschaft",
+        "technik": "Technik/Sonstiges",
+    },
+    "vorhabensart": {
+        "neubau": "Neubau",
+        "zubau": "Zubau",
+        "umbau": "Umbau",
+        "sanierung": "Sanierung",
+        "nutzungsaenderung": "Nutzungsänderung",
+        "abbruch": "Abbruch",
+        "aussenanlagen": "Außenanlagen",
+    },
+}
+#: Each token's fact, in the BFF's spelling.
+FACT_OF_TOKEN: dict[str, str] = {token: fact for fact, labels in _FACT_LABELS.items() for token in labels}
+_FACT_LABEL: dict[str, str] = {token: label for labels in _FACT_LABELS.values() for token, label in labels.items()}
+_GK_SPELLING = re.compile(r"^(?:gk|gebaeudeklasse)?[\s_]*([1-5])$")
+
+
+def fact_token(value: object) -> object:
+    """A fact as its token: case, umlauts, ß and a label's spelling folded („Niederösterreich", „GK 4", 4).
+
+    Anything still unknown is left as it came, for the enum to refuse.
+    """
+    if isinstance(value, int) and not isinstance(value, bool):
+        value = str(value)
+    if not isinstance(value, str):
+        return value
+    folded = value.strip().lower()
+    for umlaut, spelled in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+        folded = folded.replace(umlaut, spelled)
+    if match := _GK_SPELLING.match(folded):
+        return f"gk{match.group(1)}"
+    return folded.replace(" ", "_")
+
+
+ProjectFact = Annotated[Literal[tuple(FACT_OF_TOKEN)], BeforeValidator(fact_token)]  # type: ignore[valid-type]
+
 _DESCRIPTION = (
     "Schlägt in den ANDEREN Projekten des Büros nach, vor allem in den abgeschlossenen "
     "Referenzprojekten. Ruf es selbst auf, ohne dass die Nutzerin danach fragt, wenn (a) die Frage "
@@ -133,7 +220,10 @@ _DESCRIPTION = (
     "`all` = alle neueste zuerst, "
     "`named` = nur `project_ids`; optional `document_types`, `disciplines`, "
     "`period_from`/`period_to` als JJJJ-MM-TT für den Projektzeitraum). Ein Aufruf durchsucht "
-    "höchstens 8 Projekte; nennt das Ergebnis eine nächste Seite, mit `offset` weiter. "
+    "höchstens 40 Projekte; nennt das Ergebnis eine nächste Seite, mit `offset` weiter. "
+    '`project_facts` (bei `search` und `find`, z. B. ["tirol","gk4","wohnen"]) lässt nur Projekte mit '
+    "diesen Eckdaten zu: je Art genügt ein Wert, alle Arten müssen passen; die Ähnlichkeitsordnung bleibt. "
+    "Nur setzen, wenn die Frage es verlangt: Projekte ohne erfasste Eckdaten fallen heraus. "
     "`open_folders_only` lässt Ordner mit eigener Zugriffsliste weg (Standard: aus; lass es weg, außer du "
     "willst bewusst nichts, was diesen Chat einschränkt). "
     "Die Suche liefert auch Bescheide früherer Verfahren (Auflagen, Nachforderungen mit Behörde, Gemeinde "
@@ -270,6 +360,44 @@ def _text(value: object) -> str:
 # ---------------------------------------------------------------------------
 
 
+def project_facts_filter(values: list[str]) -> dict[str, list[str | int]]:
+    """The model's flat fact tokens as the BFF's ``projectFacts``: grouped by fact, in token order, de-duplicated.
+
+    Empty when none were passed, so the body leaves the filter out. A value no
+    vocabulary holds is refused with the sentence the model reads, never dropped:
+    a dropped value would widen the lookup to projects the asker excluded.
+    """
+    grouped: dict[str, list[str | int]] = {}
+    unknown = []
+    for raw in values:
+        token = fact_token(raw)
+        fact = FACT_OF_TOKEN.get(token) if isinstance(token, str) else None
+        if fact is None:
+            unknown.append(str(raw))
+            continue
+        value: str | int = int(token.removeprefix("gk")) if fact == "gebaeudeklasse" else token
+        if value not in grouped.setdefault(fact, []):
+            grouped[fact].append(value)
+    if unknown:
+        raise _Refused(
+            f"Fehler: unbekannte `project_facts`: {', '.join(unknown)}. Erlaubt sind die Werte der Liste im Schema."
+        )
+    return grouped
+
+
+def _facts_line(facts: dict[str, list[str | int]]) -> str:
+    """The facts a lookup was narrowed by, as a reader names them; the warning that unrecorded facts do not match."""
+    labels = [
+        _FACT_LABEL[f"gk{value}" if fact == "gebaeudeklasse" else str(value)]
+        for fact, values in facts.items()
+        for value in values
+    ]
+    return (
+        f"[Nur Projekte mit diesen Eckdaten: {', '.join(labels)}. Projekte, deren Eckdaten das nicht erfassen, "
+        "fehlen; sag das, bevor du aus dem Fehlen schließt.]"
+    )
+
+
 def search_payload(
     *,
     query: str,
@@ -282,13 +410,17 @@ def search_payload(
     offset: int,
     open_folders_only: bool = False,
     order: list[str] | None = None,
+    project_facts: dict[str, list[str | int]] | None = None,
 ) -> dict[str, Any]:
     """The ``CrossProjectSearchRequest`` body; empty optional arguments are left out.
 
     ``order`` is the turn's reference fit (ADR-0064 use 10): the projects a
     ``similar`` or ``closed`` search walks first. It only reorders the scope.
+    ``project_facts`` (:func:`project_facts_filter`) only narrows it.
     """
     payload: dict[str, Any] = {"query": query.strip(), "scope": scope, "offset": max(0, int(offset))}
+    if project_facts:
+        payload["projectFacts"] = project_facts
     if scope == "named":
         payload["projectIds"] = project_ids
     if document_types:
@@ -345,7 +477,10 @@ def _hit(raw: dict[str, Any]) -> GroundingHit | None:
 
 
 def _search_preamble(
-    body: dict[str, Any], passages: tuple[GroundingHit, ...], permits: list[GroundingHit]
+    body: dict[str, Any],
+    passages: tuple[GroundingHit, ...],
+    permits: list[GroundingHit],
+    facts: dict[str, list[str | int]] | None = None,
 ) -> list[str]:
     projects = len({hit.project.id for hit in (*passages, *permits) if hit.project})
     searched, in_scope = body.get("projectsSearched", 0), body.get("projectsInScope", 0)
@@ -354,6 +489,8 @@ def _search_preamble(
         f"Treffer aus anderen Projekten: {found} aus {projects} Projekt(en); "
         f"{searched} von {in_scope} Projekten durchsucht."
     ]
+    if facts:
+        lines.append(_facts_line(facts))
     next_offset = body.get("nextOffset")
     if isinstance(next_offset, int):
         lines.append(f"[Weitere Projekte nicht durchsucht: dieselbe Suche mit offset={next_offset} setzt fort.]")
@@ -580,7 +717,9 @@ def _injection_line(raw: dict[str, Any]) -> str:
     )
 
 
-def _render_search(body: dict[str, Any], verdicts: HitVerdicts | None = None) -> str:
+def _render_search(
+    body: dict[str, Any], verdicts: HitVerdicts | None = None, facts: dict[str, list[str | int]] | None = None
+) -> str:
     usable = _usable_hits(body)
     # Most telling first when the judge ran (ADR-0064 use 11); otherwise the BFF's score order.
     ordered = [usable[i] for i in verdicts.order()] if verdicts is not None else usable
@@ -590,7 +729,7 @@ def _render_search(body: dict[str, Any], verdicts: HitVerdicts | None = None) ->
     # The decisions first: short, comparable, and they say why. Then what the
     # authorities demanded of past procedures, then the passages.
     hits = (*_decision_hits(decisions), *permit_hits, *passages)
-    preamble = _search_preamble(body, passages, permit_hits)
+    preamble = _search_preamble(body, passages, permit_hits, facts)
     if verdicts is not None:
         preamble.extend(_injection_line(usable[i]) for i in verdicts.flagged)
         next_offset = body.get("nextOffset")
@@ -676,13 +815,14 @@ def _hand_out(projects: list[dict[str, Any]]) -> None:
         note_cross_project_hand_out(collections, restricting=_any_active(projects))
 
 
-def _render_find(body: dict[str, Any]) -> str:
+def _render_find(body: dict[str, Any], facts: dict[str, list[str | int]] | None = None) -> str:
     projects = [project for project in body.get("projects") or [] if isinstance(project, dict)]
+    narrowed = [_facts_line(facts)] if facts else []
     if not projects:
-        return "Keine Projekte gefunden, die alle in diesem Chat öffnen dürfen."
+        return "\n".join(["Keine Projekte gefunden, die alle in diesem Chat öffnen dürfen.", *narrowed])
     _hand_out(projects)
     total = body.get("total", len(projects))
-    lines = [f"{len(projects)} von {total} Projekt(en):", *(_project_line(project) for project in projects)]
+    lines = [f"{len(projects)} von {total} Projekt(en):", *narrowed, *(_project_line(project) for project in projects)]
     if _any_active(projects):
         lines.append(_CLOSED_DOORS)
     return "\n".join(lines)
@@ -854,7 +994,9 @@ async def _lookup(
     offset: int,
     project_id: str,
     open_folders_only: bool,
+    project_facts: list[str],
 ) -> str:
+    facts = project_facts_filter(project_facts) if action in ("search", "find") else {}
     if action == "search":
         if not query.strip():
             raise _Refused("Fehler: `search` braucht eine `query`.")
@@ -871,11 +1013,12 @@ async def _lookup(
             offset=offset,
             open_folders_only=open_folders_only,
             order=_reference_order(),
+            project_facts=facts,
         )
         body = await _call(SEARCH_PATH, payload)
         verdicts = await _judge(payload["query"], body)
         _observe(action, payload, lookup_observation(action, body, verdicts))
-        return _render_search(body, verdicts)
+        return _render_search(body, verdicts, facts)
     if action == "find":
         payload: dict[str, Any] = {}
         if query.strip():
@@ -884,9 +1027,11 @@ async def _lookup(
             payload["from"] = period_from.strip()
         if period_to.strip():
             payload["to"] = period_to.strip()
+        if facts:
+            payload["projectFacts"] = facts
         body = await _call(PROJECTS_PATH, payload)
         _observe(action, payload, lookup_observation(action, body))
-        return _render_find(body)
+        return _render_find(body, facts)
     if not project_id.strip():
         raise _Refused("Fehler: `brief` braucht eine `project_id` (aus `find` oder einem Treffer).")
     payload = {"projectId": project_id.strip()}
@@ -907,6 +1052,7 @@ async def run_project_lookup(
     offset: int = 0,
     project_id: str = "",
     open_folders_only: bool = False,
+    project_facts: list[ProjectFact] | None = None,
 ) -> str:
     """Look across the office's other projects. Module-level so the refusals are reachable without NAT."""
     try:
@@ -922,6 +1068,7 @@ async def run_project_lookup(
             offset or 0,
             project_id or "",
             bool(open_folders_only),
+            list(project_facts or []),
         )
     except _Refused as refused:
         _observe(str(action), {}, {"refused": refused.code})

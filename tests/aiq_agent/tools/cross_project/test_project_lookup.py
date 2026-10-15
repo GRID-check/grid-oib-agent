@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator
 from langchain_core.messages import ToolMessage
+from pydantic import ValidationError
 
 from aiq_agent import project_context
 from aiq_agent.common.citation_verification import SourceRegistry
@@ -38,6 +39,7 @@ from aiq_agent.tools.cross_project import register as lookup
 from aiq_agent.tools.cross_project.client import CrossProjectLookupError
 from aiq_agent.tools.documents.filing import SignedEnvelope
 from aiq_agent.turn.response import answer_message_id
+from nat.plugin_api import FunctionInfo
 
 SCHEMA_PATH = (
     Path(__file__).resolve().parents[4] / "frontends" / "ui" / "tests" / "fixtures" / "cross-project.schema.json"
@@ -1015,3 +1017,123 @@ class TestTheReferenceFitOrder:
         await lookup.run_project_lookup("search", query="Traufe")
 
         _validator(schema, "CrossProjectSearchRequest").validate(calls[0][1])
+
+
+class TestTheProjectFacts:
+    """The fact filter: a flat token list for the model, the BFF's ``projectFacts`` on the wire, said in the answer."""
+
+    async def test_search_sends_the_tokens_grouped_by_fact_and_the_bffs_own_schema_accepts_the_body(
+        self, monkeypatch, calls, turn, schema
+    ) -> None:
+        _answering(monkeypatch, calls, SEARCH_BODY)
+
+        await lookup.run_project_lookup(
+            "search", query="Traufe", project_facts=["tirol", "gk4", "gk5", "wohnen", "neubau", "tirol"]
+        )
+
+        assert calls[0][1]["projectFacts"] == {
+            "bundesland": ["tirol"],
+            "gebaeudeklasse": [4, 5],
+            "nutzungen": ["wohnen"],
+            "vorhabensart": ["neubau"],
+        }
+        _validator(schema, "CrossProjectSearchRequest").validate(calls[0][1])
+
+    async def test_find_narrows_too_and_a_brief_ignores_them(self, monkeypatch, calls, turn, schema) -> None:
+        _answering(monkeypatch, calls, {"projects": [], "total": 0})
+        await lookup.run_project_lookup("find", project_facts=["holzbau"])
+        _answering(monkeypatch, calls, {"project": {}, "summary": None, "facts": ""})
+        await lookup.run_project_lookup("brief", project_id=OTHER, project_facts=["holzbau"])
+
+        (_, listed, _), (_, brief, _) = calls
+        assert listed["projectFacts"] == {"bauweise": ["holzbau"]}
+        _validator(schema, "CrossProjectListRequest").validate(listed)
+        assert "projectFacts" not in brief
+
+    async def test_no_facts_leave_the_filter_out(self, monkeypatch, calls, turn) -> None:
+        _answering(monkeypatch, calls, SEARCH_BODY)
+
+        await lookup.run_project_lookup("search", query="Traufe", project_facts=[])
+        await lookup.run_project_lookup("search", query="Traufe")
+
+        assert all("projectFacts" not in payload for _, payload, _ in calls)
+
+    async def test_a_value_no_vocabulary_holds_is_refused_before_anything_is_asked(self, monkeypatch, calls, turn):
+        _answering(monkeypatch, calls, SEARCH_BODY)
+
+        result = await lookup.run_project_lookup("search", query="Traufe", project_facts=["tirol", "Mars", "gk7"])
+
+        assert result.startswith("Fehler: unbekannte `project_facts`: Mars, gk7.")
+        assert calls == []
+
+    @pytest.mark.parametrize(
+        ("spelled", "token"),
+        [
+            ("Tirol", "tirol"),
+            ("Niederösterreich", "niederoesterreich"),
+            ("GK 4", "gk4"),
+            (4, "gk4"),
+            ("Gebäudeklasse 2", "gk2"),
+            ("Nutzungsänderung", "nutzungsaenderung"),
+            ("Außenanlagen", "aussenanlagen"),
+            (" Holzbau ", "holzbau"),
+        ],
+    )
+    def test_the_schema_the_model_sees_folds_a_labels_spelling_to_its_token(self, spelled, token) -> None:
+        model = FunctionInfo.from_fn(lookup.run_project_lookup).input_schema
+
+        assert model.model_validate({"action": "search", "project_facts": [spelled]}).project_facts == [token]
+
+    def test_the_schema_the_model_sees_refuses_anything_else(self) -> None:
+        model = FunctionInfo.from_fn(lookup.run_project_lookup).input_schema
+
+        for refused in ("Mars", "ausserhalb_oesterreichs", "offen", "gk6", 6):
+            with pytest.raises(ValidationError):
+                model.model_validate({"action": "search", "project_facts": [refused]})
+
+    def test_the_tokens_are_exactly_the_bffs_vocabularies(self, schema) -> None:
+        """The tool's enum and the BFF's ``crossProjectFactsSchema`` cannot drift: the fixture is the BFF's zod."""
+        facts = schema["$defs"]["CrossProjectSearchRequest"]["properties"]["projectFacts"]["properties"]
+        theirs = {
+            fact: set(facts[fact]["items"]["enum"]) for fact in ("bundesland", "bauweise", "nutzungen", "vorhabensart")
+        }
+        ours: dict[str, set[str]] = {}
+        for token, fact in lookup.FACT_OF_TOKEN.items():
+            ours.setdefault(fact, set()).add(token)
+
+        assert ours.pop("gebaeudeklasse") == {f"gk{grade}" for grade in range(1, 6)}
+        assert ours == theirs
+        assert facts["gebaeudeklasse"]["items"]["type"] == "integer"
+
+    async def test_the_answer_says_which_facts_narrowed_it_and_that_unrecorded_ones_are_missing(
+        self, monkeypatch, calls, turn
+    ) -> None:
+        _answering(monkeypatch, calls, SEARCH_BODY)
+        searched = await lookup.run_project_lookup("search", query="Traufe", project_facts=["tirol", "gk4", "wohnen"])
+        _answering(monkeypatch, calls, {"projects": [_listed_project()], "total": 1})
+        found = await lookup.run_project_lookup("find", project_facts=["niederoesterreich", "nutzungsaenderung"])
+        _answering(monkeypatch, calls, {"projects": [], "total": 0})
+        none = await lookup.run_project_lookup("find", project_facts=["vorarlberg"])
+        plain = await lookup.run_project_lookup("find")
+
+        narrowed = "[Nur Projekte mit diesen Eckdaten: Tirol, GK 4, Wohnen. Projekte, deren Eckdaten das nicht erfassen"
+        assert narrowed in searched
+        assert "Nur Projekte mit diesen Eckdaten: Niederösterreich, Nutzungsänderung." in found
+        assert "Nur Projekte mit diesen Eckdaten: Vorarlberg." in none
+        assert "Eckdaten" not in plain
+        # The line is preamble, not a source: the hit still cites as before.
+        assert "Citation: Detail Traufe.pdf (Wohnbau Graz), p.3" in searched
+
+    async def test_langfuse_records_the_facts_as_their_enum_values_and_nothing_else(
+        self, monkeypatch, calls, turn
+    ) -> None:
+        seen: list[dict[str, Any]] = []
+        monkeypatch.setattr(
+            lookup, "emit_retrieval_span", lambda *, tool_name, search_input, picks: seen.append(search_input)
+        )
+        monkeypatch.setattr(lookup, "add_trace_tag", lambda tag: None)
+        _answering(monkeypatch, calls, SEARCH_BODY)
+
+        await lookup.run_project_lookup("search", query="Traufe", project_facts=["Tirol", "GK 4"])
+
+        assert seen[0]["projectFacts"] == {"bundesland": ["tirol"], "gebaeudeklasse": [4]}

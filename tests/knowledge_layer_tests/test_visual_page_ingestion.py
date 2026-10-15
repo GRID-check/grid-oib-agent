@@ -31,6 +31,9 @@ from knowledge_layer.llamaindex.adapter import _strip_watermark_lines
 from knowledge_layer.llamaindex.adapter import _summary_from_drawing_fields
 
 from aiq_agent.common.credential_resolution import ResolvedCredential
+from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
+from sources.knowledge_layer.tests.qdrant_testing import record
+from sources.knowledge_layer.tests.qdrant_testing import write
 
 
 def _patch_vlm_credential(monkeypatch, api_key: str):
@@ -394,7 +397,7 @@ def summary_db(tmp_path):
 
 
 @pytest.fixture
-def ingestor(tmp_path, monkeypatch):
+def ingestor(tmp_path, monkeypatch, qdrant_store):
     """A LlamaIndexIngestor with embeddings + vector index mocked out."""
 
     def fake_invoke(prompt):
@@ -411,15 +414,12 @@ def ingestor(tmp_path, monkeypatch):
 
     ing = LlamaIndexIngestor(
         {
-            "persist_dir": str(tmp_path / "chroma"),
             "generate_summary": True,
             "summary_llm": llm,
         }
     )
-    ing._embed_model = MagicMock()
+    ing._embed_model = FakeEmbedder()
     ing._initialized = True
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", MagicMock())
-    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
     return ing
 
 
@@ -512,42 +512,33 @@ class TestRunIngestionDrawingBranch:
     def test_visual_details_returns_per_page_descriptions(self, monkeypatch, ingestor):
         """get_document_visual_details returns the drawing/image chunk captions
         (prefix stripped, sorted by page) for the file-preview detail section."""
-
-        class _FakeCollection:
-            def get(self, where, include):
-                assert where == {"file_name": "plan.pdf"}
-                return {
-                    "documents": [
-                        "[DRAWING from page 2]\n\nZEICHNUNGSTYP: schnitt\nDETAILBESCHREIBUNG: Ausführlich.",
-                        "[DRAWING from page 1]\n\nZEICHNUNGSTYP: grundriss",
-                        "some plain text chunk",  # content_type text → excluded
-                    ],
-                    "metadatas": [
-                        {
-                            "content_type": "drawing",
-                            "page_label": "2",
-                            "drawing_type": "schnitt",
-                            "drawing_scale": "1:100",
-                        },
-                        {
-                            "content_type": "drawing",
-                            "page_label": "1",
-                            "drawing_type": "grundriss",
-                            "drawing_scale": "",
-                        },
-                        {"content_type": "text", "page_label": "1"},
-                    ],
-                }
-
-        class _FakeClient:
-            def get_collection(self, name):
-                return _FakeCollection()
-
-        monkeypatch.setattr(ingestor, "_get_chroma_client", lambda: _FakeClient())
+        write(
+            "coll",
+            [
+                record(
+                    "[DRAWING from page 2]\n\nZEICHNUNGSTYP: schnitt\nDETAILBESCHREIBUNG: Ausführlich.",
+                    "plan.pdf",
+                    content_type="drawing",
+                    page_label="2",
+                    drawing_type="schnitt",
+                    drawing_scale="1:100",
+                ),
+                record(
+                    "[DRAWING from page 1]\n\nZEICHNUNGSTYP: grundriss",
+                    "plan.pdf",
+                    content_type="drawing",
+                    page_label="1",
+                    drawing_type="grundriss",
+                    drawing_scale="",
+                ),
+                record("some plain text chunk", "plan.pdf", content_type="text"),  # excluded
+                record("[DRAWING from page 1]\n\nAnderer Plan", "other.pdf", content_type="drawing"),
+            ],
+        )
 
         details = ingestor.get_document_visual_details("coll", "plan.pdf")
 
-        # Text chunk excluded; drawings sorted by page; prefix stripped.
+        # Text chunk and the other file excluded; drawings sorted by page; prefix stripped.
         assert [d["page"] for d in details] == [1, 2]
         assert details[0]["drawing_type"] == "grundriss"
         assert details[1]["drawing_type"] == "schnitt"
@@ -556,52 +547,47 @@ class TestRunIngestionDrawingBranch:
         assert "[DRAWING" not in details[1]["text"]
 
     def test_visual_details_fails_open_to_empty(self, monkeypatch, ingestor):
-        def boom():
-            raise RuntimeError("chroma down")
+        from knowledge_layer.qdrant import store as store_module
 
-        monkeypatch.setattr(ingestor, "_get_chroma_client", boom)
+        def boom(*args, **kwargs):
+            raise ConnectionError("qdrant down")
+
+        monkeypatch.setattr(store_module.QdrantStore, "scroll", boom)
         assert ingestor.get_document_visual_details("coll", "plan.pdf") == []
 
     def test_visual_details_carries_how_many_depictions_share_the_sheet(self, monkeypatch, ingestor):
         """Issue #440: the backend knows `segment_count` per chunk but dropped
         it, so the preview could not say which of a sheet's depictions a row
         is. Rows without the key (pre-segment chunks) read as a single one."""
-
-        class _FakeCollection:
-            def get(self, where, include):
-                assert where == {"file_name": "plan.pdf"}
-                return {
-                    "documents": [
-                        "[DRAWING from page 1]\n\nFloor plan 1 of 2 — EG.",
-                        "[DRAWING from page 1]\n\nFloor plan 2 of 2 — OG.",
-                        "[DRAWING from page 2]\n\nZEICHNUNGSTYP: schnitt",
-                    ],
-                    "metadatas": [
-                        {
-                            "content_type": "drawing",
-                            "page_label": "1",
-                            "drawing_type": "floor_plan",
-                            "drawing_scale": "1:100",
-                            "segment_index": 0,
-                            "segment_count": 2,
-                        },
-                        {
-                            "content_type": "drawing",
-                            "page_label": "1",
-                            "drawing_type": "floor_plan",
-                            "drawing_scale": "1:100",
-                            "segment_index": 1,
-                            "segment_count": 2,
-                        },
-                        {"content_type": "drawing", "page_label": "2", "drawing_type": "schnitt"},
-                    ],
-                }
-
-        class _FakeClient:
-            def get_collection(self, name):
-                return _FakeCollection()
-
-        monkeypatch.setattr(ingestor, "_get_chroma_client", lambda: _FakeClient())
+        drawing = {"content_type": "drawing", "drawing_type": "floor_plan", "drawing_scale": "1:100"}
+        write(
+            "coll",
+            [
+                record(
+                    "[DRAWING from page 1]\n\nFloor plan 1 of 2 — EG.",
+                    "plan.pdf",
+                    page_label="1",
+                    segment_index=0,
+                    segment_count=2,
+                    **drawing,
+                ),
+                record(
+                    "[DRAWING from page 1]\n\nFloor plan 2 of 2 — OG.",
+                    "plan.pdf",
+                    page_label="1",
+                    segment_index=1,
+                    segment_count=2,
+                    **drawing,
+                ),
+                record(
+                    "[DRAWING from page 2]\n\nZEICHNUNGSTYP: schnitt",
+                    "plan.pdf",
+                    content_type="drawing",
+                    page_label="2",
+                    drawing_type="schnitt",
+                ),
+            ],
+        )
 
         details = ingestor.get_document_visual_details("coll", "plan.pdf")
 
@@ -700,14 +686,18 @@ class TestRunIngestionEmbedsAndChecksWithTheWholePage:
         assert "REI 90" in page_texts[1]
         assert len(page_texts[1]) >= adapter.VISUAL_PAGE_MIN_TEXT_CHARS
 
-    def test_the_index_is_built_with_the_ingestors_own_embed_model(self, tmp_path, monkeypatch, ingestor, summary_db):
+    def test_the_chunks_are_embedded_with_the_ingestors_own_embed_model(
+        self, tmp_path, monkeypatch, ingestor, summary_db
+    ):
         """Passed explicitly, never read off the global ``Settings``, which the
         retriever once set to its 3 s query model."""
-        from llama_index.core import VectorStoreIndex
+        import llama_index.core
 
+        monkeypatch.setattr(llama_index.core.Settings, "_embed_model", None)
         self._ingest_table_page(tmp_path, monkeypatch, ingestor, MagicMock(return_value=[]))
 
-        assert VectorStoreIndex.from_documents.call_args.kwargs["embed_model"] is ingestor._embed_model
+        assert ingestor._embed_model.batches, "the ingestor's own model embedded the chunks"
+        assert llama_index.core.Settings._embed_model is None, "nothing was installed on the global Settings"
 
     def test_the_ingestor_embeds_with_the_batch_timeout(self, tmp_path, monkeypatch):
         from llama_index.embeddings import nvidia
@@ -715,7 +705,7 @@ class TestRunIngestionEmbedsAndChecksWithTheWholePage:
         made: list[dict] = []
         monkeypatch.setattr(adapter, "ensure_retrieval_dependencies", lambda: None)
         monkeypatch.setattr(nvidia, "NVIDIAEmbedding", lambda **kwargs: made.append(kwargs) or MagicMock())
-        ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+        ing = LlamaIndexIngestor({})
 
         ing._ensure_initialized()
 

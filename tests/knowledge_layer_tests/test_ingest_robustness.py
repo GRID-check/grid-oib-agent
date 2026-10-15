@@ -12,7 +12,6 @@
 """
 
 import time
-import uuid
 from datetime import UTC
 from datetime import datetime
 from types import SimpleNamespace
@@ -123,54 +122,24 @@ def test_a_plain_page_list_has_nothing_to_report():
 # ---------------------------------------------------------------------------
 
 
-class _SplittingIndex:
-    """Stands in for ``VectorStoreIndex``: every Document becomes three nodes, unembedded."""
-
-    NODES_PER_DOCUMENT = 3
-
-    @classmethod
-    def from_documents(cls, documents, storage_context, **_kwargs):
-        index = cls(storage_context.vector_store.client)
-        for document in documents:
-            index.insert(document)
-        return index
-
-    def __init__(self, collection):
-        self._collection = collection
-
-    def insert(self, document):
-        metadata = {key: value for key, value in document.metadata.items() if value is not None}
-        for part in range(self.NODES_PER_DOCUMENT):
-            self._collection.add(
-                ids=[str(uuid.uuid4())],
-                documents=[f"{document.get_content()} ({part})"],
-                metadatas=[metadata],
-                embeddings=[[0.1, 0.2, 0.3]],
-            )
-
-
 @pytest.fixture()
 def stores(tmp_path):
     from aiq_agent.knowledge import configure_summary_db
     from aiq_agent.knowledge import factory
-    from aiq_agent.knowledge.chunk_text_store import configure_chunk_text_store
-    from aiq_agent.knowledge.chunk_text_store import reset_chunk_text_store
 
     factory._document_metadata_store = None
     configure_summary_db(f"sqlite:///{tmp_path / 'summaries.db'}")
-    mirror = configure_chunk_text_store(f"sqlite:///{tmp_path / 'mirror.db'}")
-    yield mirror
+    yield
     factory._document_metadata_store = None
-    reset_chunk_text_store()
 
 
 @pytest.fixture()
-def live_ingestor(tmp_path, monkeypatch):
-    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma"), "generate_summary": False})
-    ing._embed_model = MagicMock()
+def live_ingestor(tmp_path, monkeypatch, qdrant_store):
+    from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
+
+    ing = LlamaIndexIngestor({"generate_summary": False})
+    ing._embed_model = FakeEmbedder()
     ing._initialized = True
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", _SplittingIndex)
-    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
     return ing
 
 
@@ -211,15 +180,23 @@ def _text_pages(count: int, failed: list[int]) -> PdfTextPages:
 
 def test_chunks_created_counts_the_nodes_stored(tmp_path, live_ingestor, stores):
     upload = tmp_path / "tmp_upload.txt"
-    upload.write_text("Eine Statik mit Bewehrung.", encoding="utf-8")
+    upload.write_text(" ".join(f"Satz {n} der Statik mit Bewehrung." for n in range(200)), encoding="utf-8")
 
-    job_id = live_ingestor.submit_job([str(upload)], "proj_count", config={"original_filenames": ["statik.txt"]})
+    job_id = live_ingestor.submit_job(
+        [str(upload)],
+        "proj_count",
+        config={"original_filenames": ["statik.txt"], "chunk_size": 160, "chunk_overlap": 0},
+    )
     status = _wait_terminal(live_ingestor, job_id)
 
+    from sources.knowledge_layer.tests.qdrant_testing import chunk_texts
+
+    stored = len(chunk_texts("proj_count", {"file_name": "statik.txt"}))
     assert status.file_details[0].status == FileStatus.SUCCESS
-    # One Document, three nodes: the count is the three.
-    assert status.file_details[0].chunks_created == _SplittingIndex.NODES_PER_DOCUMENT
-    assert status.metadata["total_chunks"] == _SplittingIndex.NODES_PER_DOCUMENT
+    # One Document, several nodes: the count is the nodes the store holds.
+    assert stored > 1
+    assert status.file_details[0].chunks_created == stored
+    assert status.metadata["total_chunks"] == stored
 
 
 def test_a_few_unreadable_pages_are_recorded_on_a_successful_file(
@@ -259,7 +236,7 @@ def test_too_many_unreadable_pages_fail_the_file(tmp_path, monkeypatch, live_ing
 @pytest.fixture()
 def held_ingestor(tmp_path):
     """An ingestor whose pool never runs anything, so a submitted job stays pending."""
-    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+    ing = LlamaIndexIngestor({})
     ing._ingest_pool = MagicMock()
     return ing
 
@@ -461,7 +438,7 @@ def test_a_prepared_job_is_vouched_for_by_the_process_that_runs_it(tmp_path, mon
     monkeypatch.setenv("AIQ_SUMMARY_DB", url)
     upload = tmp_path / "a.txt"
     upload.write_text("x", encoding="utf-8")
-    accepting = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+    accepting = LlamaIndexIngestor({})
     try:
         prepared = accepting.prepare_job([str(upload)], "proj_1", config={"organization_id": "org-1"})
 
@@ -471,7 +448,7 @@ def test_a_prepared_job_is_vouched_for_by_the_process_that_runs_it(tmp_path, mon
         assert accepting.get_job_status(prepared.job_id).status == JobState.PENDING
         assert prepared.organization_id == "org-1"
 
-        running = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+        running = LlamaIndexIngestor({})
         ran = []
         monkeypatch.setattr(running, "_run_ingestion", lambda job_id, *_: ran.append(job_id))
         running.run_prepared(prepared)
@@ -496,7 +473,7 @@ def test_a_job_that_fails_validation_is_final_at_once(tmp_path, held_ingestor):
 
 
 def test_a_job_the_pool_refuses_reads_failed_not_pending(tmp_path):
-    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+    ing = LlamaIndexIngestor({})
     ing._ingest_pool.shutdown(wait=True)
     upload = tmp_path / "a.txt"
     upload.write_text("x", encoding="utf-8")

@@ -12,7 +12,7 @@ import type { IClientTrafficPolicySpec } from "@kubernetes-models/envoy-gateway/
 import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
 import { EDGE_SHUTDOWN, SURGE_ONLY_STRATEGY } from "./rollout";
-import { EDGE_RATE_LIMIT, EDGE_TIMEOUT, LANGFUSE, PLATFORM_RESOURCES } from "../constants";
+import { EDGE_RATE_LIMIT, EDGE_TIMEOUT, LANGFUSE, PLATFORM_RESOURCES, QDRANT } from "../constants";
 
 /** Stable names referenced by the cert-manager solver and the HTTPRoutes. */
 export const GATEWAY_NAME = "grid-gateway";
@@ -275,6 +275,22 @@ export function installGatewayResources(
       ]
     : [];
 
+  // Qdrant's dashboard (`qdrantDashboardEnabled`, off by default) — absent
+  // when off for the same reason: cert-manager issues a certificate for every
+  // listener's `certificateRefs`, so a listener here is a certificate request.
+  const qdrantListeners: IGatewaySpec["listeners"] = cfg.qdrant.dashboard.enabled
+    ? [
+        {
+          name: QDRANT.dashboard.listenerName,
+          port: 443,
+          protocol: "HTTPS",
+          hostname: cfg.qdrant.dashboard.domain,
+          tls: { mode: "Terminate", certificateRefs: [{ name: QDRANT.dashboard.tlsSecret }] },
+          allowedRoutes: { namespaces: { from: "Same" } },
+        },
+      ]
+    : [];
+
   const gatewaySpec: IGatewaySpec = {
     gatewayClassName: GATEWAY_CLASS,
     // Attach the HA proxy-infrastructure config above.
@@ -317,6 +333,8 @@ export function installGatewayResources(
       },
       // Langfuse UI — only when that tier is deployed (ADR-0044).
       ...langfuseListeners,
+      // Qdrant's dashboard — only when `qdrantDashboardEnabled`.
+      ...qdrantListeners,
     ],
   };
   const gateway = new k8s.apiextensions.CustomResource(

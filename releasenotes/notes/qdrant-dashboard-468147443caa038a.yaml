@@ -1,0 +1,7 @@
+---
+operators:
+  - >
+    Qdrant's web dashboard can be opened in the browser at qdrant.<baseDomain>,
+    behind the same WorkOS sign-in as Langfuse and for platform operators only.
+    It is off until a stack sets qdrantDashboardEnabled; the Qdrant runbook
+    says how to turn it on and which key to paste.

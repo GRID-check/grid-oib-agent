@@ -1,10 +1,10 @@
 # Docker Compose Service Reference
 
 The Docker Compose file is at `deploy/compose/docker-compose.yaml`. It defines
-23 services, several named volumes, and 2 bridge networks. The backend image
+24 services, several named volumes, and 2 bridge networks. The backend image
 runs as four of them (ADR-0082): the `chat` role (`aiq-agent`), the `api` role
 (`aiq-api`), the research `agent-worker` and the `ingest-worker`, all against the
-shared `chroma` server. This page describes the core ones; the observability stack
+shared `qdrant` vector store (ADR-0113). This page describes the core ones; the observability stack
 (`dragonfly`, `clickhouse`, the three `langfuse-*` services) and the four
 background workers (`purger`,
 `skill-scheduler`, `bff-jobs`, `housekeeping`) are defined in the compose file
@@ -74,7 +74,8 @@ Every other HTTP route is [`aiq-api`](#aiq-api-the-api-role)'s.
 | `AIQ_LISTEN_DB_URL` | `postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs` (direct: SSE LISTEN/NOTIFY) |
 | `AIQ_LOCK_DB_URL` | `postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs` (direct: session advisory locks) |
 | `GRID_ROLE` | `chat` |
-| `AIQ_CHROMA_URL` | `http://chroma:8000` (no embedded fallback: the backend keeps no volume) |
+| `AIQ_QDRANT_URL` | `http://qdrant:6333` (the `qdrant` service; no published port, no API key on the internal network; no embedded fallback: the backend keeps no volume) |
+| `AIQ_QDRANT_API_KEY` | empty (set it with a Qdrant elsewhere that wants one) |
 | `CONFIG_FILE` | `/app/configs/config_oib_openrouter.yml` |
 | `HOST` | `0.0.0.0` |
 | `PORT` | `8000` |
@@ -97,12 +98,11 @@ one-shot `legacy-corpus-import` service reads the old `aiq-data` volume and
 `data/oib` read-only and stores what they held, and the base-corpus housekeeping
 route indexes it. Remove the `aiq-data` volume once the knowledge view lists the
 corpus. The backend keeps no volume at all: the vectors are in
-the shared `chroma` server, whose one-shot `chroma-data-permissions` service
-chowns its volume for the server's user before it starts.
+the shared `qdrant` service.
 
 **Healthcheck**: `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"` — interval 15s, timeout 10s, retries 10, start period 30s.
 
-**Depends on**: `seaweedfs` (healthy), `postgres` (healthy), `pgbouncer` (healthy), `chroma` (healthy).
+**Depends on**: `seaweedfs` (healthy), `postgres` (healthy), `pgbouncer` (healthy), `qdrant` (healthy).
 
 **Restart**: `unless-stopped`.
 
@@ -123,12 +123,12 @@ role serves which route.
 | Ports | `${PORT:-8000}:8000` (the API, `/docs`, `/debug`) |
 | Environment | `aiq-agent`'s, with `GRID_ROLE=api` |
 | Healthcheck | the same `/health` probe as `aiq-agent` |
-| Depends on | `seaweedfs`, `postgres`, `pgbouncer`, `chroma` (healthy) |
+| Depends on | `seaweedfs`, `postgres`, `pgbouncer`, `qdrant` (healthy) |
 
 ### agent-worker
 
 The same image as `GRID_ROLE=worker` (ADR-0021): claims research jobs from
-Postgres (`FOR UPDATE SKIP LOCKED`) and runs them against the shared Chroma. No
+Postgres (`FOR UPDATE SKIP LOCKED`) and runs them against the shared Qdrant. No
 web port. Healthy while `/tmp/research-worker.alive` is fresh; `stop_grace_period`
 is 660 s, the 600 s drain budget plus the time to give claims back.
 
@@ -140,13 +140,31 @@ process that claims it, fairly across organizations. With it stopped, uploads si
 pending. `AIQ_INGEST_MAX_WORKERS` (default 2) is the jobs it runs at once. No web
 port. Healthy while `/tmp/ingest-worker.alive` is fresh.
 
-### chroma
+### qdrant
 
-The shared vector store (`chromadb/chroma`, pinned to the client's version,
-`CHROMA_IMAGE` overrides). The four backend services query it over HTTP, which an
-embedded store opened by each process separately could not do. It mounts the
-`chroma_data` volume at `/data`: the 1.5.9 server reads the format the embedded
-store wrote, so an existing corpus needs no re-embedding.
+The shared vector store (ADR-0113), the single-node mirror of the Pulumi
+StatefulSet (`deploy/pulumi/src/data/qdrant.ts`): `qdrant/qdrant:v1.19.2`,
+`QDRANT_IMAGE` overrides. Started by a plain `up`, no profile. The four backend
+services query it over HTTP on the internal network, so it publishes no port
+and runs without an API key. Its data is the `qdrant_data` volume at
+`/qdrant/storage`.
+
+| Setting | Value |
+|---------|-------|
+| Metrics | `/metrics` without the key on port 6336 (`QDRANT__SERVICE__METRICS_PORT`), as on the Pulumi peers; nothing in Compose scrapes it |
+| Quotas | writes refused with HTTP 507 above 90% of memory or 85% of the volume (`QDRANT_QUOTA_MEMORY_PERCENT`, `QDRANT_QUOTA_DISK_PERCENT`), seeded on the first start only |
+| Healthcheck | `GET /readyz` over bash's `/dev/tcp` (the image has no curl) — interval 10s, timeout 10s, retries 12, `start_period` 300s (loading large collections takes minutes) |
+
+**An installation that ran Chroma** keeps its vectors in the old `chroma_data`
+volume (`compose_chroma_data` with the default project name). The file no longer
+declares it, so neither `up` nor `down -v` touches it. Move them into Qdrant
+once with the exporter and importer: the Compose procedure in
+[`qdrant-runbook.md`](qdrant-runbook.md), "Migrating from Chroma". Stop,
+export, import, then `up`: never `up -d` the new release before the import has
+verified, or its first base-corpus sync takes the empty store for a reset and
+re-embeds the whole corpus. Until then the stack answers nothing from what
+Chroma held. Remove the volume by hand
+once the new release has served for a while.
 
 ### seaweedfs
 
@@ -449,7 +467,7 @@ Langfuse's `DATABASE_URL` go straight to `postgres`, as in Kubernetes.
 
 | Name | Driver | Mounted By |
 |------|--------|------------|
-| `chroma_data` | local | chroma (`/data`) |
+| `qdrant_data` | local | qdrant (`/qdrant/storage`) |
 | `seaweedfs-data` | local | seaweedfs (`/data`) |
 | `postgres-data` | local | postgres (`/var/lib/postgresql/data`) |
 

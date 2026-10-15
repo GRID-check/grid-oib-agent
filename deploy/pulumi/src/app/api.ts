@@ -46,7 +46,7 @@ const STARTUP_FAILURE_THRESHOLD = 60;
  * waits on a chat turn: the grace period is sized for closing SSE streams and
  * finishing short requests (`API_DRAIN_SECONDS`), where the chat tier's is its
  * longest turn. The two tiers share an image, a database, the cache and the
- * shared Chroma, and call each other nowhere.
+ * shared Qdrant, and call each other nowhere.
  *
  * The env is the chat tier's less what only chat reads (`apiEnv`).
  */
@@ -86,7 +86,7 @@ export function installApi(
             annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
           },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             imagePullSecrets: w.imagePullSecrets,
             // preStop covers EndpointSlice propagation, then uvicorn gets its
             // SIGTERM and the role closes its SSE streams (`drain_owned_work`).
@@ -104,7 +104,7 @@ export function installApi(
                 env: apiEnv(w),
                 resources: toResourceRequirements(cfg.api.resources),
                 lifecycle: shutdown.lifecycle,
-                // Boot builds the NAT workflow and opens Chroma, as the chat
+                // Boot builds the NAT workflow and opens Qdrant, as the chat
                 // tier's does: the same window before liveness kicks in.
                 startupProbe: {
                   httpGet: { path: "/health", port: PORT.backend },

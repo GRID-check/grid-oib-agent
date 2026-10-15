@@ -46,7 +46,7 @@ turn arrives ──► embed the question (≤1s budget; the turn never waits lo
 
 ### Why the vector is a column, not a vector store
 
-ChromaDB is right here and already ours, and this deliberately does not use it.
+Qdrant is right here and already ours, and this deliberately does not use it.
 Two stores means a sync job, a drift mode, a deletion problem, and a tenancy
 question for data that is tenant-scoped and RLS-guarded — which is precisely
 the cost that kept F2 unbuilt for a year. A `real[]` column is transactional
@@ -69,7 +69,7 @@ A vector is comparable only to vectors from the same model, and the embedding
 model is a config change away. Every row stores `embedding_model` beside the
 vector, every comparison pins it, and a mismatch means *"not embedded"* rather
 than a silently wrong distance. This is the same rule
-`embed_fingerprint_mismatch` already enforces for Chroma collections, applied
+`embed_fingerprint_mismatch` already enforces for vector-store collections, applied
 to a column.
 
 ### The scoring model, and where it departs from the paper

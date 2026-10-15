@@ -1,5 +1,14 @@
 import * as k8s from "@pulumi/kubernetes";
 
+// Service links. Every pod spec here sets `enableServiceLinks: false`. The
+// legacy Docker-link env Kubernetes injects for each Service (`<NAME>_PORT=
+// tcp://…`, `<NAME>_SERVICE_HOST`) lands in the same namespace as an image's
+// own prefixed configuration: a `chroma` Service once gave the Chroma server
+// `CHROMA_PORT=tcp://…`, which its config parser read as its own setting and
+// panicked on at every pod restart after the Service existed (found live), and
+// `QDRANT_*` would land in Qdrant's. Nothing consumes the link vars, so they are
+// off everywhere.
+
 /**
  * Container-level securityContext that satisfies the Pod Security "restricted"
  * profile for the images we build ourselves (backend UID 1000, frontend UID

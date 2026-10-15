@@ -30,6 +30,7 @@ Reach for the narrow task rather than the whole gate:
 | UI lint (oxlint; why not ESLint or Biome: [lint-evaluation.md](lint-evaluation.md)) | `task fe:lint` |
 | Backend lint | `task be:lint` |
 | Backend tests | `task be:test`, or `task be:test:api` for the plugin suite |
+| The Chroma exporter and the move off Chroma (`deploy/migration/`, `qdrant/import_vectors.py`) | `task be:test:migration`, in its own `chromadb` environment; nothing else imports `chromadb` ([`deploy/migration/README.md`](../../deploy/migration/README.md#tests)) |
 | Pulumi and the policy pack | `task infra:types` |
 | Astro landing site | `task web:verify` |
 
@@ -442,6 +443,12 @@ its passage; this asks what the reader waited for and what they got.
   question (default 2), `--workers N` how many run at once (default 3). `--override KEY VALUE` sets a config value for every
   run, in `nat run` dot notation, and repeats. `--all`, `--baseline`,
   `--report` and `--ingest` are described above and below.
+- **No stack needed:** `--ingest --corpus data/oib` takes the base corpus
+  from that directory's PDFs instead of the object store, so the suite runs
+  on a machine with no BFF and no SeaweedFS. The table, the ingest queue and
+  the ingestion itself are the real ones (a SQLite `AIQ_SUMMARY_DB` holds
+  them); only the bytes come from the directory. Unchanged files are not
+  ingested again on the next run.
 
 ```bash
 task be:eval:answer-suite -- --out /tmp/suite/before         # on the base branch
@@ -555,9 +562,12 @@ the case to `tests/fixtures/herleitung/loop_eval_questions.yaml` with a
 `family`, which the suite treats as needing a project, so it cannot be a case.
 
 It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus
-(uploaded with `scripts/upload_oib_corpus.py`) ingested into `AIQ_CHROMA_DIR`
-(`-- --ingest` queues the corpus's ingest jobs and runs them in the suite's own process first). Every run costs model calls: the core set at two runs is twelve
-turns, about four minutes three at a time.
+(uploaded with `scripts/upload_oib_corpus.py`, or `-- --corpus data/oib`)
+ingested into the Qdrant at `AIQ_QDRANT_URL` (`-- --ingest` queues the corpus's
+ingest jobs and runs them in the suite's own process first; the 39 OIB PDFs took
+about ten minutes on 4 CPUs on 2026-10-13). Every run costs model calls: the core set
+at two runs is twelve turns, about four minutes three at a time, and a turn
+cost about two US cents on the boot-default models that day.
 
 Run it yourself, before and after, as above, and put the report in the PR.
 Its bookkeeping is also covered offline by
@@ -574,8 +584,9 @@ overviews; the suite refuses to start on an empty one.
 
 Traps that cost a run:
 
-- **Never run two harnesses against one `AIQ_CHROMA_DIR` at once.** Chroma
-  errors, and the runs that hit it measure nothing.
+- **Never run two harnesses with `--ingest` against one Qdrant at once.** Both
+  replace the same corpus, and a turn that searches mid-replacement measures a
+  half-indexed collection.
 - **A second or two between single runs is noise.** Compare medians over
   several runs, never one run against one run.
 - **Which checkout a run measures.** The suite and the census now put this
@@ -587,7 +598,7 @@ Traps that cost a run:
 
 For the seconds BEFORE the first model call, which the suite reports only as
 a slice, `scripts/turn_census/startup_probe.py` prints each turn's provider
-calls and the retriever's embed, lexical and retrieve phases in milliseconds,
+calls and the retriever's embed, store (the one Qdrant query) and retrieve phases in milliseconds,
 several questions in one process so all but the first are warm. What both
 measured on 2026-09-24, and the effort A/B:
 [turn-latency-measured-2026-09.md](../architecture/turn-latency-measured-2026-09.md).
@@ -714,6 +725,7 @@ and `light` modes that replayed it, are gone with the v2 cut.
 | Is the answer right, and did it get slower or more variable? | `task be:eval:answer-suite` | key and ingested corpus | about 4 minutes for the core set at two runs |
 | What did one turn cost, call by call? | `task be:eval:turn-census -- "<question>"` | key and ingested corpus | one turn per run (`--runs`, default 1); writes to `/tmp/turn_census` unless `--out`; `--override KEY VALUE` per census |
 | What happens in the milliseconds before the first model call? | `scripts/turn_census/startup_probe.py` | key, corpus and document inventory | several questions in one process; the first turn is cold |
+| Does Qdrant retrieval still clear gates G1b, G2 and G6, beside the numbers the Chroma path recorded? | `task be:eval:qdrant-parity` (`-- --variants all` adds the ranking sweep) | `data/oib`, a Qdrant 1.19 server, the embeddings key | about 15 minutes on 4 CPUs; the corpus embedding (~$0.12) is cached after the first run. [The gate report](../architecture/qdrant-gates-2026-10.md) |
 | Does the Erfassungs-Agent set a project up right from its documents? | `task be:eval:intake` | key and bun | about a cent and two minutes per run of the boot model |
 | What shape did the turn take (rounds, locator, checkpoint)? | `task be:eval:loop` | a running backend at `GRID_LOOP_EVAL_URL` with the corpus | real model calls per question; `--compare` needs no backend |
 | Does the layout shift while an answer streams? | `/dev/stream-replay?fixture=varianten` (or `oib2`), `&speed=N`, `&ending=recorded` for the recording's own terminal (the retired whole-answer rewrite on `oib2`) | the UI dev server | free: the fixtures are recorded frames in `frontends/ui/src/app/dev/_fixtures/stream-frames.ts`, replayed as v2 events through `foldTurnEvent`. `window.__replay` holds `shifts` (each source flagged `edge` when it entered or left the viewport), `anchorTops` and `done` for a headless capture. The answer alone: no Herleitung, no thread scroller |

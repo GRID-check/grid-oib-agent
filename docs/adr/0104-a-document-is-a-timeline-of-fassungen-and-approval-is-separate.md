@@ -286,6 +286,8 @@ Slices, each shippable on its own:
    mirrored byte columns; the synthetic approval on uploads goes.
 5. The index keyed by Fassung; the backfill; search filters to current.
 6. Attach instead of link; `superseded_by` and `document_fassung_retained` go.
+   The vector payload's `superseded` flag is computed from `superseded_by`
+   (ADR-0114); this slice recomputes it from the timeline in the same change.
 7. One filing door, the Arbeitsdatei, and the surfaces and words above.
 
 Revisit rule 2 if vector storage per organization becomes a cost driver, and

@@ -1,6 +1,6 @@
 """``find_tmp_upload_names``: the legacy ``tmp[8]_`` spellings a re-upload must replace.
 
-Chroma filters metadata by value, never by pattern, and the prefix is random,
+A keyword index matches a value, never a pattern, and the prefix is random,
 so the re-upload's filtered read learns these names from the metadata rows.
 The pattern is LIKE, so a name's own ``_`` and ``%`` must match only themselves.
 """

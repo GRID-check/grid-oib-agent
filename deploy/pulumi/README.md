@@ -13,8 +13,8 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 | Layer | Resources |
 |-------|-----------|
 | Platform | namespace `grid` (+ default-deny NetworkPolicies), cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, observability (ADR-0029: `otel-collector` Deployment + Service + ConfigMap — only when `observabilityEnabled` **and** something consumes it: Langfuse or `posthogLogsEnabled`), Langfuse (ADR-0044: `langfuse-web` + `langfuse-worker` Deployments, `clickhouse` StatefulSet, a dedicated ingestion queue, HTTPRoute + SecurityPolicy — only when `langfuseEnabled` **and** its config deps are set; flag **on by default**), (metrics-server only on bare clusters) |
-| Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS (one StatefulSet under `seaweedfsTopology=single`; master + volume + filer StatefulSets, and a `seaweedfs_filer` CNPG database + role, under `split`) + bucket-init Job |
-| App | `aiq-agent` StatefulSet (no PVC; +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `skill-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
+| Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS (one StatefulSet under `seaweedfsTopology=single`; master + volume + filer StatefulSets, and a `seaweedfs_filer` CNPG database + role, under `split`) + bucket-init Job, Qdrant, the one vector store (ADR-0113: `qdrant` StatefulSet + headless and ClusterIP Services + PDB + `qdrant-snapshot` CronJob + `qdrant-alert-rules` ConfigMap, always; operating it: [`qdrant-runbook.md`](../../docs/deployment/qdrant-runbook.md)). No Chroma: `chromaMigration` copies the retired store into Qdrant on the deploy that removes it, and its volume `data-chroma-0` is kept, unmanaged, as the way back |
+| App | `aiq-agent` StatefulSet (no PVC; +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `skill-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`), the one-shot `chroma-migration` Job + its `chroma-migration-exporter` ConfigMap (only when `chromaMigration`) |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
 | DNS | Cloudflare A records for exactly the Gateway's HTTPS listener hosts, plus optionally the zone-level `www` / `_dmarc` / apex-redirect records — only when `dnsEnabled` (off by default; records are otherwise maintained by hand) |
 
@@ -52,8 +52,13 @@ pulumi stack init prod
 #      resolving through ESC yields the same values, so a non-empty diff means
 #      a key did not make it across (restore from git and retry).
 # Edit secrets afterwards via `pulumi env edit grid-oib/dev` (add under
-# values.pulumiConfig as fn::secret). The `pulumi config set --secret` commands
-# below are the file-based alternative (ciphertext in the stack file):
+# values.pulumiConfig as fn::secret), or one key at a time with
+#   esc env set matthiasbigl/grid-oib/<stack> pulumiConfig.grid-oib:<key> "<value>" --secret
+# Staging (dev) and prod keep EVERY secret in ESC: for them, run each line below
+# as that `esc env set` (the stack files' headers list them in that form). A
+# `pulumi config set --secret` writes ciphertext into the committed stack file
+# instead, and stack config wins over ESC, so on those stacks it shadows the
+# ESC value. The lines below are for a scratch stack without ESC:
 pulumi config set --secret grid-oib:kubeconfig           "$(cat ~/.kube/grid-config)"
 pulumi config set --secret grid-oib:pgAppPassword        "$(openssl rand -base64 24)"
 pulumi config set --secret grid-oib:seaweedfsSecretKey   "$(openssl rand -base64 24)"
@@ -78,13 +83,22 @@ pulumi config set --secret grid-oib:seaweedfsFilerDbPassword "$(openssl rand -ba
 # REQUIRED with seaweedfsPerOrgBuckets=true: the credential for the only
 # identity allowed to create and drop tenant buckets.
 pulumi config set --secret grid-oib:seaweedfsTenantAdminSecretKey "$(openssl rand -base64 24)"
+# REQUIRED on every stack (Qdrant is always deployed): the read-write and
+# read-only API keys and the snapshot S3 identity's secret, each its own value
+# (ADR-0113).
+pulumi config set --secret grid-oib:qdrantApiKey         "$(openssl rand -base64 32)"
+pulumi config set --secret grid-oib:qdrantReadOnlyApiKey "$(openssl rand -base64 32)"
+pulumi config set --secret grid-oib:qdrantS3SecretKey    "$(openssl rand -base64 32)"
+# Rotating qdrantApiKey later takes three deploys through qdrantAltApiKey:
+# docs/deployment/qdrant-runbook.md, "Rotate the API key".
 
 pulumi preview
 pulumi up
 ```
 
 Then point DNS for `app.<baseDomain>` and `s3.<baseDomain>` (plus
-`langfuse.<baseDomain>` when that tier is on) at the Envoy Gateway external IP
+`langfuse.<baseDomain>` when that tier is on, and `qdrant.<baseDomain>` when
+`qdrantDashboardEnabled` is) at the Envoy Gateway external IP
 (`kubectl -n envoy-gateway-system get svc`), and once TLS issues, flip
 `useStagingIssuer` to `false` and `pulumi up` again.
 
@@ -152,7 +166,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `rateLimitWeb` | `120`/min | Landing site + blog |
 | `rateLimitStoreMaxmemory` | `256mb` | Counter-store dataset cap (floor 256mb — Dragonfly's per-thread boot minimum) |
 | `rateLimitStoreMemoryLimit` | `384Mi` | Counter-store pod memory limit; must exceed maxmemory |
-| `protectDataResources` | `true` | Pulumi `protect` on the CNPG Cluster + SeaweedFS/Chroma StatefulSets: refuses any delete/replace, so a stray rename or `pulumi destroy` fails loudly instead of destroying data. `false` on scratch stacks; lift one resource with `pulumi state unprotect <urn>` |
+| `protectDataResources` | `true` | Pulumi `protect` on the CNPG Cluster + SeaweedFS/Qdrant StatefulSets: refuses any delete/replace, so a stray rename or `pulumi destroy` fails loudly instead of destroying data. `false` on scratch stacks; lift one resource with `pulumi state unprotect <urn>` |
 | `nodeGroupApp` / `nodeGroupData` / `nodeGroupBatch` | unset (prod: `Node` / `data` / `batch`) | IPAX worker group, as the value of the node label `k8s.at/node-group` (case-sensitive), that the app tier (everything not below) / the stores / ingestion are pinned to by nodeSelector. Unset renders no nodeSelector. A data group also makes the Postgres anti-affinity and the PgBouncer spread required. The groups themselves are managed in the IPAX Control Center ([kubernetes.md §2b](../../docs/deployment/kubernetes.md#worker-groups-ipax)) |
 | **Postgres (CNPG)** | | |
 | `pgInstances` | `1` (prod template: 3) | 1 = single primary; 3 = HA with auto-failover |
@@ -178,10 +192,23 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | 🔒 **`dragonflyPassword`** | — | REQUIRED. `requirepass` for the cache. Without it any pod in the namespace can read the conversation bus (every chat frame), the cached user directory, authz decisions and budget state |
 | 🔒 **`rateLimitStorePassword`** | — | REQUIRED while `rateLimitEnabled`. `requirepass` for the counter store; enforced DISTINCT from `dragonflyPassword` |
 | `allowUnauthenticatedRedis` | `false` | Dev-only escape hatch for both passwords above (warns on every deploy) |
-| **Chroma (vectors)** | | |
-| `chromaEnabled` | `true` | Shared vector server. REQUIRED: `false` fails the plan, because the backend keeps no volume (ADR-0082) and an embedded store would be wiped at every restart |
-| `chromaImage` | `chromadb/chroma:1.5.9` | Pinned to match the backend's chromadb client |
-| `chromaStorageSize` | `20Gi` | Vector store volume (grow via PVC patch) |
+| **Qdrant (vectors, ADR-0113)** | | The only vector store, always deployed; [`qdrant-retrieval-design.md`](../../docs/architecture/qdrant-retrieval-design.md) §9 has the reasoning. Every stack gets the `qdrant` StatefulSet, its Services, PDB, NetworkPolicies (`allow-app-to-qdrant`, `qdrant-peers`, and `allow-collector-to-qdrant-metrics` when the collector is deployed), the `qdrant-snapshots` bucket and `grid-qdrant` S3 identity, the `qdrant-snapshot` CronJob and the `qdrant-alert-rules` ConfigMap (Prometheus rules, rendered against `qdrantMemory`; inert: nothing stores the metrics or evaluates the rules on any stack, and connecting the provider's metrics stack or a vmalert to `otel-collector:8889` with these rules is a precondition for prod, see the runbook's "Alerts"), a scrape of every peer's keyless metrics port (6336) by the OTel collector, re-exposed on `otel-collector:8889/metrics`, and `AIQ_QDRANT_URL` + `AIQ_QDRANT_API_KEY` on every backend tier. The dashboard's public route exists only under `qdrantDashboardEnabled`, off by default. `chromaEnabled`, `chromaImage`, `chromaStorageSize`, `qdrantEnabled` and `vectorBackend` are retired: a stack that still sets one fails the plan with the keys to `pulumi config rm` |
+| `qdrantImage` | `qdrant/qdrant:v1.19.2` | Pinned. Self-hosted Qdrant upgrades one minor at a time and a snapshot restores only into the same or the next minor; diff `data/qdrant.ts` against `qdrant-helm` on each minor |
+| `qdrantReplicas` | `3` | Peers, one per node (required anti-affinity once `nodeGroupData` is set). `3` keeps Raft quorum through one failure, runs in cluster mode with `ENFORCE_INTERNAL_AUTH`, and hands the backend `AIQ_QDRANT_SHARD_NUMBER=6` / `AIQ_QDRANT_REPLICATION_FACTOR=2` for the collections it creates; `1` runs without cluster mode, for small stacks; `2` is refused. Going from 1 to 3 later turns cluster mode on over existing storage: plan it as a migration, not a knob |
+| `qdrantCpu` / `qdrantMemory` | `4` / `16Gi` | Per peer, request = limit (Guaranteed QoS). OOM during optimisation is the most reported Qdrant failure |
+| `qdrantStorageSize` | `100Gi` | Data PVC per peer, on `storageClass`, `Retain`. Size at 2x the data: snapshots are staged on it before upload. Initial size only; grow by patching the PVC |
+| 🔒 `qdrantApiKey` / 🔒 `qdrantReadOnlyApiKey` | — | REQUIRED, and must differ. In the `qdrant-credentials` Secret (rolls the peers on rotation); the read-write key also reaches the backend tiers as `AIQ_QDRANT_API_KEY` through `grid-secrets` |
+| `qdrantS3AccessKey` / 🔒 `qdrantS3SecretKey` | `grid-qdrant` / — | The snapshot identity: object CRUD on `qdrant-snapshots` and nothing else. The secret is REQUIRED and must differ from every other SeaweedFS secret |
+| `qdrantSnapshotSchedule` | `30 1 * * *` | 5-field cron for `qdrant-snapshot`: first `GET /aliases` recorded as `aliases/aliases-<timestamp>.json` (aliases are in no snapshot), then every collection snapshotted on every peer (a collection snapshot holds that peer's shards only) and uploaded to `qdrant-snapshots`. Restoring from them: the runbook |
+| `qdrantSnapshotRetentionDays` | `7` | The same CronJob deletes snapshots and alias records older than this, by the timestamp in their names |
+| `qdrantQuotaMemoryPercent` / `qdrantQuotaDiskPercent` | `90` / `85` | Qdrant's quotas: above either share of the memory limit or of the data volume, a peer refuses writes with HTTP 507 and reports `quota_exceeded{resource}` (the alert `QdrantQuotaExceeded`), instead of an OOM kill or a full disk. Whole percentages 1-99. They seed the quota manager on a cluster's first start only; on a running cluster change them with `PUT /quotas` too (the runbook's "Quotas") |
+| 🔒 `qdrantAltApiKey` | — | Unset outside a key rotation. While set, every peer also accepts it as a read-write key, on the API and on p2p, so `qdrantApiKey` can be rotated in three deploys without a refused write (the runbook's "Rotate the API key"). Its arrival and its removal each roll the peers. Must differ from `qdrantReadOnlyApiKey` |
+| `chromaMigration` | `false` | Run the one-shot `chroma-migration` Job that copies the retired Chroma store into Qdrant (`app/chroma-migration-job.ts`), on the deploy that removes Chroma; the order of operations is the runbook's "Migrating from Chroma on Kubernetes". The Job exports over HTTP from the Chroma server that deploy still runs (Pulumi deletes it last, and only on success), in a pinned Python image with the `chromadb` the deployment ran, then imports and verifies in the backend image. `pulumi up` waits for it, and every backend tier and the frontend roll only after it: users keep retrieval from Chroma until then, and a failed Job fails the deploy before anything rolled or Chroma was deleted. It runs once while the flag is on (a later deploy does not replace it), never retries (a failed pod keeps its logs and the export), and has no TTL, so it and its log stay until the flag is switched off. While the flag is on, the `housekeeping-base-corpus` and `vector-reconcile` CronJobs are suspended: neither may take a collection the import has not filled yet for one the store lost (a corpus re-embedding, forgotten document metadata) |
+| `chromaMigrationScratchSize` | `50Gi` | The Job's scratch volume (a generic ephemeral claim on `storageClass`, kept with the pod until the Job is deleted). It holds the export (about 16 KB per chunk at 3072 dimensions) and about 2 GiB for the `chromadb` environment. 50Gi covers about 3 million chunks |
+| `chromaMigrationTimeoutMinutes` | `40` | How long `pulumi up` waits for the Job before it fails the deploy (nothing has rolled then, and Chroma is not deleted; the Job keeps running). The staging pipeline stops at 60 minutes and the rest of a deploy takes about 6: raise it only for an `up` run from a terminal |
+| `qdrantLowMemoryMode` | — | `no_resident` or `no_populate`: Qdrant's `storage.low_memory_mode` on every peer, to get one that OOMs while loading its segments back up (the runbook's "OOM crash loop"). Recovery only: remove it once the peer is up. Anything else is refused, because Qdrant refuses it at start |
+| `qdrantDashboardEnabled` | `false` | Qdrant's built-in web dashboard on a public host: an `https-qdrant` listener (certificate `grid-qdrant-tls`), its DNS record under `dnsEnabled`, the `grid-qdrant-dashboard` HTTPRoute to `qdrant:6333`, the `grid-qdrant-dashboard-auth` SecurityPolicy (the platform Connect application of `otelOidc*`, operator permission only, no analysts), the `qdrant-dashboard-oidc` Secret and the `allow-edge-to-qdrant-dashboard` NetworkPolicy (edge to 6333 only). Off, none of these exist. Refused without the three `otelOidc*` keys. The route strips `Authorization` and `Cookie`, so no WorkOS token reaches Qdrant, and injects no Qdrant key: the operator pastes one into the dashboard. Enabling it, which key to paste, and the port-forward when it is off: the runbook's "Dashboard" |
+| `qdrantDashboardDomain` | `qdrant.<baseDomain>` | Its public host. Register `https://<host>/oauth2/callback` as a redirect URI on the **same** WorkOS Connect application as Langfuse before turning the flag on |
 | **Gotenberg (office → PDF, ADR-0070)** | | |
 | `gotenbergEnabled` | `true` | Office → PDF converter. Required for indexing Word, presentation, `.xls` and `.ods` files, which the backend reads only from the PDF (ADR-0071). `false` drops the workload and the frontend's `GOTENBERG_URL`: those files are then marked failed with a retryable reason, and `.xlsx`/`.xlsm` index without preview or thumbnail. With `networkPolicies` on it admits the frontend alone and has no egress (`gotenberg-frontend-only`); its flags refuse LibreOffice's outbound fetches either way. Drains a conversion in flight for up to 120s on a rollout |
 | `gotenbergReplicas` | `ceil(bffJobsMaxReplicas × bffJobsRenditionConcurrency / 2)` (2 by default) | Converter replicas. A replica is sized for 2 conversions (one running, one ready behind it, `GOTENBERG_SLOTS_PER_REPLICA`), so its capacity is twice this, and the `bff-jobs` pool's ceiling (`bffJobsMaxReplicas × bffJobsRenditionConcurrency`) may not exceed it (`gotenberg.spec.ts` holds the defaults to it). Unset, it follows the pool; set it higher to leave headroom for readers opening a preview, whose conversions the frontend pods run themselves |
@@ -358,9 +385,10 @@ src/platform/            provider, namespace, cert-manager, gateway (Envoy),
                          metrics-server, scheduling (PDB/spread), rollout
                          (update strategy, drain, secret checksum)
 policy/                  CrossGuard policy pack (own package.json + bun.lock)
-src/data/                postgres (CNPG), dragonfly, seaweedfs
+src/data/                postgres (CNPG), dragonfly, seaweedfs, qdrant
 src/app/                 config (Secret + env), migrations Job,
-                         audit-schemas Job, backend, frontend (+HPA),
+                         audit-schemas Job, chroma-migration Job,
+                         backend, frontend (+HPA),
                          workers, httproutes
 scripts/                 deploy.yml's helpers: GHCR tag lookup, the staging
                          image resolver + downgrade guard (reads the

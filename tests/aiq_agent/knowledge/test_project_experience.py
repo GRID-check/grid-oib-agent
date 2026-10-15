@@ -480,6 +480,20 @@ def test_chosen_files_with_no_readable_text_are_no_documents():
     assert response.error == "no_documents"
 
 
+def test_a_store_that_cannot_be_read_is_extraction_failed_not_no_documents():
+    """``no_documents`` says the project has nothing to read; an outage says nothing about that."""
+    llm = FakeLLM({"file_names": ["a.pdf"]})
+
+    def down(collection, file_name):
+        raise ConnectionError("qdrant down")
+
+    response = read_project_experience(
+        _request(), llm=llm, list_documents=lambda collection: [_doc("a.pdf")], fetch_pages=down
+    )
+
+    assert response.error == "extraction_failed"
+
+
 def test_no_model_is_answered_as_no_model():
     response = read_project_experience(
         _request(), llm=None, list_documents=lambda collection: [_doc("a.pdf")], fetch_pages=_fetch_from({})

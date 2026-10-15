@@ -1,0 +1,33 @@
+---
+operators:
+  - >
+    Qdrant is now the only vector store and Chroma is gone: AIQ_QDRANT_URL is
+    required, and AIQ_VECTOR_BACKEND and the AIQ_CHROMA settings are no longer
+    read. Existing documents move over once, without embedding anything again,
+    by the procedure in docs/deployment/qdrant-runbook.md.
+  - >
+    On Docker Compose and Coolify, upgrade in this order: stop the old release,
+    export from the Chroma volume, import with --verify, then start the new
+    release. Started before the import, it answers from an empty store and
+    re-embeds the whole base corpus at the provider's price.
+  - >
+    Where the new release must run before the import, as on Coolify, set
+    AIQ_VECTOR_IMPORT_PENDING=true until the import has verified. On
+    Kubernetes, the chromaMigration Job copies the store during the deploy,
+    before the backends roll.
+  - >
+    The import runs once: a second one is refused unless forced, because an
+    old export imported again brings back every document deleted since.
+  - >
+    Rolling back across this release means reverting it, not deploying an
+    older image, which would answer from an empty store and lose every upload;
+    the deploy now refuses such an image. Writes made since the upgrade are
+    lost on a rollback.
+  - >
+    The Postgres chunk_text table, which mirrored chunk text for the old German
+    full-text search, is no longer used. No migration drops it; drop it by
+    hand once the move to Qdrant is verified.
+  - >
+    A search across an office's other projects ranks up to 40 projects in one
+    query instead of 8, ordered by one ranking rather than by scores from
+    separate searches.

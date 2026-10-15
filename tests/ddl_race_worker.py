@@ -21,7 +21,6 @@ _TIMEOUT_SECONDS = 120
 SITES: dict[str, tuple[str, ...]] = {
     "ingest_status_store": ("ingest_jobs", "ingest_job_queue", "ingest_lane_turns"),
     "research_queue": ("research_job_queue", "research_lane_turns"),
-    "chunk_text_store": ("chunk_text",),
     "norm_store": ("norm_registry",),
     "document_metadata_store": ("document_metadata",),
     "corpus_store": ("oib_corpus_files",),
@@ -46,13 +45,6 @@ def _research_queue(url: str) -> bool:
 
     queue.ensure_research_queue_table(url)
     return url in queue.queue_for(url).initialized
-
-
-def _chunk_text_store(url: str) -> bool:
-    from aiq_agent.knowledge.chunk_text_store import ChunkTextStore
-
-    ChunkTextStore(url)
-    return url in ChunkTextStore._tables_initialized
 
 
 def _norm_store(url: str) -> bool:
@@ -140,7 +132,6 @@ def _langgraph_store(url: str) -> bool:
 _ENSURE = {
     "ingest_status_store": _ingest_status_store,
     "research_queue": _research_queue,
-    "chunk_text_store": _chunk_text_store,
     "norm_store": _norm_store,
     "document_metadata_store": _document_metadata_store,
     "corpus_store": _corpus_store,

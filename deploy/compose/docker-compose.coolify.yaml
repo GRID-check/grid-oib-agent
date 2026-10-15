@@ -71,7 +71,7 @@ services:
       # LLM key through the shared credential resolver, which INFERS the provider
       # key from the base URL: with a base URL on openrouter.ai it picks up
       # OPENROUTER_API_KEY automatically, so no per-family key wiring is required.
-      # The OIB corpus is embedded on first boot into the persistent Chroma
+      # The OIB corpus is embedded on first boot into the persistent Qdrant
       # volume with this model; keep it stable across redeploys so stored vectors
       # and query embeddings always use the same model.
       - AIQ_EMBED_MODEL=${AIQ_EMBED_MODEL:-openai/text-embedding-3-large}
@@ -126,14 +126,20 @@ services:
       - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
       - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDREADONLY}
       - SEAWEED_BUCKET=grid-documents
-      # ── Knowledge base (shared Chroma server, ADR-0021) ──
-      # Every role (chat, api, agent-worker, ingest-worker) talks to ONE Chroma
-      # server over HTTP (the `chroma` service below), so the vector store is not
+      # ── Knowledge base (shared Qdrant, ADR-0113) ──
+      # Every role (chat, api, agent-worker, ingest-worker) talks to ONE Qdrant
+      # over HTTP (the `qdrant` service below), so the vector store is not
       # pinned to a single container's disk: the chat and api roles read what the
       # ingest worker writes. There is no embedded fallback: the backend keeps no
       # volume (ADR-0082). Keep AIQ_EMBED_MODEL stable so stored + query vectors
-      # match.
-      - AIQ_CHROMA_URL=${AIQ_CHROMA_URL:-http://chroma:8000}
+      # match. A stack that ran Chroma moves its vectors over once: see the
+      # Chroma migration in docs/deployment/qdrant-runbook.md.
+      - AIQ_QDRANT_URL=http://qdrant:6333
+      - AIQ_QDRANT_API_KEY=${SERVICE_PASSWORD_QDRANT}
+      # `true` only while an old store is imported into this Qdrant: the
+      # base-corpus sync then does not take the empty corpus collection for a
+      # reset (docs/deployment/qdrant-runbook.md, "On Coolify").
+      - AIQ_VECTOR_IMPORT_PENDING=${AIQ_VECTOR_IMPORT_PENDING:-}
       - COLLECTION_NAME=${COLLECTION_NAME:-oib_knowledge}
       - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
       # Allow the browser-facing frontend origin through the API's CORS filter.
@@ -186,7 +192,7 @@ services:
       pgbouncer:
         condition: service_healthy
       # Shared vector store must be up before the agent boots.
-      chroma:
+      qdrant:
         condition: service_healthy
       # service_started, NOT service_healthy: the cache is optional by design
       # (fail-open in both tiers) and must never block the stack.
@@ -200,43 +206,43 @@ services:
       start_period: 40s
     restart: unless-stopped
 
-  # ── Shared ChromaDB server (ADR-0021), the docker-compose mirror of the
-  #    Kubernetes StatefulSet in deploy/pulumi/src/data/chroma.ts ──
-  # ONE Chroma process that every aiq-agent replica and the agent-worker query
-  # over HTTP, so the vector store stops being pinned to a single container's
-  # disk. Chroma's OSS server is itself single-node (one process on a durable
-  # volume) — that is fine here: it is the *shared* store, not a per-replica one.
-  chroma:
-    # MUST track the `chromadb` client version the app is built against (see
-    # sources/knowledge_layer). Chroma 1.x changed the collection-config wire
-    # schema, so a 1.x client against a 0.5.x server fails ingestion with
-    # KeyError('_type'). 1.x is a Rust server configured by a baked /config.yaml
-    # (persist_path: /data) — the 0.5.x IS_PERSISTENT/PERSIST_DIRECTORY env vars
-    # are ignored, so persistence comes purely from mounting the volume at /data.
-    image: ${CHROMA_IMAGE:-chromadb/chroma:1.5.9}
+  # ── Qdrant (ADR-0113), the single-node mirror of the Kubernetes StatefulSet
+  #    in deploy/pulumi/src/data/qdrant.ts ──
+  # ONE vector store that every backend role queries over HTTP. Coolify puts
+  # every service of the stack on one managed network, so it carries the key
+  # Coolify generates (open-source Qdrant answers anyone without one); the
+  # health endpoint the check uses stays open.
+  qdrant:
+    image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.19.2}
     expose:
-      - "8000"
+      - "6333"
+    environment:
+      - QDRANT__TELEMETRY_DISABLED=true
+      - QDRANT__SERVICE__API_KEY=${SERVICE_PASSWORD_QDRANT}
+      # /metrics without the key on its own port, as on the Pulumi peers.
+      - QDRANT__SERVICE__METRICS_PORT=6336
+      # Writes refused with 507 near the memory limit or a full volume rather
+      # than an OOM kill or a WAL that cannot grow; the ingest queue retries.
+      # The Pulumi defaults; they seed the quota manager on the first start only.
+      - QDRANT__STORAGE__QUOTAS__ENABLED=true
+      - QDRANT__STORAGE__QUOTAS__MAX_RESIDENT_MEMORY_PERCENT=${QDRANT_QUOTA_MEMORY_PERCENT:-90}
+      - QDRANT__STORAGE__QUOTAS__MAX_DISK_USAGE_PERCENT=${QDRANT_QUOTA_DISK_PERCENT:-85}
     volumes:
-      # ADOPT the existing embedded store instead of starting from an empty
-      # volume. The pre-server deploy embedded the whole corpus (oib_knowledge +
-      # project/archiv uploads) into this volume via the chromadb 1.5.9
-      # PersistentClient. The 1.5.9 server uses the SAME on-disk persist format,
-      # so pointing its persist dir (/data) at that volume brings every existing
-      # collection back with ZERO re-embedding — no migration script needed.
-      - chroma_data:/data
+      - qdrant_data:/qdrant/storage
     healthcheck:
-      # The 1.x image is near-distroless (no python/curl), but ships bash — so
-      # probe /api/v2/heartbeat (v1 was removed in 1.0) over bash's /dev/tcp.
-      # $$s escapes to a literal $s so compose doesn't interpolate it away.
+      # The image ships bash but no curl: probe /readyz over /dev/tcp. $$s keeps
+      # compose from interpolating it away.
       test:
         - "CMD"
         - "bash"
         - "-c"
-        - 'exec 3<>/dev/tcp/localhost/8000; printf "GET /api/v2/heartbeat HTTP/1.0\r\n\r\n" >&3; read -r s <&3; [[ "$$s" == *200* ]]'
+        - 'exec 3<>/dev/tcp/localhost/6333; printf "GET /readyz HTTP/1.0\r\n\r\n" >&3; read -r s <&3; [[ "$$s" == *200* ]]'
       interval: 10s
       timeout: 10s
       retries: 12
-      start_period: 20s
+      # Loading large collections from disk on start (WAL replay, segments)
+      # takes minutes; failures in this window do not count against retries.
+      start_period: 300s
     restart: unless-stopped
 
   # ── Deep-research worker tier (ADR-0021), the docker-compose mirror of the
@@ -246,7 +252,7 @@ services:
   # vectors always match), but launched with GRID_ROLE=worker: the entrypoint
   # then execs `python -m aiq_api.jobs.worker` instead of the web server. Workers
   # claim jobs from Postgres (FOR UPDATE SKIP LOCKED) and read/write the shared
-  # Chroma server — no web port.
+  # Qdrant — no web port.
   agent-worker:
     extends:
       service: aiq-agent
@@ -261,7 +267,7 @@ services:
         condition: service_healthy
       pgbouncer:
         condition: service_healthy
-      chroma:
+      qdrant:
         condition: service_healthy
       seaweedfs:
         condition: service_healthy
@@ -270,7 +276,7 @@ services:
     # The web healthcheck inherited from aiq-agent would never pass (no HTTP
     # server here). Mirror the K8s liveness marker instead: worker.py touches
     # /tmp/research-worker.alive each claim-loop tick; fail if it is missing or
-    # stale (loop hung). The long start_period covers the cold import + DB/Chroma
+    # stale (loop hung). The long start_period covers the cold import + DB/Qdrant
     # connect before the first tick (K8s uses a 10-min startupProbe for this).
     healthcheck:
       test:
@@ -304,7 +310,7 @@ services:
         condition: service_healthy
       pgbouncer:
         condition: service_healthy
-      chroma:
+      qdrant:
         condition: service_healthy
       dragonfly:
         condition: service_started
@@ -314,7 +320,7 @@ services:
   #    Deployment in deploy/pulumi/src/app/ingest-worker.ts ──
   # POST /v1/ingest, served by the api role, only puts a job in the durable
   # queue. This is the one process that claims it, fairly across organizations,
-  # and runs it against the shared Chroma. With it stopped, uploads sit pending.
+  # and runs it against the shared Qdrant. With it stopped, uploads sit pending.
   # No web port.
   ingest-worker:
     extends:
@@ -335,7 +341,7 @@ services:
         condition: service_healthy
       pgbouncer:
         condition: service_healthy
-      chroma:
+      qdrant:
         condition: service_healthy
       dragonfly:
         condition: service_started
@@ -984,8 +990,10 @@ services:
     restart: unless-stopped
 
 volumes:
-  # The vector store, served by the `chroma` server (mounted at /data).
-  chroma_data:
+  # The vector store. A stack that ran Chroma still has its `chroma_data`
+  # volume, undeclared here so nothing in this file can remove it; the
+  # migration reads it, and it is deleted by hand once the vectors are in Qdrant.
+  qdrant_data:
     driver: local
   # The pre-A2 backend volume, read once by legacy-corpus-import and by nothing else.
   aiq-data:

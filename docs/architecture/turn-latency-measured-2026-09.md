@@ -178,7 +178,29 @@ greeting is not; switched-off decisions warm nothing).
 | Start the requery writer beside the verdicts, discard it when they say "sufficient" | ~0.6 s on the ~30% of turns that requery | one small-model call on the other ~70% |
 | ~~Drop the round-0 requery and let the agent search again in its own round~~ | measured: **+3.4 s** per turn where it applied | rejected, §3.5 |
 | Warm the adapter at worker boot | 0.9-1.5 s on a process's first turn only | none; matters only with frequent restarts |
-| Embed the family branch's per-document lookups without a query | ~0.6 s the first time a family is asked in a process | small; the lookups already cache per process |
+| ~~Embed the family branch's per-document lookups without a query~~ | landed with Qdrant, see below | none |
+
+**Structural reads on Qdrant (2026-10-13).** `read_passage` and the family
+overview read by filter (`BaseRetriever.fetch`, `qdrant/reads.py`). The probe they embedded was the locus label
+(„file, Pkt. 3.5.2"), a new string for every Punkt or page, so the embedding
+LRU only saved a repeat of the same read and every new locus paid a full
+embedding. Measured locally against a single-node Qdrant 1.19.2 with a seeded
+corpus of 255 chunks, the embedder faked as a 280 ms sleep (the low end
+of the range above) with no LRU, the static result cache off, medians of
+seven reads (three with the 280 ms embedder):
+
+| Read | Old path, embedder free | Old path, 280 ms embedder | Structural fetch |
+|---|---|---|---|
+| Outline | 11.8 ms | 300.9 ms | 9.7 ms |
+| Punkt | 11.5 ms | 299.1 ms | 7.4 ms |
+| Page | 11.8 ms | 300.9 ms | 7.2 ms |
+| Whole-document fallback | 12.0 ms | 580.7 ms (outline and fallback both embed; the LRU would dedupe the second) | 11.6 ms |
+| Family overview, 2 members | | 303.3 ms (one run) | 8.9 ms |
+
+The saving is the embedding: 280-980 ms per new locus, and for a family one
+embedding wall-clock (the members run in parallel) the first time it is asked
+in a process. A production Qdrant over the network and the real corpus were
+not measured.
 
 ### 3.5 Measured and rejected: skipping the requery on the prefetch
 

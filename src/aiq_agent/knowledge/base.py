@@ -12,6 +12,7 @@ import time
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Callable
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
@@ -30,6 +31,59 @@ logger = logging.getLogger(__name__)
 # e.g. "s_<uuid>". Only collections with this prefix are subject to TTL reaping;
 # base/project corpora (e.g. "oib_knowledge") are persistent and never auto-deleted.
 SESSION_COLLECTION_PREFIX = "s_"
+
+#: The order a structural fetch (:meth:`BaseRetriever.fetch`) can ask for: the
+#: page a chunk starts on, as an integer, ``0`` when it has none. It is the
+#: leading term of every document order a reader sorts by (``read_passage``'s
+#: ``_punkt_sort_key`` starts with ``Chunk.page_number or 0``), so a fetch that
+#: keeps the first N chunks in this order, and never splits a tie, hands that
+#: reader exactly the chunks its own finer sort would have kept.
+READING_ORDER = "reading_order"
+
+
+def reading_order(page_label: Any) -> int:
+    """A chunk's :data:`READING_ORDER` from its stored ``page_label``.
+
+    The same parse the adapter's ``normalize`` makes for ``Chunk.page_number``
+    (``int(page_label)``, nothing when that fails or is below 1, which a
+    ``Chunk`` cannot carry), then ``or 0``. A worksheet name, a missing label
+    and page 0 all read as 0.
+    """
+    try:
+        page = int(page_label)
+    except (TypeError, ValueError):
+        return 0
+    return page if page >= 1 else 0
+
+
+def metadata_int(metadata: Mapping[str, Any] | None, key: str) -> int:
+    """An integer chunk-metadata field, ``0`` when absent or not a number (an int, or the string a store hands back)."""
+    raw = (metadata or {}).get(key)
+    try:
+        return int(str(raw).strip())
+    except ValueError:
+        return 0
+
+
+def section_position(metadata: Mapping[str, Any] | None) -> tuple[int, int, int]:
+    """Where a chunk sits inside its page by the structure its chunker stamped: section, first line, part.
+
+    ``section_order`` and ``line_start`` place a tenant section („Geschoße“,
+    „Zeilen 12-30“); the part is a table's row group or a long section's piece
+    (``table_part``, else ``section_part``). ``(0, 0, 0)`` for a chunk with none
+    of them, such as every chunk the ``SentenceSplitter`` cuts from a PDF page:
+    those need their place in the file to be ordered (``chunk_ordinal`` in the
+    Qdrant payload). ``read_passage`` sorts by the same terms.
+    """
+    part = metadata_int(metadata, "table_part") or metadata_int(metadata, "section_part")
+    return (metadata_int(metadata, "section_order"), metadata_int(metadata, "line_start"), part)
+
+
+#: ``Chunk.metadata`` key under which :meth:`BaseRetriever.search_grouped` puts
+#: each chunk's score in the one fused ranking across every group. Comparable
+#: across groups, unlike ``Chunk.score`` (the chunk's own cosine); the grouped
+#: search route orders documents across projects by it.
+FUSED_SCORE_KEY = "fused_score"
 
 
 @dataclass
@@ -227,6 +281,43 @@ class BaseRetriever(ABC):
         """Prepare ``query`` for a search about to be made (its embedding). Optional; never raises."""
         return None
 
+    async def search_grouped(
+        self,
+        query: str,
+        collection_names: list[str],
+        groups: int,
+        group_size: int,
+        filters: dict[str, Any] | None = None,
+        boost: dict[str, Any] | None = None,
+    ) -> list[tuple[str, list[Chunk]]]:
+        """One ranking over many collections, grouped per collection, best group first.
+
+        What cross-project search needs (ADR-0094, ADR-0114): every reachable
+        project ranked in ONE query, so scores never have to be compared
+        across separate indexes. Only a backend with a shared index can answer
+        it; the default raises ``NotImplementedError``.
+
+        ``filters`` (the grammar ``retrieve`` takes) narrow the search before
+        ranking. ``boost`` (``{"facts": {...}, "weights": {...}}``: the current
+        project's fingerprint and the BFF's similarity weights) lifts passages
+        from projects like the current one. Every chunk carries its fused
+        score as ``metadata[FUSED_SCORE_KEY]``.
+        """
+        raise NotImplementedError(f"{self.backend_name} cannot rank across collections in one query")
+
+    def embed_query(self, text: str) -> list[float]:
+        """The query vector the production embedder gives ``text``, through the retriever's own cache.
+
+        For a caller that queries the store with a vector of its own: similar
+        passages for a selected sentence. Blocking (one remote round trip on a
+        cache miss). A backend that embeds no queries raises.
+        """
+        raise NotImplementedError(f"{self.backend_name} embeds no queries for a caller")
+
+    def embedding_identity(self) -> dict[str, str]:
+        """The embedder :meth:`embed_query` uses, as the store records it on a collection; empty when unknown."""
+        return {}
+
     async def find_text(
         self,
         collection_name: str,
@@ -246,6 +337,32 @@ class BaseRetriever(ABC):
         caller re-checks every chunk with the same string. Case-insensitivity,
         spelling variants and word boundaries are the CALLER's, expressed in
         the pattern (``(?i)``, alternation, ``\\b``); a backend matches it as given.
+        """
+        return None
+
+    async def fetch(
+        self,
+        collection_name: str,
+        filters: dict[str, Any] | None,
+        limit: int,
+        order_by: str | None = None,
+    ) -> list[Chunk] | None:
+        """The chunks of ``collection_name`` that ``filters`` admits, read by filter alone.
+
+        A structural read: no query, no embedding, no ranking. What a locator
+        needs when the filter has already decided which chunks exist (a named
+        Punkt, a page, a document's outline). Every returned chunk matches, so
+        each carries score 1.0, as :meth:`find_text`'s do.
+
+        At most ``limit`` chunks in the store's own order, or, with
+        ``order_by=READING_ORDER``, the first ``limit`` in that order plus
+        every chunk tied with the last of them: a tie is never split, so a
+        caller that re-sorts by a finer key starting with :data:`READING_ORDER`
+        keeps exactly what it would have kept from the whole set.
+
+        ``None`` means the backend cannot read by filter, never "nothing
+        matched": the caller then takes its old path (``retrieve``). A store
+        error raises.
         """
         return None
 

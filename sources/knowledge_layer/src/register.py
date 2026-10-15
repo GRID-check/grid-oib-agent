@@ -44,12 +44,13 @@ _MAX_CHUNKS_PER_DOC = 2
 # Retrieval over-fetch factor applied when the caller narrows results with the
 # agentic filters (doc_class / title_contains / file_name): post-merge
 # filtering drops candidates, so each layer fetches 3x top_k to leave enough
-# survivors.
+# survivors. Only the filters that cannot run inside the search do
+# (``qdrant.prefilter.post_filtered``).
 _AGENT_FILTER_OVERFETCH = 3
 
 # Substring identifying an embedding-fingerprint mismatch in a layer failure.
-# Produced by ``embed_fingerprint_mismatch`` in the llamaindex adapter (which
-# reports a same-dimension model swap as "embedding mismatch: ...") and
+# Produced by ``qdrant.schema.identity_mismatch`` (which reports a
+# same-dimension model swap as "embedding mismatch: ...") and
 # preserved verbatim in ``RetrievalResult.error_message`` by ``_retrieve_sync``
 # ("Retrieval failed: Collection '...' embedding mismatch: ..."). A mismatch
 # means the stored and query vectors live in different spaces, so the affected
@@ -197,15 +198,11 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         default="sqlite+aiosqlite:///./summaries.db",
         description="Database URL for document summaries (SQLite or PostgreSQL)",
     )
-    # LlamaIndex-specific options
-    chroma_dir: str = Field(
-        default="/tmp/chroma_data", description="Directory for ChromaDB persistence (LlamaIndex only)"
-    )
     hybrid_search: bool | None = Field(
         default=None,
         description=(
-            "Enable lexical+vector hybrid retrieval on the LlamaIndex backend (exact-term "
-            "Chroma $contains passes fused with vector results via reciprocal rank fusion). "
+            "Enable the lexical channels beside the dense one (German BM25 and the exact-term "
+            "phrase channels, fused in Qdrant by reciprocal rank fusion). "
             "None = environment default AIQ_HYBRID_RETRIEVAL (on)."
         ),
     )
@@ -334,9 +331,7 @@ def _setup_backend(config: KnowledgeRetrievalConfig, summary_llm_obj=None) -> tu
     """
     import knowledge_layer.llamaindex.adapter  # noqa: F401
 
-    os.environ.setdefault("AIQ_CHROMA_DIR", config.chroma_dir)
     backend_config: dict = {
-        "persist_dir": config.chroma_dir,
         "generate_summary": config.generate_summary,
         "summary_llm": summary_llm_obj,
     }
@@ -577,12 +572,11 @@ def _resolve_target_collections(
 #: whitelist of ``punkt`` on purpose: only Punkt-structured documents carry the
 #: key at all -- Begriffsbestimmungen, Zitierte Normen, project uploads and office
 #: files carry no ``chunking`` key -- and a whitelist would delete them from
-#: search. Measured against the deployed store (chromadb 1.5.9, the version
-#: ``deploy/`` pins): ``$ne`` KEEPS records that lack the key, so the keyless
-#: majority of the corpus is untouched. ``tests/knowledge_layer_tests/
-#: test_page_chunk_exclusion.py`` round-trips that through a real collection, so
-#: a version bump that changed the semantics fails a test rather than emptying
-#: the corpus silently.
+#: search. ``$ne`` KEEPS records that lack the key (``qdrant.scope.translate``
+#: compiles it to a ``must_not``), so the keyless majority of the corpus is
+#: untouched. ``tests/knowledge_layer_tests/test_page_chunk_exclusion.py``
+#: round-trips that through a real Qdrant, so a change that altered the
+#: semantics fails a test rather than emptying the corpus silently.
 #:
 #: ``read_passage`` builds its own filters and is deliberately NOT subject to
 #: this: naming page 1 of a Richtlinie is an explicit request, not a similarity hit.
@@ -768,7 +762,7 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
             # A missing collection is routine — every new conversation's session
             # collection does not exist until something is uploaded into it, so
             # logging that at WARNING would bury the signal under one line per turn.
-            # Everything else is not routine: a corpus that dropped out because Chroma
+            # Everything else is not routine: a corpus that dropped out because the store
             # was unreachable, a collection deleted and recreated, or a filter that
             # failed to translate all produced a confident answer built on an empty
             # knowledge layer with nothing above DEBUG to say so.
@@ -2044,8 +2038,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         effective_top_k = get_retrieval_setting("knowledge.top_k", top_k)
         effective_max_per_document = get_retrieval_setting("knowledge.max_chunks_per_document", max_per_document)
 
-        # Over-fetch when agentic filters will drop candidates post-merge.
-        narrowed = bool(doc_class or title_contains or file_name or folder)
+        # Over-fetch when agentic filters will drop candidates post-merge. On
+        # Qdrant, `doc_class`, `folder` and the superseded exclusion run INSIDE
+        # the search (`qdrant/prefilter.py`), so only the filters left after it do.
+        from .qdrant import prefilter as qdrant_prefilter
+
+        pushdown = qdrant_prefilter.plan(doc_class=doc_class, folder=folder, file_name=file_name)
+        narrowed = qdrant_prefilter.post_filtered(title_contains=title_contains, file_name=file_name)
         candidate_k = effective_top_k * _AGENT_FILTER_OVERFETCH if narrowed else effective_top_k
         if rerank_llm_obj is not None or cross_encoder is not None:
             candidate_k = max(candidate_k, config.rerank_candidates)
@@ -2172,15 +2171,14 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # File exclusions + caller filters apply to the base collection only;
             # session/project collections are user content and are never filtered.
             coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
-            if folder_files is not None:
-                narrowing = {"file_name": {"$in": sorted(folder_files.get(coll) or [])}}
-                coll_filters = {**coll_filters, **narrowing} if coll_filters else narrowing
-            if hidden_fassungen.get(coll):
-                hidden = {"file_name": {"$nin": sorted(hidden_fassungen[coll])}}
-                coll_filters = {"$and": [coll_filters, hidden]} if coll_filters else hidden
+            coll_filters = pushdown.narrow(coll_filters, user_shelf=coll != base_collection)
             result = await retriever.retrieve(
                 query=search_query, collection_name=coll, top_k=candidate_k, filters=coll_filters
             )
+            if hidden_fassungen.get(coll) and getattr(result, "chunks", None):
+                result = result.model_copy(
+                    update={"chunks": qdrant_prefilter.without_files(result.chunks, hidden_fassungen[coll])}
+                )
             # Tag each chunk with its collection so the merge does not lose the
             # per-hit stratum — the trace UI's lane labels and source_lane read it.
             # The SHELF rides along explicitly (ADR-0047): this is the last point
@@ -2558,7 +2556,15 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 try:
                     search_input["round"] = span_round
                     search_input["tool"] = "knowledge_search"
+                    search_input["prefiltered"] = pushdown.fields(
+                        user_shelves=any(entry.collection != base_collection for entry in target_collections)
+                    )
                     search_input["normalized_query"] = _normalized_query_for_span(query)
+                    # How the store reads and fuses its channels (``qdrant/search.py``
+                    # ``RANKING``): traces either side of a ranking change are told apart.
+                    from .qdrant.search import RANKING
+
+                    search_input["ranking"] = RANKING.label()
                     if file_name:
                         search_input["file_name"] = file_name
                     if doc_class:
@@ -2574,6 +2580,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                         search_input["dropped_by_cap"] = dropped_by_cap
                     if dropped_by_family:
                         search_input["dropped_by_family"] = dropped_by_family
+                    if overview is not None:
+                        # "fetch": the members were read by filter, no embedding (ADR-0113).
+                        search_input["family_read"] = "fetch" if overview.structural else "retrieve"
                     if coverage is not None:
                         search_input["coverage"] = "insufficient"
                         search_input["coverage_best"] = round(coverage.best, 3)

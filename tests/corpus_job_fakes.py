@@ -88,12 +88,18 @@ def _engine():
     return DocumentMetadataStore._get_or_create_sync_engine(ingest_queue.db_url())
 
 
-def run_worker(*, succeed: bool = True) -> list[PreparedIngestJob]:
-    """What an ingest worker does with the queue, minus the pipeline: claim, download, write the outcome."""
+def run_worker(*, succeed: bool = True, downloaded: list[bytes] | None = None) -> list[PreparedIngestJob]:
+    """What an ingest worker does with the queue, minus the pipeline: claim, download, write the outcome.
+
+    Each job's downloaded bytes are appended to ``downloaded`` when it is given.
+    """
     ran: list[PreparedIngestJob] = []
     while claim := ingest_queue.claim_next("worker-1", stale_seconds=180, max_attempts=3):
         prepared = ingest_dispatch.decode(claim.payload)
         path = prepared.file_paths[0]()  # the job's own download, for real
+        if downloaded is not None:
+            with open(path, "rb") as handle:
+                downloaded.append(handle.read())
         os.unlink(path)
         status = prepared.status.model_copy(deep=True)
         status.status = JobState.COMPLETED if succeed else JobState.FAILED

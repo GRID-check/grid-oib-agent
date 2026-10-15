@@ -147,7 +147,6 @@ def configure_logging():
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
-    logging.getLogger("chromadb").setLevel(logging.WARNING)
 
     return log_level
 

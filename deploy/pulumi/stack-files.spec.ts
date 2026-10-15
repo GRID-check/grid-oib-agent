@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { load } from "js-yaml";
+import { RETIRED_VECTOR_KEYS } from "./src/config";
 
 /**
  * The committed stack files, checked against EACH OTHER.
@@ -66,6 +67,15 @@ describe("committed stack files", () => {
       if (apexServers.length === 0) continue;
       const redirecting = members.filter((s) => str(s.config, "dnsApexRedirectTo") !== undefined);
       expect(redirecting.map((s) => s.file), `zone ${zoneId}`).toEqual([]);
+    }
+  });
+
+  // `loadConfig` refuses them at plan time, which is the deploy failing; this
+  // says so on the pull request instead (ADR-0113).
+  it("set none of the retired Chroma and vector-switch keys", () => {
+    for (const stack of stacks()) {
+      const retired = RETIRED_VECTOR_KEYS.filter((key) => `grid-oib:${key}` in stack.config);
+      expect(retired, stack.file).toEqual([]);
     }
   });
 });

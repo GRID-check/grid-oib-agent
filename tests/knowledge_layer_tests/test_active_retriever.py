@@ -51,7 +51,6 @@ class _FakeIngestor:
     """Stand-in exposing only what the factory reads to mirror config."""
 
     backend_name = "fake_search_backend"
-    persist_dir = "/data/fake-chroma"
     embed_base_url = "https://embed.example/v1"
     embed_model_name = "fake-embed-model"
 
@@ -71,8 +70,7 @@ def test_builds_from_active_ingestor_config_and_caches():
     retriever = get_active_retriever()
 
     assert retriever.backend_name == "fake_search_backend"
-    # Config mirrored from the ingestor so both read the same store + model.
-    assert retriever.config["persist_dir"] == "/data/fake-chroma"
+    # Config mirrored from the ingestor so both embed with the same model.
     assert retriever.config["embed_base_url"] == "https://embed.example/v1"
     assert retriever.config["embed_model"] == "fake-embed-model"
 
@@ -96,7 +94,7 @@ def test_falls_back_to_default_backend_without_ingestor(monkeypatch):
 
 
 def test_the_same_backend_and_config_gets_the_same_instance():
-    config = {"persist_dir": "/data/chroma", "embed_model": "nv-embed"}
+    config = {"persist_dir": "/data/x", "embed_model": "nv-embed"}
 
     first = get_retriever("fake_search_backend", config)
     second = get_retriever("fake_search_backend", dict(config))
@@ -108,13 +106,13 @@ def test_the_same_backend_and_config_gets_the_same_instance():
 
 
 def test_a_different_config_gets_a_different_instance():
-    first = get_retriever("fake_search_backend", {"persist_dir": "/data/chroma-a"})
-    second = get_retriever("fake_search_backend", {"persist_dir": "/data/chroma-b"})
+    first = get_retriever("fake_search_backend", {"persist_dir": "/data/a"})
+    second = get_retriever("fake_search_backend", {"persist_dir": "/data/b"})
 
     # Reusing the first instance here would silently query the wrong store: the
     # persist dir and the embedding model are baked into the adapter.
     assert second is not first
-    assert second.config["persist_dir"] == "/data/chroma-b"
+    assert second.config["persist_dir"] == "/data/b"
 
 
 def test_an_omitted_config_is_its_own_identity():
@@ -139,14 +137,14 @@ def test_a_config_value_that_is_not_json_serializable_still_resolves():
 def test_clear_active_retriever_drops_the_cached_instances():
     set_active_ingestor(_FakeIngestor())
     active = get_active_retriever()
-    per_identity = get_retriever("fake_search_backend", {"persist_dir": "/data/chroma"})
+    per_identity = get_retriever("fake_search_backend", {"persist_dir": "/data/x"})
 
     clear_active_retriever()
 
     # A process-lifetime cache with no reset hook makes every test after the
     # first one run against the previous test's warm adapter.
     assert get_active_retriever() is not active
-    assert get_retriever("fake_search_backend", {"persist_dir": "/data/chroma"}) is not per_identity
+    assert get_retriever("fake_search_backend", {"persist_dir": "/data/x"}) is not per_identity
 
 
 def test_an_unknown_backend_is_still_rejected():

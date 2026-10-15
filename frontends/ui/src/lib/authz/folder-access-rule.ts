@@ -226,7 +226,7 @@ export interface ProjectFolderAccess {
  * The collection of a folder that restricts reading: the project's own
  * collection name with `_r` and twelve hex digits of the folder id. 55
  * characters for the usual `proj_<uuid>` base, inside every validator on the
- * Python side (Chroma allows 512), and still `proj_`-prefixed, so a reader that
+ * Python side (Qdrant scopes are payload values, not names), and still `proj_`-prefixed, so a reader that
  * classifies by prefix reads it as the project shelf.
  */
 export function restrictedCollectionName(projectCollection: string, folderId: string): string {

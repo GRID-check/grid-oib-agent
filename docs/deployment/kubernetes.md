@@ -30,6 +30,8 @@ their own namespaces.
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
 | `gotenberg` (office → PDF, ADR-0070; required to index Word, presentation, `.xls` and `.ods` files, ADR-0071; `gotenbergEnabled`, default on) | Deployment | `gotenbergReplicas` (sized to the `bff-jobs` pool's conversion ceiling, prod 2; §6.3c) | — | n/a (stateless. A conversion it drops fails that ingest retryably, so a rollout drains for up to 120s) |
+| `qdrant` (the vector store, ADR-0113; always deployed) | StatefulSet (`Parallel`) + PDB + `qdrant-snapshot` CronJob | `qdrantReplicas` (default 3, one per node; 1 runs without cluster mode) | RWO PVC `/qdrant/storage` per peer, `Retain` | Peers by hand, shards moved by the runbook ([`qdrant-runbook.md`](qdrant-runbook.md)) |
+| `chroma-migration` (one-shot copy of the retired Chroma store into Qdrant; `chromaMigration`, default off) | Job | 1 pod | exports from the still-running `chroma` Service over HTTP, awaited before the backend tiers roll; scratch is a generic ephemeral claim | n/a ([runbook](qdrant-runbook.md#migrating-from-chroma-on-kubernetes)) |
 | `seaweedfs` (filer + S3 gateway) | StatefulSet | 1 (`single`) / N (`split`) | RWO PVC `/data` (unused under the Postgres filer store) | See §4 |
 | `seaweedfs-master` (`split` only) | StatefulSet | 1 (3 = HA, untested) | RWO PVC `/data` (raft + volume-id sequence) | Odd replica counts only |
 | `seaweedfs-volume` (`split` only) | StatefulSet | N | RWO PVC `/data` per replica | `seaweedfsVolumeReplicas` — this is the object-capacity knob |
@@ -131,7 +133,7 @@ an object store. So:
   `lightbits` is the **VolumeSnapshotClass** name (driver
   `csi.lightbitslabs.com`), *not* a StorageClass — don't set `storageClass` to it.
 - **Only ReadWriteOnce** — no RWX. Every PVC here is RWO and each is mounted by a
-  single pod (Postgres, SeaweedFS, Chroma), so this is a non-issue; just don't add an RWX volume expecting
+  single pod (Postgres, SeaweedFS, Qdrant), so this is a non-issue; just don't add an RWX volume expecting
   shared mounts. Because the CSI is network-attached (NVMe/TCP), an RWO volume
   still re-attaches to a *replacement* node after a node loss.
 - **Reclaim policy is `Delete` on every class:** deleting a PVC destroys the
@@ -223,11 +225,11 @@ groups is unchanged): `nodeGroupApp`, `nodeGroupData`, `nodeGroupBatch`
 
 Every pod template in the program is pinned:
 
-- `data`: the Postgres instances and both PgBouncers, `chroma`, SeaweedFS,
-  ClickHouse and the three Dragonfly instances. Chroma also carries
-  `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` on every stack: it
-  is one replica, so an autoscaler scale-down that evicts it is an outage. A
-  drain for a node upgrade still moves it.
+- `data`: the Postgres instances and both PgBouncers, the `qdrant` peers,
+  SeaweedFS, ClickHouse and the three Dragonfly instances. Qdrant also carries
+  `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` on every stack: an
+  autoscaler scale-down that evicts a peer is a shard recovery with the PVC
+  following the pod. A drain for a node upgrade still moves it.
 - `batch`: `ingest-worker` (8Gi requested, 12Gi limit in prod, §6.3b),
   Gotenberg and the legacy corpus import.
 - `Node`: everything else, the chat, api and agent-worker tiers, the frontend,
@@ -337,7 +339,9 @@ in this repo creates or configures it. Read live on 2026-10-12:
 The 2026-10-12 run copied all seven PVCs: `grid-pg-1` to `-3`,
 `data-seaweedfs-0` (the documents), `data-chroma-0`, `data-clickhouse-0` and
 `data-aiq-agent-0`, about 30 GB in under three minutes. A new PVC in `grid` is
-included without any change here.
+included without any change here: the `data-qdrant-N` peers' volumes from the
+release that replaced Chroma with Qdrant, and `data-chroma-0` until it is
+deleted after the migration.
 
 Each volume is snapshotted on its own, minutes apart, so a restore is
 crash-consistent per volume and not across them. Postgres recovers like after a
@@ -397,7 +401,7 @@ Then:
 
 The base OIB corpus is **not** shipped in the image or from git. Load it through
 the platform-admin upload UI once the stack is up: the PDFs are stored in
-SeaweedFS, listed in a table in the knowledge database, and ingested into Chroma
+SeaweedFS, listed in a table in the knowledge database, and ingested into Qdrant
 by the base-corpus housekeeping CronJob (every ten minutes; an upload also queues
 its own ingestion at once).
 
@@ -1088,8 +1092,9 @@ which inventories exactly what pins work to one process.
 
 ### 6.1 Today: vertical scaling (wired and working)
 
-The agent is a **hard singleton** — it embeds ChromaDB and in-process job/citation
-state — so you scale it **up**, not out:
+The agent was a **hard singleton** — it embedded its vector store and in-process
+job/citation state — so you scaled it **up**, not out (the vectors have since
+moved to a shared store, §6.3):
 
 - **CPU / memory:** `backendRequestsCpu/Memory`, `backendLimitsCpu/Memory`.
 - **Admission control (protects the pod under load):** `backendMaxActiveJobsPerOrg`
@@ -1115,7 +1120,7 @@ below lands.
 
 Per scaling-review §6.2, the single biggest capacity defect is that
 `LlamaIndexRetriever.retrieve` (`sources/knowledge_layer/src/llamaindex/adapter.py`)
-does a **synchronous** embedding call + Chroma query on the only event loop —
+does a **synchronous** embedding call + vector query on the only event loop —
 one user's retrieval stalls every other user's chat stream. Wrapping it in
 `asyncio.to_thread` (hours of work, no behaviour change) is the difference
 between "one slow tenant degrades everyone" and healthy concurrency. This is a
@@ -1135,8 +1140,8 @@ The token-heavy workload (deep research) now scales out:
 - **Cancellation works from any replica** — the cancel route flips `job_info` to
   INTERRUPTED and drops the queue row; the runner's 1 s `CancellationMonitor`
   honors it. No scheduler is involved.
-- **Shared vectors** (Stage A, `chromaEnabled: true`): the shared Chroma server
-  means workers and web replicas read/write one store.
+- **Shared vectors**: the Qdrant cluster (ADR-0113) means workers and web
+  replicas read/write one store.
 - **Citation registry** already shares cross-replica via Dragonfly (ADR-0020).
 
 - **The claim is fair, and a full cluster waits** (ADR-0079). A free worker
@@ -1400,7 +1405,7 @@ relate under load; `grid.http.request_seconds` is the duration of the same count
 In `db` mode the `aiq-agent` chat tier now runs `backendReplicas` replicas
 (default 2). The chat/retrieval path is replica-safe:
 
-- **Vectors** are shared (Chroma server, §6.3); **job/checkpoint state** is in
+- **Vectors** are shared (Qdrant, §6.3); **job/checkpoint state** is in
   Postgres; **caches + citation registry** are in Dragonfly.
 - **Ingestion status is persisted** to a shared `ingest_jobs` table
   (`src/aiq_agent/knowledge/ingest_status_store.py`), so a
@@ -1426,8 +1431,8 @@ depending on that routing (ADR-0082).
 **The backend keeps no files (ADR-0082 step A2).** The base corpus is objects in
 SeaweedFS (`base-corpus/<file name>` in `SEAWEED_BUCKET`) plus one table,
 `oib_corpus_files`, in the knowledge database; the vectors are in the shared
-Chroma server, which is required (`chromaEnabled: false` fails the plan: an
-embedded store would be wiped at every restart). What a replica holds on disk is
+Qdrant cluster, always deployed: there is no embedded store, which would be
+wiped at every restart. What a replica holds on disk is
 a cache of corpus files in `/tmp/base-corpus`, filled on demand and free to
 vanish, so every replica lists, serves, exports and re-ingests the same corpus
 and an upload is no longer lost to the replica that received it. What is
@@ -1571,8 +1576,8 @@ emitted somewhere it can read; see §10.
   securityContext (`runAsNonRoot`, `allowPrivilegeEscalation: false`,
   `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`) — see
   `src/platform/security.ts`. Bootstrap Jobs get the same minus the fixed UID.
-  Third-party workloads (CNPG, SeaweedFS, Chroma, Dragonfly) keep their images'
-  own contexts, which is why the namespace stays at `baseline` not `restricted`.
+  Third-party workloads (CNPG, SeaweedFS, Dragonfly) keep their images'
+  own contexts (Qdrant runs as uid 1000 on a read-only root, `data/qdrant.ts`), which is why the namespace stays at `baseline` not `restricted`.
 - **NetworkPolicies** (`grid-oib:networkPolicies`, default **on**): a
   default-deny for ingress plus least-privilege allows — intra-namespace, the
   edge (Envoy) to `frontend`/`seaweedfs`, and the CNPG operator to its pods.
@@ -1756,8 +1761,9 @@ find, because a from-scratch plan cannot show them:
   `replicas`, `ordinals`, `template`, `updateStrategy`,
   `persistentVolumeClaimRetentionPolicy` and `minReadySeconds` to change in
   place. Setting `podManagementPolicy` — even to the value it already has —
-  makes Pulumi plan a **replace** of seaweedfs and chroma. It is left unset
-  (`OrderedReady` is the default anyway) and the policy pack now blocks it.
+  makes Pulumi plan a **replace** of seaweedfs and clickhouse. It is left unset
+  (`OrderedReady` is the default anyway) and the policy pack now blocks it. The
+  one exception is `qdrant`, created with `Parallel` and never changed.
 - **Do not flip a live Deployment to `Recreate`.** The API server defaults
   `spec.strategy.rollingUpdate` on every RollingUpdate Deployment, and
   server-side apply will not remove a field this program never owned, so the
@@ -1826,9 +1832,15 @@ re-running `pulumi up`:
 - the **CloudNativePG `Cluster`** — the operator owns its PVCs, so deleting the
   CR destroys every database, irreversibly on a `Delete`-reclaim StorageClass
   and completely when `pgBackupsEnabled` is off;
-- the **SeaweedFS** and **Chroma** StatefulSets — their PVCs are pinned
+- the **SeaweedFS** and **Qdrant** StatefulSets — their PVCs are pinned
   `Retain`, but a delete/replace is still a full outage for object storage and
   the vector index.
+
+Removing a protected resource from the program fails the `up` the same way.
+The release that replaced Chroma with Qdrant deletes the `chroma`
+StatefulSet, so on a stack with this on, unprotect it first (the runbook's
+"Migrating from Chroma on Kubernetes"); its claim `data-chroma-0` was never a
+Pulumi resource and stays.
 
 Pulumi refuses to delete or replace a protected resource, so a stray rename, an
 accidental immutable-field change, or a `pulumi destroy` fails loudly with the
@@ -1853,7 +1865,7 @@ Three things are true of this whole table and are easy to miss:
 - **Encryption at rest and encryption in transit are different questions.** A
   store can be authenticated and still speak cleartext on the wire.
 - **The PVCs underneath everything are the base layer.** If they are not
-  encrypted (see below), then "at rest" for Postgres, SeaweedFS and Chroma all
+  encrypted (see below), then "at rest" for Postgres, SeaweedFS and Qdrant all
   bottom out at the same unencrypted disk.
 
 ### At rest
@@ -1867,7 +1879,8 @@ Three things are true of this whole table and are easy to miss:
 | **Postgres PITR archive** (`pgBackupsEnabled`) | **No by default** | The archive is a byte-for-byte copy of all three databases — every conversation, every LangGraph checkpoint, the whole `grid_app` schema, WAL included. `pgBackupEncryption` (`AES256` \| `aws:kms`) sets CloudNativePG's `barmanObjectStore.{wal,data}.encryption`, which becomes an SSE request header. **It is refused when the destination is the in-cluster SeaweedFS**, because SeaweedFS has no SSE at all on the pinned 3.80 image (SSE-S3/KMS/C first appear in 3.97, and this program configures no KMS for them on any image): it would answer `200` and store plaintext while the Cluster spec read `encryption: AES256`. So the archive is encrypted **only** when it goes to an external S3 destination that documents SSE support *and* `pgBackupEncryption` is set. With the default in-cluster destination it is as protected as the SeaweedFS volumes under it, and no more. `pulumi up` warns on every deploy in that state. |
 | SeaweedFS offsite documents backup (`seaweedfsBackupEnabled`) | **Destination's problem** | The mirror is pushed over `https://` (enforced at config load), so it is encrypted in transit. Whether the target bucket encrypts at rest is a property of that bucket, which this program does not configure. |
 | **SeaweedFS filer namespace** (`split` + `seaweedfsFilerStore: postgres`) | **No — and it is the key store** | The `seaweedfs_filer` database holds a decryption key for every encrypted chunk in the object store, in ordinary Postgres rows with no application-level encryption. Confidentiality at rest is the PVC's, exactly as for the three application databases. It is separated by *credential* rather than by encryption: its own role, its own database, `CONNECT` revoked from `PUBLIC`, so the application logins cannot reach it and it cannot reach `grid_app`. Its inclusion in the PITR archive is the reason the `pgBackupEncryption` row above matters more than it used to. ADR-0043. |
-| Chroma vector store | **No** | Persisted on a PVC, no application-level encryption. Embeddings are derived from document text and should be treated as sensitive. |
+| Qdrant vector store | **No** | Persisted on a PVC per peer, no application-level encryption. It holds every office's chunk text beside the embeddings, so treat it as sensitive as the documents. Its shard snapshots in the `qdrant-snapshots` bucket inherit SeaweedFS's chunk encryption. |
+| Retained Chroma volume (`data-chroma-0`, until deleted after the migration) | **No** | The retired store's PVC, kept unmounted after the release that removed Chroma: the same chunk text and embeddings, until the runbook's last step deletes it. |
 | Kubernetes Secrets in etcd | **Unknown to this repo — operator action** | Every credential above (DSNs, S3 keys, the KEKs themselves, the Dragonfly passwords) is a Kubernetes Secret, which is **base64, not encryption**. Encrypting them at rest needs an `EncryptionConfiguration` on the API server, which is a control-plane file on a managed cluster and is not reachable from this program. **Ask the provider whether etcd encryption-at-rest is enabled**, and treat the answer as the ceiling on every "encrypted" row in this table — the KEKs are stored there. |
 | **PVCs (all of them)** | **Unknown to this repo — operator action** | The StorageClass is provider-supplied (`grid-oib:storageClass`, e.g. `premium` / `single-replica`, Lightbits NVMe/TCP) and **nothing in this repo creates a StorageClass**. Kubernetes has no per-PVC encryption field: whether volumes are encrypted is decided by the StorageClass's `parameters`, which are fixed when the class is created. There is therefore no config key here that could enable it, and adding one would be a setting that does nothing. **Operator action:** obtain (or have the provider create) an encrypted StorageClass and point `grid-oib:storageClass` at it; `kubectl get storageclass <name> -o yaml` shows the parameters actually in force. This remains the control that actually matches "encrypted at rest", and it is the one ADR-0042 named as the better answer than volume-chunk encryption. |
 
@@ -1884,7 +1897,7 @@ Three things are true of this whole table and are easy to miss:
 | Frontend → backend (WebSocket chat) | **No** | `ws://` to the `chat` role (`BACKEND_CHAT_URL`), per-replica via the headless service (ADR-0028 conversation affinity). This is the full chat transport, including prompts and answers. |
 | Producers → OTel Collector, Collector → Langfuse | **No** | Plain OTLP on `http://otel-collector:4318`, and the collector's export to `http://langfuse-web:3000`. This traffic carries **prompts, retrieved snippets, LLM output and live presigned S3 URLs**, so it is the most sensitive plaintext channel in the namespace; Langfuse's store is likewise kept off-limits only by NetworkPolicy, which is why `langfuseEnabled` refuses to deploy with `networkPolicies=false`. |
 | Frontend and `bff-jobs` → Gotenberg | **No, and unauthenticated** | `http://gotenberg:3000`. It carries the bytes of every office file converted, and anyone who can reach it can have LibreOffice parse a file of their choosing. NetworkPolicy admits the frontend and the `bff-jobs` pool only. |
-| App → Chroma | **No, and unauthenticated** | `http://chroma:8000`, no credentials of any kind. Any pod that can reach it can read or delete every tenant's vectors. NetworkPolicy is the only control. |
+| App → Qdrant | **No, but authenticated** | `http://qdrant.grid.svc.cluster.local:6333` (and gRPC 6334) with the read-write API key, which an observer of the pod network could read off the wire. NetworkPolicy admits the named callers only (`allow-app-to-qdrant`); the peers' p2p traffic (6335) is plaintext too, between the peers alone (`qdrant-peers`). The keyless metrics port (6336) admits the collector alone. |
 | Cluster egress (OpenRouter, Tavily, WorkOS, GitHub) | **Yes** | All HTTPS. |
 
 Everything in the "No" rows above is confined to the pod network of a
@@ -1949,7 +1962,7 @@ turns the "automatic" deploy into an approval-gated one).
 The full program was smoke-deployed against a real single-node cluster on the
 provider's exact Kubernetes version (**v1.33.9**), with NetworkPolicies
 enforced and prod-shaped config (backups on, shared
-Chroma):
+Chroma, the vector store of the time):
 
 - **Green end-to-end:** namespaces, NetworkPolicies, cert-manager (Gateway
   integration up after the Envoy-Gateway CRD ordering), Envoy Gateway
@@ -1972,7 +1985,7 @@ Chroma):
 > **The Aspire dashboard is retired.** It was an in-memory ring buffer that a
 > restart emptied, with no alerting, behind its own host and a Connect
 > application. Traces now live in Langfuse (§9b), logs go to PostHog, and
-> nothing in the cluster consumes metrics. A stack that still carries the
+> nothing in the cluster stores or evaluates metrics. A stack that still carries the
 > dashboard's keys (`otelPrimaryApiKey`, `otelDomain`, `dashboardImage`,
 > `dashboardMaxLogCount`, `dashboardMaxTraceCount`) ignores them; remove them
 > from the stack file. The next `pulumi up` deletes the dashboard, its
@@ -2019,12 +2032,27 @@ no trace provider (below); logs from all five tiers - the Python tiers via the
 `otelcollector_logs` NAT logging method
 (`src/aiq_agent/observability/otlp_logging_method.py`, attaches to the root
 logger) and the Node tiers (grid-ui, skill-scheduler, purger) via the
-`frontends/ui/observability/otel-logs.js` console bridge. **Metrics: none.** The
-collector has no metrics pipeline and no process installs a meter provider. The
-instruments (`grid.queue.*`, `grid.provider.*`, `grid.http.*`, `grid.boot.*`)
-still exist and are no-ops until a sink is chosen for them; the Aspire dashboard
-was their only one. Until then, queue depth and age are
-readable from Postgres, which is where the KEDA scalers read them.
+`frontends/ui/observability/otel-logs.js` console bridge. **Metrics: from
+Qdrant only, and nothing stores them.** No process installs a meter provider:
+the instruments (`grid.queue.*`, `grid.provider.*`, `grid.http.*`,
+`grid.boot.*`) still exist and are no-ops until a sink is chosen for them; the
+Aspire dashboard was their only one. Until then, queue depth and age are
+readable from Postgres, which is where the KEDA scalers read them. The
+collector carries one metrics pipeline, `metrics/qdrant`:
+its `prometheus/qdrant` receiver scrapes every Qdrant peer's keyless metrics
+port (6336) by headless name every 30 s (job `qdrant`, label `peer`), and its
+`prometheus` exporter re-exposes the series on `otel-collector:8889/metrics`.
+There is no metrics backend to export to, so that endpoint is the hand-off: a
+Prometheus, Grafana Alloy or any OpenMetrics scraper pointed at it gets every
+peer's series, and the alert rules for them ship in the `qdrant-alert-rules`
+ConfigMap; until one exists, `kubectl port-forward svc/otel-collector 8889`
+reads them by hand ([`qdrant-runbook.md`](qdrant-runbook.md)). A scraper in
+another namespace needs a NetworkPolicy rule admitting it to port 8889.
+**Qdrant alerting is therefore not active on any stack, staging included, and
+connecting it is a precondition for prod**: point the provider's metrics stack
+(or a `vmalert` beside it) at `otel-collector:8889` and load
+`qdrant.rules.yaml` from `qdrant-alert-rules`. The runbook's "Alerts" says how
+and how to prove it pages someone.
 
 ```text
 grid-ui / grid-aiq-agent / grid-agent-worker / grid-skill-scheduler / grid-purger
@@ -2032,6 +2060,9 @@ grid-ui / grid-aiq-agent / grid-agent-worker / grid-skill-scheduler / grid-purge
         ▼
   otel-collector ──▶ traces ──▶ Langfuse
                  ──▶ logs   ──▶ PostHog (WARN+)
+        ▲        ──▶ metrics ─▶ :8889/metrics (Prometheus text, no consumer yet)
+        │ scrape every 30 s, keyless port 6336
+  qdrant-0 / qdrant-1 / qdrant-2
 ```
 
 A signal no consumer takes ends in the collector's own `nop` exporter, because
@@ -2050,8 +2081,10 @@ filter:
 PostHog Logs takes `{posthogHost}/i/v1/logs` with `Authorization: Bearer
 <project token>`. The token is PostHog's public `phc_` key, the same one the
 browser bundle carries, so it sits in the collector ConfigMap as plain config:
-no env var and no secret checksum on the pod. Only logs go: LLM traces reach
-PostHog through Langfuse's own integration, and nothing sends metrics. The WARN
+no env var on the pod. The collector reads its config once, at start, so the
+pod template carries a digest of it (with the Langfuse key's): a changed token,
+or a changed Qdrant peer count, rolls the collector. Only logs go: LLM traces reach
+PostHog through Langfuse's own integration, and no producer sends metrics. The WARN
 floor and the 1000-batch bounded queue are what keep the signal inside
 PostHog's 10 GB free tier and a PostHog outage out of the rest of the
 collector. Not done: the `k8sattributes` processor (pod, namespace and node
@@ -2074,7 +2107,9 @@ because they are literal env values in the pod template.
 ### The platform Connect application
 
 Langfuse's route is gated at the edge, and its UI signs in, against a
-**dedicated WorkOS Connect application**, not the app's AuthKit client. That is
+**dedicated WorkOS Connect application**, not the app's AuthKit client. The
+Qdrant dashboard's route, when `qdrantDashboardEnabled` turns it on, is gated by
+the same application, for the operator permission alone. That is
 a hard requirement, not a preference: WorkOS's `/user_management/*` endpoints
 read client credentials only from the request body, while Envoy Gateway
 hardcodes HTTP Basic for the token exchange, so that pairing fails at the
@@ -2104,7 +2139,16 @@ One-time setup, in the WorkOS dashboard under **Connect**:
    client has no secret, and the SecurityPolicy requires one).
 2. Generate a client secret.
 3. Redirect URIs: the two Langfuse callbacks listed in §9b ("One-time WorkOS
-   setup").
+   setup"), and, on a stack that sets `qdrantDashboardEnabled`, Qdrant's
+   dashboard callback:
+
+   ```text
+   https://qdrant.<baseDomain>/oauth2/callback   # Envoy's OIDC callback for the Qdrant dashboard
+   ```
+
+   Only that one: the dashboard has no login of its own behind the gate. The
+   rest of turning it on, and which Qdrant key to paste, is the Qdrant runbook's
+   [Dashboard](qdrant-runbook.md#dashboard).
 4. Under **Scopes**, assign the `platform:organizations:view` and
    `platform:observability:view` permissions — the SecurityPolicy requests both
    and an unassigned scope fails the login for everyone (§9b, "Giving analysts
@@ -2628,7 +2672,7 @@ kubectl -n grid exec -it clickhouse-0 -- df -h /var/lib/clickhouse
 ```
 
 Growing it is a PVC patch (the `volumeClaimTemplates` is immutable and
-`ignoreChanges`d — same procedure as SeaweedFS and Chroma, §4). Pruning is a
+`ignoreChanges`d — same procedure as SeaweedFS and Qdrant, §4). Pruning is a
 manual ClickHouse partition drop. And note the store has **no backup**: Postgres
 has PITR (§5) and the raw events are archived in SeaweedFS, but ClickHouse has
 neither. Its PVC is `Retain` + `protect`ed, and that is the whole of its
@@ -2671,7 +2715,7 @@ developing against the Langfuse UI and API, not for reproducing ingestion.
   § Alternatives.
 - Egress NetworkPolicies (needs per-endpoint validation on a live cluster).
 - **In-namespace mTLS (a service mesh).** The plaintext channels in §7e —
-  `ws://` chat, `http://aiq-agent`, `http://aiq-api`, `http://chroma`, plaintext RESP to
+  `ws://` chat, `http://aiq-agent`, `http://aiq-api`, `http://qdrant`, plaintext RESP to
   Dragonfly, OTLP — are bounded by the NetworkPolicy set, which stops traffic
   from outside `grid` but not a compromised pod inside it. Closing them
   properly means mTLS between every pair of services; that is a mesh (Cilium,

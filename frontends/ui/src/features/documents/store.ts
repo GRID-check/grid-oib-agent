@@ -320,7 +320,7 @@ export const useDocumentsStore = create<DocumentsStore>()(
                   collectionName, // Use parameter, not file.collection_name, for consistent filtering
                   // Preserve jobId and uploadedAt from existing tracked file if available.
                   // The client sets uploadedAt with full time precision on upload;
-                  // the server may return a date-only string (midnight) from ChromaDB metadata.
+                  // the server may return a date-only string (midnight) from the vector store's metadata.
                   jobId: existingFile?.jobId,
                   uploadedAt: existingFile?.uploadedAt || file.uploaded_at,
                 }

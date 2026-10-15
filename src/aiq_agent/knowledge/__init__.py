@@ -12,7 +12,8 @@ Architecture:
     └── factory.py               # Registry + factory pattern
 
     sources/knowledge_layer/src/ # Backend implementations
-    └── llamaindex/              # ChromaDB + OpenRouter embeddings
+    ├── llamaindex/              # LlamaIndex readers and chunking, OpenRouter embeddings
+    └── qdrant/                  # The vector store (ADR-0113): every chunk, every read
 
 Usage:
     from aiq_agent.knowledge import Chunk, BaseRetriever, get_retriever
@@ -41,6 +42,7 @@ from .factory import get_document_person_topics
 from .factory import get_document_provenance
 from .factory import get_document_revision_suggestions
 from .factory import get_document_superseded_by
+from .factory import get_documents
 from .factory import get_ingestor
 from .factory import get_retriever
 from .factory import get_superseded_files
@@ -141,6 +143,7 @@ __all__ = [
     "list_summary_collections",
     "get_available_documents",
     "get_available_documents_async",
+    "get_documents",
     "allocate_inventory",
     "allocate_inventory_detailed",
     "get_inventory_drops",

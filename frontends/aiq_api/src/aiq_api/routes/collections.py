@@ -1,6 +1,6 @@
 """Collection management endpoints.
 
-The ingestor is synchronous (Chroma, SQL), so every call goes through
+The ingestor is synchronous (Qdrant, SQL), so every call goes through
 ``asyncio.to_thread``: see ``routes/documents.py`` for why.
 """
 
@@ -29,13 +29,15 @@ def _require_ingestor() -> BaseIngestor:
 
 
 async def require_collection(ingestor: BaseIngestor, name: str) -> CollectionInfo:
-    """The collection ``name``: 404 when the store says it does not exist, 503 when the store cannot say.
+    """The collection ``name``: 503 when the store cannot say; 404 when an ingestor says it does not exist.
 
     ``get_collection`` raises when the vector store cannot be reached. It used to
-    answer None, the same as "missing", so a Chroma outage read as a 404 on every
+    answer None, the same as "missing", so a store outage read as a 404 on every
     document route and, in the OIB sync, as a wiped index (a full re-ingest of
     the corpus). The two answers mean different things to a caller: retry later,
-    or the collection is gone.
+    or the collection is gone. On Qdrant every name is a collection (a scope on
+    the points, ADR-0114), so only an ingestor that keeps collections of its
+    own answers None.
     """
     try:
         collection = await asyncio.to_thread(ingestor.get_collection, name)

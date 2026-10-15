@@ -26,6 +26,7 @@ from knowledge_layer.llamaindex.adapter import _strip_visual_marker
 from PIL import Image
 
 from aiq_agent.common.credential_resolution import ResolvedCredential
+from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
 
 
 def _patch_vlm_credential(monkeypatch, api_key: str):
@@ -337,7 +338,7 @@ def summary_db(tmp_path):
 
 
 @pytest.fixture
-def ingestor(tmp_path, monkeypatch):
+def ingestor(tmp_path, monkeypatch, qdrant_store):
     """A LlamaIndexIngestor with embeddings + vector index mocked out."""
 
     # Deterministic summary + tag LLM: routes by prompt prefix.
@@ -353,19 +354,14 @@ def ingestor(tmp_path, monkeypatch):
 
     ing = LlamaIndexIngestor(
         {
-            "persist_dir": str(tmp_path / "chroma"),
             "generate_summary": True,
             "summary_llm": llm,
         }
     )
     # Skip real NVIDIA embedding initialization.
-    ing._embed_model = MagicMock()
+    ing._embed_model = FakeEmbedder()
     ing._initialized = True
 
-    # Never embed: replace the vector index + global Settings with stand-ins
-    # (Settings.embed_model otherwise type-validates the assignment).
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", MagicMock())
-    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
     return ing
 
 
@@ -538,7 +534,7 @@ class TestRunIngestionImageBranch:
         tags) must not leave the document invisible. Both concurrent LLM calls
         fail; the deterministic text fallback must still register a summary
         row (tags stay None) so the file remains visible in
-        available_documents even though it is fully searchable in Chroma."""
+        available_documents even though it is fully searchable in Qdrant."""
         from aiq_agent.knowledge import get_available_documents
 
         def both_fail(prompt):

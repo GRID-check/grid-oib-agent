@@ -171,7 +171,6 @@ functions:
     summary_model: summary_llm
     summary_db: ${AIQ_SUMMARY_DB:-sqlite+aiosqlite:///./summaries.db}
     top_k: 5
-    chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
 
   remember:
     _type: project_memory_remember

@@ -3,8 +3,8 @@
 The backend image runs four process types, selected by ``GRID_ROLE``: ``chat``,
 ``api``, ``worker`` and ``ingest-worker``. Data one role writes is read by
 another. A role that lacks one of the variables below silently falls back to a
-process-local store (an embedded Chroma, a per-process cache, an in-memory draft
-store), and the roles stop seeing each other's data. This reads the Compose
+process-local store (a per-process cache, an in-memory draft store) or fails
+to start (no Qdrant URL), and the roles stop seeing each other's data. This reads the Compose
 files and the Pulumi backend env, so the check runs without Docker.
 """
 
@@ -24,7 +24,7 @@ PULUMI_CONFIG = REPO / "deploy" / "pulumi" / "src" / "app" / "config.ts"
 ROLES = ("chat", "api", "worker", "ingest-worker")
 
 SHARED_STORE_VARS = (
-    "AIQ_CHROMA_URL",
+    "AIQ_QDRANT_URL",
     "REDIS_URL",
     "AIQ_CHECKPOINT_DB",
     "AIQ_DEEP_CHECKPOINT_DB",
@@ -79,13 +79,21 @@ def _backend_services(name: str) -> list[tuple[str, str, dict[str, str]]]:
 
 
 def _backend_function(name: str) -> str:
-    """The text of ``export function backendEnv(``, through its closing brace at column 0."""
+    """``export function backendEnv(`` through its closing brace, plus the helpers it spreads in."""
     source = PULUMI_CONFIG.read_text()
     start = re.search(r"^export function backendEnv\(", source, re.MULTILINE)
     assert start, f"{PULUMI_CONFIG}: no `export function backendEnv(`; move this test with the backend env"
     end = re.search(r"^\}", source[start.end() :], re.MULTILINE)
     assert end, f"{PULUMI_CONFIG}: backendEnv has no closing brace at column 0; this test cannot find its end"
-    return source[start.start() : start.end() + end.end()]
+    body = source[start.start() : start.end() + end.end()]
+    # A store's variables may come from a helper spread into the list
+    # (`env.push(...backendQdrantEnv(w))`): read those helpers too.
+    for helper in re.findall(r"\.\.\.(\w+)\(", body):
+        found = re.search(rf"^(?:export )?function {helper}\(", source, re.MULTILINE)
+        if found:
+            close = re.search(r"^\}", source[found.end() :], re.MULTILINE)
+            body += source[found.start() : found.end() + (close.end() if close else 0)]
+    return body
 
 
 @pytest.mark.parametrize("name", COMPOSE_FILES)

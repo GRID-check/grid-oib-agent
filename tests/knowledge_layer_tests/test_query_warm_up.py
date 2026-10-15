@@ -40,7 +40,7 @@ def _inflight_wait_hook(waiting: threading.Semaphore):
 
 
 def _retriever() -> tuple[LlamaIndexRetriever, _SlowEmbedder]:
-    retriever = LlamaIndexRetriever(config={"persist_dir": "/tmp/unused"})
+    retriever = LlamaIndexRetriever(config={})
     embedder = _SlowEmbedder()
     retriever._embed_model = embedder
     retriever._initialized = True
@@ -117,7 +117,7 @@ def test_the_warm_up_leaves_the_embedding_where_the_search_reads_it():
 
 
 def test_a_failing_warm_up_never_raises():
-    retriever = LlamaIndexRetriever(config={"persist_dir": "/tmp/unused"})
+    retriever = LlamaIndexRetriever(config={})
     retriever._initialized = True
     retriever._embed_model = SimpleNamespace(get_query_embedding=lambda q: 1 / 0)
 
@@ -195,43 +195,21 @@ def test_without_a_cache_parallel_callers_still_share_one_embedding(monkeypatch)
     assert retriever._embed_inflight == {}
 
 
-def test_the_retriever_hands_its_query_model_to_every_index_it_opens(monkeypatch):
-    """``from_vector_store`` gets the model explicitly; nothing reads it off ``Settings``."""
-    from unittest.mock import MagicMock
-
-    import llama_index.core
-    import llama_index.vector_stores.chroma
-
-    from sources.knowledge_layer.src.llamaindex import adapter
-
-    retriever, embedder = _retriever()
-    retriever._chroma_client = MagicMock()
-    monkeypatch.setattr(adapter, "embed_fingerprint_mismatch", lambda *_args: None)
-    monkeypatch.setattr(llama_index.vector_stores.chroma, "ChromaVectorStore", MagicMock())
-    index_class = MagicMock()
-    monkeypatch.setattr(llama_index.core, "VectorStoreIndex", index_class)
-
-    retriever._get_index("oib_knowledge")
-
-    assert index_class.from_vector_store.call_args.kwargs["embed_model"] is embedder
-
-
 def test_initialising_the_retriever_leaves_the_global_embed_model_alone(monkeypatch):
     """The retriever's query model (3 s timeout) used to be installed as the
-    process-wide ``Settings.embed_model``; every index it builds is handed the
-    model explicitly, so the global is not its to set."""
+    process-wide ``Settings.embed_model``; it embeds every query with its own
+    model, so the global is not its to set."""
     from llama_index.core import Settings
     from llama_index.embeddings import nvidia
 
     from sources.knowledge_layer.src.llamaindex import adapter
 
     monkeypatch.setattr(adapter, "ensure_retrieval_dependencies", lambda: None)
-    monkeypatch.setattr(adapter, "_make_chroma_client", lambda persist_dir: object())
     from llama_index.core import MockEmbedding
 
     monkeypatch.setattr(nvidia, "NVIDIAEmbedding", lambda **kwargs: MockEmbedding(embed_dim=2))
     monkeypatch.setattr(Settings, "_embed_model", None)
-    retriever = LlamaIndexRetriever(config={"persist_dir": "/tmp/unused"})
+    retriever = LlamaIndexRetriever(config={})
 
     retriever._initialize_components()
 

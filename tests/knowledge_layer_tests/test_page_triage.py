@@ -33,6 +33,8 @@ from knowledge_layer.llamaindex.page_triage import classify_page
 from knowledge_layer.llamaindex.page_triage import text_quality
 
 from aiq_agent.common.credential_resolution import ResolvedCredential
+from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
+from sources.knowledge_layer.tests.qdrant_testing import capture_indexed_documents
 
 GERMAN = (
     "Gemäß § 70 der Bauordnung für Wien wird die Bewilligung unter folgenden Auflagen erteilt: "
@@ -460,17 +462,15 @@ def summary_db(tmp_path):
 
 
 @pytest.fixture
-def indexed(tmp_path, monkeypatch, summary_db):
-    """An ingestor with the embedder and vector index mocked; ``.docs`` holds what was indexed."""
-    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma"), "generate_summary": False})
-    ing._embed_model = MagicMock()
+def indexed(tmp_path, monkeypatch, summary_db, qdrant_store):
+    """An ingestor on the test store with a stand-in embedder; ``.docs`` holds what was indexed."""
+    ing = LlamaIndexIngestor({"generate_summary": False})
+    ing._embed_model = FakeEmbedder()
     ing._initialized = True
-    index_cls = MagicMock()
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", index_cls)
-    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
+    captured = capture_indexed_documents(monkeypatch)
 
     def docs():
-        return [doc for call in index_cls.from_documents.call_args_list for doc in call.args[0]]
+        return [doc for documents in captured for doc in documents]
 
     ing.docs = docs
     return ing

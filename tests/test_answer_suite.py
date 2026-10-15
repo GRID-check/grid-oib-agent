@@ -659,19 +659,14 @@ def test_the_suite_reads_the_dialect_the_validator_holds():
     assert suite._DIALECT_BLOCKS == frozenset(DIRECTIVE_BLOCKS)
 
 
-def test_a_corpus_ingested_in_this_process_reads_as_ready(monkeypatch, tmp_path):
-    """The ingest's client and the check's client share one path in one process:
-    with different settings Chroma refused the check, which read as "not ingested"."""
-    from knowledge_layer.llamaindex.adapter import _make_chroma_client
-
+def test_a_corpus_in_the_store_reads_as_ready(qdrant_store):
+    """Readiness is the corpus's chunk count in the store the ingest writes through."""
     from aiq_agent import oib_sync
+    from sources.knowledge_layer.tests.qdrant_testing import record
+    from sources.knowledge_layer.tests.qdrant_testing import write
 
-    for name in ("AIQ_CHROMA_URL", "AIQ_CHROMA_HOST"):
-        monkeypatch.delenv(name, raising=False)
-    path = str(tmp_path / "chroma")
-    monkeypatch.setattr(oib_sync, "CHROMA_DIR", path)
-    collection = _make_chroma_client(path).get_or_create_collection(oib_sync.COLLECTION_NAME)
-    collection.add(ids=["1"], documents=["Punkt 12"], embeddings=[[0.1, 0.2]])
+    assert not suite._corpus_ready()
+    write(oib_sync.COLLECTION_NAME, [record("Punkt 12", "oib-rl_2.pdf")])
     assert suite._corpus_ready()
 
 
@@ -729,3 +724,58 @@ def test_the_turn_decisions_precedent_is_read_off_its_log_line():
     assert suite.precedent_of(line) == 0.83
     assert suite.precedent_of(line.replace("precedent=0.83", "precedent=None")) is None
     assert suite.precedent_of("") is None
+
+
+def test_a_local_corpus_directory_is_ingested_without_a_bff_or_an_object_store(monkeypatch, tmp_path):
+    # `--ingest` read the corpus from SeaweedFS through the BFF, so the suite
+    # could not run without a deployed stack (gate G1 waited on one for that).
+    from aiq_agent import corpus_store
+    from aiq_agent import oib_sync
+    from aiq_api.jobs import ingest_dispatch
+    from tests.corpus_job_fakes import FakeIngestor
+    from tests.corpus_job_fakes import run_worker
+    from tests.object_corpus_fakes import install
+
+    seams = ("_request_upload_url", "_put_object", "_delete_object", "_download_object")
+    real = {seam: getattr(corpus_store, seam) for seam in seams}
+    install(monkeypatch, tmp_path)
+    for seam in seams:
+        # The real BFF and bucket again, with no BFF configured: only --corpus can store anything.
+        monkeypatch.setattr(corpus_store, seam, real[seam])
+    monkeypatch.delenv("FRONTEND_INTERNAL_URL", raising=False)
+    corpus = tmp_path / "oib"
+    corpus.mkdir()
+    (corpus / "oib-rl_2_ausgabe_mai_2023.pdf").write_bytes(b"%PDF-1.4 rl2")
+    (corpus / "README.md").write_text("not a PDF")
+    ingestor = FakeIngestor()
+    monkeypatch.setattr(oib_sync, "_get_oib_ingestor", lambda: ingestor)
+    downloaded: list[bytes] = []
+    monkeypatch.setattr(ingest_dispatch, "attach", lambda _ingestor: run_worker(downloaded=downloaded) or True)
+
+    assert suite.use_local_corpus(corpus) == 1
+    assert suite._ingest_corpus(poll_seconds=0) is None
+
+    row = corpus_store.get_file("oib-rl_2_ausgabe_mai_2023.pdf")
+    assert row is not None and not row.needs_ingestion(oib_sync.CHUNK_FORMAT_VERSION)
+    assert downloaded == [b"%PDF-1.4 rl2"]
+    # A second run stores the same bytes again and leaves them ingested.
+    assert suite.use_local_corpus(corpus) == 1
+    assert not corpus_store.get_file("oib-rl_2_ausgabe_mai_2023.pdf").needs_ingestion(oib_sync.CHUNK_FORMAT_VERSION)
+
+
+def test_corpus_without_ingest_is_refused():
+    with pytest.raises(SystemExit):
+        suite.main(["--corpus", "data/oib"])
+
+
+def test_the_startup_probe_times_only_methods_the_retriever_has():
+    # The probe wrapped `_hybrid_lexical_boost` after the Qdrant rewrite removed
+    # it, and died with AttributeError before the first turn.
+    import re
+
+    import startup_probe
+    from knowledge_layer.llamaindex.adapter import LlamaIndexRetriever
+
+    timed = re.findall(r"retriever\.(\w+) = timed\(", Path(startup_probe.__file__).read_text())
+    assert timed, "the probe times no retriever method; this test reads its source"
+    assert [name for name in timed if not hasattr(LlamaIndexRetriever, name)] == []

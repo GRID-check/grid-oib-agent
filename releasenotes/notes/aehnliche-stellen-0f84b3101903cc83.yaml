@@ -1,0 +1,11 @@
+---
+features:
+  - >
+    The document viewer can now tell you whether your office has dealt with a
+    passage before: "Im Büro nachsehen" on a cited or selected passage answers
+    in one line, such as "In 3 Projekten und der Büroablage gefunden", and
+    lists the passages project by project, each as a quotation with its
+    document, Fassung and page.
+  - >
+    Click a passage to open its document at that spot; only documents you may
+    open are listed.

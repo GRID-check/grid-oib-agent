@@ -63,6 +63,7 @@ export const knowledge: typeof en.knowledge = {
     copyQuote: 'Als Zitat kopieren',
     quoteCopied: 'Zitat kopiert',
     copyFailed: 'Kopieren nicht möglich',
+    findSimilar: 'Im Büro nachsehen',
     zoomIn: 'Vergrößern',
     zoomOut: 'Verkleinern',
     zoomFitted: 'Zoom {percent} %, eingepasst',
@@ -95,6 +96,37 @@ export const knowledge: typeof en.knowledge = {
     passwordLabel: 'Kennwort',
     passwordSubmit: 'Dokument öffnen',
     passwordIncorrect: 'Das Kennwort stimmt nicht.',
+  },
+  // „Im Büro behandelt": hat das Büro die Stelle, die die Leserin gerade liest,
+  // schon einmal behandelt, und wo. Durchsucht wird nur, was sie lesen darf; ein
+  // gesperrtes Dokument erscheint nie, auch nicht ihr eigener Upload in Prüfung.
+  similar: {
+    title: 'Im Büro behandelt',
+    action: 'Im Büro nachsehen',
+    forPassage: 'Nachsehen, wo das Büro diese Stelle schon behandelt hat',
+    close: '„Im Büro behandelt“ schließen',
+    backToSource: 'Zurück zur Fundstelle',
+    found: '{count, plural, one {In # Projekt gefunden} other {In # Projekten gefunden}}',
+    foundWithArchiv:
+      '{count, plural, one {In # Projekt und der Büroablage gefunden} other {In # Projekten und der Büroablage gefunden}}',
+    foundOnlyArchiv: 'In der Büroablage gefunden',
+    loading: 'Piloti sieht in Ihren Projekten nach…',
+    emptyTitle: 'Im Büro noch nicht behandelt',
+    emptyBody:
+      'Durchgesehen: dieses Projekt, {count, plural, one {# weiteres Projekt} other {# weitere Projekte}} und die Büroablage.',
+    failedTitle: 'Das hat gerade nicht geklappt',
+    failedBody: 'Bitte gleich noch einmal versuchen.',
+    heldTitle: 'Dieses Dokument wird noch geprüft',
+    heldBody: 'Sobald die Prüfung abgeschlossen ist, sieht Piloti im Büro nach.',
+    retry: 'Erneut versuchen',
+    groupCurrent: 'Dieses Projekt',
+    groupArchiv: 'Büroablage',
+    groupClosed: 'abgeschlossen',
+    standDate: 'Stand {date}',
+    page: 'S. {page}',
+    open: 'Öffnen',
+    openPassage: '{document}, Seite {page} öffnen',
+    openPassageNoPage: '{document} öffnen',
   },
   // Der RIS-Leser: eine Rechtsquelle wird IN Piloti gelesen statt im Browser-Tab.
   risViewer: {

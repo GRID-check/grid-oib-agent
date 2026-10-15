@@ -1,6 +1,6 @@
 """The document and collection routes call the ingestor in a THREAD, not on the loop.
 
-Every ingestor and metadata-store call is synchronous: a Chroma read, a SQL
+Every ingestor and metadata-store call is synchronous: a Qdrant read, a SQL
 statement on a sync engine, the ingest-status store. The route handlers are
 coroutines on the API's one event loop, so a call made inline does not only
 make its own request slow; it stalls every other request the worker is serving,

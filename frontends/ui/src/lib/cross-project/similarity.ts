@@ -98,10 +98,27 @@ function land(profile: Profile | null): string | null {
   return found === ABROAD ? null : found
 }
 
-/** `4`, `"4"`, `"GK4"`, `"GK 4"` → 4; anything else → null. */
+/** The classes the OIB-RL defines, and all `ProjectFacts.gebaeudeklasse` in `models/requests.py` accepts. */
+const LOWEST_CLASS = 1
+const HIGHEST_CLASS = 5
+
+/** A class on its own: `4`, `GK4`, `GK 4`, `Gebäudeklasse 4`. */
+const CLASS_ALONE = /^(?:gk|geb(?:ä|ae)udeklasse)?\s*([1-5])$/i
+/** A class a longer note names: „Fluchtniveau 8 m → GK4" is GK 4, not 8. */
+const CLASS_NAMED = /\bgk\s*([1-5])\b/i
+
+/**
+ * `4`, `"4"`, `"GK4"`, `"GK 4"`, `"Fluchtniveau 8 m → GK4"` → 4; anything that
+ * names no class from 1 to 5 → null. A class outside that range is no
+ * Gebäudeklasse, and the Python tier refuses it (a 422 on the upload).
+ */
 function gebaeudeklasse(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isInteger(value)) return value
-  const match = typeof value === 'string' ? /(\d)/.exec(value) : null
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value >= LOWEST_CLASS && value <= HIGHEST_CLASS ? value : null
+  }
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  const match = CLASS_ALONE.exec(text) ?? CLASS_NAMED.exec(text)
   return match ? Number(match[1]) : null
 }
 

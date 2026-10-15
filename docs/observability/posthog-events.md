@@ -94,6 +94,8 @@ No-op until `initPosthogClient` ran, which needs the host and project token in
 | `product_feedback_submitted` | `kind` | `features/product-feedback/components/feedback-dialog.tsx` |
 | `document_uploaded` | `count`, `types` (comma-joined extensions), `shelf` | `features/documents/hooks/use-file-upload.ts` |
 | `chat_message_sent` | `has_attachments`, `effort`, `data_source_count` | `features/chat/hooks/use-websocket-chat.ts` |
+| `similar_passages_searched` | `entry` (`citation` or `selection`), `origin` (`point` or `embedded`), `groups`, `documents`, `projects_searched` | `features/similar-passages/lib/use-similar-passages.ts`, when an answer arrives |
+| `similar_passage_opened` | `group` (`current`, `project`, `archiv`), `rank` (the document's place in the answer) | `features/similar-passages/lib/use-similar-passages.ts`, `useSimilarPassagesViewer().open` |
 | `report_exported` | `kind`, `format`. The trigger of the CSAT survey | `features/chat/components/AnswerActions.tsx`, `features/bim/components/ifc-model-tables.tsx`, `features/grid-cards/components/IfcDataCards.tsx` |
 
 `organization_created` is still a member of the `PostHogEvent` union, but nothing

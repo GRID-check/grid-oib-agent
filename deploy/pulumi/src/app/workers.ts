@@ -16,6 +16,21 @@ import { AppSecrets, AppWiring, BACKEND_URL, purgerEnv, schedulerEnv, sref } fro
 
 const FRONTEND_URL = `http://frontend:${PORT.frontend}`;
 
+/** The CronJob that drives the base-corpus sync, suspended while `chromaMigration` is on. */
+export const BASE_CORPUS_SYNC = "housekeeping-base-corpus";
+
+/** The weekly orphaned-vector sweep, suspended while `chromaMigration` is on. */
+export const VECTOR_RECONCILE = "vector-reconcile";
+
+/** One backend housekeeping route on a schedule (`installWorkers`). */
+type HousekeepingSweep = {
+  name: string;
+  schedule: string;
+  route: string;
+  timeoutMs: number;
+  suspend?: boolean;
+};
+
 /**
  * One POST to an internal sweep route, as a `node -e` program.
  *
@@ -78,7 +93,7 @@ function internalSweepCronJob(
   cfg: GridConfig,
   secrets: AppSecrets,
   dependsOn: pulumi.Resource[],
-  sweep: { name: string; schedule: string; url: string; timeoutMs: number },
+  sweep: { name: string; schedule: string; url: string; timeoutMs: number; suspend?: boolean },
 ): k8s.batch.v1.CronJob {
   return new k8s.batch.v1.CronJob(
     sweep.name,
@@ -90,6 +105,9 @@ function internalSweepCronJob(
       },
       spec: {
         schedule: sweep.schedule,
+        // Written when the caller decides it, false as well as true, so the
+        // deploy that sets it back to false resumes the clock.
+        ...(sweep.suspend === undefined ? {} : { suspend: sweep.suspend }),
         concurrencyPolicy: "Forbid",
         successfulJobsHistoryLimit: 3,
         failedJobsHistoryLimit: 3,
@@ -105,7 +123,7 @@ function internalSweepCronJob(
             template: {
               metadata: { labels: commonLabels(sweep.name) },
               spec: {
-                enableServiceLinks: false, // see chroma.ts — legacy env collisions
+                enableServiceLinks: false, // see platform/security.ts — service-link env collisions
                 imagePullSecrets: w.imagePullSecrets,
                 restartPolicy: "OnFailure",
                 securityContext: {
@@ -161,6 +179,8 @@ export function installWorkers(
   storageAlerts?: k8s.batch.v1.CronJob;
   vectorReconcile?: k8s.batch.v1.CronJob;
   housekeeping: k8s.batch.v1.CronJob[];
+  /** One of `housekeeping`: what the Chroma migration Job waits on. */
+  baseCorpusSync: k8s.batch.v1.CronJob;
 } {
   const workerResources = LIGHT_WORKER_RESOURCES;
   const shutdown = gracefulShutdown(ROLLOUT.lightWorker);
@@ -182,7 +202,7 @@ export function installWorkers(
             annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
           },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             imagePullSecrets: w.imagePullSecrets,
             securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
             // Room to finish the purge tick in flight (S3 deletes + DB writes)
@@ -230,7 +250,7 @@ export function installWorkers(
                 annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
               },
               spec: {
-                enableServiceLinks: false, // see chroma.ts — legacy env collisions
+                enableServiceLinks: false, // see platform/security.ts — service-link env collisions
                 imagePullSecrets: w.imagePullSecrets,
                 securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },
                 // Finish the claimed scheduler batch before exiting.
@@ -279,13 +299,20 @@ export function installWorkers(
    * BFF lists and diffs every live collection, and the backend then walks the
    * same collections' summaries, each with its own 15-second per-call timeout,
    * so a deployment of a few hundred projects is minutes, not tens of them.
+   *
+   * Suspended while `chromaMigration` is on. Against a Qdrant the import has
+   * not filled yet, every collection still to come reads as "the store holds
+   * no chunk", and the reconcile forgets those documents' metadata rows
+   * (summaries, tags, Dokumentart, folders). The Platform → Vector maintenance
+   * button calls the same route by hand: the runbook says not to press it.
    */
   const vectorReconcile = cfg.vectorReconcile.enabled
     ? internalSweepCronJob(w, cfg, secrets, dependsOn, {
-        name: "vector-reconcile",
+        name: VECTOR_RECONCILE,
         schedule: cfg.vectorReconcile.schedule,
         url: `${FRONTEND_URL}/api/internal/maintenance/reconcile-vectors`,
         timeoutMs: 1_800_000,
+        suspend: cfg.chromaMigration.enabled,
       })
     : undefined;
 
@@ -304,18 +331,36 @@ export function installWorkers(
    * ten minutes for its job, and a cycle that runs past its tick blocks the next
    * (`Forbid`). The cycle ingests nothing: the ingest workers (or the claiming web
    * pods) run the jobs.
+   *
+   * The base-corpus clock is suspended while `chromaMigration` is on. A cycle
+   * that finds the corpus collection empty while the table lists ingested
+   * files takes the store for reset and queues the whole corpus again
+   * (`oib_sync._forget_everything_if_the_index_was_reset`): every file embedded
+   * a second time, paid for, and new points the import's `--verify` counts as
+   * extra. The migration Job depends on this CronJob, so the suspension is in
+   * place before the export starts; the deploy that switches the flag off,
+   * after the operator has verified the import, resumes it.
    */
-  const housekeeping = [
-    { name: "housekeeping-ghost-jobs", schedule: "*/2 * * * *", route: "ghost-jobs", timeoutMs: 90_000 },
-    { name: "housekeeping-job-events", schedule: "7 * * * *", route: "job-events", timeoutMs: 900_000 },
-    { name: "housekeeping-chat-checkpoints", schedule: "37 * * * *", route: "chat-checkpoints", timeoutMs: 900_000 },
-    { name: "housekeeping-base-corpus", schedule: "*/10 * * * *", route: "base-corpus", timeoutMs: 600_000 },
-  ].map(({ route, ...sweep }) =>
+  const housekeepingSweep = ({ route, ...sweep }: HousekeepingSweep) =>
     internalSweepCronJob(w, cfg, secrets, dependsOn, {
       ...sweep,
       url: `${BACKEND_URL}/v1/maintenance/housekeeping/${route}`,
-    }),
-  );
+    });
+  const baseCorpusSync = housekeepingSweep({
+    name: BASE_CORPUS_SYNC,
+    schedule: "*/10 * * * *",
+    route: "base-corpus",
+    timeoutMs: 600_000,
+    suspend: cfg.chromaMigration.enabled,
+  });
+  const housekeeping = [
+    ...[
+      { name: "housekeeping-ghost-jobs", schedule: "*/2 * * * *", route: "ghost-jobs", timeoutMs: 90_000 },
+      { name: "housekeeping-job-events", schedule: "7 * * * *", route: "job-events", timeoutMs: 900_000 },
+      { name: "housekeeping-chat-checkpoints", schedule: "37 * * * *", route: "chat-checkpoints", timeoutMs: 900_000 },
+    ].map(housekeepingSweep),
+    baseCorpusSync,
+  ];
 
-  return { purger, scheduler, storageAlerts, vectorReconcile, housekeeping };
+  return { purger, scheduler, storageAlerts, vectorReconcile, housekeeping, baseCorpusSync };
 }

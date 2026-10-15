@@ -1,7 +1,7 @@
 """Internal maintenance endpoints used by the purger service and the BFF's sweep.
 
-Deletes the Python-side resources of a purged project: the Chroma
-collection (+ its summaries), aiq_jobs rows, and LangGraph checkpoints.
+Deletes the Python-side resources of a purged project: the collection's
+chunks in Qdrant (+ its summaries), aiq_jobs rows, and LangGraph checkpoints.
 Guarded by GRID_INTERNAL_API_TOKEN; never exposed to end users.
 All operations are idempotent — re-running on already-deleted data is a no-op.
 
@@ -9,7 +9,11 @@ Also reconciles the summaries table against the vector store
 (``reconcile-summaries``): the agent's document inventory is built from
 summary rows alone, so a row whose chunks are gone lists a file nobody can
 retrieve. ``delete_file`` now forgets both together; this sweep catches the
-rows orphaned before it did.
+rows orphaned before it did. It judges files inside collections the store
+holds, never a collection the store lacks (see ``reconcile_orphaned_summaries``).
+
+And copies every document's person-set facts onto its points again
+(``refresh-document-facts``), repairing a copy that failed after an edit.
 """
 
 import asyncio
@@ -119,61 +123,56 @@ def _reconcile_one_collection(
     ingestor: Any,
     collection: str,
     *,
-    live_chunk_counts: dict[str, int],
     dry_run: bool,
 ) -> list[str]:
     """Return the summary filenames in ``collection`` that own no chunks, forgetting them unless ``dry_run``.
 
+    Called only for a collection the store holds chunks of.
     Raises on anything that would make the verdict unsafe. The caller records
     the raise as a per-collection failure and moves on.
     """
     from aiq_agent.knowledge import factory as knowledge_factory
-    from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
     from aiq_agent.knowledge.ingest_status_store import in_flight_files
 
     summaries = knowledge_factory.get_available_documents(collection)
     if not summaries:
         return []
 
-    held: set[str] = set()
-    if collection in live_chunk_counts:
-        files = ingestor.list_files(collection)
-        # ``list_files`` answers ``[]`` for a collection it could not reach as
-        # well as for an empty one. Chroma reported chunks a moment ago, so an
-        # empty listing here is a failed read, not an empty collection — and
-        # a failed read must not forget every summary the collection has.
-        if not files and live_chunk_counts[collection] > 0:
-            raise RuntimeError("file listing came back empty for a collection that holds chunks")
-        # ANY tracked status keeps a summary: a file that failed or is still
-        # ingesting has no chunks yet and is not an orphan.
-        held = {_normalized_name(f.file_name) for f in files}
-    # A collection Chroma no longer has: every summary in it is an orphan
-    # (the purge route clears them the same way). Either way, a file whose
-    # ingest is still running is not judged this sweep.
+    files = ingestor.list_files(collection)
+    # ``list_files`` answers ``[]`` for a collection it could not reach as
+    # well as for an empty one. The store reported chunks a moment ago, so an
+    # empty listing here is a failed read, not an empty collection — and
+    # a failed read must not forget every summary the collection has.
+    if not files:
+        raise RuntimeError("file listing came back empty for a collection that holds chunks")
+    # ANY tracked status keeps a summary: a file that failed or is still
+    # ingesting has no chunks yet and is not an orphan. Neither is a file
+    # whose ingest is still running.
+    held = {_normalized_name(f.file_name) for f in files}
     for name in in_flight_files([collection]).get(collection, []):
         held.add(_normalized_name(name))
 
     orphans = sorted(doc.file_name for doc in summaries if _normalized_name(doc.file_name) not in held)
     if dry_run:
         return orphans
-    text_store = get_chunk_text_store()
     for file_name in orphans:
         knowledge_factory.unregister_summary(collection, file_name)
-        # The lexical mirror is keyed the way the row is; forget it under both
-        # spellings, as ``delete_file`` does.
-        text_store.delete_by_file(collection, file_name)
-        normalized = _normalized_name(file_name)
-        if normalized != file_name:
-            text_store.delete_by_file(collection, normalized)
     return orphans
 
 
 async def reconcile_orphaned_summaries(collections: list[str] | None, *, dry_run: bool) -> dict[str, Any]:
-    """Forget summary rows whose file holds no chunks in the vector store.
+    """Forget summary rows whose file holds no chunks, inside collections the vector store holds.
+
+    A collection with no point in the store is never judged: Qdrant lists no
+    empty collection, so absence is what a collection the import from Chroma
+    has not reached yet looks like, and what one a restore has not brought back
+    looks like. Its rows (summaries, tags, Dokumentart, titles, folders) stay;
+    deleting a whole collection is the purge route's job, which clears them
+    itself. Those collections are reported in ``collections_absent``.
 
     Fails per collection, never as a whole: one unreachable collection is
-    reported in ``failures`` and the others are still swept. The one
-    whole-request failure is a vector store that cannot be listed at all,
+    reported in ``failures`` and the others are still swept. The request fails
+    whole (503) when the store cannot be listed, or holds no point at all,
     because then nothing can be judged.
     """
     from aiq_agent.knowledge import factory as knowledge_factory
@@ -182,24 +181,32 @@ async def reconcile_orphaned_summaries(collections: list[str] | None, *, dry_run
     if ingestor is None:
         raise HTTPException(status_code=503, detail="No active ingestor; summaries cannot be reconciled")
     try:
-        # Chroma scans are synchronous; keep them off the event loop so a long
+        # Store reads are synchronous; keep them off the event loop so a long
         # sweep does not stall every other request the API is serving.
         live_chunk_counts = {info.name: info.chunk_count for info in await asyncio.to_thread(ingestor.list_collections)}
     except Exception as exc:
         logger.warning("reconcile-summaries: could not list vector-store collections: %s", exc)
         raise HTTPException(status_code=503, detail="Vector store unavailable; nothing reconciled") from exc
+    if not any(count > 0 for count in live_chunk_counts.values()):
+        # An empty store is a fresh or not yet imported one far more often than
+        # an office that deleted everything; refusing costs nothing either way.
+        logger.warning("reconcile-summaries: the vector store holds no point; nothing reconciled")
+        raise HTTPException(status_code=503, detail="Vector store holds no point; nothing reconciled")
 
     targets = collections if collections is not None else knowledge_factory.list_summary_collections()
 
     forgotten: list[dict[str, str]] = []
     failures: list[dict[str, str]] = []
+    absent: list[str] = []
     for collection in targets:
+        if live_chunk_counts.get(collection, 0) <= 0:
+            absent.append(collection)
+            continue
         try:
             orphans = await asyncio.to_thread(
                 _reconcile_one_collection,
                 ingestor,
                 collection,
-                live_chunk_counts=live_chunk_counts,
                 dry_run=dry_run,
             )
         except Exception as exc:
@@ -224,11 +231,76 @@ async def reconcile_orphaned_summaries(collections: list[str] | None, *, dry_run
         "orphans_forgotten": 0 if dry_run else len(forgotten),
         "forgotten": forgotten,
         "failures": failures,
+        "collections_absent": absent,
+    }
+
+
+#: Collections one ``refresh-document-facts`` call may name. The BFF's sweep
+#: sends its live collections in batches no larger, so one call stays well
+#: inside its timeout.
+REFRESH_FACTS_MAX_COLLECTIONS = 100
+
+
+class RefreshDocumentFactsRequest(BaseModel):
+    """The collections whose documents' facts the weekly vector reconcile copies onto their points again."""
+
+    collections: list[str] = Field(..., min_length=1, max_length=REFRESH_FACTS_MAX_COLLECTIONS)
+
+
+async def refresh_document_facts(collections: list[str]) -> dict[str, Any]:
+    """Copy every document's person-set facts onto its points again, collection by collection.
+
+    The repair behind ``knowledge_layer.qdrant.writes.refresh_facts``, which
+    never raises: a copy that failed after a person's edit (tags, Dokumentart,
+    a Fassung link, a folder) leaves the old value on the points, and the
+    pre-filters that read it (the cross-project search's tag filters, the
+    superseded exclusion) hide or show the document wrongly until something
+    copies it again. Fails per collection, never as a whole; 409 where this
+    process has no Qdrant store, which the BFF reads as nothing to repair.
+    """
+    try:
+        from knowledge_layer.qdrant import writes
+    except ImportError as exc:  # the knowledge layer's store extra is not installed here
+        raise HTTPException(status_code=409, detail="this deployment has no Qdrant store") from exc
+
+    targets = list(dict.fromkeys(collections))
+    files_refreshed = 0
+    failures: list[dict[str, str]] = []
+    for collection in targets:
+        try:
+            # Store reads and writes are synchronous; keep them off the event loop.
+            files_refreshed += await asyncio.to_thread(writes.copy_facts, collection)
+        except Exception as exc:
+            logger.warning("refresh-document-facts: %s failed: %s", collection, exc)
+            failures.append({"collection": collection, "error": str(exc)})
+    logger.info(
+        "refresh-document-facts: copied the facts of %d file(s) in %d collection(s), %d failed",
+        files_refreshed,
+        len(targets),
+        len(failures),
+    )
+    return {
+        "status": "ok",
+        "collections_scanned": len(targets),
+        "files_refreshed": files_refreshed,
+        "failures": failures,
     }
 
 
 def add_maintenance_routes(router: APIRouter) -> None:
     """Add internal maintenance routes to the FastAPI app."""
+
+    @router.post(
+        "/v1/maintenance/refresh-document-facts",
+        tags=["maintenance"],
+        summary="Copy every document's facts onto its points again (internal)",
+    )
+    async def refresh_document_facts_route(
+        body: RefreshDocumentFactsRequest,
+        request: Request,
+    ) -> dict:
+        _require_internal_token(request)
+        return await refresh_document_facts(body.collections)
 
     @router.post(
         "/v1/maintenance/reconcile-summaries",

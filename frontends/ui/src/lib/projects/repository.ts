@@ -124,6 +124,35 @@ export async function findProjectTenancy(
   return row ?? null
 }
 
+/** What the vector store's copy of a project's facts is built from (`cross-project/project-facts-mirror.ts`). */
+export type ProjectFactsRow = Pick<Project, 'id' | 'organizationId' | 'collectionName' | 'profile' | 'status'>
+
+/**
+ * A page of every organization's live projects, by id, for the facts sync
+ * (the weekly vector reconcile): the one cross-tenant read it needs. Bounded
+ * by `limit`; the caller pages with `afterId`.
+ */
+export async function listProjectFactsPage(afterId: string | null, limit: number): Promise<ProjectFactsRow[]> {
+  const db = getDb()
+  const rows = await withPlatformAccess(
+    'project facts sync: copy every live project’s facts onto its vector-store points, across organizations',
+    () =>
+      db
+        .select({
+          id: projects.id,
+          organizationId: projects.organizationId,
+          collectionName: projects.collectionName,
+          profile: projects.profile,
+          status: projects.status,
+        })
+        .from(projects)
+        .where(and(isNull(projects.deletedAt), afterId ? sql`${projects.id} > ${afterId}` : undefined))
+        .orderBy(asc(projects.id))
+        .limit(limit)
+  )
+  return rows.map((row) => ({ ...row, profile: salvageProjectProfile(row.profile).profile ?? emptyProjectProfile() }))
+}
+
 /** A move of the lifecycle, as the repository writes it (ADR-0098). */
 export type ProjectStatusWrite =
   | { status: 'active' }

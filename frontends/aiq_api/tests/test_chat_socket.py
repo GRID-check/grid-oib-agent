@@ -2199,6 +2199,10 @@ async def test_an_owner_cut_off_from_dragonfly_past_its_window_cancels_itself_an
     sock = harness(gate.turn, a.registry).connect()
     sock.client(type="user_message", message_id="t1", text="?")
     await until(lambda: gate.calls)
+    # The prose the turn streamed before the cut reaches the socket on its own
+    # schedule; under load it arrived after `heard` was counted and read as
+    # sent past the cut. Count from once it is here.
+    await until(lambda: "TEXT_MESSAGE_CONTENT" in [event["type"] for event in sock.events()])
     _bus_down(monkeypatch, shared, "expire_if_value", "publish", "xadd", "get")
     heard = len(sock.events())
 

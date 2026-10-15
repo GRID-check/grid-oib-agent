@@ -445,6 +445,15 @@ tasks:
       # package is collected the day it lands.
       - '"{{.PY}}" -X faulthandler -m pytest sources -q'
 
+  be:test:migration:
+    desc: The Chroma exporter and the whole move (exporter, importer, Qdrant), in a throwaway chromadb environment
+    cmds:
+      # chromadb is not a dependency of this repo (ADR-0113): the exporter's own
+      # PEP 723 pin decides the environment, and pytest's testpaths never reach
+      # deploy/, so no other task imports chromadb. The end-to-end test runs the
+      # importer in .venv and needs AIQ_QDRANT_TEST_URL (skipped locally without it).
+      - uvx --python 3.12 --with-requirements deploy/migration/chroma_export.py --with pytest pytest deploy/migration/tests -q -p no:cacheprovider
+
   prompts:pull:
     desc: 'Bring a Langfuse prompt version into review: task prompts:pull [-- --label <label>]'
     env:
@@ -517,6 +526,22 @@ tasks:
       # key. It is committed so `be:eval:overview` and CI stay offline; re-run
       # this when AIQ_EMBED_MODEL, data/oib or the golden questions change.
       - '{{.PY}} -m oib_retrieval_eval.record_vector'
+
+  be:eval:qdrant-parity:
+    desc: 'Qdrant retrieval gates G1b/G2/G6 on the OIB corpus, beside the Chroma path''s recorded numbers (NEEDS data/oib, a Qdrant 1.19 server, OPENROUTER_API_KEY; writes results/qdrant_parity)'
+    env:
+      PYTHONPATH: src:frontends/benchmarks/oib_retrieval/src:sources/knowledge_layer/src
+    cmds:
+      # qdrant-retrieval-design.md §10; last run: docs/architecture/qdrant-gates-2026-10.md.
+      # Embeds the corpus once with the production model through make_embed_model
+      # (cached under .cache/qdrant_parity, about $0.12 cold), writes it into Qdrant
+      # through ingestion's write_chunks and reads it through the production
+      # retriever. Chroma is gone (ADR-0113): its numbers from the gate run are the
+      # fixed reference (qdrant_parity/baseline.py). `-- --embedder hashed` runs it
+      # keyless as a wiring check only; `-- --variants all` adds the ranking sweep;
+      # `-- --qdrant-url URL` points at another server (default $AIQ_QDRANT_TEST_URL
+      # or localhost:6333). Only uniquely named parity_* collections are touched.
+      - '{{.PY}} -m oib_retrieval_eval.qdrant_parity.runner {{.CLI_ARGS}}'
 
   be:eval:decisions:
     desc: 'Decision-model eval — does Jev pick the right OIB family, corpus and evidence need on the loop-eval questions (NEEDS OPENROUTER_API_KEY; no backend)'

@@ -958,8 +958,8 @@ def segment_payloads(analysis: dict[str, Any], registry: DomainRegistry | None =
     Each payload carries the text to embed, the per-segment metadata scalars
     the store can filter on, and ``drawing_data``: the segment plus document
     facts as a JSON string, so the detail view (and any later re-mapper) gets
-    the full structure back without re-running the model. Chroma metadata must
-    stay scalar, hence the JSON string.
+    the full structure back without re-running the model. It stays a string so
+    the payload holds one opaque, unindexed field rather than a nested object.
 
     The document-level text rides on the FIRST segment only — repeating the
     title block on every chunk would let a project-name query retrieve five

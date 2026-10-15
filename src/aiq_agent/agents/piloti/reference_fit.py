@@ -18,7 +18,7 @@ message, in parallel and beside the turn decision. What it may do:
   Sicherheitstreppenhaus from seventh to first);
 * hand the same order to every ``similar`` or ``closed`` search of the turn
   (``CrossProjectTurn.reference_order``), the round-0 prefetch included, so a
-  search of eight projects searches the eight that fit, not the eight most
+  page of projects starts with the ones that fit, not the ones most
   alike.
 
 What it may never do (ADR-0064's rule): drop a project, narrow a scope, or

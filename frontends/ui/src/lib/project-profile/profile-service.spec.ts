@@ -26,8 +26,13 @@ vi.mock('@/lib/document-roles/repository', () => ({
   deleteBindingsOutsideBauwerke: vi.fn().mockResolvedValue(0),
 }))
 
+vi.mock('@/lib/cross-project/project-facts-mirror', () => ({
+  syncProjectFacts: vi.fn().mockResolvedValue('pushed'),
+}))
+
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { invalidateCached } from '@/lib/cache'
+import { syncProjectFacts } from '@/lib/cross-project/project-facts-mirror'
 import { deleteBindingsOutsideBauwerke } from '@/lib/document-roles/repository'
 import { bauwerkIds } from '@/lib/document-roles/service'
 import {
@@ -208,6 +213,20 @@ describe('saveProjectProfile optimistic concurrency (If-Match)', () => {
 
     expect(updateProjectProfileIfVersion).not.toHaveBeenCalled()
     expect(deleteBindingsOutsideBauwerke).not.toHaveBeenCalled()
+  })
+
+  it('copies the fingerprint onto the project’s chunks after the write, and not when the save is refused', async () => {
+    await saveProjectProfile(session, 'proj-1', storedProfile, 5)
+    expect(syncProjectFacts).toHaveBeenCalledWith('org-1', 'proj-1')
+
+    vi.mocked(syncProjectFacts).mockClear()
+    await expect(saveProjectProfile(session, 'proj-1', storedProfile, 4)).rejects.toThrow()
+    expect(syncProjectFacts).not.toHaveBeenCalled()
+  })
+
+  it('copies the fingerprint after an accepted patch too: one choke point for both', async () => {
+    await patchProjectProfile(session, 'proj-1', [])
+    expect(syncProjectFacts).toHaveBeenCalledWith('org-1', 'proj-1')
   })
 })
 

@@ -48,6 +48,8 @@ const SEES_EVERY_ROW: Record<string, string> = {
     'Sweep: the failed-ingestion rescan re-dispatches each id through `reingestDocument`. Ids only, to a job.',
   'lib/platform/vector-reconcile.ts#liveFilenamesByCollection':
     'Sweep: which filenames still have a row, so chunks of deleted documents are purged. A held row is not deleted.',
+  'lib/platform/vector-reconcile.ts#liveFilenamesIn':
+    "The same sweep's second look at one collection right before its delete, so a document filed since the snapshot keeps its chunks. A held row is not deleted either.",
   'lib/session-documents/repository.ts#listSessionDocumentsForCleanup':
     "Discarding a chat erases every attachment's objects, held ones first among them.",
 

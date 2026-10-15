@@ -254,12 +254,12 @@ def test_another_ingestors_free_worker_claims_and_runs_the_job(db, tmp_path, mon
 
     from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
 
-    accepting = LlamaIndexIngestor({"persist_dir": str(tmp_path / "a")})
+    accepting = LlamaIndexIngestor({})
     prepared = accepting.prepare_job([DeferredObjectDownload(_ORIGINAL)], "proj_1", {"organization_id": "org-1"})
     ingest_dispatch.dispatch(accepting, prepared)
     assert accepting._live_job_ids() == []
 
-    worker = LlamaIndexIngestor({"persist_dir": str(tmp_path / "b")})
+    worker = LlamaIndexIngestor({})
     done = threading.Event()
     ran = []
 

@@ -14,6 +14,8 @@
  *   vi.mock('../lib/pdfjs-runtime', () => fakePdfjsRuntime(state))
  */
 
+import { screen, waitFor } from '@testing-library/react'
+
 /** The fields of a pdf.js `TextItem` the viewer reads. */
 export interface FakeTextItem {
   str: string
@@ -121,3 +123,32 @@ export const fakePdfjsRuntime = (state: FakePdfState) => ({
     }
   },
 })
+
+/**
+ * Wait until a page's text layer holds `text`, then select everything in it,
+ * the way a drag across it would, and return the layer.
+ *
+ * The layer element is mounted before pdf.js has handed it the page's words:
+ * they arrive from `getTextContent`, a promise. Selecting the moment the
+ * element appears selects an empty node on a loaded runner, the selection
+ * comes back collapsed, and the viewer rightly offers nothing. A spec that
+ * expects an offer then fails one run in a few, and one that expects NO offer
+ * passes without testing anything. Waiting for the words closes both.
+ *
+ * happy-dom has a Selection but no layout, so the range's bounding rect is all
+ * zeros, which the viewer reads as the top-left of the page stack; no
+ * assertion here is about the position.
+ */
+export async function selectRenderedText(text: string): Promise<HTMLElement> {
+  const layer = await waitFor(() => {
+    const found = screen.getAllByTestId('pdf-text-layer').find((node) => node.textContent?.includes(text))
+    if (!found) throw new Error(`no text layer holds ${JSON.stringify(text)} yet`)
+    return found
+  })
+  const range = document.createRange()
+  range.selectNodeContents(layer)
+  const selection = document.getSelection()!
+  selection.removeAllRanges()
+  selection.addRange(range)
+  return layer
+}

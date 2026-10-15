@@ -163,6 +163,13 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
       s3AccessKey: "grid-langfuse",
       s3SecretKey: pulumi.secret("langfuse-secret"), // pragma: allowlist secret
     },
+    // The Qdrant snapshot identity (ADR-0113): always declared, Qdrant always runs.
+    qdrant: {
+      snapshots: {
+        s3AccessKey: "grid-qdrant",
+        s3SecretKey: pulumi.secret("qdrant-secret"), // pragma: allowlist secret
+      },
+    },
     // No worker groups: no nodeSelector, as on every stack but prod.
     nodeGroups: {},
   };
@@ -170,6 +177,7 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
     ...base,
     seaweedfs: { ...base.seaweedfs, ...(overrides.seaweedfs as object) },
     langfuse: { ...base.langfuse, ...(overrides.langfuse as object) },
+    qdrant: { ...base.qdrant, ...(overrides.qdrant as object) },
     // The modules under test only read the fields above; the cast is the one
     // documented boundary between this fixture and the full GridConfig.
   } as unknown as import("../config").GridConfig;
@@ -651,12 +659,12 @@ describe("single-node topology", () => {
 });
 
 describe("s3 identities", () => {
-  async function render(overrides: Record<string, unknown>, tenantPrefix?: string) {
+  async function render(overrides: Record<string, unknown>, tenantPrefix?: string, extraBuckets: string[] = []) {
     const { renderS3Config } = await import("./seaweedfs-identities");
     const cfg = makeConfig(overrides);
     const json = await value(
       renderS3Config(cfg, {
-        platformBuckets: ["grid-documents", "grid-pg-backups"],
+        platformBuckets: ["grid-documents", "grid-pg-backups", ...extraBuckets],
         tenantBucketPrefix: tenantPrefix ?? "grid-org-",
         provisioning: tenantPrefix !== undefined,
       }),
@@ -721,7 +729,22 @@ describe("s3 identities", () => {
     // deleting objects in buckets that already exist does not — which is why
     // only THIS identity is gated.
     const cfg = await render({});
-    expect(cfg.identities.map((i) => i.name)).toEqual(["grid", "grid-backend-read"]);
+    expect(cfg.identities.map((i) => i.name)).toEqual(["grid", "grid-backend-read", "grid-qdrant"]);
+  });
+
+  // ADR-0113. A snapshot is every office's chunk text and vectors in one file.
+  it("confines the Qdrant identity to the snapshot bucket, and keeps `grid` off it", async () => {
+    const cfg = await render({}, undefined, ["qdrant-snapshots"]);
+    const qdrant = cfg.identities.find((i) => i.name === "grid-qdrant")!;
+    const grid = cfg.identities.find((i) => i.name === "grid")!;
+
+    expect(qdrant.actions.sort()).toEqual([
+      "List:qdrant-snapshots",
+      "Read:qdrant-snapshots",
+      "Tagging:qdrant-snapshots",
+      "Write:qdrant-snapshots",
+    ]);
+    expect(grid.actions.join(" ")).not.toContain("qdrant-snapshots");
   });
 });
 

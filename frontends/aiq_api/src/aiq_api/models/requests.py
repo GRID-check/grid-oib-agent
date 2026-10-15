@@ -1,12 +1,20 @@
 """Request and response models for knowledge API endpoints."""
 
+import logging
+from typing import Annotated
 from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import StringConstraints
+from pydantic import ValidationError
+from pydantic import ValidationInfo
+from pydantic import ValidatorFunctionWrapHandler
 from pydantic import field_validator
+
+logger = logging.getLogger(__name__)
 
 #: Bounds of an office's screening terms. The ingest job applies the same ones
 #: (``aiq_agent.common.content_screen``) to whatever reaches it.
@@ -78,6 +86,40 @@ class ScreeningPolicy(BaseModel):
         return not self.content_terms and not self.detectors
 
 
+ProjectStatus = Literal["active", "paused", "closed"]
+
+#: A token as the intake stores it (``niederoesterreich``, ``holzbau``).
+_FactToken = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+
+
+class ProjectFacts(BaseModel):
+    """A project's fingerprint as the BFF's similarity reads it (``similarityFacts`` in ``similarity.ts``).
+
+    Postgres ``projects.profile`` is the authority; this is the copy every
+    point of the project's collections carries, and the current project's
+    facts a search is boosted by.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    bundesland: _FactToken | None = Field(None, description="The Land token; null for a site abroad or unknown")
+    gebaeudeklasse: list[Annotated[int, Field(ge=1, le=5)]] = Field(
+        default_factory=list, max_length=20, description="Every building's Gebäudeklasse"
+    )
+    bauweise: list[_FactToken] = Field(default_factory=list, max_length=20)
+    nutzungen: list[_FactToken] = Field(default_factory=list, max_length=40)
+    vorhabensart: list[_FactToken] = Field(default_factory=list, max_length=20)
+
+
+class ProjectFactsUpdate(BaseModel):
+    """Body of ``PUT /v1/collections/{collection}/project-facts``, and the project part of an ingest job."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    facts: ProjectFacts = Field(default_factory=ProjectFacts)
+    status: ProjectStatus = Field(..., description="The project's lifecycle state (ADR-0098)")
+
+
 class IngestRequest(BaseModel):
     """Request body for URL-based ingestion."""
 
@@ -89,11 +131,47 @@ class IngestRequest(BaseModel):
         max_length=120,
         description="The document's project, so its ingestion spend is booked to it on the usage ledger.",
     )
+    project_facts: ProjectFactsUpdate | None = Field(
+        None,
+        description=(
+            "The project's facts and status as the BFF read them at dispatch, stamped onto every chunk "
+            "the job writes to Qdrant so a new document is boosted and filtered like its siblings from its "
+            "first search. Later changes arrive through `PUT /v1/collections/{c}/project-facts`. Absent "
+            "for a document outside a project."
+        ),
+    )
     user_id: str | None = Field(
         None,
         max_length=120,
         description="The member who put the document there, so its ingestion spend is booked to them.",
     )
+
+    @field_validator("project_facts", mode="wrap")
+    @classmethod
+    def _drop_unreadable_project_facts(
+        cls, value: Any, handler: ValidatorFunctionWrapHandler, info: ValidationInfo
+    ) -> ProjectFactsUpdate | None:
+        """Project facts this tier cannot read are dropped with a warning, never a 422 on the upload.
+
+        They are a copy stamped onto the chunks; the upload is a person's file.
+        Refusing the request over one malformed fact on the project (a class
+        outside 1..5, an overlong token) would fail every upload into it until
+        someone fixed the profile. Without them the job writes chunks that carry
+        no facts, which the next ``PUT /v1/collections/{c}/project-facts`` and
+        the weekly sweep fill. ``ProjectFacts`` itself stays strict: that PUT
+        and the boosted search still refuse a malformed body, so a BFF that
+        sends one is seen there.
+        """
+        try:
+            return handler(value)
+        except ValidationError as error:
+            logger.warning(
+                "Ingest into %s: dropping project facts that do not validate (%s)",
+                info.data.get("collection"),
+                "; ".join(".".join(str(part) for part in issue["loc"]) or "facts" for issue in error.errors()),
+            )
+            return None
+
     priority: Literal["interactive", "bulk"] = Field(
         "interactive",
         description=(
@@ -201,6 +279,83 @@ class DocumentSearchRequest(BaseModel):
             "Max characters kept from each document's best-matching chunk. 300 for a hit list a person scans; "
             "the cross-project lookups (ADR-0094) ask for more, because their snippet is the evidence the agent "
             "answers from and cites: it cannot open another project's document further."
+        ),
+    )
+
+
+class SimilarityWeights(BaseModel):
+    """The BFF's hand-set ``SIMILARITY_WEIGHTS``, sent with each boosted search so they live in one place."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    bundesland: float = Field(0, ge=0, le=100)
+    gebaeudeklasse: float = Field(0, ge=0, le=100)
+    gebaeudeklasse_adjacent: float = Field(0, ge=0, le=100)
+    bauweise: float = Field(0, ge=0, le=100)
+    nutzung: float = Field(0, ge=0, le=100)
+    nutzung_max: float = Field(0, ge=0, le=100)
+    vorhabensart: float = Field(0, ge=0, le=100)
+
+
+class SearchBoost(BaseModel):
+    """Lift passages from projects like the current one: its facts, and what each shared fact is worth."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    facts: ProjectFacts
+    weights: SimilarityWeights
+
+
+class GroupedSearchFilters(BaseModel):
+    """Pre-filters for the grouped search, applied inside the one query before ranking.
+
+    Within a list: any of. Across lists: all of. ``document_types`` and
+    ``disciplines`` both read the document's tags (one closed vocabulary,
+    ``tag-vocabulary.ts``), as two separate any-of conditions.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    document_types: list[_FactToken] = Field(default_factory=list, max_length=40)
+    disciplines: list[_FactToken] = Field(default_factory=list, max_length=40)
+    project_facts: ProjectFacts | None = Field(
+        None,
+        description=(
+            "Only projects holding any of each listed fact's values (a fact left empty does not filter). "
+            "Read from the facts mirrored onto the points, so a project whose facts were never mirrored "
+            "does not match."
+        ),
+    )
+    project_status: list[ProjectStatus] = Field(default_factory=list, max_length=3)
+
+
+class GroupedDocumentSearchRequest(BaseModel):
+    """Request body for one semantic search across many collections, grouped per collection.
+
+    The cross-project lookup's single call (ADR-0094, ADR-0114): every
+    reachable project's collections are ranked in ONE query, so hits from
+    different projects are ordered by one fused ranking instead of by scores
+    from separate indexes.
+    """
+
+    query: str = Field(..., min_length=1, max_length=1000, description="Natural-language search query")
+    collections: list[str] = Field(..., min_length=1, max_length=500, description="Collections to rank together")
+    groups: int = Field(20, ge=1, le=200, description="Max collections in the answer, best first")
+    files_per_group: int = Field(3, ge=1, le=20, description="Max documents per collection")
+    snippet_max_chars: int = Field(300, ge=100, le=1500, description="Max characters of each document's snippet")
+    filters: GroupedSearchFilters | None = Field(None, description="Narrow the search before ranking")
+    boost: SearchBoost | None = Field(None, description="The current project's facts, to lift similar projects")
+
+
+class ProjectFactsResult(BaseModel):
+    """Answer of ``PUT /v1/collections/{collection}/project-facts``."""
+
+    collection: str
+    applied: bool = Field(
+        ...,
+        description=(
+            "False when no point of the collection exists yet: nothing to write, and the first document's "
+            "ingest job carries the facts itself."
         ),
     )
 

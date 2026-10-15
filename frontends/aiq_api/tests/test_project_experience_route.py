@@ -37,26 +37,15 @@ class _FakeLLM:
         return SimpleNamespace(content=json.dumps(self.replies.pop(0)))
 
 
-class _FakeCollection:
-    def get(self, where: dict[str, str], include: list[str]) -> dict[str, Any]:
-        chunks = CHUNKS.get(where["file_name"], [])
-        return {
-            "documents": [text for _, text in chunks],
-            "metadatas": [{"page_label": page} for page, _ in chunks],
-        }
+class _FakeIngestor:
+    """Like ``LlamaIndexIngestor``: the one that holds the summary model."""
 
-
-class _FakeChroma:
-    def get_collection(self, name: str) -> _FakeCollection:
-        return _FakeCollection()
-
-
-class _FakeRetriever:
     def __init__(self, llm: Any):
         self.summary_llm = llm
 
-    def _get_chroma_client(self) -> _FakeChroma:
-        return _FakeChroma()
+
+class _FakeRetriever:
+    """Like ``LlamaIndexRetriever``: no summary model, so a route asking it gets none."""
 
 
 def _body() -> dict[str, Any]:
@@ -84,7 +73,11 @@ def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
 
 
 def _patch_knowledge(monkeypatch: pytest.MonkeyPatch, llm: Any) -> None:
-    monkeypatch.setattr(factory, "get_active_retriever", lambda: _FakeRetriever(llm))
+    from aiq_agent.knowledge import collection_pages
+
+    monkeypatch.setattr(factory, "get_active_ingestor", lambda: _FakeIngestor(llm))
+    monkeypatch.setattr(factory, "get_active_retriever", lambda: _FakeRetriever())
+    monkeypatch.setattr(collection_pages, "read_pages", lambda collection, file_name: CHUNKS.get(file_name))
     monkeypatch.setattr(
         factory, "get_available_documents", lambda collection: [AvailableDocument(file_name="Baubeschreibung.pdf")]
     )
@@ -170,11 +163,11 @@ async def test_a_retriever_without_a_summary_model_is_answered_as_no_model(app, 
     assert response.json()["fingerprint"] == []
 
 
-async def test_a_retriever_that_cannot_be_built_is_answered_as_extraction_failed(app, monkeypatch) -> None:
+async def test_a_knowledge_backend_that_cannot_be_reached_is_answered_as_extraction_failed(app, monkeypatch) -> None:
     def unavailable() -> None:
         raise RuntimeError("no knowledge backend configured")
 
-    monkeypatch.setattr(factory, "get_active_retriever", unavailable)
+    monkeypatch.setattr(factory, "get_active_ingestor", unavailable)
 
     response = await _post(app, _body())
 

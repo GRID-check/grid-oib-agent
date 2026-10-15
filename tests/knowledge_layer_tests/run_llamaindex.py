@@ -4,7 +4,7 @@ LlamaIndex Backend - End-to-End Test
 
 This script tests the complete knowledge layer workflow with LlamaIndex:
 1. Ingest PDFs with multimodal extraction (text, tables, charts, images)
-2. Store embeddings in ChromaDB
+2. Store embeddings in Qdrant (AIQ_QDRANT_URL)
 3. Test retrieval via semantic search
 
 Prerequisites:
@@ -83,12 +83,6 @@ Examples:
     parser.add_argument(
         "--collection", "-c", default="test_collection", help="Collection name (default: test_collection)"
     )
-    parser.add_argument(
-        "--chroma-dir",
-        "-d",
-        default="/tmp/chroma_data",
-        help="ChromaDB persistence directory (default: /tmp/chroma_data)",
-    )
     parser.add_argument("--ingest-only", "-i", action="store_true", help="Only ingest, skip retrieval test")
     parser.add_argument(
         "--query", "-q", action="append", help="Custom query to run after ingestion (can specify multiple)"
@@ -123,7 +117,6 @@ async def main():
     from aiq_agent.knowledge import get_retriever
 
     # Configuration
-    persist_dir = args.chroma_dir
     collection_name = args.collection
 
     # Determine files to ingest
@@ -136,7 +129,7 @@ async def main():
     print(f"\nFiles to ingest: {len(file_paths)}")
     for f in file_paths:
         print(f"  - {f}")
-    print(f"ChromaDB: {persist_dir}")
+    print(f"Qdrant: {os.environ.get('AIQ_QDRANT_URL', '(AIQ_QDRANT_URL not set)')}")
     print(f"Collection: {collection_name}")
 
     # Validate files exist
@@ -163,7 +156,6 @@ async def main():
     # Configure extraction based on flags
     if args.text_only:
         ingest_config = {
-            "persist_dir": persist_dir,
             "extract_tables": False,
             "extract_charts": False,
             "extract_images": False,
@@ -172,7 +164,6 @@ async def main():
         print("Extraction mode: TEXT ONLY (no VLM)")
     else:
         ingest_config = {
-            "persist_dir": persist_dir,
             "extract_tables": True,  # Extract tables via pdfplumber
             "extract_charts": True,  # Extract charts with VLM analysis
             "extract_images": True,  # Extract images with VLM captioning
@@ -242,7 +233,7 @@ async def main():
         print("STEP 2: Testing Semantic Search")
         print("-" * 70)
 
-        retriever = get_retriever("llamaindex", {"persist_dir": persist_dir})
+        retriever = get_retriever("llamaindex")
 
         # Use custom queries if provided, otherwise use defaults
         if args.query:
@@ -280,7 +271,7 @@ async def main():
     print("\n" + "=" * 70)
     print("Test Complete!")
     print("=" * 70)
-    print(f"\nData persisted to: {persist_dir}")
+    print(f"\nData stored in Qdrant: {os.environ.get('AIQ_QDRANT_URL')}")
     print(f"Collection: {collection_name}")
     print(f"Files ingested: {len(file_paths)}")
 

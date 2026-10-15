@@ -3,10 +3,12 @@
  *
  * Provisions the whole stack against a provider-supplied kubeconfig:
  *   platform  → cert-manager (+ Let's Encrypt issuer), Envoy Gateway, metrics-server
- *   data      → CloudNativePG Postgres (3 DBs), Dragonfly cache, SeaweedFS (S3)
+ *   data      → CloudNativePG Postgres (3 DBs), Dragonfly cache, SeaweedFS (S3),
+ *               Qdrant (the vector store, ADR-0113)
  *   app       → aiq-agent (StatefulSet, the chat role), aiq-api (Deployment +
  *               HPA, the api role), frontend (Deployment + HPA), purger, skill-scheduler, gotenberg (office
- *               → PDF), a migration Job and a WorkOS audit-schema reconcile Job
+ *               → PDF), a migration Job, a WorkOS audit-schema reconcile Job and,
+ *               opt-in, the one-shot Chroma-to-Qdrant Job
  *   edge      → Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS,
  *               for the app, the landing site and the public S3 endpoint
  *
@@ -29,12 +31,13 @@ import { installDragonfly, installLangfuseQueue, installRateLimitStore } from ".
 import { installClickHouse } from "./src/data/clickhouse";
 import { installSeaweedFS, type SeaweedFS } from "./src/data/seaweedfs";
 import { installSeaweedFSBackup } from "./src/data/seaweedfs-backup";
-import { installChroma } from "./src/data/chroma";
+import { installQdrant } from "./src/data/qdrant";
 import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildScalerSecret, buildSecrets } from "./src/app/config";
 import { runMigrations } from "./src/app/migrations-job";
 import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
 import { carryOverFolderGrants, reconcileAuthzCatalog } from "./src/app/workos-authz-jobs";
 import { importLegacyCorpus } from "./src/app/legacy-corpus-import-job";
+import { migrateChromaToQdrant } from "./src/app/chroma-migration-job";
 import { installBackend } from "./src/app/backend";
 import { installBackendScaling } from "./src/app/backend-scaling";
 import { installApi } from "./src/app/api";
@@ -52,7 +55,8 @@ import { installHttpRoutes } from "./src/app/httproutes";
 import { installOtelCollector } from "./src/platform/otel-collector";
 import { installDns, managedRecordNames } from "./src/platform/dns";
 import { installLangfuse } from "./src/platform/langfuse";
-import { LANGFUSE } from "./src/constants";
+import { installQdrantDashboard } from "./src/platform/qdrant-dashboard";
+import { LANGFUSE, QDRANT } from "./src/constants";
 
 const cfg = loadConfig();
 const provider = makeProvider(cfg);
@@ -94,6 +98,8 @@ const extraBuckets = [
   // the init Job creates it — but withheld from the general-purpose `grid` S3
   // identity in `s3IdentityCatalog`; Langfuse reaches it as `grid-langfuse`.
   ...(cfg.langfuse.enabled ? [LANGFUSE.bucket] : []),
+  // Qdrant's shard snapshots (ADR-0113), reached only as `grid-qdrant`.
+  QDRANT.snapshotBucket,
 ];
 const filerNeedsPostgres =
   cfg.seaweedfs.topology === "split" && cfg.seaweedfs.filerStore === "postgres";
@@ -170,7 +176,11 @@ const langfuseQueue = cfg.langfuse.enabled
 const rateLimitStore = cfg.rateLimit.enabled
   ? installRateLimitStore(cfg, provider, namespace)
   : undefined;
-const chroma = installChroma(cfg, provider, namespace);
+// The vector store (ADR-0113). Its snapshot CronJob waits on the bucket it
+// uploads into. Chroma is gone from this program: on the deploy that removes it,
+// `chromaMigration` (below) copies it over before Pulumi deletes the server, and
+// its claim `data-chroma-0` is kept (`whenDeleted: Retain`) as the way back.
+const qdrant = installQdrant(cfg, provider, namespace, seaweed.internalEndpoint, [seaweed.bucketInitJob]);
 // Office → PDF converter for the document viewer (ADR-0070). Stateless and
 // fail-open, so nothing waits on it; its NetworkPolicies admit the frontend
 // alone and deny it every egress.
@@ -188,8 +198,8 @@ const wiring: AppWiring = {
   redisUrl: dragonfly.url,
   seaweedInternalEndpoint: seaweed.internalEndpoint,
   seaweedPublicEndpoint: seaweed.publicEndpoint,
-  chromaUrl: chroma.url,
   gotenbergUrl: gotenberg?.url,
+  qdrantUrl: qdrant.url,
   dsn: postgres.dsn,
   imagePullSecrets: pullSecret ? [{ name: PULL_SECRET_NAME }] : [],
 };
@@ -222,6 +232,34 @@ if (cfg.auth.requireAuth) {
   reconcileAuditSchemas(wiring, cfg, secrets, [ns]);
 }
 
+// The purger, the scheduler and the sweep and housekeeping CronJobs. Ahead of
+// the tiers below only because the Chroma migration waits on two of them.
+const workers = installWorkers(wiring, cfg, secrets, [migrations]);
+
+// The retired Chroma store, carried into Qdrant once (ADR-0113), on the deploy
+// that removes Chroma. The Job exports from the Chroma server the previous
+// release still runs (Pulumi deletes what this program dropped last, and only
+// on a deploy that succeeded), and Pulumi awaits it. Every tier that reads or
+// writes Qdrant waits for it in turn, so the order is: Qdrant ready → export,
+// import, verify → backend tiers roll → Chroma deleted. The old backends serve
+// retrieval from Chroma until then, nothing new writes Qdrant during the
+// import, and a failed Job stops the deploy before anything rolled. It also
+// waits for the base-corpus clock and the vector reconcile to be suspended, so
+// neither takes a collection the import has not filled yet for one the store
+// lost.
+const chromaMigration = cfg.chromaMigration.enabled
+  ? migrateChromaToQdrant(wiring, cfg, secrets, [
+      postgres.initJob,
+      postgres.pooler,
+      qdrant.statefulSet,
+      qdrant.service,
+      workers.baseCorpusSync,
+      ...(workers.vectorReconcile ? [workers.vectorReconcile] : []),
+    ])
+  : undefined;
+/** What every tier that reads or writes Qdrant waits for: the migration Job, when one runs. */
+const afterChromaMigration = chromaMigration ? [chromaMigration] : [];
+
 // ── App workloads ──────────────────────────────────────────────────────────
 //
 // Rollout order (ADR-0082 step B): the api tier, then the frontend, then the
@@ -238,7 +276,8 @@ const api = installApi(wiring, cfg, secrets, [
   postgres.initJob,
   seaweed.bucketInitJob,
   dragonfly.service,
-  ...(chroma ? [chroma.service] : []),
+  qdrant.service,
+  ...afterChromaMigration,
 ]);
 
 // Not after `aiq-agent`: the chat tier waits on the frontend (above), so the
@@ -258,8 +297,9 @@ const backend = installBackend(wiring, cfg, secrets, [
   postgres.pooler,
   seaweed.bucketInitJob,
   dragonfly.service,
-  ...(chroma ? [chroma.service] : []),
+  qdrant.service,
   frontend.deployment,
+  ...afterChromaMigration,
 ]);
 
 // The pre-A2 base corpus, carried off the old backend data volume once
@@ -271,7 +311,6 @@ if (cfg.storage.legacyCorpusClaim) {
   ]);
 }
 
-const workers = installWorkers(wiring, cfg, secrets, [migrations]);
 // Landing site + blog (Astro, frontends/web) — static-first, no app secrets,
 // but it pulls from the same registry, so it gets the pull Secret too.
 const web = installWeb(cfg, provider, namespace, wiring.imagePullSecrets, [
@@ -305,8 +344,9 @@ const agentWorker = installAgentWorker(wiring, cfg, secrets, [
   postgres.pooler,
   dragonfly.service,
   seaweed.bucketInitJob,
-  ...(chroma ? [chroma.service] : []),
+  qdrant.service,
   ...queueScalerDeps,
+  ...afterChromaMigration,
 ]);
 
 // Ingestion tier (ADR-0076) — the only process that claims the durable ingest
@@ -316,8 +356,9 @@ const ingestWorker = installIngestWorker(wiring, cfg, secrets, [
   postgres.pooler,
   dragonfly.service,
   seaweed.bucketInitJob,
-  ...(chroma ? [chroma.service] : []),
+  qdrant.service,
   ...queueScalerDeps,
+  ...afterChromaMigration,
 ]);
 
 // BFF background pool (ADR-0079) — claims bff_job_queue fairly across
@@ -357,6 +398,11 @@ const routes = installHttpRoutes(cfg, provider, namespace, [
   // while enforcing nothing.
   ...(rateLimitStore ? [rateLimitStore.service] : []),
 ]);
+// Qdrant's dashboard on its own host, behind the platform-operator gate. Off
+// by default (`qdrantDashboardEnabled`); operators port-forward otherwise.
+if (cfg.qdrant.dashboard.enabled) {
+  installQdrantDashboard(cfg, provider, namespace, [gatewayResources.gateway, qdrant.service]);
+}
 
 // ── Observability (OTel Collector, ADR-0029) ─────────────────────────────────
 // Deployed when something consumes it (see config.ts): Langfuse for traces,
@@ -401,6 +447,9 @@ if (cfg.observability.enabled) {
       ...(langfuse ? [langfuse.webService] : []),
     ],
     langfuse ? langfuse.secret.metadata.name : undefined,
+    // Every Qdrant peer's metrics port (ADR-0113): the collector's one
+    // metrics pipeline, re-exposed on :8889 for whatever reads metrics.
+    qdrant.metricsTargets,
   );
 }
 
@@ -429,7 +478,7 @@ export const schedulerDeployment = workers.scheduler.metadata.name;
 export const appRoute = routes.app.metadata.name;
 export const webRoute = routes.web.metadata.name;
 export const gatewayName = gatewayResources.gateway.metadata.name;
-export const chromaUrl = chroma.url;
+export const qdrantUrl = qdrant.url;
 export const pgInstances = cfg.postgres.instances;
 export const pgBackupsEnabled = cfg.postgres.backups.enabled;
 export const networkPoliciesEnabled = cfg.networkPolicies;

@@ -14,7 +14,7 @@ import {
   startupBudgetSeconds,
 } from "./rollout";
 import { GATEWAY_NAME } from "./gateway";
-import { OBSERVABILITY_VIEW_PERMISSION, platformOidcSecurityPolicySpec } from "./platform-oidc";
+import { OBSERVABILITY_VIEW_PERMISSION, OIDC_CLIENT_SECRET_KEY, platformOidcSecurityPolicySpec } from "./platform-oidc";
 import { EDGE_TIMEOUT, LANGFUSE, PORT } from "../constants";
 
 /** Secret name. A constant rather than `secret.metadata.name` because the
@@ -92,12 +92,6 @@ export function langfuseDefaultMembershipEnv(
  */
 const WEB_STARTUP_PERIOD_SECONDS = 10;
 const WEB_STARTUP_FAILURE_THRESHOLD = 60;
-
-/**
- * Envoy Gateway requires the OIDC client secret under exactly this key
- * (`OIDC.ClientSecret`). Do not rename.
- */
-const OIDC_CLIENT_SECRET_KEY = "client-secret"; // pragma: allowlist secret (Secret key name fixed by the Envoy Gateway API, not a credential)
 
 /**
  * Keys in the Langfuse Secret. Exported for the collector's Basic-auth header.

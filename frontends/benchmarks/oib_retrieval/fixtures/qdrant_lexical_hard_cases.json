@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "description": "The lexical hard cases gate G1b names (docs/architecture/qdrant-retrieval-design.md §10): § references, dotted Punkt numbers, ALLCAPS codes, closed compounds and umlaut/ß spelling variants. Each case is a query plus an ORACLE: a case-insensitive Python regex over the chunk text (and an optional exclude regex). A chunk is relevant when the oracle matches and the exclude does not. The oracle is a statement about the TEXT, not about any ranking, so it cannot drift with the channel it scores. Counts in notes were measured on the 2023 corpus with production's exclude_file_names applied.",
+  "kinds": ["paragraph", "punkt_number", "allcaps_code", "compound", "compound_only", "umlaut_sz"],
+  "cases": [
+    {"id": "para-8", "kind": "paragraph", "query": "§ 8", "oracle": "§\\s*8(?!\\d)", "notes": "24 chunks. A whitespace tokenizer keeps only the digit 8, which is on hundreds of chunks."},
+    {"id": "para-3-abs-1", "kind": "paragraph", "query": "§ 3 Abs. 1", "oracle": "§\\s*3\\s*Abs\\.\\s*1(?!\\d)", "notes": "24 chunks, the statutes clause on each Richtlinie's cover page."},
+    {"id": "punkt-5-1-1", "kind": "punkt_number", "query": "5.1.1", "oracle": "(?<![\\d.])5\\.1\\.1(?!\\d)", "notes": "50 chunks. Postgres' parser keeps 5.1.1 as one token; a tokenizer splitting on '.' turns it into 5, 1, 1."},
+    {"id": "punkt-4-2-1", "kind": "punkt_number", "query": "Punkt 4.2.1", "oracle": "(?<![\\d.])4\\.2\\.1(?!\\d)", "notes": "16 chunks."},
+    {"id": "punkt-3-8-6", "kind": "punkt_number", "query": "OIB-RL 2.1 Punkt 3.8.6", "oracle": "(?<![\\d.])3\\.8\\.6(?!\\d)", "notes": "1 chunk outside the change logs: a needle."},
+    {"id": "code-rei-90", "kind": "allcaps_code", "query": "REI 90", "oracle": "\\bREI\\s*90\\b", "notes": "46 chunks."},
+    {"id": "code-ei2-30-c", "kind": "allcaps_code", "query": "EI2 30-C", "oracle": "\\bEI2\\s*30-C", "notes": "25 chunks; the door class."},
+    {"id": "code-trvb", "kind": "allcaps_code", "query": "TRVB", "oracle": "\\bTRVB\\b", "notes": "19 chunks."},
+    {"id": "code-rwa", "kind": "allcaps_code", "query": "RWA", "oracle": "\\bRWA\\b", "notes": "6 chunks; Rauch- und Wärmeabzugsanlage."},
+    {"id": "code-broof", "kind": "allcaps_code", "query": "BROOF", "oracle": "BROOF", "notes": "15 chunks; usually printed BROOF(t1)."},
+    {"id": "code-hwb", "kind": "allcaps_code", "query": "HWB", "oracle": "\\bHWB\\b", "notes": "10 chunks; Heizwärmebedarf."},
+    {"id": "code-a2-s1-d0", "kind": "allcaps_code", "query": "A2-s1,d0", "oracle": "A2-s1,\\s*d0", "notes": "4 chunks; a reaction-to-fire class."},
+    {"id": "comp-brandabschnittsflaeche", "kind": "compound", "query": "Brandabschnittsfläche", "oracle": "brandabschnittsfl(ä|a)che", "notes": "23 chunks; the compound asked for as a whole."},
+    {"id": "comp-rauchabzug", "kind": "compound", "query": "Rauchabzug", "oracle": "rauchabzug", "notes": "21 chunks, most of them Rauchabzugseinrichtung."},
+    {"id": "comp-fluchtwege", "kind": "compound", "query": "Fluchtwege", "oracle": "fluchtweg", "notes": "188 chunks; plural asked, singular and compounds in the text."},
+    {"id": "comp-only-verfahren", "kind": "compound_only", "query": "Verfahren", "oracle": "\\w+verfahren", "exclude": "\\bverfahren\\b", "notes": "Chunks holding 'verfahren' ONLY inside a compound (Nachweisverfahren, Prüfverfahren). The design's Baugenehmigungsverfahren-vs-Verfahren case; Baugenehmigungsverfahren itself does not occur in the corpus. Neither German config splits closed compounds, so recall here is expected near zero for both: the row measures the limitation, it does not gate."},
+    {"id": "comp-only-brandabschnitt", "kind": "compound_only", "query": "Brandabschnitt", "oracle": "\\w+brandabschnitt|brandabschnitts?\\w+", "exclude": "\\bbrandabschnitt(e|es|en|s)?\\b", "notes": "Chunks holding the word only as Hauptbrandabschnitt / Brandabschnittsfläche."},
+    {"id": "sz-geschoss", "kind": "umlaut_sz", "query": "Geschoss", "oracle": "gescho(ss|ß)", "notes": "258 chunks; the corpus writes the Austrian Geschoß (381x) over Geschoss (7x)."},
+    {"id": "sz-fussboden", "kind": "umlaut_sz", "query": "Fussboden", "oracle": "fu(ss|ß)boden", "notes": "19 chunks, every one spelled Fußboden."},
+    {"id": "sz-aussenwand", "kind": "umlaut_sz", "query": "Aussenwand", "oracle": "au(ss|ß)enw(a|ä)nd", "notes": "70 chunks, spelled Außenwand / Außenwände."},
+    {"id": "uml-gebaeudeklasse-digraph", "kind": "umlaut_sz", "query": "Gebaeudeklasse", "oracle": "geb(ä|ae)udeklasse", "notes": "93 chunks, every one spelled Gebäudeklasse. The digraph spelling is a known gap of both German configs (german_text docstring); ascii_folding maps ä to a, not ae."},
+    {"id": "uml-gebaeudeklasse", "kind": "umlaut_sz", "query": "Gebäudeklasse", "oracle": "geb(ä|ae)udeklasse", "notes": "The same 93 chunks, asked with the umlaut."},
+    {"id": "uml-strasse", "kind": "umlaut_sz", "query": "Strasse", "oracle": "stra(ss|ß)e", "notes": "44 chunks."}
+  ]
+}

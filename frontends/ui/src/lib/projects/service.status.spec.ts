@@ -27,6 +27,11 @@ vi.mock('@/lib/tasks/repository', () => ({
   rearmOneShotsSkippedWhileParked: (...args: unknown[]) => rearmOneShotsSkippedWhileParked(...(args as [])),
 }))
 
+const syncProjectFacts = vi.fn(async () => 'pushed')
+vi.mock('@/lib/cross-project/project-facts-mirror', () => ({
+  syncProjectFacts: (...args: unknown[]) => syncProjectFacts(...(args as [])),
+}))
+
 const recordAuditEvent = vi.fn()
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: (...args: unknown[]) => recordAuditEvent(...args) }))
 vi.mock('@/lib/workos/client', () => ({ getWorkOS: vi.fn() }))
@@ -187,6 +192,21 @@ describe('setProjectStatus', () => {
       details: { reason: 'invalid-transition' },
     })
     expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('copies the new status onto the project’s chunks after the move, for the cross-project filters', async () => {
+    setProjectStatusInOrg.mockResolvedValue(makeProject({ id: 'p1', status: 'paused' }))
+
+    await setProjectStatus(session, 'p1', { status: 'paused' }, undefined, NOW)
+
+    expect(syncProjectFacts).toHaveBeenCalledWith('org_1', 'p1')
+  })
+
+  it('copies nothing when the move lost its race', async () => {
+    setProjectStatusInOrg.mockResolvedValue(null)
+
+    await expect(setProjectStatus(session, 'p1', { status: 'paused' }, undefined, NOW)).rejects.toMatchObject({ status: 409 })
+    expect(syncProjectFacts).not.toHaveBeenCalled()
   })
 
   it('someone without project:manage changes nothing', async () => {

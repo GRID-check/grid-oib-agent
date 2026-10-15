@@ -1,9 +1,9 @@
 """Document management endpoints.
 
-Every ingestor and metadata-store call here is synchronous: Chroma reads, SQL
+Every ingestor and metadata-store call here is synchronous: Qdrant reads, SQL
 through a sync engine, the ingest-status store. The handlers are coroutines on
 the API's one event loop, so each such call goes through ``asyncio.to_thread``.
-Called inline, one slow Chroma listing stalled every other request the worker
+Called inline, one slow vector-store listing stalled every other request the worker
 was serving, chat streams included, not only the listing.
 """
 

@@ -537,7 +537,6 @@ functions:
     # top_k buys per-document depth by giving up that breadth.
     top_k: 16
     max_chunks_per_document: 5
-    chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
     # LLM-judge reranking: over-fetch rerank_candidates chunks and re-order them
     # against the query with the dedicated rerank LLM before trimming to top_k.
     # Fail-open: any judge error returns the fused (hybrid+vector) order.

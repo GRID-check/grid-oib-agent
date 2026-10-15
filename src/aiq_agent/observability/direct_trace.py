@@ -364,3 +364,104 @@ def observed_generation(
         feature,
         {"model": model, "messages": messages, "session_id": session_id, "metadata": metadata},
     )
+
+
+def _scalars(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Metadata as Langfuse attributes: scalars only, since one metadata value is one attribute."""
+    return {
+        f"{METADATA_PREFIX}{key}": value
+        for key, value in (metadata or {}).items()
+        if isinstance(value, str | int | float | bool)
+    }
+
+
+def retrieval_attributes(
+    feature: str,
+    *,
+    query: Mapping[str, Any],
+    metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """What a direct retrieval span carries when it starts: trace identity, the ask as data. Pure.
+
+    The observation is a ``retriever``, as every ``retrieve.*`` step of a chat
+    turn is; ``query`` is its input and holds ids and counts, never the text
+    searched for. ``feature`` is written last so a caller cannot rename the trace.
+    """
+    return {
+        **process_trace_attributes(),
+        OBSERVATION_TYPE_ATTRIBUTE: "retriever",
+        TRACE_NAME_ATTRIBUTE: feature,
+        TAGS_ATTRIBUTE: [f"feature:{feature}", AUXILIARY_SURFACE_TAG],
+        INPUT_ATTRIBUTE: _clip(json.dumps(dict(query), ensure_ascii=False, default=str)),
+        **_scalars({**(metadata or {}), "feature": feature}),
+    }
+
+
+class RetrievalRecorder:
+    """The handle a route reports what a direct retrieval found through. A no-op when tracing is off."""
+
+    __slots__ = ("_span",)
+
+    def __init__(self, span: Any | None) -> None:
+        self._span = span
+
+    def finish(self, picks: Mapping[str, Any], metadata: Mapping[str, Any] | None = None) -> None:
+        """Record the picks (ids, pages, scores, counts: never passage text) and scalar metadata. Never raises."""
+        if self._span is None:
+            return
+        try:
+            output = _clip(json.dumps(dict(picks), ensure_ascii=False, default=str))
+            self._span.set_attributes({OUTPUT_ATTRIBUTE: output, **_scalars(metadata)})
+        except Exception:
+            logger.debug("direct_trace: could not record a retrieval's picks", exc_info=True)
+
+
+class _ObservedRetrieval:
+    """The context manager :func:`observed_retrieval` returns."""
+
+    def __init__(self, step: str, attributes: dict[str, Any]) -> None:
+        self._step = step
+        self._attributes = attributes
+        self._span: Any | None = None
+
+    def __enter__(self) -> RetrievalRecorder:
+        tracer = _current_tracer()
+        if tracer is None:
+            return RetrievalRecorder(None)
+        try:
+            from opentelemetry.context import Context
+            from opentelemetry.trace import SpanKind
+
+            self._span = tracer.start_span(
+                self._step, context=Context(), kind=SpanKind.INTERNAL, attributes=self._attributes
+            )
+        except Exception:
+            logger.debug("direct_trace: could not start a retrieval span", exc_info=True)
+        return RetrievalRecorder(self._span)
+
+    def __exit__(self, exc_type, exc, traceback) -> bool:
+        _end_span(self._span, exc)
+        return False
+
+
+def observed_retrieval(
+    feature: str,
+    *,
+    step: str,
+    query: Mapping[str, Any],
+    metadata: Mapping[str, Any] | None = None,
+) -> _ObservedRetrieval:
+    """Trace one store query that no NAT workflow runs, as a Langfuse ``retriever`` observation named ``step``.
+
+    A search a person starts from a page (similar passages) runs in a plain
+    route, where NAT's exporter sees nothing. Wrap the query and ``.finish``
+    the picks inside the block::
+
+        with observed_retrieval("similar-passages", step="retrieve.similar_passages", query={...}) as trace:
+            result = run()
+            trace.finish({"picked": [...]}, {"documents": 3})
+
+    The trace is a root named ``feature``; an exception leaving the block
+    marks it ERROR and propagates unchanged.
+    """
+    return _ObservedRetrieval(step, retrieval_attributes(feature, query=query, metadata=metadata))

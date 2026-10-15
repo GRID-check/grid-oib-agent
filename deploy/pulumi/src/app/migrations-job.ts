@@ -34,7 +34,7 @@ export function runMigrations(
         template: {
           metadata: { labels: commonLabels("grid-app-migrate") },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             imagePullSecrets: w.imagePullSecrets,
             restartPolicy: "OnFailure",
             securityContext: { runAsNonRoot: true, runAsUser: UID.frontend, runAsGroup: UID.frontend },

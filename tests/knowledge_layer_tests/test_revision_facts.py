@@ -634,7 +634,7 @@ from tests.knowledge_layer_tests.test_fassung_ingestion import stores  # noqa: E
 
 @pytest.fixture
 def ingest(request, tmp_path):
-    """``ingest(collection, name)`` over a real SQLite store and Chroma collection; ``.model`` is the summary model."""
+    """``ingest(collection, name)`` over a real SQLite store and Qdrant collection; ``.model`` is the summary model."""
     request.getfixturevalue("stores")
     ingestor = request.getfixturevalue("live_ingestor")
     summary_model = request.getfixturevalue("model")

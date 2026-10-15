@@ -27,6 +27,8 @@ from knowledge_layer.renditions import align_extraction_paths
 from knowledge_layer.renditions import requires_rendition
 
 from aiq_agent.common.credential_resolution import ResolvedCredential
+from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
+from sources.knowledge_layer.tests.qdrant_testing import capture_indexed_documents
 
 pptx = pytest.importorskip("pptx")
 
@@ -164,18 +166,15 @@ def summary_db(tmp_path):
 
 
 @pytest.fixture
-def ingestor(tmp_path, monkeypatch):
+def ingestor(tmp_path, monkeypatch, qdrant_store):
     llm = MagicMock()
     llm.invoke.side_effect = lambda prompt: MagicMock(
         content='["Bericht"]' if "klassifizierst" in prompt else "Ein Bericht zur Baubesprechung."
     )
-    ing = LlamaIndexIngestor(
-        {"persist_dir": str(tmp_path / "chroma"), "generate_summary": True, "summary_llm": llm, "extract_images": True}
-    )
-    ing._embed_model = MagicMock()
+    ing = LlamaIndexIngestor({"generate_summary": True, "summary_llm": llm, "extract_images": True})
+    ing._embed_model = FakeEmbedder()
     ing._initialized = True
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", MagicMock())
-    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
+    capture_indexed_documents(monkeypatch, into=_INDEXED)
     return ing
 
 
@@ -202,13 +201,12 @@ def _gone(path, timeout=5) -> bool:
     return not path.exists()
 
 
-def _indexed_documents():
-    import llama_index.core
+#: What each file of the running test's jobs handed to chunking and embedding (``ingestor`` records it).
+_INDEXED: list[list] = []
 
-    documents = []
-    for call in llama_index.core.VectorStoreIndex.from_documents.call_args_list:
-        documents.extend(call.args[0])
-    return documents
+
+def _indexed_documents():
+    return [document for documents in _INDEXED for document in documents]
 
 
 @pytest.fixture

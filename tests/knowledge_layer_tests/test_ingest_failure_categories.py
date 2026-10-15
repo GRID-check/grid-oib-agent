@@ -3,12 +3,12 @@
 The BFF decides whether reading a failed document again is worth anything from
 ``FileProgress.failure_category`` / ``retryable`` and the job's
 ``reader_version`` (``frontends/ui/src/lib/documents/retry-policy.ts``). These
-run real jobs through the adapter, with embeddings and the vector index mocked,
-and read what the job reports: what the BFF's reconcile reads.
+run real jobs through the adapter, with the embedder faked and a real Qdrant
+(the shared ``qdrant_store`` fixture), and read what the job reports: what the
+BFF's reconcile reads.
 """
 
 import time
-from unittest.mock import MagicMock
 
 import pytest
 from knowledge_layer.llamaindex import adapter
@@ -35,12 +35,12 @@ def summary_db(tmp_path):
 
 
 @pytest.fixture
-def ingestor(tmp_path, monkeypatch, summary_db):
-    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma"), "generate_summary": False})
-    ing._embed_model = MagicMock()
+def ingestor(monkeypatch, summary_db, qdrant_store):
+    from sources.knowledge_layer.tests.qdrant_testing import FakeEmbedder
+
+    ing = LlamaIndexIngestor({"generate_summary": False})
+    ing._embed_model = FakeEmbedder()
     ing._initialized = True
-    monkeypatch.setattr("llama_index.core.VectorStoreIndex", MagicMock())
-    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
     cred = ResolvedCredential(api_key="", base_url="https://vlm.test/v1", model="test-vlm", source="none")
     monkeypatch.setattr(adapter, "resolve_vlm_credential", lambda organization_id=None: cred)
     return ing

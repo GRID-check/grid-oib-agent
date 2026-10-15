@@ -326,7 +326,7 @@ User uploads file
          │ Background thread processes file
          ▼
    ┌──────────┐
-   │ ingesting │  Text extracted, chunked, embedded, stored in ChromaDB
+   │ ingesting │  Text extracted, chunked, embedded, stored in Qdrant
    └─────┬────┘
          │
     ┌────┴────┐
@@ -341,7 +341,7 @@ User uploads file
 1. **Upload** — `FileUploadZone` captures the file, the `useFileUpload` hook validates it against configured limits, then POSTs it as `multipart/form-data` to `/api/documents/upload` with `projectId` and `file`.
 2. **BFF upload route** — The Next.js API route generates a UUID `documentId`, stores the file in SeaweedFS at `org/{orgId}/project/{projId}/doc/{docId}/{filename}`, inserts a `documents` row in Drizzle (status: `uploaded`), generates a presigned GET URL, and calls the Python backend's `POST /v1/ingest` with that URL.
 3. **Python ingest route** — Downloads the file from the presigned URL via `httpx`, saves it to a tempfile, and submits it to the active ingestor via `submit_job()`.
-4. **Background ingestion** — the LlamaIndex backend extracts text (pdfplumber for PDFs and for the PDF rendition of a Word or presentation file; dedicated office extractors for spreadsheets, one chunk per sheet), optionally extracts tables (`pdfplumber`) and images (`pypdfium2`) with VLM captioning, chunks the content, generates embeddings via NVIDIA models, and stores the vectors in ChromaDB.
+4. **Background ingestion** — the LlamaIndex backend extracts text (pdfplumber for PDFs and for the PDF rendition of a Word or presentation file; dedicated office extractors for spreadsheets, one chunk per sheet), optionally extracts tables (`pdfplumber`) and images (`pypdfium2`) with VLM captioning, chunks the content, generates embeddings via NVIDIA models, and stores the vectors in Qdrant.
 5. **Status polling** — The `UploadOrchestrator` polls the backend job through `/api/v1/documents/{jobId}/status`. Document lists and the open preview read `/api/documents/{id}/status`, which reconciles the `documents` row with the backend and returns its status together with the summary, page count, chunk count, content types and tags. Details: [Document ingestion, step 5](../technical-reference/document-ingestion.md#step-5-status-polling).
 6. **Searchable** — Once `status = 'completed'`, the document's chunks are queryable via the knowledge search function.
 
@@ -627,7 +627,7 @@ Ingestion turns raw files into a searchable knowledge base:
 2. **Optional multimodal extraction** — PDFs can have tables extracted (pdfplumber) and images/charts extracted (pypdfium2) with VLM-generated captions (NVIDIA nemotron-nano-12b)
 3. **Chunking** — Text is split into overlapping segments (default: 1024 tokens, 128 overlap)
 4. **Embedding** — Each chunk is vectorized using NVIDIA's `llama-nemotron-embed-vl-1b-v2` model
-5. **Storage** — Vectors are stored in ChromaDB under the target collection
+5. **Storage** — Vectors are stored in Qdrant under the target collection
 6. **Summarization** — Optionally, a one-sentence summary is generated for each document (configured via `generate_summary` + `summary_model`)
 
 At query time, the AI searches across all collections in scope (see [Knowledge Search](knowledge-search.md) and [Collection Scoping](../technical-reference/collection-scoping.md)).

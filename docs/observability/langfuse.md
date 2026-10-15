@@ -17,7 +17,7 @@ the Fachbereich): [`analyst-guide.md`](analyst-guide.md).
 
 | Field in Langfuse | Where it comes from | Values |
 |---|---|---|
-| Trace name | `trace_context.trace_name_for_root` (NAT runs), `observed_generation` (auxiliary calls) | `chat-turn`, `research-job`, `conversation-title`, `project-summary`, `consistency-check`, `skill-review`, `lesson-distill`, `feedback-digest`, `cleanup-proposal`, `change-summary`, `fassung-visual-compare` (two page images in one vision call, input shown without the pixels), `filing-fit` (where an upload batch belongs; metadata `batch_id`, `project_id`, `shelf`, `basis`, and the counts; a decision on the proposal it made is a `piloti-decision` score on its trace, through `proposed_changes.origin_trace_id`) |
+| Trace name | `trace_context.trace_name_for_root` (NAT runs), `observed_generation` (auxiliary calls) | `chat-turn`, `research-job`, `conversation-title`, `project-summary`, `consistency-check`, `skill-review`, `lesson-distill`, `feedback-digest`, `cleanup-proposal`, `change-summary`, `fassung-visual-compare` (two page images in one vision call, input shown without the pixels), `filing-fit` (where an upload batch belongs; metadata `batch_id`, `project_id`, `shelf`, `basis`, and the counts; a decision on the proposal it made is a `piloti-decision` score on its trace, through `proposed_changes.origin_trace_id`), `similar-passages` (a retriever, not a generation: `observed_retrieval`) |
 | Environment | `APP_ENV`, coerced to Langfuse's alphabet | `production`, … |
 | Release | `GRID_GIT_SHA`, the image's commit | the commit hash |
 | Session | the conversation id (NAT sets `session.id`) | one session per chat |
@@ -82,6 +82,15 @@ and score, with each pick's `solved` and the pool's `solved_any` and
 `injection_flagged` when the hit judge ran (ADR-0064 use 11; `judged: false`
 when it did not). A refusal is `{"refused": <code>}`: `no_envelope`, `not_found`,
 `audience_changed`, `invalid`, `unreachable` or `invalid_arguments`.
+
+Each „Im Büro behandelt“ search (`POST /v1/collections/similar`) is a root
+trace `similar-passages` holding one `retrieve.similar_passages` retriever
+observation (`direct_trace.observed_retrieval`, since the route runs outside
+NAT): its input the source's collection, file, page and kind, whether it named
+a chunk, the length of its text and how many collections were searched; its
+output `origin` (`point` or `embedded`), the filter fields (never values) and
+the picks by collection, file, chunk, page and score. Metadata: `origin`,
+`documents`, `candidates`. No passage text either way.
 
 Each canvas tool (the `canvas` function group, `tools/canvas/`) is a tool
 observation of its own (`canvas__look`, `canvas__room`, `canvas__point`,

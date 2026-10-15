@@ -26,11 +26,11 @@ export interface Backend {
  * The chat tier (aiq-agent, `GRID_ROLE=chat`, ADR-0082): the chat socket and the
  * answers running on it, plus NAT's own routes. Every other backend route is the
  * api tier's (`api.ts`, the `aiq-api` Service). It keeps no files: the vectors
- * live in the shared Chroma server, the base corpus in SeaweedFS and a Postgres
+ * live in the shared Qdrant cluster, the base corpus in SeaweedFS and a Postgres
  * table (ADR-0082 step A2), and what it caches on its own disk
  * (`GRID_BASE_CORPUS_CACHE_DIR`, under /tmp) it can lose at any restart.
  *
- * The chat and retrieval path is replica-safe (shared Chroma, Postgres DSNs,
+ * The chat and retrieval path is replica-safe (shared Qdrant, Postgres DSNs,
  * shared cache, DB-persisted ingest status, advisory-locked reapers), so it runs
  * `backend.replicas` replicas. Research executes on the separate agent-worker tier.
  *
@@ -80,7 +80,7 @@ export function installBackend(
             annotations: secretChecksumAnnotations(withLangfuseKeysChecksum(cfg, secrets.checksum)),
           },
           spec: {
-            enableServiceLinks: false, // see chroma.ts — legacy env collisions
+            enableServiceLinks: false, // see platform/security.ts — service-link env collisions
             imagePullSecrets: w.imagePullSecrets,
             // preStop covers EndpointSlice propagation (both the ClusterIP and
             // the affinity headless service route here), then uvicorn gets its
@@ -102,7 +102,7 @@ export function installBackend(
                 env: chatEnv(w),
                 resources: toResourceRequirements(cfg.backend.resources),
                 lifecycle: shutdown.lifecycle,
-                // Boot opens the Chroma client — generous
+                // Boot opens the Qdrant client — generous
                 // startup window before liveness kicks in.
                 startupProbe: {
                   httpGet: { path: "/health", port: PORT.backend },
@@ -132,7 +132,7 @@ export function installBackend(
       // KEDA owns the replica count once its ScaledObject exists, so a count
       // this program wrote would be reverted on the next `pulumi up`.
       ignoreChanges: autoscaled ? ["spec.replicas"] : [],
-      // Fixed-name StatefulSet: replaces must delete first (see chroma.ts).
+      // Fixed-name StatefulSet: replaces must delete first (see seaweedfs-single.ts).
       deleteBeforeReplace: true,
       // First boot = multi-GB image pull + startup work; the startupProbe alone
       // allows 10 min. Give the await headroom so a healthy-but-slow first

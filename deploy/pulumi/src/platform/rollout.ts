@@ -224,7 +224,7 @@ export const ROLLOUT = {
 
   /**
    * aiq-agent chat tier (StatefulSet). Boot is heavy — multi-GB image,
-   * Chroma open, optional corpus sync — hence the long grace and the
+   * Qdrant client, optional corpus sync — hence the long grace and the
    * generous startupProbe in backend.ts.
    */
   backend: {
@@ -276,14 +276,36 @@ export const ROLLOUT = {
   },
 
   /**
-   * Single-replica data-plane services (Dragonfly, and the Chroma/SeaweedFS
-   * StatefulSets). Short soak — they either open their port or they don't.
+   * Single-replica data-plane services (Dragonfly, and the SeaweedFS and
+   * ClickHouse StatefulSets). Short soak — they either open their port or they don't.
    */
   dataPlane: {
     minReadySeconds: 10,
     progressDeadlineSeconds: 600,
     terminationGracePeriodSeconds: 60,
     endpointDrainSeconds: 0,
+  },
+
+  /**
+   * Qdrant (ADR-0113). Its own profile because the store is a Raft cluster
+   * rather than one process:
+   *
+   * - **120 s grace**: Qdrant flushes its WAL and segments on SIGTERM; a
+   *   SIGKILL mid-flush costs a WAL replay at the next start, on every pod of
+   *   every rollout.
+   * - **30 s soak**: `/readyz` turns green once the peer has caught up with
+   *   consensus. The soak keeps the controller from restarting the next peer
+   *   while the one before it is still settling, so a rollout never takes two
+   *   of three voters down together.
+   * - **5 s endpoint drain**: the ClusterIP Service is how every client
+   *   connects, so the pod keeps serving while it leaves the EndpointSlice
+   *   (the `qdrant-helm` chart sleeps 3 s for the same reason).
+   */
+  vectorStore: {
+    minReadySeconds: 30,
+    progressDeadlineSeconds: 1800,
+    terminationGracePeriodSeconds: 120,
+    endpointDrainSeconds: 5,
   },
 
   /** Observability tier (the OTel Collector) — stateless, single replica. */
@@ -480,8 +502,8 @@ export function recreateRollout(p: RolloutProfile) {
  * `ordinals`, `template`, `updateStrategy`, `persistentVolumeClaimRetentionPolicy`
  * and `minReadySeconds` to be updated on a live StatefulSet; every other field is
  * immutable, so writing `podManagementPolicy` onto an EXISTING StatefulSet makes
- * Pulumi plan a REPLACE — for seaweedfs that is a storage outage and for chroma
- * the vector index, bought for nothing, since `OrderedReady` is already the
+ * Pulumi plan a REPLACE — for seaweedfs that is a storage outage and for
+ * clickhouse the trace store, bought for nothing, since `OrderedReady` is already the
  * default when the field is unset. The policy pack rule
  * `statefulset-no-immutable-field-writes` enforces this.
  */
