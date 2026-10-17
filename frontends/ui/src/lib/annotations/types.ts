@@ -202,6 +202,28 @@ export const annotationReplyViewSchema = z.object({
 })
 export type AnnotationReplyView = z.infer<typeof annotationReplyViewSchema>
 
+/**
+ * Piloti at work on a mark, as the server knows it (`./piloti-work.ts`), so
+ * every reader sees the same line: `queued` until its turn starts, `working`
+ * while it runs, `failed` for a while after it ended without an answer (the
+ * class of why: `wakeEndReasonKind`), `held` briefly when a cap held it.
+ */
+export const PILOTI_WORK_STATES = ['queued', 'working', 'failed', 'held'] as const
+export type PilotiWorkState = (typeof PILOTI_WORK_STATES)[number]
+
+export const pilotiWorkViewSchema = z.object({
+  state: z.enum(PILOTI_WORK_STATES),
+  trigger: z.enum(PILOTI_WAKE_TRIGGERS),
+  /** The person whose act woke Piloti: it works for them. */
+  forUserId: z.string(),
+  forName: z.string().nullable(),
+  /** Why it failed, as a class a person can act on; null unless `failed`. */
+  reasonKind: z.enum(['budget', 'busy', 'access', 'error']).nullable(),
+  /** When this state began: queued at, started at, or ended at. */
+  since: z.string(),
+})
+export type PilotiWorkView = z.infer<typeof pilotiWorkViewSchema>
+
 export const annotationViewSchema = z.object({
   id: z.string(),
   documentId: z.string(),
@@ -248,6 +270,8 @@ export const annotationViewSchema = z.object({
   delegatedByName: z.string().nullable().default(null),
   delegatedAt: z.string().nullable().default(null),
   replies: z.array(annotationReplyViewSchema),
+  /** Piloti at work on it, as the server knows it; null when it is not. Absent from a server that predates it. */
+  pilotiWork: pilotiWorkViewSchema.nullable().optional(),
   /** Whether THIS reader may change it: take it over, resolve it, reword it, assign it, reply. */
   canEdit: z.boolean(),
   /** Whether THIS reader may delete it: whoever set it, while they may still write here. */
@@ -447,6 +471,19 @@ export const internalAnnotationRequestSchema = z.discriminatedUnion('op', [
       w: z.number().gt(0).max(1),
       h: z.number().gt(0).max(1),
       label: z.string().trim().min(1).max(MAX_HIGHLIGHT_LABEL),
+    })
+    .strict(),
+  // What Piloti is reading, for everyone in the room: the page, or a box on it.
+  // Presence, not content: it says where Piloti looks, never what it found.
+  z
+    .object({
+      op: z.literal('look'),
+      ...internalOpBase,
+      page: z.number().int().min(1),
+      x: z.number().min(0).max(1).optional(),
+      y: z.number().min(0).max(1).optional(),
+      w: z.number().gt(0).max(1).optional(),
+      h: z.number().gt(0).max(1).optional(),
     })
     .strict(),
   z.object({ op: z.literal('leave'), ...internalOpBase }).strict(),

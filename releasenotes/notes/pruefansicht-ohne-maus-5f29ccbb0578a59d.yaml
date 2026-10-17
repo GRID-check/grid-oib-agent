@@ -1,0 +1,18 @@
+---
+features:
+  - >
+    The Prüfansicht works without a mouse: choose the comment, area or Piloti
+    tool with its key and a crosshair appears, which the arrow keys move and
+    Enter sets. Marks can be placed and asked about from the keyboard alone.
+improvements:
+  - >
+    An Anmerkung opened from the keyboard takes the focus, and closing it
+    returns you to where you were, so Enter never resolves one by accident.
+    A screen reader hears what colleagues and Piloti change on the drawing.
+  - >
+    Colleagues' colours on the drawing are darker, so their names on pointers,
+    cursor chat and pins stay readable in every colour.
+  - >
+    Closing the Prüfansicht keeps your place: the preview opens at the page you
+    were reading, and the review stays smooth with many colleagues and hundreds
+    of Anmerkungen.

@@ -53,11 +53,11 @@ export const notifications: typeof en.notifications = {
     },
     results: {
       label: 'Ergebnisse',
-      hint: 'Fertige Hintergrundarbeit und was dabei schiefging.',
+      hint: 'Fertige Hintergrundarbeit, was dabei schiefging, und Antworten auf Ihre Fragen und Anmerkungen.',
     },
     access: {
       label: 'Zugriff und Zuweisungen',
-      hint: 'Ein Chat wird mit Ihnen geteilt, Ihnen wird eine Datei zugewiesen.',
+      hint: 'Ein Chat wird mit Ihnen geteilt, Ihnen wird eine Datei oder eine Anmerkung zugewiesen.',
     },
     activity: {
       label: 'Aktivität',
@@ -75,9 +75,20 @@ export const notifications: typeof en.notifications = {
   preferencesFailed: 'Ihre Auswahl konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
   prompt: {
     title: 'Bei Neuem benachrichtigt werden?',
-    body: 'Piloti meldet sich auf diesem Gerät, sobald etwas in Ihrem Postfach landet.',
+    body: 'Piloti meldet sich auf diesem Gerät, wenn jemand Sie braucht.',
     turnOn: 'Einschalten',
     dismiss: 'Nicht jetzt',
-    dismissLabel: 'Hinweis zu Benachrichtigungen schließen',
+    // Der Browser hat Nein gesagt: ein Satz, der dorthin führt, wo steht, wie
+    // man es ändert (das Profil).
+    blocked: 'Benachrichtigungen sind blockiert – so schalten Sie sie ein',
+  },
+  // Dasselbe Angebot, einmal als Hinweis, wenn zum ersten Mal etwas auf Sie
+  // wartet: für alle, die das Postfach nie öffnen.
+  offer: {
+    mentioned: '{actor} hat Sie erwähnt. Möchten Sie auf diesem Gerät benachrichtigt werden?',
+    actor: '{actor} braucht Sie in Piloti. Möchten Sie auf diesem Gerät benachrichtigt werden?',
+    someone: 'Jemand braucht Sie in Piloti. Möchten Sie auf diesem Gerät benachrichtigt werden?',
+    turnOn: 'Einschalten',
+    notNow: 'Nicht jetzt',
   },
 }

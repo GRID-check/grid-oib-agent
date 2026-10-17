@@ -25,6 +25,11 @@
  *   back (`onLeftover`) once the turn has ended, to be asked next.
  * - **Gaps.** A jump in a turn's `seq` is attached from the last seq folded,
  *   once per gap; a reopened socket attaches the running turn by itself.
+ * - **Nothing travels silently short.** A server whose hello does not name the
+ *   box or the thread target answers without them (`forServer`). The question
+ *   still goes, and `onDegraded` says what it went without, so the canvas can
+ *   say so instead of showing an answer about the whole document as the
+ *   answer about the box.
  */
 
 import { v4 as uuidv4 } from 'uuid'
@@ -45,6 +50,8 @@ import type { ChatEffort } from '@/lib/reasoning-settings/catalog'
 export const CANVAS_ACK_TIMEOUT_MS = 15_000
 const ACK_MISSES_BEFORE_GIVING_UP = 2
 const MAX_AUTH_EXPIRED = 3
+/** Sockets in a row the watchdog may drop for a turn's silence before it is ended: the chat driver's figure. */
+const SILENT_DROPS_BEFORE_GIVING_UP = 2
 
 /**
  * The box a question is about: a 1-based page and a region of it as shares of
@@ -82,6 +89,20 @@ export interface CanvasQuestion {
   effort?: ChatEffort
 }
 
+/** What of a canvas question a server may not read: the box, and the ask to answer in the mark's thread. */
+export type CanvasDegradation = 'region' | 'thread'
+
+/** The parts of `message` a server that names only `accepts` would leave out (`forServer`). Pure. */
+export function canvasDegradations(
+  message: CanvasUserMessage,
+  accepts: (entry: string) => boolean
+): CanvasDegradation[] {
+  const dropped: CanvasDegradation[] = []
+  if (message.focus_region && !accepts('user_message.focus_region')) dropped.push('region')
+  if (message.reply_in_thread && !accepts('user_message.reply_in_thread')) dropped.push('thread')
+  return dropped
+}
+
 export class CanvasTurnError extends Error {
   constructor(readonly code: 'busy' | 'closed') {
     super(code === 'busy' ? 'Piloti is still answering the previous question' : 'The canvas client is closed')
@@ -105,6 +126,8 @@ export interface CanvasTurnClientOptions {
   onTurn: (view: TurnView) => void
   /** The conversation row exists: its link may be offered. */
   onConversation?: () => void
+  /** A question went out without parts its server does not read; called once per question, after it is sent. */
+  onDegraded?: (turnId: string, dropped: CanvasDegradation[]) => void
   /** Refresh the auth cookie before each socket attempt. */
   refreshAuth?: () => Promise<void>
   /** The socket factory; a fake in specs. */
@@ -174,8 +197,15 @@ export function createCanvasTurnClient(options: CanvasTurnClientOptions): Canvas
   const ackTimeout = options.ackTimeoutMs ?? CANVAS_ACK_TIMEOUT_MS
   const views = new Map<string, TurnView>()
   const gapsAttached = new Map<string, number>()
+  /** Silent sockets per turn, reset whenever the turn is heard from. */
+  const silentDrops = new Map<string, number>()
   /** The question not yet acknowledged, its deadline and the deadlines it missed. */
-  let pending: { message: CanvasUserMessage; timer: ReturnType<typeof setTimeout> | null; misses: number } | null = null
+  let pending: {
+    message: CanvasUserMessage
+    timer: ReturnType<typeof setTimeout> | null
+    misses: number
+    degradedTold?: boolean
+  } | null = null
   /** The turn this client is waiting on, asked or running. */
   let running: string | null = null
   let conversation: Promise<void> | null = null
@@ -238,6 +268,17 @@ export function createCanvasTurnClient(options: CanvasTurnClientOptions): Canvas
     awaitAck()
   }
 
+  /** Send the question waiting for its answer, once a socket can take it; say what it went without. */
+  const sendPending = (): boolean => {
+    if (!pending || !socket?.send(pending.message)) return false
+    const dropped = canvasDegradations(pending.message, socket.accepts)
+    if (dropped.length > 0 && !pending.degradedTold) {
+      pending.degradedTold = true
+      options.onDegraded?.(pending.message.message_id, dropped)
+    }
+    return true
+  }
+
   const openTurns = (): OpenTurn[] => {
     if (!running || pending?.message.message_id === running) return []
     return [{ turnId: running, lastSeq: views.get(running)?.lastSeq ?? 0 }]
@@ -280,6 +321,7 @@ export function createCanvasTurnClient(options: CanvasTurnClientOptions): Canvas
     // Anything the server says of the question is its answer: the socket works.
     if (pending?.message.message_id === event.turn_id) forgetPending()
     if (event.type === 'RUN_STARTED') authExpired = 0
+    silentDrops.delete(event.turn_id)
     const previous = views.get(event.turn_id)
     const next = foldTurnEvent(previous, event)
     if (next === previous) return
@@ -293,7 +335,7 @@ export function createCanvasTurnClient(options: CanvasTurnClientOptions): Canvas
 
   const onStatus = (status: TurnSocketStatus): void => {
     socketOpen = status === 'open'
-    if (status === 'open' && pending) socket?.send(pending.message)
+    if (status === 'open' && pending) sendPending()
     if (status === 'failed' || status === 'incompatible' || status === 'outdated') {
       if (running) fail(running, `connection.${status}`, 'The connection to Piloti gave up')
     }
@@ -308,7 +350,14 @@ export function createCanvasTurnClient(options: CanvasTurnClientOptions): Canvas
       onEvent: receive,
       onStatus,
       onSilent: (turnIds) => {
-        for (const turnId of turnIds) fail(turnId, 'agent.response_interrupted', 'Piloti went silent')
+        // One silent socket is reopened by the socket itself; the second in a row ends the turn.
+        for (const turnId of turnIds) {
+          const drops = (silentDrops.get(turnId) ?? 0) + 1
+          silentDrops.set(turnId, drops)
+          if (drops < SILENT_DROPS_BEFORE_GIVING_UP) continue
+          silentDrops.delete(turnId)
+          fail(turnId, 'agent.response_interrupted', 'Piloti went silent')
+        }
       },
     })
     return socket
@@ -366,7 +415,7 @@ export function createCanvasTurnClient(options: CanvasTurnClientOptions): Canvas
       pending = { message, timer: null, misses: 0 }
       awaitAck()
       const current = socketFor()
-      if (!current.send(message)) void current.connect()
+      if (!sendPending()) void current.connect()
     },
     cancel: (turnId) => {
       const view = views.get(turnId)

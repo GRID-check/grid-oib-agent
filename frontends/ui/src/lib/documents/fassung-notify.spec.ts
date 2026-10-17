@@ -8,9 +8,10 @@ vi.mock('server-only', () => ({}))
 vi.mock('@/lib/assignments/repository', () => ({ listAssignmentsForResources: vi.fn() }))
 vi.mock('@/lib/authz/folder-access', () => ({ filterUsersWhoMayReadFolder: vi.fn() }))
 vi.mock('@/lib/authz/project-membership', () => ({
-  resolveSubjectMembership: vi.fn(),
+  PERMISSION_CHECKS_AT_ONCE: 8,
   userHoldsProjectPermission: vi.fn(),
 }))
+vi.mock('@/lib/sharing/directory', () => ({ loadOrganizationDirectory: vi.fn() }))
 vi.mock('@/lib/inbox/repository', () => ({ recipientsHoldingGroup: vi.fn() }))
 vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn().mockResolvedValue(0) }))
 vi.mock('./repository', () => ({ findDocumentInOrg: vi.fn(), findFassungCounterparts: vi.fn() }))
@@ -23,8 +24,10 @@ vi.mock('./fassung-announcement-repository', () => ({
 
 import { listAssignmentsForResources } from '@/lib/assignments/repository'
 import { filterUsersWhoMayReadFolder } from '@/lib/authz/folder-access'
-import { resolveSubjectMembership, userHoldsProjectPermission } from '@/lib/authz/project-membership'
+import { userHoldsProjectPermission } from '@/lib/authz/project-membership'
 import { recipientsHoldingGroup } from '@/lib/inbox/repository'
+import { loadOrganizationDirectory } from '@/lib/sharing/directory'
+import type { DirectoryPerson } from '@/lib/sharing/types'
 import { emitInboxItems } from '@/lib/inbox/service'
 import { SCREENED_ONLY } from './document-reader'
 import { claimFassungAnnouncement, releaseFassungAnnouncement } from './fassung-announcement-repository'
@@ -97,7 +100,7 @@ beforeEach(() => {
   vi.mocked(userHoldsProjectPermission).mockResolvedValue(true)
   vi.mocked(filterUsersWhoMayReadFolder).mockReset()
   vi.mocked(filterUsersWhoMayReadFolder).mockImplementation(async (_org, _project, _folder, ids) => new Set(ids))
-  vi.mocked(resolveSubjectMembership).mockReset()
+  vi.mocked(loadOrganizationDirectory).mockReset()
   vi.mocked(recipientsHoldingGroup).mockReset()
   vi.mocked(recipientsHoldingGroup).mockResolvedValue(new Set())
   vi.mocked(findPublishedVersion).mockReset()
@@ -308,9 +311,11 @@ describe('notifyNewFassung — a confirmed link', () => {
       doc({ ...(id === 'doc-b' ? NEWER : OLDER), scope: 'archiv', projectId: null }),
     )
     assignedTo('anna', 'gone')
-    vi.mocked(resolveSubjectMembership).mockImplementation(async (_org, userId) =>
-      userId === 'gone' ? null : ({ role: 'member', organizationMembershipId: 'm' } as never),
-    )
+    const member = (userId: string): [string, DirectoryPerson] => [
+      userId,
+      { userId, email: null, name: userId, profilePictureUrl: null },
+    ]
+    vi.mocked(loadOrganizationDirectory).mockResolvedValue(new Map([member('anna'), member('uploader')]))
 
     await notifyNewFassung(link)
 

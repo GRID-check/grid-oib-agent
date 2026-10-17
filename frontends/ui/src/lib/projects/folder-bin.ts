@@ -153,6 +153,7 @@ import {
 import { buildFolderPath } from './folders'
 import { findProjectInOrg } from './repository'
 import { shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
+import { inPool } from '@/lib/utils/in-pool'
 import { FOLDER_NAME_TAKEN_REASON } from './folder-bin-codes'
 
 /** The machine-readable reason a delete is refused because the folder holds content the person may not delete. */
@@ -175,20 +176,6 @@ const ERASE_CONCURRENCY = 4
  * only a second purge of the same chunks, which is idempotent.
  */
 export const BIN_PURGE_TAKEOVER_MS = 2 * 60_000
-
-/** Run `work` over `items`, at most `limit` at a time, in order of the results. */
-export async function inPool<T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let next = 0
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const index = next++
-      results[index] = await work(items[index])
-    }
-  })
-  await Promise.all(workers)
-  return results
-}
 
 /**
  * Take one document's chunks out of retrieval; true when the backend confirmed

@@ -1,0 +1,14 @@
+---
+features:
+  - >
+    In the Prüfansicht you now see which Anmerkung a colleague has open, whose
+    box is being drawn and who is on another page, and „/“ puts a few words
+    beside your pointer for everyone looking. Working on a drawing together
+    feels like sitting at one table, and when Piloti reads a part of the sheet,
+    that part lights up.
+fixes:
+  - >
+    When you draw a box and ask Piloti about it, Piloti answers about that box
+    again, and an @Piloti question in an Anmerkung is answered in its thread.
+    Everyone sees in the thread when Piloti is working on it, also after
+    reloading, and the thread says why when Piloti could not answer.

@@ -13,7 +13,7 @@ vi.mock('@/lib/documents/repository', () => ({ findDocumentInOrg: vi.fn() }))
 // What it announces is `fassung-notify.spec.ts`'s; here, settling hands over the documents that came to rest.
 vi.mock('@/lib/documents/fassung-notify', () => ({ announceSettledVersions: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('@/lib/sharing/directory', () => ({ loadOrganizationDirectory: vi.fn() }))
-vi.mock('@/lib/authz/project-membership', () => ({
+vi.mock('@/lib/authz/project-membership', () => ({ PERMISSION_CHECKS_AT_ONCE: 8,
   resolveSubjectMembership: vi.fn(),
   userHoldsProjectPermission: vi.fn(),
 }))

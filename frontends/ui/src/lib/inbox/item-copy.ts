@@ -39,6 +39,18 @@ function withVariant(variant: string | null, leaves: readonly string[]): string[
   return variant ? [...leaves.map((leaf) => `variants.${variant}.${leaf}`), ...leaves] : [...leaves]
 }
 
+/**
+ * `project` → `Project`, `product_feedback` → `ProductFeedback`: a resource
+ * type as a leaf suffix. Empty for a view without one (a payload from a deploy
+ * that did not send it), which then reads the plain `body`.
+ */
+function resourceLeaf(resourceType: string | undefined): string {
+  return (resourceType ?? '')
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('')
+}
+
 export interface InboxItemCopy {
   title: string
   body: string | null
@@ -72,15 +84,28 @@ export function inboxItemCopy(item: InboxItemView, t: Translator, dictionary: un
   // A row that names a second thing reads the title written for two names,
   // where its type has one, and the plain title otherwise; one whose payload
   // lost the first name (a document that could not be described) reads the
-  // title written without it. A type that is a sentence about a person
-  // (`{actor} hat …`) may say it without one when the actor is unknown, rather
-  // than „Jemand hat …".
+  // title written without it. A counted type that names a second thing
+  // (replies to one mark) counts there too: `titleRelatedMany`, and
+  // `titleRelatedNone` for a row read since.
+  const related = (leaf: string) =>
+    item.count > 1 ? [`${leaf}Many`, leaf] : item.count === 0 ? [`${leaf}None`, leaf] : [leaf]
+  // A type that is a sentence about a person (`{actor} hat …`) may say each of
+  // its titles without one, as `<leaf>NoActor`, rather than „Jemand hat …“.
+  const withoutActor = (leaves: readonly string[]) =>
+    item.actorName === null ? leaves.flatMap((leaf) => [`${leaf}NoActor`, leaf]) : [...leaves]
+  // A request that has been answered is history: `titleResolved` says so,
+  // where its type has it, instead of still asking. A redacted row reads
+  // `titleRedacted` where its type puts a name in quotes the reader may no
+  // longer see.
   const titleCandidates = withVariant(item.variant, [
-    ...(item.actorName === null ? ['titleNoActor'] : []),
-    ...(item.related !== null && !redacted
-      ? [...(item.subject === null ? ['titleRelatedNoSubject'] : []), 'titleRelated']
-      : []),
-    ...countedTitles,
+    ...(redacted ? ['titleRedacted'] : []),
+    ...(item.state === 'resolved' ? withoutActor(['titleResolved']) : []),
+    ...withoutActor([
+      ...(item.related !== null && !redacted
+        ? [...(item.subject === null ? related('titleRelatedNoSubject') : []), ...related('titleRelated')]
+        : []),
+      ...countedTitles,
+    ]),
   ])
   const titleLeaf = pickKey(dictionary, presentation.i18nKey, titleCandidates) ?? 'title'
   const title = t(`inbox.types.${presentation.i18nKey}.${titleLeaf}`, vars)
@@ -88,13 +113,16 @@ export function inboxItemCopy(item: InboxItemView, t: Translator, dictionary: un
   // chat) reads the sentence written without one, where its type has it. A
   // type whose excerpt IS the news (a new Fassung's „what changed") writes its
   // body only for the row without one, as `bodyNoExcerpt`: a sentence above
-  // the excerpt saying „open it to see what changed" repeated it.
+  // the excerpt saying „open it to see what changed" repeated it. A type that
+  // lands in a different place by what it points at (a proposal: its chat, or
+  // the file under Dateien) says where as `body<ResourceType>`.
   const bodyLeaf = pickKey(
     dictionary,
     presentation.i18nKey,
     withVariant(item.variant, [
       ...(item.subject === null ? ['bodyNoSubject'] : []),
       ...(item.excerpt === null ? ['bodyNoExcerpt'] : []),
+      `body${resourceLeaf(item.resourceType)}`,
       'body',
     ]),
   )

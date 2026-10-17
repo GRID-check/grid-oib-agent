@@ -13,7 +13,7 @@ import {
   PUSH_CATEGORY_DEFAULTS,
   resolvePushPreferences,
 } from './push-categories'
-import { isPushStillDue, isPushWanted, pushPolicyFor, PUSH_TTL_SECONDS } from './push-policy'
+import { isPushStillDue, isPushWanted, pushCategoryOf, pushPolicyFor, PUSH_TTL_SECONDS } from './push-policy'
 
 const unread = { readAt: null, archivedAt: null, resolvedAt: null, inertAt: null }
 
@@ -55,6 +55,17 @@ describe('a person’s choices override the default per category', () => {
     expect(isPushWanted('mention.requested', off)).toBe(false)
     expect(isPushWanted('piloti.intake_ready', off)).toBe(false)
     expect(isPushWanted('mention.answered', off)).toBe(true)
+  })
+
+  it('news on a mark the person wrote is an answer to them, pushed with results; on anyone else’s it is activity', () => {
+    expect(pushCategoryOf('annotation.activity', { yours: true })).toBe('results')
+    expect(pushCategoryOf('annotation.activity', {})).toBe('activity')
+    expect(pushCategoryOf('annotation.activity', { yours: 'true' })).toBe('activity')
+    // Off by default for activity, on for results: the author hears, the thread does not.
+    expect(isPushWanted('annotation.activity', DEFAULT_PUSH_PREFERENCES, { yours: true })).toBe(true)
+    expect(isPushWanted('annotation.activity', DEFAULT_PUSH_PREFERENCES, { variant: 'reply' })).toBe(false)
+    // A type without a `yours` category keeps its own.
+    expect(pushCategoryOf('conversation.activity', { yours: true })).toBe('activity')
   })
 
   it('reads a damaged stored bag as the defaults, never as an opt-in', () => {

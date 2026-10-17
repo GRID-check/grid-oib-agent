@@ -837,15 +837,15 @@ Accepted residuals:
 - Between the terminal and the settle (the 300 to 500 ms finish) the composer
   already shows Send, so Stop is not offered there.
 - The server names `cancel_turn.shown` in its hello's `accepts` only while
-  `GRID_WIRE_V2_ADDITIVE_FIELDS` is on, and it is off in this release so that
-  tabs of the previous bundle keep parsing frames
+  `GRID_WIRE_V2_ADDITIVE_FIELDS` is on. It is on by default; `off` is the
+  rollback to the release that kept tabs of the strict bundle parsing frames
   ([chat wire v2, Compatibility](chat-wire-v2.md#compatibility-additive-changes-are-safe)).
-  Without it the page sends no `shown`, and the agent stores everything
+  With it off the page sends no `shown`, and the agent stores everything
   streamed so far; the same holds for a socket on an older agent during a
   rolling deploy. The browser stores its cut under the same id, and whichever
   write reaches the BFF first wins the row, so a reload may show more than the
   reader saw. A Stop that crossed the finished answer is still cut by the BFF,
-  which needs neither field. The next release turns the flag on by default.
+  which needs neither field.
 
 ### When a turn fails
 

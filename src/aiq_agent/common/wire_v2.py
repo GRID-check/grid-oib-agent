@@ -342,8 +342,9 @@ class TurnResult(_Model):
     #: level the asker stated instead, or None when they stated none: its graph
     #: state is gone by then, and a stated level is the one the answering call
     #: runs at, so the two differ only for a turn that stated none.
-    #: Withheld from the frame while ``GRID_WIRE_V2_ADDITIVE_FIELDS`` is off
-    #: (``aiq_api.chat_socket.STAGED_SERVER_FIELDS``); the row keeps it.
+    #: Withheld from the frame only while ``GRID_WIRE_V2_ADDITIVE_FIELDS`` is
+    #: set ``off``, the rollback (``aiq_api.chat_socket.STAGED_SERVER_FIELDS``);
+    #: the row keeps it.
     reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
 
 

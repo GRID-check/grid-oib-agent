@@ -89,6 +89,15 @@ export function listAnnotations(
   )
 }
 
+/** One Anmerkung as this reader sees it: what a room hint names is read again, not the whole list. */
+export function getAnnotation(
+  documentId: string,
+  annotationId: string,
+  run: AnnotationFetch = defaultFetch
+): Promise<AnnotationView> {
+  return request(run, annotationPath(documentId, annotationId), { method: 'GET' }, one)
+}
+
 export function createAnnotation(
   documentId: string,
   input: CreateAnnotationRequest,

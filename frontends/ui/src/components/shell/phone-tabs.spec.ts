@@ -10,6 +10,7 @@ import {
   phoneTabBarHiddenOnRoute,
   projectPhoneTabs,
 } from './phone-tabs'
+import { projectSection } from './project-sections'
 
 const ALL = { canAccessArchiv: true, canAccessInbox: true }
 const NONE = { canAccessArchiv: false, canAccessInbox: false }
@@ -169,5 +170,16 @@ describe('the phone header back', () => {
     ]) {
       expect(phoneBackTarget(path, 'p1')).toBeNull()
     }
+  })
+})
+
+describe('the Postfach looks like itself', () => {
+  it('wears one glyph everywhere, and not the Büroablage’s box beside it', () => {
+    const inboxTab = orgPhoneTabs('/app/projects', ALL).find((tab) => tab.key === 'inbox')
+    const archivTab = orgPhoneTabs('/app/projects', ALL).find((tab) => tab.key === 'archiv')
+    expect(inboxTab?.icon).toBe(projectSection('inbox')?.icon)
+    expect(inboxTab?.icon).not.toBe(archivTab?.icon)
+    expect(projectSection('inbox')?.icon).not.toBe(projectSection('archiv')?.icon)
+    expect(projectSection('inbox')?.icon.displayName).toBe('Bell')
   })
 })

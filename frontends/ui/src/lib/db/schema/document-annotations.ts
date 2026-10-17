@@ -212,6 +212,12 @@ export const pilotiWakes = pgTable(
       foreignColumns: [documentAnnotations.id],
     }).onDelete('cascade'),
     annotationIdx: index('idx_piloti_wakes_annotation_created').on(table.annotationId, table.createdAt),
+    /** A document's wakes, the newest of each mark first (0148): `listLatestWakes`, `listAnsweringWakes`. */
+    documentIdx: index('idx_piloti_wakes_document_annotation_created').on(
+      table.documentId,
+      table.annotationId,
+      table.createdAt.desc()
+    ),
     actorIdx: index('idx_piloti_wakes_actor_created').on(table.organizationId, table.actorUserId, table.createdAt),
     triggerKnown: check('piloti_wakes_trigger_known', sql`${table.triggerKind} IN (${list(PILOTI_WAKE_TRIGGERS)})`),
     statusKnown: check('piloti_wakes_status_known', sql`${table.status} IN (${list(PILOTI_WAKE_STATUSES)})`),

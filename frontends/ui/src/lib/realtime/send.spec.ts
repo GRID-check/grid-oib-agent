@@ -16,7 +16,7 @@ import { z } from 'zod'
 import { BadRequestError, NotFoundError, TooManyRequestsError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { getAccessibleDocument } from '@/lib/documents/access'
-import { createInProcessStore, setLimitStore } from '@/lib/limits'
+import { createInProcessStore, ROOM_CLAIM_LIMIT, ROOM_LIMIT, setLimitStore } from '@/lib/limits'
 import { __resetGrantsForTests, defineChannel, forgetSendGrant, type AnyChannel } from './channel'
 import { __setHubTransportForTests, subscribe } from './hub'
 import { CHANNELS } from './registry'
@@ -143,13 +143,44 @@ describe('sendToChannel, the limit', () => {
   }) as AnyChannel
   const channels = { ...CHANNELS, test: tight }
 
-  it('spends the channel’s own limit per member, and refuses past it', async () => {
-    const say = () => sendToChannel(SESSION, { ch: 'test:a', msg: { peerId: 'peer_abcdef12', presence: 'here' } }, channels)
+  it('spends the channel’s own limit per member and channel, and refuses past it', async () => {
+    const say = (ch = 'test:a') =>
+      sendToChannel(SESSION, { ch, msg: { peerId: 'peer_abcdef12', presence: 'here' } }, channels)
     await say()
     await say()
     await expect(say()).rejects.toBeInstanceOf(TooManyRequestsError)
     await expect(
       sendToChannel({ ...SESSION, userId: 'user_2' }, { ch: 'test:a', msg: { peerId: 'peer_abcdef12' } }, channels)
     ).resolves.toBeNull()
+    // The same person in a second document (another tab) has a budget of its own.
+    await expect(say('test:b')).resolves.toBeNull()
+  })
+
+  it('takes a claim from its own budget, so motion past its limit never refuses presence or the selection', async () => {
+    const claiming = defineChannel({
+      ...tight,
+      kind: 'claiming',
+      upstream: {
+        ...tight.upstream!,
+        limit: { name: 'test-motion', limit: 2, windowMs: 60_000 },
+        claims: { limit: { name: 'test-claim', limit: 3, windowMs: 60_000 }, fields: ['selected'] },
+      },
+    }) as AnyChannel
+    const send = (msg: Record<string, unknown>) =>
+      sendToChannel(SESSION, { ch: 'claiming:a', msg: { peerId: 'peer_abcdef12', ...msg } }, { claiming })
+    await send({ cursor: 1 })
+    await send({ cursor: 2 })
+    await expect(send({ cursor: 3 })).rejects.toBeInstanceOf(TooManyRequestsError)
+
+    await expect(send({ presence: 'here' })).resolves.toBeNull()
+    await expect(send({ selected: null })).resolves.toBeNull()
+    await expect(send({ presence: 'gone' })).resolves.toBeNull()
+    // Claims are bounded too, by their own budget.
+    await expect(send({ presence: 'here' })).rejects.toBeInstanceOf(TooManyRequestsError)
+  })
+
+  it('gives the document room’s presence and selection the claim budget', () => {
+    expect(CHANNELS.doc.upstream?.limit).toBe(ROOM_LIMIT)
+    expect(CHANNELS.doc.upstream?.claims).toEqual({ limit: ROOM_CLAIM_LIMIT, fields: ['selected'] })
   })
 })

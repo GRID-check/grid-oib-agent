@@ -295,18 +295,18 @@ def chat_affinity_enabled() -> bool:
 # @environment_variable GRID_WIRE_V2_ADDITIVE_FIELDS
 # @category Server
 # @type str
-# @default off
+# @default on
 # @required false
-# Send the server-to-client fields this release added (``STAGED_SERVER_FIELDS``).
-# Off for one release: a tab opened before the deploy runs a bundle whose wire
-# schemas were strict and refuses a frame with a key it does not know.
+# Send the server-to-client fields the lenient-parsing release added (``STAGED_SERVER_FIELDS``).
+# It was off for that one release, while a tab opened before it still ran a bundle whose wire
+# schemas were strict. Every bundle since parses leniently, so it is on; ``off`` is the rollback.
+# Off, the hello names nothing it accepts, and the canvas's box, thread target and notes never travel.
 _ADDITIVE_FIELDS_ENV = "GRID_WIRE_V2_ADDITIVE_FIELDS"
 
 #: The server-to-client fields this release added, as (frame kind, member, key). The bundle before it
 #: parsed every frame strictly (``.strict()`` zod), so an open tab of it marks the socket ``outdated`` on
 #: a hello that names ``accepts`` and never folds a ``RUN_FINISHED`` whose result has a
-#: ``reasoning_effort``. Withheld until ``GRID_WIRE_V2_ADDITIVE_FIELDS`` is on; the release after this
-#: one turns it on by default and drops the list, once every open tab reads leniently.
+#: ``reasoning_effort``. Withheld only while ``GRID_WIRE_V2_ADDITIVE_FIELDS`` is ``off``, the rollback.
 STAGED_SERVER_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("hello", "value", "accepts"),
     ("RUN_FINISHED", "result", "reasoning_effort"),
@@ -314,8 +314,8 @@ STAGED_SERVER_FIELDS: tuple[tuple[str, str, str], ...] = (
 
 
 def additive_wire_fields_enabled() -> bool:
-    """Whether frames carry ``STAGED_SERVER_FIELDS`` (``GRID_WIRE_V2_ADDITIVE_FIELDS``, off by default)."""
-    return os.getenv(_ADDITIVE_FIELDS_ENV, "off").strip().lower() in ("1", "true", "yes", "on")
+    """Whether frames carry ``STAGED_SERVER_FIELDS`` (``GRID_WIRE_V2_ADDITIVE_FIELDS``, on unless set off)."""
+    return os.getenv(_ADDITIVE_FIELDS_ENV, "on").strip().lower() not in ("0", "false", "no", "off", "")
 
 
 def for_open_tabs(frame: dict[str, Any]) -> dict[str, Any]:

@@ -14,6 +14,7 @@ function item(overrides: Partial<InboxItemView> = {}): InboxItemView {
     id: 'item-1',
     type: 'mention.requested',
     state: 'unread',
+    archived: false,
     actionable: true,
     resourceType: 'conversation',
     resourceId: 'c1',

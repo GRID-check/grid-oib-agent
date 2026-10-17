@@ -19,7 +19,7 @@ import { act, useEffect } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
+import { fireEvent, render, renderHook, screen, waitFor, within } from '@/test-utils'
 import { installLayoutObservers } from '@/test-utils/layout-observers'
 import { server } from '@/mocks/server'
 import type { TurnSocket, TurnSocketOptions } from '@/adapters/api/turn-socket'
@@ -160,12 +160,12 @@ function Harness({
             page={1}
             review={review}
             focused
-            renderAsk={(ask, { flip }) => <PilotiAnswerCard review={review} ask={ask} flip={flip} />}
-            renderThread={({ flip }) =>
+            renderAsk={(ask, { placement }) => <PilotiAnswerCard review={review} ask={ask} placement={placement} />}
+            renderThread={({ placement }) =>
               review.draft ? (
-                <DraftCard review={review} draft={review.draft} flip={flip} canPickAssignee={false} />
+                <DraftCard review={review} draft={review.draft} placement={placement} canPickAssignee={false} />
               ) : selected ? (
-                <ThreadCard review={review} annotation={selected} flip={flip} canPickAssignee={false} />
+                <ThreadCard review={review} annotation={selected} placement={placement} canPickAssignee={false} />
               ) : null
             }
           />
@@ -187,7 +187,14 @@ function Harness({
 
 const serve = (annotations: AnnotationView[], canAnnotate = true, pilotiWakes = false) =>
   server.use(
-    http.get('/api/documents/:id/annotations', () => HttpResponse.json({ annotations, canAnnotate, pilotiWakes }))
+    http.get('/api/documents/:id/annotations', () => HttpResponse.json({ annotations, canAnnotate, pilotiWakes })),
+    // One mark, as a room hint has it read again.
+    http.get('/api/documents/:id/annotations/:annotationId', ({ params }) => {
+      const found = annotations.find((annotation) => annotation.id === params.annotationId)
+      return found
+        ? HttpResponse.json({ annotation: found })
+        : HttpResponse.json({ error: 'Not found', code: 'NOT_FOUND' }, { status: 404 })
+    })
   )
 
 beforeEach(() => {
@@ -242,6 +249,27 @@ async function askAboutABox(piloti: ReturnType<typeof scriptedPiloti>) {
 }
 
 describe('the review', () => {
+  it('walks the marks in the order the list shows them: proposals first, this Fassung only; K from nothing is the last', async () => {
+    serve([
+      view({ id: 'a', number: 1 }),
+      view({ id: 'b', number: 2 }),
+      view({ id: 'p', number: 3, authorKind: 'piloti', status: 'proposed' }),
+      view({ id: 'old', number: 4, onCurrentFassung: false }),
+    ])
+    let review: ReturnType<typeof useDocumentReview> | null = null
+    render(<Harness transport={scriptedRoom().transport} onReady={(next) => (review = next)} />)
+    await screen.findAllByTestId('review-pin')
+
+    const walked: Array<string | undefined> = []
+    for (let i = 0; i < 4; i += 1) act(() => void walked.push(review?.step(1)?.id))
+    expect(walked).toEqual(['p', 'a', 'b', 'p'])
+
+    act(() => review?.select(null))
+    let back: string | undefined
+    act(() => void (back = review?.step(-1)?.id))
+    expect(back).toBe('b')
+  })
+
   it('draws a point as a pin and a region as a box with its pin at the corner', async () => {
     serve([
       view({ id: 'a', number: 1 }),
@@ -324,19 +352,22 @@ describe('the review', () => {
 
     await userEvent.click(within(thread).getByTestId('thread-accept'))
 
-    await waitFor(() => expect(patched).toEqual([{ status: 'open' }]))
+    // The status the card showed goes with the move: a stale tab gets a 409, never a blind change.
+    await waitFor(() => expect(patched).toEqual([{ status: 'open', expectedStatus: 'proposed' }]))
     await waitFor(() => expect(within(screen.getByTestId('review-thread')).queryByTestId('thread-accept')).toBeNull())
   })
 
-  it('reads the list again when somebody else changed it, while pointers keep moving', async () => {
-    let calls = 0
+  it('reads again only the mark a hint names, not the list, while pointers keep moving', async () => {
+    let listed = 0
+    const read: string[] = []
     server.use(
       http.get('/api/documents/:id/annotations', () => {
-        calls += 1
-        return HttpResponse.json({
-          annotations: calls === 1 ? [] : [view({ id: 'theirs', body: 'Von Anna gesetzt' })],
-          canAnnotate: true,
-        })
+        listed += 1
+        return HttpResponse.json({ annotations: [], canAnnotate: true })
+      }),
+      http.get('/api/documents/:id/annotations/:annotationId', ({ params }) => {
+        read.push(String(params.annotationId))
+        return HttpResponse.json({ annotation: view({ id: 'theirs', body: 'Von Anna gesetzt' }) })
       })
     )
     const room = scriptedRoom()
@@ -347,13 +378,90 @@ describe('the review', () => {
       kind: 'event',
       event: { kind: 'annotations.changed', annotationIds: ['theirs'], change: 'created', actor: { ...ANNA } },
     })
-    // A pointer every 30ms for half a second: each one re-renders the review.
+    // A pointer every 30ms for half a second: none of them cancels the read.
     for (let index = 0; index < 16; index += 1) {
       room.send({ kind: 'event', event: { kind: 'cursor', peer: ANNA, cursor: { page: 1, x: index / 20, y: 0.5 } } })
       await act(() => new Promise((resolve) => setTimeout(resolve, 30)))
     }
 
     expect(await screen.findByText('Von Anna gesetzt')).toBeInTheDocument()
+    expect(read).toEqual(['theirs'])
+    expect(listed).toBe(1)
+  })
+
+  it('takes a mark a hint names off the list when it is not there any more for this reader', async () => {
+    serve([view({ id: 'gone', body: 'Wird gelöscht' })])
+    const room = scriptedRoom()
+    render(<Harness transport={room.transport} />)
+    expect(await screen.findByText('Wird gelöscht')).toBeInTheDocument()
+
+    serve([])
+    room.send({
+      kind: 'event',
+      event: { kind: 'annotations.changed', annotationIds: ['gone'], change: 'deleted', actor: { ...ANNA } },
+    })
+    await waitFor(() => expect(screen.queryByText('Wird gelöscht')).toBeNull())
+  })
+
+  it("never draws a mark of the document left behind: a re-read that answers after the switch lands nowhere", async () => {
+    let release: () => void = () => {}
+    server.use(
+      http.get('/api/documents/:id/annotations', () => HttpResponse.json({ annotations: [], canAnnotate: true })),
+      http.get('/api/documents/:id/annotations/:annotationId', async () => {
+        await new Promise<void>((resolve) => (release = resolve))
+        return HttpResponse.json({ annotation: view({ id: 'theirs', documentId: 'doc_1', body: 'Auf Dokument A' }) })
+      })
+    )
+    const room = scriptedRoom()
+    const { result, rerender } = renderHook(({ id }) => useDocumentReview(id, { enabled: true, transport: room.transport }), {
+      initialProps: { id: 'doc_1' },
+    })
+    await waitFor(() => expect(result.current.load).toBe('ready'))
+    room.send({
+      kind: 'event',
+      event: { kind: 'annotations.changed', annotationIds: ['theirs'], change: 'created', actor: { ...ANNA } },
+    })
+    await act(() => new Promise((resolve) => setTimeout(resolve, 200)))
+
+    rerender({ id: 'doc_2' })
+    await waitFor(() => expect(result.current.load).toBe('ready'))
+    release()
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+
+    expect(result.current.annotations).toEqual([])
+  })
+
+  it('lets only the latest re-read of a mark land: an older answer cannot bring back a mark a newer one found gone', async () => {
+    const answers: Array<() => void> = []
+    let reads = 0
+    server.use(
+      http.get('/api/documents/:id/annotations', () =>
+        HttpResponse.json({ annotations: [view({ id: 'm', body: 'Wird gelöscht' })], canAnnotate: true })
+      ),
+      http.get('/api/documents/:id/annotations/:annotationId', async () => {
+        reads += 1
+        if (reads === 1) {
+          // The first read is slow, and answers with the mark as it was.
+          await new Promise<void>((resolve) => answers.push(resolve))
+          return HttpResponse.json({ annotation: view({ id: 'm', body: 'Wird gelöscht' }) })
+        }
+        return HttpResponse.json({ error: 'Not found', code: 'NOT_FOUND' }, { status: 404 })
+      })
+    )
+    const room = scriptedRoom()
+    const { result } = renderHook(() => useDocumentReview('doc_1', { enabled: true, transport: room.transport }))
+    await waitFor(() => expect(result.current.annotations).toHaveLength(1))
+    const hint = (change: 'updated' | 'deleted') =>
+      room.send({ kind: 'event', event: { kind: 'annotations.changed', annotationIds: ['m'], change, actor: { ...ANNA } } })
+
+    hint('updated')
+    await waitFor(() => expect(answers).toHaveLength(1))
+    hint('deleted')
+    await waitFor(() => expect(result.current.annotations).toEqual([]))
+
+    answers[0]?.()
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)))
+    expect(result.current.annotations).toEqual([])
   })
 
   it("does not read again for this tab's own write, which it already holds", async () => {
@@ -553,7 +661,7 @@ describe('the review', () => {
     await waitFor(() => expect(screen.queryByTestId('thread-piloti-pending')).toBeNull())
   })
 
-  it('leaves an @Piloti reply to the server when it wakes Piloti, and waits for the reply in the thread', async () => {
+  it('leaves an @Piloti reply to the server when it wakes Piloti, and shows the work as the server knows it', async () => {
     const mark = view({ id: 'ann_1', shape: 'region', x: 0.1, y: 0.2, w: 0.3, h: 0.25 })
     const asked: AnnotationView['replies'][number] = {
       id: 'r1',
@@ -569,7 +677,25 @@ describe('the review', () => {
     const posted = serveConversation()
     server.use(
       http.post('/api/documents/:id/annotations/:annotationId/replies', () =>
-        HttpResponse.json({ annotation: { ...mark, replies: [asked] }, replyId: 'r1', wake: 'queued' }, { status: 201 })
+        HttpResponse.json(
+          {
+            annotation: {
+              ...mark,
+              replies: [asked],
+              pilotiWork: {
+                state: 'queued',
+                trigger: 'thread_mention',
+                forUserId: 'user_me',
+                forName: 'Miriam Hofer',
+                reasonKind: null,
+                since: '2026-10-01T09:00:00.000Z',
+              },
+            },
+            replyId: 'r1',
+            wake: 'queued',
+          },
+          { status: 201 }
+        )
       )
     )
     const piloti = scriptedPiloti()
@@ -583,8 +709,11 @@ describe('the review', () => {
     await userEvent.click(within(thread).getByTestId('thread-reply-mention-option'))
     await userEvent.type(box, 'Stimmt die Breite?{Enter}')
 
-    // „Piloti antwortet …“, and nothing runs in this tab: no thread, no socket, no question.
-    expect(await within(screen.getByTestId('review-thread')).findByTestId('thread-piloti-pending')).toBeInTheDocument()
+    // The mark's own view says Piloti is on it, for whom: the same line everyone in the room
+    // reads, after a reload too. Nothing runs in this tab: no thread, no socket, no question.
+    const work = await within(screen.getByTestId('review-thread')).findByTestId('thread-piloti-work')
+    expect(work).toHaveAttribute('data-state', 'queued')
+    expect(work).toHaveTextContent('Miriam Hofer')
     expect(piloti.questions()).toEqual([])
     expect(posted).toEqual([])
 
@@ -606,8 +735,34 @@ describe('the review', () => {
         actor: { peerId: null, userId: 'user_me', name: 'Piloti', kind: 'piloti' },
       },
     })
-    await waitFor(() => expect(screen.queryByTestId('thread-piloti-pending')).toBeNull())
+    await waitFor(() => expect(screen.queryByTestId('thread-piloti-work')).toBeNull())
     expect(within(screen.getByTestId('review-thread')).getByText('1,20 m im Schnitt B-B.')).toBeInTheDocument()
+  })
+
+  it('says why a woken Piloti did not answer, from the mark as the server reads it', async () => {
+    serve(
+      [
+        view({
+          id: 'ann_1',
+          pilotiWork: {
+            state: 'failed',
+            trigger: 'thread_mention',
+            forUserId: 'user_me',
+            forName: 'Miriam Hofer',
+            reasonKind: 'budget',
+            since: '2026-10-01T09:00:00.000Z',
+          },
+        }),
+      ],
+      true,
+      true
+    )
+    render(<Harness transport={scriptedRoom().transport} piloti={scriptedPiloti()} />)
+
+    await userEvent.click(await screen.findByTestId('review-row'))
+    const work = await within(await screen.findByTestId('review-thread')).findByTestId('thread-piloti-work')
+    expect(work).toHaveAttribute('data-state', 'failed')
+    expect(work).toHaveTextContent(/budget/i)
   })
 
   it('delegates an open mark to Piloti from the thread, and shows for whom Piloti works it', async () => {
@@ -668,7 +823,7 @@ describe('the review', () => {
     })
 
     const sheet = screen.getByTestId('sheet')
-    expect(await within(sheet).findByText('Liest die Stiege', { selector: '[data-slot="live-cursor"] *' })).toBeInTheDocument()
+    expect(await within(sheet).findByText('Piloti · Liest die Stiege', { selector: '[data-slot="live-cursor"] *' })).toBeInTheDocument()
     const highlight = await within(sheet).findByTestId('piloti-highlight')
     expect(highlight.style.left).toBe('50%')
     restore()

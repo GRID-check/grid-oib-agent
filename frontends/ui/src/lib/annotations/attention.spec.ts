@@ -7,6 +7,7 @@ vi.mock('server-only', () => ({}))
 vi.mock('@/lib/inbox/service', () => ({
   emitInboxItems: vi.fn(),
   resolveInboxItemsAnchoredOn: vi.fn(),
+  markInboxItemsInertAnchoredOn: vi.fn(),
 }))
 vi.mock('./repository', () => ({ findDocumentAnnotation: vi.fn() }))
 vi.mock('@/lib/sharing/registry', () => ({ describeResource: vi.fn() }))
@@ -17,9 +18,23 @@ vi.mock('@/lib/db/tenant-context', () => ({
 
 import { getTenantContext, withTenant } from '@/lib/db/tenant-context'
 import type { InboxEmission } from '@/lib/inbox/service'
-import { emitInboxItems, resolveInboxItemsAnchoredOn } from '@/lib/inbox/service'
+import { emitInboxItems, markInboxItemsInertAnchoredOn, resolveInboxItemsAnchoredOn } from '@/lib/inbox/service'
+import { MARK_ANCHORED_INBOX_TYPES } from '@/lib/inbox/registry'
 import { describeResource } from '@/lib/sharing/registry'
-import { onMarkSettledByPerson, onPilotiWrote, onWakeEnded, type MarkRef } from './attention'
+import {
+  markAuthor,
+  markParticipants,
+  onAssigneeChanged,
+  onMarkDeleted,
+  onMarkMoved,
+  onMarkReplied,
+  onMarkSettledByPerson,
+  onPilotiWrote,
+  onWakeEnded,
+  type MarkPeople,
+  type MarkRef,
+  type MayOpen,
+} from './attention'
 import { findDocumentAnnotation, type AnnotationRecord } from './repository'
 
 const ref: MarkRef = {
@@ -59,6 +74,7 @@ beforeEach(() => {
   } as never)
   vi.mocked(emitInboxItems).mockResolvedValue(1)
   vi.mocked(resolveInboxItemsAnchoredOn).mockResolvedValue(1)
+  vi.mocked(markInboxItemsInertAnchoredOn).mockResolvedValue(1)
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 
@@ -89,7 +105,12 @@ describe('onWakeEnded', () => {
   it('quotes what the mark says, on one line, so the person knows which one it was', async () => {
     await onWakeEnded({ ...wake, trigger: 'assigned', outcome: 'answered', markText: '  Türbreite\n prüfen ' })
 
-    expect(emitted().payload).toEqual({ subject: 'Grundriss EG.pdf', related: '4', excerpt: 'Türbreite prüfen' })
+    expect(emitted().payload).toEqual({
+      subject: 'Grundriss EG.pdf',
+      related: '4',
+      excerpt: 'Türbreite prüfen',
+      variant: 'assigned',
+    })
   })
 
   it.each([
@@ -107,11 +128,20 @@ describe('onWakeEnded', () => {
     expect(JSON.stringify(payload)).not.toContain('budget is exhausted')
   })
 
-  it('names no cause on work that was done', async () => {
+  it('names what woke Piloti on work that was done, never a cause, so a delegation’s end says the mark is back', async () => {
     await onWakeEnded({ ...wake, trigger: 'assigned', outcome: 'answered', reason: 'ignored' })
 
-    expect(emitted().payload).not.toHaveProperty('variant')
+    expect(emitted().payload).toMatchObject({ variant: 'assigned' })
   })
+
+  it.each(['thread_mention', 'thread_reply'] as const)(
+    'names the trigger (%s) on work done, so a folded row never keeps an earlier variant',
+    async (trigger) => {
+      await onWakeEnded({ ...wake, trigger, outcome: 'answered' })
+
+      expect(emitted().payload).toMatchObject({ variant: trigger })
+    },
+  )
 
   it.each(['thread_mention', 'thread_reply'] as const)('tells who asked (%s) when Piloti answered', async (trigger) => {
     await onWakeEnded({ ...wake, trigger, outcome: 'answered' })
@@ -155,7 +185,7 @@ describe('onWakeEnded', () => {
 
     await onWakeEnded({ ...wake, trigger: 'assigned', outcome: 'answered' })
 
-    expect(emitted().payload).toEqual({ related: '4' })
+    expect(emitted().payload).toEqual({ related: '4', variant: 'assigned' })
   })
 
   it('never throws into the turn when the inbox write fails', async () => {
@@ -255,24 +285,25 @@ describe('onPilotiWrote', () => {
 })
 
 describe('onMarkSettledByPerson', () => {
-  const settle = { organizationId: 'org_1', annotationId: 'ann_1', userId: 'user_me' }
+  const settle = { organizationId: 'org_1', annotationId: 'ann_1' }
 
-  it('resolves the Rückfrage for the person who answered, and for nobody else', async () => {
+  it('resolves the Rückfrage for everyone once any person answered it: one answer answers it', async () => {
     await onMarkSettledByPerson({ ...settle, closed: false })
-
-    expect(resolveInboxItemsAnchoredOn).toHaveBeenCalledWith({
-      organizationId: 'org_1',
-      types: ['piloti.asks_you'],
-      anchorId: 'ann_1',
-      recipientUserId: 'user_me',
-    })
-  })
-
-  it('resolves it for everyone once the mark is closed', async () => {
-    await onMarkSettledByPerson({ ...settle, closed: true })
 
     const [input] = vi.mocked(resolveInboxItemsAnchoredOn).mock.calls[0]
     expect(input).toEqual({ organizationId: 'org_1', types: ['piloti.asks_you'], anchorId: 'ann_1' })
+    expect(input).not.toHaveProperty('recipientUserId')
+  })
+
+  it('resolves the Rückfrage and the Zuständige’s row for everyone once the mark is closed', async () => {
+    await onMarkSettledByPerson({ ...settle, closed: true })
+
+    const [input] = vi.mocked(resolveInboxItemsAnchoredOn).mock.calls[0]
+    expect(input).toEqual({
+      organizationId: 'org_1',
+      types: ['piloti.asks_you', 'annotation.assigned_to_you'],
+      anchorId: 'ann_1',
+    })
     expect(input).not.toHaveProperty('recipientUserId')
   })
 
@@ -285,7 +316,7 @@ describe('onMarkSettledByPerson', () => {
 
 describe('the tenant scope of the write', () => {
   it('keeps the caller’s own when there is one', async () => {
-    await onMarkSettledByPerson({ organizationId: 'org_1', annotationId: 'ann_1', userId: 'u', closed: true })
+    await onMarkSettledByPerson({ organizationId: 'org_1', annotationId: 'ann_1', closed: true })
 
     expect(withTenant).not.toHaveBeenCalled()
   })
@@ -293,9 +324,230 @@ describe('the tenant scope of the write', () => {
   it('states the event’s organization when the caller has none, because inbox_items is behind RLS', async () => {
     vi.mocked(getTenantContext).mockReturnValue(undefined)
 
-    await onMarkSettledByPerson({ organizationId: 'org_1', annotationId: 'ann_1', userId: 'u', closed: true })
+    await onMarkSettledByPerson({ organizationId: 'org_1', annotationId: 'ann_1', closed: true })
 
     expect(withTenant).toHaveBeenCalledWith({ organizationId: 'org_1' }, expect.any(Function))
     expect(resolveInboxItemsAnchoredOn).toHaveBeenCalled()
+  })
+})
+
+/** A mark's people, as the thread reads them. */
+function people(overrides: Partial<MarkPeople & Pick<AnnotationRecord, 'kind' | 'status'>> = {}) {
+  return {
+    authorKind: 'person' as const,
+    createdBy: 'user_author',
+    acceptedBy: null,
+    assigneeUserId: null,
+    delegatedBy: null,
+    replies: [],
+    kind: 'defect' as const,
+    status: 'open' as const,
+    ...overrides,
+  }
+}
+
+/** Everyone may open the document, unless a test says who may not. */
+const everyone: MayOpen = async (userIds) => new Set(userIds)
+const allBut =
+  (...hidden: string[]): MayOpen =>
+  async (userIds) =>
+    new Set(userIds.filter((userId) => !hidden.includes(userId)))
+
+/** Who the one emission went to. */
+function recipients(): string[] {
+  expect(emitInboxItems).toHaveBeenCalledTimes(1)
+  return vi.mocked(emitInboxItems).mock.calls[0][0].map((emission) => emission.recipientUserId)
+}
+
+describe('markParticipants', () => {
+  it('is the author, the Zuständige, who delegated and every person who replied, once each', () => {
+    const mark = people({
+      assigneeUserId: 'user_zustaendig',
+      delegatedBy: 'user_delegator',
+      replies: [
+        { authorKind: 'person', createdBy: 'user_replier' },
+        { authorKind: 'person', createdBy: 'user_author' },
+        { authorKind: 'piloti', createdBy: 'user_asker' },
+      ],
+    })
+
+    expect(markParticipants(mark)).toEqual(['user_author', 'user_zustaendig', 'user_delegator', 'user_replier'])
+  })
+
+  it('takes the person who took Piloti’s mark over as its author, and nobody for an untaken proposal', () => {
+    expect(markAuthor(people({ authorKind: 'piloti', createdBy: 'user_asker', acceptedBy: 'user_taker' }))).toBe('user_taker')
+    expect(markParticipants(people({ authorKind: 'piloti', createdBy: 'user_asker', acceptedBy: null }))).toEqual([])
+  })
+})
+
+describe('onAssigneeChanged', () => {
+  const act = { ...ref, actorUserId: 'user_anna', byPiloti: false, markText: 'Tür  T30\nfehlt', open: true }
+
+  it('asks the new Zuständige, named by who did it, quoting the mark', async () => {
+    await onAssigneeChanged({ ...act, previousAssigneeUserId: null, assigneeUserId: 'user_bob' })
+
+    expect(emitted()).toMatchObject({
+      recipientUserId: 'user_bob',
+      type: 'annotation.assigned_to_you',
+      resourceType: 'document',
+      resourceId: 'doc_1',
+      anchorId: 'ann_1',
+      actorUserId: 'user_anna',
+      groupKey: 'annotation.assigned_to_you:document:doc_1:ann_1',
+      payload: { subject: 'Grundriss EG.pdf', related: '4', excerpt: 'Tür T30 fehlt', variant: 'person' },
+    })
+    expect(resolveInboxItemsAnchoredOn).not.toHaveBeenCalled()
+  })
+
+  it('says Piloti did it for the asker when Piloti changed the mark', async () => {
+    await onAssigneeChanged({ ...act, byPiloti: true, previousAssigneeUserId: null, assigneeUserId: 'user_bob' })
+
+    expect(emitted()).toMatchObject({ actorUserId: 'user_anna', payload: { variant: 'piloti' } })
+  })
+
+  it('tells nobody when a person makes themselves responsible', async () => {
+    await onAssigneeChanged({ ...act, previousAssigneeUserId: null, assigneeUserId: 'user_anna' })
+
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('tells nobody about a mark that is not open: a proposal is nobody’s yet, a closed mark nobody’s to do', async () => {
+    await onAssigneeChanged({ ...act, open: false, previousAssigneeUserId: null, assigneeUserId: 'user_bob' })
+
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('settles the previous Zuständige’s row, and only theirs, when someone else takes it on', async () => {
+    await onAssigneeChanged({ ...act, previousAssigneeUserId: 'user_carol', assigneeUserId: 'user_bob' })
+
+    expect(resolveInboxItemsAnchoredOn).toHaveBeenCalledWith({
+      organizationId: 'org_1',
+      types: ['annotation.assigned_to_you'],
+      anchorId: 'ann_1',
+      recipientUserId: 'user_carol',
+    })
+    expect(recipients()).toEqual(['user_bob'])
+  })
+
+  it('settles the previous one’s row when nobody is responsible any more', async () => {
+    await onAssigneeChanged({ ...act, previousAssigneeUserId: 'user_carol', assigneeUserId: null })
+
+    expect(resolveInboxItemsAnchoredOn).toHaveBeenCalledWith(expect.objectContaining({ recipientUserId: 'user_carol' }))
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('never throws into the write when the inbox is down', async () => {
+    vi.mocked(emitInboxItems).mockRejectedValue(new Error('database down'))
+
+    await expect(
+      onAssigneeChanged({ ...act, previousAssigneeUserId: null, assigneeUserId: 'user_bob' }),
+    ).resolves.toBeUndefined()
+  })
+})
+
+describe('onMarkReplied', () => {
+  const reply = { ...ref, actorUserId: 'user_replier', byPiloti: false, markText: 'Tür T30 fehlt', replyText: 'Ist bestellt.' }
+  const thread = people({
+    assigneeUserId: 'user_zustaendig',
+    delegatedBy: 'user_delegator',
+    replies: [{ authorKind: 'person', createdBy: 'user_replier' }],
+  })
+
+  it('tells every participant but the one who replied, one counted row per mark, quoting the reply', async () => {
+    await onMarkReplied({ ...reply, mark: thread, mayOpen: everyone })
+
+    expect(recipients()).toEqual(['user_author', 'user_zustaendig', 'user_delegator'])
+    expect(vi.mocked(emitInboxItems).mock.calls[0][0][0]).toMatchObject({
+      type: 'annotation.activity',
+      actorUserId: 'user_replier',
+      anchorId: 'ann_1',
+      groupKey: 'annotation.activity:document:doc_1:ann_1',
+      payload: { subject: 'Grundriss EG.pdf', related: '4', excerpt: 'Ist bestellt.', variant: 'reply' },
+    })
+  })
+
+  it('says to the mark’s author alone that the reply is on their mark, so it reaches them as an answer', async () => {
+    await onMarkReplied({ ...reply, mark: thread, mayOpen: everyone })
+
+    const rows = vi.mocked(emitInboxItems).mock.calls[0][0]
+    const yours = Object.fromEntries(rows.map((row) => [row.recipientUserId, (row.payload as { yours?: boolean }).yours ?? false]))
+    expect(yours).toEqual({ user_author: true, user_zustaendig: false, user_delegator: false })
+  })
+
+  it('tells nobody who may not open the document now', async () => {
+    await onMarkReplied({ ...reply, mark: thread, mayOpen: allBut('user_delegator') })
+
+    expect(recipients()).toEqual(['user_author', 'user_zustaendig'])
+  })
+
+  it('leaves out the person Piloti’s turn acted for, who woke it and hears that Piloti is done', async () => {
+    await onMarkReplied({ ...reply, actorUserId: 'user_delegator', byPiloti: true, mark: thread, mayOpen: everyone })
+
+    expect(recipients()).toEqual(['user_author', 'user_zustaendig', 'user_replier'])
+    expect(vi.mocked(emitInboxItems).mock.calls[0][0][0].actorUserId).toBeNull()
+  })
+
+  it('leaves out the Zuständige Piloti’s open Rückfrage asks: they have that row', async () => {
+    const question = { ...thread, authorKind: 'piloti' as const, acceptedBy: 'user_author', kind: 'question' as const }
+
+    await onMarkReplied({ ...reply, actorUserId: 'user_delegator', byPiloti: true, mark: question, mayOpen: everyone })
+
+    expect(recipients()).toEqual(['user_author', 'user_replier'])
+  })
+
+  it('tells nobody when nobody else takes part', async () => {
+    await onMarkReplied({ ...reply, actorUserId: 'user_author', mark: people(), mayOpen: everyone })
+
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+})
+
+describe('onMarkMoved', () => {
+  const move = { ...ref, actorUserId: 'user_bob', byPiloti: false, markText: 'Tür T30 fehlt', mayOpen: everyone }
+
+  it.each(['resolved', 'dismissed', 'reopened'] as const)('tells the author someone else %s their mark', async (moved) => {
+    await onMarkMoved({ ...move, move: moved, mark: people() })
+
+    expect(emitted()).toMatchObject({
+      recipientUserId: 'user_author',
+      type: 'annotation.activity',
+      actorUserId: 'user_bob',
+      payload: { related: '4', excerpt: 'Tür T30 fehlt', variant: moved, yours: true },
+    })
+  })
+
+  it('tells the person who took Piloti’s mark over, as its author', async () => {
+    await onMarkMoved({ ...move, move: 'resolved', mark: people({ authorKind: 'piloti', acceptedBy: 'user_taker' }) })
+
+    expect(recipients()).toEqual(['user_taker'])
+  })
+
+  it('tells nobody when the author did it, a proposal nobody took over moved, or the author may not open it', async () => {
+    await onMarkMoved({ ...move, actorUserId: 'user_author', move: 'resolved', mark: people() })
+    await onMarkMoved({ ...move, move: 'dismissed', mark: people({ authorKind: 'piloti', acceptedBy: null }) })
+    await onMarkMoved({ ...move, move: 'resolved', mark: people(), mayOpen: allBut('user_author') })
+
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+})
+
+describe('onMarkDeleted', () => {
+  it('turns every row anchored on the mark inert, for everyone', async () => {
+    await onMarkDeleted({ organizationId: 'org_1', annotationId: 'ann_1' })
+
+    expect(markInboxItemsInertAnchoredOn).toHaveBeenCalledWith({
+      organizationId: 'org_1',
+      types: MARK_ANCHORED_INBOX_TYPES,
+      anchorId: 'ann_1',
+    })
+    expect(MARK_ANCHORED_INBOX_TYPES).toEqual(
+      expect.arrayContaining(['piloti.asks_you', 'annotation.assigned_to_you', 'annotation.activity']),
+    )
+  })
+
+  it('never throws into the delete', async () => {
+    vi.mocked(markInboxItemsInertAnchoredOn).mockRejectedValue(new Error('database down'))
+
+    await expect(onMarkDeleted({ organizationId: 'org_1', annotationId: 'ann_1' })).resolves.toBeUndefined()
   })
 })

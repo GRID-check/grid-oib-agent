@@ -133,12 +133,29 @@ describe('resolveJump', () => {
 })
 
 describe('shortcutSections', () => {
-  test('groups are ordered general → navigation → chat', () => {
+  test('groups are ordered general → navigation → chat → review → inbox', () => {
     expect(shortcutSections(ALL).map((section) => section.id)).toEqual([
       'general',
       'navigation',
       'chat',
+      'review',
+      'inbox',
     ])
+  })
+
+  test("documents the inbox list's own triage keys, and only for a reader with an inbox", () => {
+    const inbox = shortcutSections(ALL).find((section) => section.id === 'inbox')
+    expect(inbox?.rows.map((row) => row.id)).toEqual(['inboxStep', 'inboxOpen', 'inboxArchive', 'inboxToggleRead'])
+    expect(inbox?.rows.every((row) => row.owner === 'inbox')).toBe(true)
+    expect(shortcutSections({ ...ALL, canAccessInbox: false }).some((section) => section.id === 'inbox')).toBe(false)
+  })
+
+  test("documents the Prüfansicht's own keys, which the review binds while it is open", () => {
+    const review = shortcutSections(MINIMAL).find((section) => section.id === 'review')
+    expect(review?.rows.every((row) => row.owner === 'review')).toBe(true)
+    expect(
+      review?.rows.map((row) => row.keys.flatMap((segment) => (segment.kind === 'chord' ? segment.caps : [])).join('/'))
+    ).toEqual(['C', 'R', 'P', 'J/K', 'E', '⌫', '/'])
   })
 
   test('the navigation group mirrors the jump targets exactly', () => {

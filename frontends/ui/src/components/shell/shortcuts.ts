@@ -26,13 +26,22 @@
 
 import type { ComponentType } from 'react'
 import {
+  Archive,
+  ArrowDownUp,
   AtSign,
   Building2,
+  CircleCheck,
   Command,
   CornerDownLeft,
+  Delete,
   FolderKanban,
   Keyboard,
   ListOrdered,
+  MailOpen,
+  MessageCircle,
+  MessageSquarePlus,
+  Sparkles,
+  SquareDashed,
   WrapText,
   X,
 } from 'lucide-react'
@@ -254,8 +263,12 @@ export type ShortcutOwner =
   | 'prompt'
   /** Radix — every dialog, popover and drawer closes on Escape. */
   | 'overlay'
+  /** The Prüfansicht (`features/documents/components/review/document-review.tsx`), while it is open. */
+  | 'review'
+  /** The inbox list (`features/collaboration/components/InboxList.tsx`), while it is open. */
+  | 'inbox'
 
-export type ShortcutGroupId = 'general' | 'navigation' | 'chat'
+export type ShortcutGroupId = 'general' | 'navigation' | 'chat' | 'review' | 'inbox'
 
 export interface ShortcutRow {
   /** Stable id — the React key, and the test handle. */
@@ -285,7 +298,7 @@ export interface ShortcutSection {
 const shortcutLabel = (key: string) => ({ namespace: 'shortcuts' as const, key })
 
 /**
- * The cheatsheet's content for this user: three groups, flag-filtered, with the
+ * The cheatsheet's content for this user: five groups, flag-filtered, with the
  * navigation group derived from the live IA.
  */
 export function shortcutSections(flags: ShortcutFlags): ShortcutSection[] {
@@ -368,6 +381,35 @@ export function shortcutSections(flags: ShortcutFlags): ShortcutSection[] {
           owner: 'prompt',
           icon: ListOrdered,
         },
+      ],
+    },
+    {
+      // The Prüfansicht binds these itself while it is open, and only there:
+      // documented here so the keys are learnable before the review is.
+      id: 'review',
+      i18nKey: 'review',
+      note: false,
+      rows: [
+        { id: 'reviewPoint', label: shortcutLabel('reviewPoint'), keys: [chord('C')], owner: 'review', icon: MessageSquarePlus },
+        { id: 'reviewRegion', label: shortcutLabel('reviewRegion'), keys: [chord('R')], owner: 'review', icon: SquareDashed },
+        { id: 'reviewAsk', label: shortcutLabel('reviewAsk'), keys: [chord('P')], owner: 'review', icon: Sparkles },
+        { id: 'reviewStep', label: shortcutLabel('reviewStep'), keys: [chord('J'), OR, chord('K')], owner: 'review', icon: ArrowDownUp },
+        { id: 'reviewSettle', label: shortcutLabel('reviewSettle'), keys: [chord('E')], owner: 'review', icon: CircleCheck },
+        { id: 'reviewDismiss', label: shortcutLabel('reviewDismiss'), keys: [chord('⌫')], owner: 'review', icon: Delete },
+        { id: 'reviewChat', label: shortcutLabel('reviewChat'), keys: [chord('/')], owner: 'review', icon: MessageCircle },
+      ],
+    },
+    {
+      // The inbox list binds these itself while it is open, for triage without
+      // the mouse; gated with the inbox, so a reader without one is not taught them.
+      id: 'inbox',
+      i18nKey: 'inbox',
+      note: false,
+      rows: [
+        { id: 'inboxStep', label: shortcutLabel('inboxStep'), keys: [chord('J'), OR, chord('K')], owner: 'inbox', icon: ArrowDownUp, gate: 'canAccessInbox' },
+        { id: 'inboxOpen', label: shortcutLabel('inboxOpen'), keys: [chord('Enter')], owner: 'inbox', icon: CornerDownLeft, gate: 'canAccessInbox' },
+        { id: 'inboxArchive', label: shortcutLabel('inboxArchive'), keys: [chord('E')], owner: 'inbox', icon: Archive, gate: 'canAccessInbox' },
+        { id: 'inboxToggleRead', label: shortcutLabel('inboxToggleRead'), keys: [chord('U')], owner: 'inbox', icon: MailOpen, gate: 'canAccessInbox' },
       ],
     },
   ]

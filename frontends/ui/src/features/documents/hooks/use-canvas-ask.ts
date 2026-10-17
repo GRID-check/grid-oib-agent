@@ -14,6 +14,7 @@ import { regionAround } from '@/lib/annotations/types'
 import {
   CanvasTurnError,
   createCanvasTurnClient,
+  type CanvasDegradation,
   type CanvasQuestion,
   type CanvasTurnClient,
   type CanvasTurnClientOptions,
@@ -33,14 +34,28 @@ export const CANVAS_ASK_INTENTS = ['what', 'dimensions', 'oib', 'question'] as c
 export type CanvasAskIntent = (typeof CANVAS_ASK_INTENTS)[number]
 
 /**
- * `later`: the server was to wake Piloti and its reply has not arrived within
- * {@link WAKE_REPLY_TIMEOUT_MS}; it may still. `held`: a cap held the wake, so
- * Piloti does not answer this one.
+ * How a question stands. A turn that ended is read by its outcome, never by
+ * its phase alone: a refusal and a full queue end `finished` with words in
+ * `result.text`, and those words are a reason, not an answer to keep.
+ *
+ * - `answered`: Piloti answered (its text may be empty: it acted instead).
+ * - `declined`: Piloti refused, or the office's queue was full; the text says why.
+ * - `handedOff`: the question became a research run, which reports in the chat.
+ * - `stopped`: the turn was stopped somewhere else (another tab, a newer question).
+ * - `failed`: it broke off; what arrived stays.
+ *
+ * A turn the SERVER runs (a wake, ADR-0106) is not an ask of this tab: the
+ * mark's own view says how it stands (`AnnotationView.pilotiWork`), the same
+ * for everyone in the room.
  */
-export type CanvasAskStatus = 'composing' | 'thinking' | 'answered' | 'failed' | 'later' | 'held'
-
-/** How long the thread shows „Piloti antwortet …" for a wake the server runs, before it says „später". */
-export const WAKE_REPLY_TIMEOUT_MS = 120_000
+export type CanvasAskStatus =
+  | 'composing'
+  | 'thinking'
+  | 'answered'
+  | 'declined'
+  | 'handedOff'
+  | 'stopped'
+  | 'failed'
 
 /**
  * Which driver carries a question. `chat`: the review is open over the chat,
@@ -48,10 +63,8 @@ export const WAKE_REPLY_TIMEOUT_MS = 120_000
  * (`features/chat/lib/canvas-bridge.ts`). `canvas`: the review stands alone
  * (the Files area), and the question goes into the document's own
  * conversation on this tab's canvas client (`canvas-turn-client.ts`).
- * `server`: an @Piloti reply the server wakes Piloti for (ADR-0106); this tab
- * runs nothing and waits for Piloti's reply to arrive through the room.
  */
-export type CanvasAskBackend = 'chat' | 'canvas' | 'server'
+export type CanvasAskBackend = 'chat' | 'canvas'
 
 /** One question to Piloti on the canvas, from the box being drawn to the answer. */
 export interface CanvasAsk {
@@ -74,6 +87,12 @@ export interface CanvasAsk {
   /** Piloti's replies in the thread when it was asked: one more is its answer (reply-in-thread only). */
   baseline: number
   effort: CanvasQuestion['effort'] | null
+  /**
+   * What the question went without, because its server does not read it: the
+   * box (Piloti answered about the whole document) or the thread (its answer
+   * stays here instead of arriving as a reply).
+   */
+  degraded: CanvasDegradation[]
 }
 
 export interface CanvasAskInput {
@@ -92,17 +111,6 @@ export interface CanvasAskInput {
    * the same reply would use, so the two can never both run.
    */
   turnId?: string
-}
-
-/** A reply the server wakes Piloti for: the thread waits for Piloti's answer, nothing runs here. */
-export interface CanvasWakeInput {
-  annotationId: string
-  region: CanvasAskRegion | null
-  question: string
-  /** Piloti's replies in the thread when it was asked: one more is its answer. */
-  baseline: number
-  /** What the server said: it wakes Piloti (`queued`), or a cap held it (`suppressed`). */
-  outcome: 'queued' | 'suppressed'
 }
 
 export interface UseCanvasAskOptions {
@@ -144,8 +152,15 @@ export const askRegionOf = (place: {
 export const stepsOf = (view: TurnView | null): StoredThinkingStep[] =>
   view ? view.stepOrder.flatMap((id) => (view.steps[id] ? [view.steps[id]] : [])) : []
 
-const statusOf = (view: TurnView): CanvasAskStatus =>
-  view.phase === 'running' ? 'thinking' : view.phase === 'failed' ? 'failed' : 'answered'
+/** How a turn's view stands for the canvas (see {@link CanvasAskStatus}). Pure. */
+export function statusOf(view: TurnView): CanvasAskStatus {
+  if (view.phase === 'running') return 'thinking'
+  if (view.phase === 'failed') return 'failed'
+  if (view.result?.job_admission_rejected || view.outcome === 'refused') return 'declined'
+  if (view.result?.run || view.outcome === 'handed_off') return 'handedOff'
+  if (view.outcome === 'cancelled') return 'stopped'
+  return 'answered'
+}
 
 const blankAsk = (id: string): CanvasAsk => ({
   id,
@@ -161,6 +176,7 @@ const blankAsk = (id: string): CanvasAsk => ({
   error: null,
   baseline: 0,
   effort: null,
+  degraded: [],
 })
 
 /**
@@ -190,8 +206,6 @@ export function useCanvasAsk(options: UseCanvasAskOptions) {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const client = useRef<CanvasTurnClient | null>(null)
   const clientPending = useRef<Promise<CanvasTurnClient> | null>(null)
-  /** The timers that turn a server wake's „antwortet …" into „später". */
-  const wakeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   // Mirrors of the two states, for callbacks that must keep their identity
   // (the review's `select` closes the card through them on every click).
   const asksRef = useRef<CanvasAsk[]>([])
@@ -233,8 +247,9 @@ export function useCanvasAsk(options: UseCanvasAskOptions) {
       const entry = asksRef.current.find((ask) => ask.turnId === view.turnId)
       if (!entry || entry.view === view) return
       const status = statusOf(view)
-      // A thread reply's turn that ended has said what it had to, in the thread.
-      if (entry.replyInThread && status === 'answered') return remove(entry.id)
+      // A thread reply's turn that ended has said what it had to, in the thread,
+      // unless the thread target never reached it: then its answer is only here.
+      if (entry.replyInThread && status === 'answered' && !entry.degraded.includes('thread')) return remove(entry.id)
       patch(entry.id, { view, status })
     },
     [patch, remove]
@@ -279,6 +294,8 @@ export function useCanvasAsk(options: UseCanvasAskOptions) {
           refreshAuth: current.refreshAuth,
           onTurn,
           onConversation: () => setConversationId(id),
+          onDegraded: (turnId, dropped) =>
+            setAsks((asks) => asks.map((ask) => (ask.turnId === turnId ? { ...ask, degraded: dropped } : ask))),
         })
         return client.current
       })
@@ -286,17 +303,14 @@ export function useCanvasAsk(options: UseCanvasAskOptions) {
         clientPending.current = null
       })
     return clientPending.current
-  }, [onTurn])
+  }, [onTurn, setAsks])
 
   // A different document is a different conversation; leaving closes the socket.
   useEffect(() => {
-    const timers = wakeTimers.current
     return () => {
       client.current?.close()
       client.current = null
       clientPending.current = null
-      for (const timer of timers.values()) clearTimeout(timer)
-      timers.clear()
       setAsks(() => [])
       setOpen(null)
       setConversationId(null)
@@ -304,6 +318,10 @@ export function useCanvasAsk(options: UseCanvasAskOptions) {
   }, [documentId, setAsks, setOpen])
 
   const available = enabled && Boolean(projectId)
+  // Over the chat, the chat's own running turn keeps the canvas busy too: one turn per conversation.
+  const chatBusy = useChatStore((state) =>
+    Boolean(options.chatHosted && runningTurnIn(state.turns, state.currentConversation?.id))
+  )
 
   /** `ask`, for a note the turn never read: it is asked next, about the same box. */
   const askRef = useRef<((input: CanvasAskInput) => string) | null>(null)
@@ -447,57 +465,19 @@ export function useCanvasAsk(options: UseCanvasAskOptions) {
     askRef.current = ask
   })
 
-  /**
-   * The server wakes Piloti for a reply (ADR-0106): the thread shows „Piloti
-   * antwortet …" until Piloti's reply arrives through the room, or for
-   * {@link WAKE_REPLY_TIMEOUT_MS}, then a quiet „Piloti antwortet später".
-   * This tab runs no turn: the server's would end the second one anyway, but
-   * the person would see two.
-   */
-  const awaitWake = useCallback(
-    (input: CanvasWakeInput): string => {
-      const id = uuidv4()
-      const held = input.outcome === 'suppressed'
-      setAsks((current) => [
-        ...current,
-        {
-          ...blankAsk(id),
-          backend: 'server',
-          region: input.region,
-          annotationId: input.annotationId,
-          replyInThread: true,
-          question: input.question,
-          status: held ? 'held' : 'thinking',
-          baseline: input.baseline,
-        },
-      ])
-      if (!held) {
-        wakeTimers.current.set(
-          id,
-          setTimeout(() => {
-            wakeTimers.current.delete(id)
-            setAsks((current) =>
-              current.map((entry) => (entry.id === id && entry.status === 'thinking' ? { ...entry, status: 'later' } : entry))
-            )
-          }, WAKE_REPLY_TIMEOUT_MS)
-        )
-      }
-      return id
-    },
-    [setAsks]
-  )
-
   /** Close an ask: a running one is stopped first. */
   const dismiss = useCallback(
     (id: string) => {
       const entry = asksRef.current.find((existing) => existing.id === id)
       if (entry?.status === 'thinking' && entry.turnId) {
         if (entry.backend === 'canvas') client.current?.cancel(entry.turnId)
-        else if (useChatStore.getState().turns[entry.turnId]?.phase === 'running') useChatStore.getState().stopStreaming()
+        else {
+          // The chat's Stop acts on its current conversation: only when that is this question's.
+          const chat = useChatStore.getState()
+          const view = chat.turns[entry.turnId]
+          if (view?.phase === 'running' && chat.currentConversation?.id === view.conversationId) chat.stopStreaming()
+        }
       }
-      const timer = wakeTimers.current.get(id)
-      if (timer) clearTimeout(timer)
-      wakeTimers.current.delete(id)
       remove(id)
     },
     [remove]
@@ -530,17 +510,15 @@ export function useCanvasAsk(options: UseCanvasAskOptions) {
       asks,
       openId,
       open,
-      // A wake the server runs keeps nothing here busy: the canvas may still ask.
-      busy: asks.some((entry) => entry.status === 'thinking' && entry.backend !== 'server'),
+      busy: chatBusy || asks.some((entry) => entry.status === 'thinking'),
       compose,
       ask,
-      awaitWake,
       steer,
       dismiss,
       retry,
       conversationHref,
     }),
-    [available, asks, openId, open, compose, ask, awaitWake, steer, dismiss, retry, conversationHref]
+    [available, chatBusy, asks, openId, open, compose, ask, steer, dismiss, retry, conversationHref]
   )
 }
 

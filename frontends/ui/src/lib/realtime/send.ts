@@ -7,7 +7,9 @@
  * 1. The key names a channel that takes messages (400 otherwise).
  * 2. The session may send there: the channel's `authorizeSend` (or
  *    `authorize`), remembered for its `reauthorizeMs` (`./channel`).
- * 3. The channel's rate limit is spent, per member (429 when gone).
+ * 3. The channel's rate limit is spent, per member and channel (429 when
+ *    gone): a claim (presence, the selected mark) from its own budget, the
+ *    rest (motion) from the channel's, so motion never refuses a claim.
  * 4. The message parses as the channel's upstream vocabulary (400).
  * 5. The peer is stamped from the session (`userId`, `name`, `kind`); the
  *    client contributes only its tab's `peerId`.
@@ -37,7 +39,8 @@ export async function sendToChannel(
   const { channel, params } = resolved
 
   await authorizeSendCached(session, channel, params, ch)
-  await enforceLimit(upstream.limit, memberSubject(session))
+  const rule = upstream.claims && carriesClaim(msg, upstream.claims.fields) ? upstream.claims.limit : upstream.limit
+  await enforceLimit(rule, `${memberSubject(session)}:${ch}`)
 
   let post: UpstreamBase
   try {
@@ -59,4 +62,15 @@ export async function sendToChannel(
   for (const event of events) await publish(topic, event)
   channel.observe?.(events, params, session.organizationId)
   return null
+}
+
+/**
+ * Whether a message carries a claim: `presence`, or one of the channel's claim
+ * `fields`. Read off the raw message, so the limit is still spent before the
+ * message is parsed. Motion that rides along with a claim spends the claim
+ * budget, which bounds it as well.
+ */
+function carriesClaim(msg: unknown, fields: readonly string[] = []): boolean {
+  if (typeof msg !== 'object' || msg === null) return false
+  return 'presence' in msg || fields.some((field) => field in msg)
 }

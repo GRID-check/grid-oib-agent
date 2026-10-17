@@ -40,7 +40,8 @@ import {
   type PurgeBinnedChunksPayload,
   type RestoreFolderBinPayload,
 } from '@/lib/jobs-queue/types'
-import { BACKEND_CONCURRENCY, inPool, purgeChunksOf, returnFromBin } from './folder-bin'
+import { inPool } from '@/lib/utils/in-pool'
+import { BACKEND_CONCURRENCY, purgeChunksOf, returnFromBin } from './folder-bin'
 import {
   findBinEntryById,
   findFolderInOrg,

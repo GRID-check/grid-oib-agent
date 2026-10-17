@@ -1,6 +1,8 @@
 /**
  * @vitest-environment node
  */
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
 
 import {
@@ -8,8 +10,65 @@ import {
   avatarColorStyle,
   avatarHue,
   avatarPaletteIndex,
+  identityInk,
   personInitials,
 } from './avatar-identity'
+
+/** The relative luminance of an `oklch(L C h)` colour, through OKLab to linear sRGB (clipped to the gamut). */
+function luminanceOf(oklch: string): number {
+  const [L, C, h] = (/oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)/.exec(oklch) ?? []).slice(1).map(Number)
+  const a = C * Math.cos((h * Math.PI) / 180)
+  const b = C * Math.sin((h * Math.PI) / 180)
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
+  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3
+  const linear = [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+  ].map((value) => Math.min(1, Math.max(0, value)))
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+}
+
+/** WCAG contrast between two `oklch()` colours, or of white text on one. */
+const contrast = (a: string, b: string): number => {
+  const [hi, lo] = [luminanceOf(a), luminanceOf(b)].sort((x, y) => y - x) as [number, number]
+  return (hi + 0.05) / (lo + 0.05)
+}
+const whiteOn = (oklch: string): number => contrast('oklch(1 0 0)', oklch)
+
+/** `--background` as `styles/tokens.css` sets it, in the light theme (`:root`) or the dark one (`.dark`). */
+function backgroundToken(theme: 'light' | 'dark'): string {
+  const css = readFileSync(fileURLToPath(new URL('../../styles/tokens.css', import.meta.url)), 'utf8')
+  const block = theme === 'dark' ? css.slice(css.indexOf('.dark {')) : css
+  const value = /--background:\s*(oklch\([^)]*\))/.exec(block)?.[1]
+  if (!value) throw new Error(`no --background for ${theme} in tokens.css`)
+  return value
+}
+
+/** One user id per hue of the ring. */
+const idOnHue = (hue: number): string =>
+  [...Array(500).keys()].map((index) => `user-${index}`).find((candidate) => avatarHue(candidate) === hue) ?? ''
+
+describe('identityInk', () => {
+  test('carries white text at 4.5:1 or more on every hue of the ring', () => {
+    // A name tag, a cursor chat and a filled pin are white words on this ink.
+    for (const hue of AVATAR_HUES) {
+      const id = idOnHue(hue)
+      expect(id, `a user id on hue ${hue}`).not.toBe('')
+      expect(whiteOn(identityInk(id)), `hue ${hue}`).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  test('as the ring round a followed colleague, stands out 3:1 from the page ground in both themes (WCAG 1.4.11)', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      const ground = backgroundToken(theme)
+      for (const hue of AVATAR_HUES) {
+        expect(contrast(identityInk(idOnHue(hue)), ground), `${theme}, hue ${hue}`).toBeGreaterThanOrEqual(3)
+      }
+    }
+  })
+})
 
 describe('avatarHue', () => {
   test('is deterministic — the same id is always the same colour', () => {

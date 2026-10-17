@@ -6,7 +6,7 @@
  * feature (command palette, global hotkeys, cheatsheet), mounted for every
  * session with an organization. The per-user preference is enforced inside the
  * client component itself. The same goes for the notification worker's
- * lifecycle (Web Push, ADR-0112).
+ * lifecycle (Web Push, ADR-0112) and the offer to turn notifications on.
  *
  * Session reading is tolerant (no redirects): each page below still does its
  * own auth guard, and pages like onboarding must render without an org.
@@ -21,6 +21,7 @@ import { getNavFlags } from '@/lib/authz/nav'
 import { KeyboardShortcuts } from '@/components/shell'
 import { isAuthRequired } from '@/lib/auth/auth-required'
 import { PushLifecycle } from '@/features/notifications/components/push-lifecycle'
+import { InboxPushOffer } from '@/features/notifications/components/inbox-push-offer'
 import { getPushConfig } from '@/lib/push/service'
 
 
@@ -42,7 +43,15 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<J
         const navFlags = await getNavFlags(session)
         // The notification worker, after sign-in and only where the deployment
         // has the keys for it (ADR-0112). Never for a visitor without a session.
-        notifications = <PushLifecycle enabled={getPushConfig().enabled} />
+        // The offer to turn them on, made once in the shell when something
+        // first waits on the person, for whoever never opens the inbox.
+        const pushEnabled = getPushConfig().enabled
+        notifications = (
+          <>
+            <PushLifecycle enabled={pushEnabled} />
+            {pushEnabled && navFlags.canAccessInbox && <InboxPushOffer enabled />}
+          </>
+        )
         shortcuts = (
           <KeyboardShortcuts
             authRequired={isAuthRequired()}

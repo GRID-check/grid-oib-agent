@@ -29,12 +29,40 @@ describe('NotificationPromptView', () => {
     expect(enable).toHaveBeenCalledTimes(1)
   })
 
-  test('can be dismissed from either control', async () => {
+  test('is dismissed by „Not now“, with no second × saying the same', async () => {
     const onDismiss = vi.fn()
     render(<NotificationPromptView push={pushFixture()} dismissed={false} onDismiss={onDismiss} />)
+    expect(screen.getAllByRole('button')).toHaveLength(2)
     await userEvent.click(screen.getByRole('button', { name: 'Not now' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Dismiss the notification suggestion' }))
-    expect(onDismiss).toHaveBeenCalledTimes(2)
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+
+  test('says what it is for: someone needing the person, not every arrival', () => {
+    render(<NotificationPromptView push={pushFixture()} dismissed={false} onDismiss={() => undefined} />)
+    expect(screen.getByText('Piloti tells you on this device when someone needs you.')).toBeInTheDocument()
+  })
+
+  test('where the browser refused, leads to the page that says how to allow it', () => {
+    render(<NotificationPromptView push={pushFixture({ phase: 'denied' })} dismissed={false} onDismiss={() => undefined} />)
+    expect(screen.getByRole('link', { name: 'Notifications are blocked – here is how to turn them on' })).toHaveAttribute(
+      'href',
+      '/app/profile'
+    )
+    expect(screen.queryByRole('button', { name: 'Turn on' })).not.toBeInTheDocument()
+  })
+
+  test('the blocked line can be put away with the same „Not now“', async () => {
+    const onDismiss = vi.fn()
+    render(<NotificationPromptView push={pushFixture({ phase: 'denied' })} dismissed={false} onDismiss={onDismiss} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+
+  test('a person who said „Not now“ is not shown the blocked line either', () => {
+    const { container } = render(
+      <NotificationPromptView push={pushFixture({ phase: 'denied' })} dismissed onDismiss={() => undefined} />
+    )
+    expect(container).toBeEmptyDOMElement()
   })
 
   test('draws nothing when it is not due', () => {

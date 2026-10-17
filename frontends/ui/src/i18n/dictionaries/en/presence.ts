@@ -19,5 +19,7 @@ export const presence = {
     onBehalfOf: 'Piloti · for {name}',
     /** After the words on Piloti's cursor tag („Piloti“, „Treppe“), never clipped: „Treppe · für Anna“. */
     forSuffix: '· for {name}',
+    /** What Piloti's cursor says while it reads a page or a box on it, after its name. */
+    reading: 'reading page {page}',
   },
 }

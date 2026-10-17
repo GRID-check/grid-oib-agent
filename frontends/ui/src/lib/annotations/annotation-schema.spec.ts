@@ -34,6 +34,6 @@ describe('document annotations JSON Schema', () => {
     const request = (documentAnnotationsJsonSchema().$defs as Record<string, { oneOf?: unknown[]; anyOf?: unknown[] }>)
       .InternalAnnotationRequest
     const options = (request.oneOf ?? request.anyOf) as Array<{ properties: { op: { const: string } } }>
-    expect(options.map((option) => option.properties.op.const).sort()).toEqual(['create', 'delete', 'highlight', 'leave', 'list', 'point', 'propose', 'reply', 'room', 'update'])
+    expect(options.map((option) => option.properties.op.const).sort()).toEqual(['create', 'delete', 'highlight', 'leave', 'list', 'look', 'point', 'propose', 'reply', 'room', 'update'])
   })
 })

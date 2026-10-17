@@ -364,6 +364,18 @@ export async function runAgentAnnotationRequest(
         { op: 'highlight', box, label: request.label },
       ])
     }
+    case 'look': {
+      // A box when all four are given, the whole page otherwise; kept on the page.
+      const { page, x, y, w, h } = request
+      const box =
+        x !== undefined && y !== undefined && w !== undefined && h !== undefined
+          ? { page, x, y, w: Math.min(w, 1 - x), h: Math.min(h, 1 - y) }
+          : { page, x: 0, y: 0, w: 1, h: 1 }
+      return gesture(session, document, agent, [
+        { op: 'presence', state: 'here' },
+        { op: 'activity', state: 'reading', box },
+      ])
+    }
     case 'leave':
       return gesture(session, document, agent, [
         { op: 'cursor', cursor: null },

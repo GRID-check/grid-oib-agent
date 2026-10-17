@@ -25,6 +25,7 @@ import { orgRoleHoldsPermission } from './org-role-permissions'
 import { ORG_PERMISSIONS, type ProjectPermission } from './permissions'
 import { findProjectTenancy } from '@/lib/projects/repository'
 import { CLOSED_PROJECT_KEEPS, CLOSED_PROJECT_OPEN_TO_ORGANIZATION, isProjectClosed } from '@/lib/projects/project-status'
+import { inPool } from '@/lib/utils/in-pool'
 
 /** Matches the membership cache TTL in `@/lib/auth/session`. */
 const MEMBERSHIP_TTL_MS = 10 * 60 * 1000
@@ -201,6 +202,14 @@ export async function filterUsersWithProjectAccess(
 }
 
 /**
+ * How many people's permissions are asked of WorkOS at once. A list of
+ * candidates can be a whole organization's directory; all at once is a burst
+ * WorkOS throttles, and a throttled check fails closed, so eligible people
+ * would silently go missing from a picker or a notice.
+ */
+export const PERMISSION_CHECKS_AT_ONCE = 8
+
+/**
  * The same filter, for a permission that is not `project:view`.
  *
  * The reviewer picker needs `project:edit`: being able to OPEN a project does
@@ -214,11 +223,9 @@ export async function filterUsersWithProjectPermission(
   candidateUserIds: readonly string[],
   permission: ProjectPermission
 ): Promise<Set<string>> {
-  const results = await Promise.all(
-    candidateUserIds.map(async (userId) => ({
-      userId,
-      allowed: await userHoldsProjectPermission(session, projectId, userId, permission),
-    }))
-  )
+  const results = await inPool(candidateUserIds, PERMISSION_CHECKS_AT_ONCE, async (userId) => ({
+    userId,
+    allowed: await userHoldsProjectPermission(session, projectId, userId, permission),
+  }))
   return new Set(results.filter((result) => result.allowed).map((result) => result.userId))
 }

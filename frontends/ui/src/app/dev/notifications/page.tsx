@@ -35,6 +35,7 @@ const ITEMS: InboxItemView[] = [
     id: 'n1',
     type: 'mention.requested',
     state: 'unread',
+    archived: false,
     actionable: true,
     resourceType: 'conversation',
     resourceId: 'c1',
@@ -54,6 +55,7 @@ const ITEMS: InboxItemView[] = [
     id: 'n2',
     type: 'job.completed',
     state: 'unread',
+    archived: false,
     actionable: false,
     resourceType: 'project',
     resourceId: 'p1',
@@ -84,7 +86,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       if (url.startsWith('/api/notifications/push/devices')) return Response.json({ devices: [] })
       if (url.startsWith('/api/notifications/push/preferences')) return Response.json({ preferences: DEFAULT_PUSH_PREFERENCES })
       if (url.startsWith('/api/inbox/summary')) return Response.json({ pending: 1 })
-      if (url.startsWith('/api/inbox')) return Response.json({ items: ITEMS, pending: 1 })
+      if (url.startsWith('/api/inbox')) return Response.json({ items: ITEMS, pending: 1, counts: { requests: 1, unread: 1 }, hasMore: false, nextCursor: null })
       if (url.startsWith('/api/stream')) return new Response(null, { status: 404 })
       return real(input, init)
     }

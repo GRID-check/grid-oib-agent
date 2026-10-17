@@ -63,16 +63,34 @@ const SHARE_LIMIT = { name: 'share', limit: 60, windowMs: 60 * 60 * 1000 }
 const TYPING_LIMIT = { name: 'typing', limit: 120, windowMs: 60 * 1000 }
 
 /**
- * What a viewer sends to a document's room (`POST /api/documents/:id/live`):
- * its pointer at most every 80ms while it moves, where it is scrolled to at
- * most every 200ms, and a presence claim every 10s
- * (`lib/annotations/room-types.ts`). A pointer that never stops for a minute
- * costs about 750 calls; the budget is twice that, for two tabs. Shedding is
- * free for the same reason as typing: a pointer is worthless a moment later,
- * and the client drops a refused one rather than retrying it.
+ * The motion a viewer sends to one document's room (`POST /api/realtime/send`,
+ * `doc:<id>`): its pointer at most every 80ms while it moves and where it is
+ * scrolled to at most every 200ms (`lib/annotations/room-types.ts`). Spent per
+ * member AND channel (`lib/realtime/send.ts`), so a second document open in
+ * another tab has a budget of its own. A pointer and a scroll that never stop
+ * for a minute cost about 1,050 calls; one person has one pointer, so a
+ * second tab on the same document adds little. Shedding is free for the same
+ * reason as typing: a pointer is worthless a moment later. The client drops a
+ * refused one and pauses its motion for the `Retry-After`.
+ *
+ * Presence claims and the selected mark do NOT spend this: they spend
+ * {@link ROOM_CLAIM_LIMIT}, so motion can never starve the claim that keeps a
+ * person in everyone's roster.
  * @type {LimitRule}
  */
 const ROOM_LIMIT = { name: 'document-room', limit: 1500, windowMs: 60 * 1000 }
+
+/**
+ * The claims a viewer makes in one document's room: its presence (a refresh
+ * every 10s, a `here` on each reconnect and to each newcomer, `gone` when the
+ * tab goes) and which mark it has selected. Per member and channel, like
+ * {@link ROOM_LIMIT}, and a bucket of its own so that a refused pointer never
+ * means a refused claim: a refused claim ages out of everyone's roster and the
+ * person silently disappears. Honest use is a few dozen a minute; the rest is
+ * room for someone clicking briskly through the marks.
+ * @type {LimitRule}
+ */
+const ROOM_CLAIM_LIMIT = { name: 'document-room-claim', limit: 600, windowMs: 60 * 1000 }
 
 /**
  * Sending mentions (counted per mentioned person, not per message).
@@ -307,6 +325,7 @@ module.exports = {
   SHARE_LIMIT,
   TYPING_LIMIT,
   ROOM_LIMIT,
+  ROOM_CLAIM_LIMIT,
   MENTION_LIMIT,
   WS_UPGRADE_LIMIT,
   CHAT_TURN_LIMIT,

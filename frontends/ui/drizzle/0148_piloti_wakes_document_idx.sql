@@ -1,0 +1,23 @@
+-- 0148: read a document's wakes by the document, not by the organization.
+--
+-- `listLatestWakes` (the newest wake of each mark on one document, read for
+-- every list of a document's Anmerkungen and after every write to one) and
+-- `listAnsweringWakes` (a document's answering wakes, for the thread's
+-- attribution) both filter on `document_id`. 0139 indexed `piloti_wakes` by
+-- the mark and by the actor only, so each of them read every wake of the
+-- organization and threw away the other documents'.
+--
+-- `(document_id, annotation_id, created_at DESC)` is exactly what the first
+-- one asks for: `DISTINCT ON (annotation_id) … ORDER BY annotation_id,
+-- created_at DESC` inside one document, so the newest wake of each mark is the
+-- first index entry of its group and nothing is sorted. The second filters by
+-- the document on the same prefix and sorts what is left, which is one
+-- document's wakes, bounded.
+--
+-- Not CONCURRENTLY: the runner wraps each migration in a transaction (see
+-- 0039). `CREATE INDEX` holds writes to `piloti_wakes` for the build, and a
+-- wake is written once per event on an Anmerkung, so the stall is a moment.
+--
+-- No RLS line: an index adds no table to the boundary.
+CREATE INDEX IF NOT EXISTS "idx_piloti_wakes_document_annotation_created"
+  ON "piloti_wakes" ("document_id", "annotation_id", "created_at" DESC);

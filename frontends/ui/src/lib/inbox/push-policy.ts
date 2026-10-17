@@ -10,7 +10,7 @@
 
 import type { InboxItem } from '@/lib/db/schema'
 import { INBOX_ITEM_TYPES, type InboxItemType } from '@/lib/db/schema'
-import type { PushPreferences, PushUrgency } from './push-categories'
+import type { PushCategory, PushPreferences, PushUrgency } from './push-categories'
 import { INBOX_TYPE_DEFINITIONS, type InboxPushPolicy } from './registry'
 
 /**
@@ -26,10 +26,22 @@ export function pushPolicyFor(type: string): InboxPushPolicy | null {
     : null
 }
 
-/** Whether this person wants a push for this type: its category is on. */
-export function isPushWanted(type: string, preferences: PushPreferences): boolean {
+/**
+ * The category one item is pushed under: its type's, or the type's `yours`
+ * category when the item is about the recipient's own thing (`payload.yours`,
+ * set by the emitter for that recipient alone). Null for an unknown type.
+ */
+export function pushCategoryOf(type: string, payload?: unknown): PushCategory | null {
   const policy = pushPolicyFor(type)
-  return policy !== null && preferences.categories[policy.category]
+  if (!policy) return null
+  const yours = typeof payload === 'object' && payload !== null && (payload as { yours?: unknown }).yours === true
+  return yours && policy.yours ? policy.yours : policy.category
+}
+
+/** Whether this person wants a push for this item: its category is on. */
+export function isPushWanted(type: string, preferences: PushPreferences, payload?: unknown): boolean {
+  const category = pushCategoryOf(type, payload)
+  return category !== null && preferences.categories[category]
 }
 
 /** The row facts the "still worth a notification" decision reads. */

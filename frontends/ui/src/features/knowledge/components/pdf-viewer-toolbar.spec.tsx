@@ -38,3 +38,12 @@ describe('PdfControls on a narrow stage', () => {
     expect(screen.getByRole('button', { name: /zoom out/i }).className).toMatch(/pointer-coarse:@max-md:hidden/)
   })
 })
+
+describe('PdfControls when the pill is longer than its stage', () => {
+  it('scrolls the pill and never squeezes a control under its 28px target (WCAG 2.5.8)', () => {
+    controls()
+    // A flex item shrinks to its glyph (16px) unless told not to: the pill scrolls instead.
+    expect(screen.getByTestId('pdf-floating-toolbar').className).toMatch(/overflow-x-auto/)
+    for (const button of screen.getAllByRole('button')) expect(button.className).toMatch(/\bshrink-0\b/)
+  })
+})

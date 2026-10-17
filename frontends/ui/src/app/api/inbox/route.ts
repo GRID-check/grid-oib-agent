@@ -2,8 +2,10 @@
  * `GET /api/inbox` — one page of the caller's own inbox (spec IB-20).
  *
  * Whose inbox is never a parameter: the service reads it from the session, so
- * there is no id a caller could swap. `?pendingOnly=true` is the "needs me"
- * filter; anything else lists everything unarchived.
+ * there is no id a caller could swap. `?filter=` picks the slice
+ * (`InboxListFilter`: `requests` waits on the reader, `unread` is not opened
+ * yet, `all` is everything unarchived, `archived` what was put away, `pending`
+ * the badge's own set). `?cursor=` is the previous page's `nextCursor`.
  *
  * **There is deliberately no `requireCollaborationEnabled` here any more.** The
  * gate moved into the item-type registry (`@/lib/inbox/registry`'s `gate`) and
@@ -19,22 +21,17 @@
 import { z } from 'zod'
 import { apiRoute, parseQuery } from '@/lib/api/handler'
 import { listInbox } from '@/lib/inbox/service'
+import { INBOX_LIST_FILTERS } from '@/lib/inbox/types'
 
-/**
- * An explicit `'true' | 'false'` enum rather than `z.coerce.boolean()`, which
- * would read every non-empty string (including `"false"`) as true.
- */
 const listQuerySchema = z.object({
-  pendingOnly: z
-    .enum(['true', 'false'])
-    .optional()
-    .transform((value) => value === 'true'),
+  filter: z.enum(INBOX_LIST_FILTERS).optional(),
+  cursor: z.string().min(1).max(200).optional(),
 })
 
 export const GET = apiRoute(
   async ({ session, request }) => {
-    const { pendingOnly } = parseQuery(request, listQuerySchema)
-    return listInbox(session, { pendingOnly })
+    const { filter, cursor } = parseQuery(request, listQuerySchema)
+    return listInbox(session, { filter: filter ?? 'all', cursor })
   },
   { authz: { enforcedBy: 'listInbox (rows are keyed to session.userId)' } }
 )

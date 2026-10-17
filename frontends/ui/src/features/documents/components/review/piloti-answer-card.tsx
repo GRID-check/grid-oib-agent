@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type JSX } from 'react'
+import { useId, useState, type JSX } from 'react'
 import Link from 'next/link'
 import { MessageSquareShare, RotateCcw, Square, StickyNote, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,37 +10,26 @@ import { PilotiGlyph } from '@/components/ui/piloti-glyph'
 import { ShimmerText } from '@/components/ui/shimmer-text'
 import { liveLine } from '@/features/chat/lib/turn-events'
 import { useTranslations } from '@/i18n'
-import { MAX_ANNOTATION_BODY } from '@/lib/annotations/types'
-import { stripDirectives } from '@/lib/text/answer-directives'
+import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
+import { answerAsBody, answerMarkdown } from '../../lib/piloti-answer-text'
 import { CANVAS_ASK_INTENTS, stepsOf, type CanvasAsk, type CanvasAskIntent } from '../../hooks/use-canvas-ask'
 import type { DocumentReview } from '../../hooks/use-document-review'
-import { Composer, ReviewCard } from './thread-card'
+import { Composer, ReviewCard, type CardPlacement } from './thread-card'
 
-/** A card's place in the answer (`[[card:N]]`): the canvas draws no cards, the chat does. */
-const CARD_MARKER = /[ \t]*\[\[card:[0-9]+\]\][ \t]*\n?/g
-
-/** The answer as the card shows it. */
-export const answerMarkdown = (text: string): string => text.replace(CARD_MARKER, '').trim()
-
-/**
- * Markdown's inline marks taken off, for a thread, which shows plain text: the
- * words stay, the asterisks, hashes and link targets go. Lists, tables and
- * line breaks stay as written; they read as text.
- */
-const unmarked = (markdown: string): string =>
-  markdown
-    .replace(/^#{1,6}[ \t]+/gm, '')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/(\*\*|__)(.+?)\1/g, '$2')
-    .replace(/(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-
-/** The answer as an Anmerkung's body: plain, and within the column's bound. */
-export function answerAsBody(text: string): string {
-  const plain = unmarked(stripDirectives(answerMarkdown(text))).trim()
-  return plain.length <= MAX_ANNOTATION_BODY ? plain : `${plain.slice(0, MAX_ANNOTATION_BODY - 1).trimEnd()}…`
+/** The line a failed question says: by what broke, never the wire code itself. */
+export function failureKey(ask: Pick<CanvasAsk, 'error' | 'view'>): 'busy' | 'failedSession' | 'failedConnection' | 'failed' {
+  if (ask.error === 'busy') return 'busy'
+  const code = ask.view?.error?.code ?? ''
+  if (code.startsWith('auth.')) return 'failedSession'
+  if (code.startsWith('connection.') || code === 'agent.no_response' || code === 'agent.response_interrupted') {
+    return 'failedConnection'
+  }
+  return 'failed'
 }
+
+/** The statuses a person can ask again from: the question never got its answer. */
+const RETRYABLE = new Set<CanvasAsk['status']>(['failed', 'declined', 'stopped'])
 
 /** What a quick action makes of an answer taken over: a Rückfrage stays one, the rest is a Hinweis. */
 const kindFor = (intent: CanvasAskIntent | null) => (intent === 'question' ? 'question' : 'hint')
@@ -57,13 +46,14 @@ const kindFor = (intent: CanvasAskIntent | null) => (intent === 'question' ? 'qu
 export function PilotiAnswerCard({
   review,
   ask,
-  flip,
+  placement,
 }: {
   review: DocumentReview
   ask: CanvasAsk
-  flip: boolean
+  placement: CardPlacement
 }): JSX.Element {
   const t = useTranslations('files')
+  const headerId = useId()
   const tChat = useTranslations('chat')
   const { piloti } = review
   const [adopting, setAdopting] = useState(false)
@@ -71,6 +61,8 @@ export function PilotiAnswerCard({
   const view = ask.view
   const text = view ? answerMarkdown(view.text) : ''
   const working = ask.status === 'thinking'
+  // Only an answer is kept: a refusal's words are its reason, not a finding.
+  const answered = ask.status === 'answered'
   const line =
     liveLine(stepsOf(view), tChat) ?? (ask.region ? t('review.piloti.thinking') : t('review.piloti.thinkingDocument'))
   const notes = Object.entries(view?.steers ?? {})
@@ -100,13 +92,15 @@ export function PilotiAnswerCard({
   }
 
   return (
-    <ReviewCard flip={flip} testId="piloti-card">
-      <div className="flex items-center gap-2 border-b px-3 py-2">
+    <ReviewCard placement={placement} testId="piloti-card" labelledBy={headerId}>
+      <div className={cn('flex items-center gap-2 border-b px-3 py-2', placement === 'docked' && 'pr-12')}>
         <PilotiGlyph working={working} />
-        <span className="text-foreground text-xs font-semibold">Piloti</span>
-        {ask.region && (
-          <span className="text-muted-foreground text-[11px]">{t('review.piloti.regionLabel', { page: ask.region.page })}</span>
-        )}
+        <span id={headerId} className="flex min-w-0 items-center gap-2">
+          <span className="text-foreground text-xs font-semibold">Piloti</span>
+          {ask.region && (
+            <span className="text-muted-foreground text-[11px]">{t('review.piloti.regionLabel', { page: ask.region.page })}</span>
+          )}
+        </span>
         <span className="ml-auto flex items-center">
           {working && (
             <Button
@@ -168,6 +162,11 @@ export function PilotiAnswerCard({
             <p className="text-muted-foreground border-l-foreground/20 border-l-2 pl-2 text-xs leading-5 break-words">
               {ask.question}
             </p>
+            {ask.degraded.includes('region') && (
+              <p className="text-muted-foreground text-[11px] leading-4" role="note" data-testid="piloti-card-degraded">
+                {t('review.piloti.degradedRegion')}
+              </p>
+            )}
             {notes.length > 0 && (
               <ul className="space-y-1" aria-label={t('review.piloti.steerNotes')} data-testid="piloti-card-notes">
                 {notes.map(([steerId, note]) => (
@@ -188,9 +187,23 @@ export function PilotiAnswerCard({
               </div>
             )}
             {text && (
-              <div data-testid="piloti-card-answer" className="text-[13px]">
+              <div
+                data-testid="piloti-card-answer"
+                data-status={ask.status}
+                className={cn('text-[13px]', ask.status === 'declined' && 'text-muted-foreground')}
+              >
                 <MarkdownRenderer content={text} isStreaming={Boolean(view?.streaming)} compact />
               </div>
+            )}
+            {answered && !text && (
+              <p className="text-muted-foreground text-xs leading-5" data-testid="piloti-card-empty">
+                {t('review.piloti.empty')}
+              </p>
+            )}
+            {(ask.status === 'declined' || ask.status === 'handedOff' || ask.status === 'stopped') && (
+              <p className="text-muted-foreground text-xs leading-5" role="status" data-testid="piloti-card-ended">
+                {t(`review.piloti.${ask.status}`)}
+              </p>
             )}
             {working && (
               <Composer
@@ -205,9 +218,7 @@ export function PilotiAnswerCard({
             {view?.interaction && (
               <p className="text-muted-foreground text-xs leading-5">{t('review.piloti.needsInput')}</p>
             )}
-            {ask.status === 'failed' && (
-              <FieldError>{ask.error === 'busy' ? t('review.piloti.busy') : t('review.piloti.failed')}</FieldError>
-            )}
+            {ask.status === 'failed' && <FieldError>{t(`review.piloti.${failureKey(ask)}`)}</FieldError>}
             {view && view.sources.length > 0 && !working && (
               <ol className="text-muted-foreground space-y-0.5 text-[11px] leading-4" aria-label={t('review.piloti.sources')}>
                 {view.sources.slice(0, 4).map((source, index) => (
@@ -220,14 +231,17 @@ export function PilotiAnswerCard({
             )}
           </div>
           {!working && (
-            <div className="flex flex-wrap items-center gap-1.5 border-t px-3 py-2.5">
-              {ask.status === 'failed' ? (
+            // One row, never two: the words are short enough for a 20rem card.
+            <div className="border-t px-3 py-2.5">
+              <div className="flex items-center gap-1.5 whitespace-nowrap">
+              {RETRYABLE.has(ask.status) ? (
                 <Button type="button" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => piloti.retry(ask.id)}>
                   <RotateCcw className="size-3" aria-hidden />
                   {t('review.piloti.retry')}
                 </Button>
               ) : (
                 review.canAnnotate &&
+                answered &&
                 text && (
                   <Button
                     type="button"
@@ -250,7 +264,8 @@ export function PilotiAnswerCard({
                   </Link>
                 </Button>
               )}
-              {adoptFailed && <FieldError className="w-full">{t('review.actionFailed')}</FieldError>}
+              </div>
+              {adoptFailed && <FieldError className="mt-1.5">{t('review.actionFailed')}</FieldError>}
             </div>
           )}
         </>

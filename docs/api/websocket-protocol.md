@@ -43,7 +43,7 @@ ws://<host>/websocket?v=2&projectId=<uuid>&conversationId=<session_id>
   "Client → server" below). Free strings: a hello naming one this
   page does not know is still a hello. `accepts`, like
   `RUN_FINISHED.result.reasoning_effort`, is sent only while
-  `GRID_WIRE_V2_ADDITIVE_FIELDS` is on, off in this release
+  `GRID_WIRE_V2_ADDITIVE_FIELDS` is on, its default; `off` is the rollback
   ([chat-wire-v2.md](../design/chat-wire-v2.md#compatibility-additive-changes-are-safe)). It is the
   other half of the version gate: `4426` tells an old page it is old, `hello`
   tells a current page the server is current. A server that predates this wire
@@ -259,7 +259,7 @@ narration.
 | `research_truncated` | `boolean` (default `false`) | The turn's research was cut off at its budget ceiling. The answer says so, and the mark is persisted so a reopened thread keeps saying it. |
 | `retrieval_ledger` | `RetrievalLedgerEntry[]` | The backend's own account of this turn's retrieval rounds: per announced round what it was asked (query, tools), what it returned, and which documents it did work on (`new_docs`); `hits`/`documents` are tallies over `docs`. Absent when no round was announced. One `docs` entry is one PASSAGE — a document (`name`, `title`, `shelf`) at a page or Punkt (`detail`) — carrying `repeat: boolean`: true when an earlier round already returned that exact (document, `detail`) pair, or when an earlier round OPENED that document with a locator tool (`read_passage`). A search that merely ranked a document does not make the later open of it a repeat. `new_docs` is the document-level derivation of the same marks: a document is listed when at least one of its passages here is not a repeat. `repeat` is absent on turns stored before the backend stamped it, and the renderer then falls back to `new_docs`. The Herleitung spine draws each round's fan from it, one card per document: the pages or Punkte that round reached, listed under the card, „bereits abgerufen" on the passages it fetched a second time, and an „Öffnen" step kind for a round that only opened passages. Persisted into message metadata/provenance so reloads read the same account. Nothing retrieves outside it: the answer repair corrects a quote against a passage already in this turn's registry and retrieves nothing (ADR-0067). |
 | `quote_stamps` | `Array<{ text, status: "verbatim" \| "not_found" \| "unchecked", number?, title?, file_name?, page?, punkt?, url? }>` | The server's check of each quote line `> „…“ [N]` of the answer, one entry per line in document order (`common/quote_stamps.py`), against the passages the prose's own quote check reads. `verbatim` names the passage that holds the wording and its `[N]` (absent when the passage was read, not cited); `not_found` means no retrieved passage holds it; `unchecked` means nothing to check against, or a span under 20 characters. `text` is the wording between the quote marks as the final text writes it. The excerpt renders „Wortlaut belegt [N]" and „Stelle öffnen" from it, never from the model. Absent when the answer quotes nothing. Persisted into message metadata under the same key. |
-| `reasoning_effort` | `"none" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh"` | The thinking level the answering call ran at, resolved server-side (`reasoning_settings.effort_of` on the turn's model: the asker's `user_message.reasoning_effort`, else the platform's level for the group, else the configured one). On a Stopped turn it is the level the asker stated. Not on the frame while `GRID_WIRE_V2_ADDITIVE_FIELDS` is off (the row keeps it). Absent when no answering call ran or the model sends no level. The client prefers it over the level it recorded when it asked, so an observer and a turn the asker never saw finish carry it too; "Gründlicher neu beantworten" steps up from it. Persisted into message metadata under the same key, restored as `provenance.reasoningEffort` (a `none` is not a dial level and is dropped there). |
+| `reasoning_effort` | `"none" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh"` | The thinking level the answering call ran at, resolved server-side (`reasoning_settings.effort_of` on the turn's model: the asker's `user_message.reasoning_effort`, else the platform's level for the group, else the configured one). On a Stopped turn it is the level the asker stated. Not on the frame when `GRID_WIRE_V2_ADDITIVE_FIELDS` is set off, the rollback (the row keeps it). Absent when no answering call ran or the model sends no level. The client prefers it over the level it recorded when it asked, so an observer and a turn the asker never saw finish carry it too; "Gründlicher neu beantworten" steps up from it. Persisted into message metadata under the same key, restored as `provenance.reasoningEffort` (a `none` is not a dial level and is dropped there). |
 
 ```typescript
 /** One announced retrieval round, as the backend recorded it. */
@@ -613,9 +613,9 @@ no document. Both fields are on the turn's trace as `turn_surface`
 ([`langfuse.md`](../observability/langfuse.md)).
 
 Because `accepts` is itself withheld while `GRID_WIRE_V2_ADDITIVE_FIELDS` is
-off, a page sends neither field until that flag is on: the review canvas's
-region asks and thread replies need it on; with it off, a canvas question
-reaches Piloti without its box.
+off, a page sends neither field with that flag off. It is on by default; `off`
+is the rollback, and with it off a canvas question reaches Piloti without its
+box and no reply lands in its thread.
 
 ### Steering a running turn (`steer`)
 
@@ -651,7 +651,7 @@ turn, not into a new one (`common/steering.py`, the steering research of
   sent as the note's `focus_region`.
 
 Like every optional entry, `steer` is in `accepts` only while
-`GRID_WIRE_V2_ADDITIVE_FIELDS` is on; with it off, the composer keeps its
+`GRID_WIRE_V2_ADDITIVE_FIELDS` is on, its default; with it set off, the composer keeps its
 type-ahead behaviour and the canvas says Piloti is busy.
 
 ### A turn an event woke (`trigger` / `if_idle`)
@@ -678,7 +678,7 @@ a server whose hello lists it (`user_message.trigger`, `user_message.if_idle`).
   in the thread instead of waiting thirty minutes on a socket nobody reads.
 - **Before sending,** read the hello: `accepts` must hold
   `user_message.trigger` and `user_message.if_idle`. A server without them
-  (or `GRID_WIRE_V2_ADDITIVE_FIELDS` off) would supersede a typed turn; do not
+  (or `GRID_WIRE_V2_ADDITIVE_FIELDS` set off) would supersede a typed turn; do not
   send, retry later.
 - **The message.** `{"v":2,"type":"user_message","conversation_id":…,
   "message_id":uuid5(<reply id>),"text":<the reply, masked server-side>,
@@ -736,4 +736,4 @@ Langfuse's PostHog export can put the turn on the session's replay
 ([`langfuse.md`](../observability/langfuse.md#posthog-export)). A value that is
 not a UUIDv7 is dropped silently and the turn runs. Because `accepts` is itself
 withheld while `GRID_WIRE_V2_ADDITIVE_FIELDS` is off, the link flows only
-with that flag on.
+with that flag on, its default.

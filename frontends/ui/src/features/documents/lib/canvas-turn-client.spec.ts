@@ -4,8 +4,9 @@
  * What is pinned: the conversation exists before the socket opens, the
  * question is stored as a row of it, and the `user_message` carries the
  * document, the box and the thread; answer events fold into one view; every
- * question ends (refused, unanswered twice, stopped); one turn at a time; a
- * gap in the stream is attached from the last seq folded.
+ * question ends (refused, unanswered twice, silent twice, stopped); one turn
+ * at a time; a gap in the stream is attached from the last seq folded; a
+ * question whose server reads neither its box nor its thread says so.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -13,7 +14,7 @@ import type { TurnSocket, TurnSocketOptions } from '@/adapters/api/turn-socket'
 import type { ClientMessage } from '@/adapters/api/wire-v2'
 import type { TurnView } from '@/features/chat/lib/turn-fold'
 import { eventOf, frameOf } from '@/test-utils/wire-v2-fixtures'
-import { CANVAS_ACK_TIMEOUT_MS, CanvasTurnError, createCanvasTurnClient } from './canvas-turn-client'
+import { CANVAS_ACK_TIMEOUT_MS, CanvasTurnError, canvasDegradations, createCanvasTurnClient } from './canvas-turn-client'
 
 /** A socket the test plays: opens on connect, records what is sent, delivers frames on cue. */
 function scriptedSocket() {
@@ -294,5 +295,56 @@ describe('a note for the turn Piloti is working on', () => {
     vi.spyOn(socket.socket, 'accepts').mockReturnValue(false)
     expect(client.steer('die Treppe')).toBe(false)
     expect(socket.sent.filter((message) => message.type === 'steer')).toEqual([])
+  })
+})
+
+describe('a question its server cannot read whole', () => {
+  it('names what a server leaves out: the box, the thread, or nothing', () => {
+    const message = {
+      type: 'user_message' as const,
+      conversation_id: 'c',
+      message_id: 't',
+      text: 'x',
+      focus_region: { ...REGION },
+      reply_in_thread: true,
+    }
+    expect(canvasDegradations(message, () => false)).toEqual(['region', 'thread'])
+    expect(canvasDegradations(message, () => true)).toEqual([])
+    expect(canvasDegradations({ ...message, reply_in_thread: undefined }, (entry) => entry === 'steer')).toEqual([
+      'region',
+    ])
+  })
+
+  it('still asks, and says once what the question went without', async () => {
+    const socket = scriptedSocket()
+    const onDegraded = vi.fn()
+    const client = createCanvasTurnClient({
+      conversationId: 'conv_1',
+      conversationExists: true,
+      documentId: 'doc_1',
+      title: 't',
+      onTurn: () => {},
+      onDegraded,
+      createSocket: socket.create,
+      fetch: recordedFetch().run,
+    })
+    await client.ask({ text: 'Was ist das?', region: REGION, replyInThread: false }, 'turn-1')
+
+    expect(socket.sent).toHaveLength(1)
+    expect(onDegraded).toHaveBeenCalledTimes(1)
+    expect(onDegraded).toHaveBeenCalledWith('turn-1', ['region'])
+  })
+})
+
+describe('a turn that goes silent', () => {
+  it('survives one silent socket and ends on the second in a row', async () => {
+    const { client, socket, last } = setup()
+    await client.ask({ text: 'Was ist das?', region: REGION }, 'turn-1')
+    socket.deliver(1, { type: 'RUN_STARTED', message_id: 'a-1' })
+
+    socket.options()?.onSilent?.(['turn-1'])
+    expect(last().phase).toBe('running')
+    socket.options()?.onSilent?.(['turn-1'])
+    expect(last()).toMatchObject({ phase: 'failed', error: { code: 'agent.response_interrupted' } })
   })
 })

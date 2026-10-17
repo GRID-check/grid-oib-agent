@@ -43,7 +43,7 @@ import type { PilotiWakeRow } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { memberReader } from '@/lib/documents/document-reader'
 import { findDocumentInOrg } from '@/lib/documents/repository'
-import { publishToDocumentRoom } from '@/lib/realtime/document-channel'
+import { announcePilotiWork } from '@/lib/annotations/piloti-work'
 import type { TurnOutcomeRequest, TurnOutcomeResponse } from './outcome-types'
 
 /** What the wake records when a turn failed or was refused without saying why. */
@@ -116,14 +116,8 @@ async function afterEnd(
   done: { markNumber: number | null; markText: string | null; handedBack: boolean },
   turnOutcome: TurnOutcomeRequest['outcome']
 ): Promise<void> {
-  if (done.handedBack) {
-    await publishToDocumentRoom(wake.documentId, {
-      kind: 'annotations.changed',
-      annotationIds: [wake.annotationId],
-      change: 'updated',
-      actor: { peerId: null, userId: wake.actorUserId, name: 'Piloti', kind: 'piloti' },
-    }).catch(() => undefined)
-  }
+  // Every end moves the mark's „Piloti arbeitet" line (`piloti-work.ts`), handed back or not.
+  await announcePilotiWork(wake)
   const doc = await wakeDocument(wake)
   auditWakeEnded(
     {

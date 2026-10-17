@@ -138,6 +138,7 @@ function boot(options: { windows?: unknown[]; fetchImpl?: (url: string, init?: R
     Uint8Array,
     JSON,
     Promise,
+    setTimeout,
     fetch: async (url: string, init?: Record<string, unknown>) => {
       fetchCalls.push({ url, init })
       return options.fetchImpl ? options.fetchImpl(url, init) : { ok: false }
@@ -195,6 +196,47 @@ describe('the registered worker', () => {
     expect(client.focus).toHaveBeenCalled()
     expect(client.navigate).toHaveBeenCalledWith(`${ORIGIN}/app/projects/p1/chat?session=c1`)
     expect(opened).toEqual([])
+  })
+
+  it('marks the tapped item read, with the session’s cookie, before it takes the tab there', async () => {
+    const order: string[] = []
+    const client = {
+      url: `${ORIGIN}/app/projects`,
+      focused: true,
+      focus: vi.fn(async () => undefined),
+      navigate: vi.fn(async () => {
+        order.push('navigate')
+        return {}
+      }),
+      postMessage: vi.fn(),
+    }
+    const { fire, fetchCalls } = boot({
+      windows: [client],
+      fetchImpl: async () => {
+        order.push('read')
+        return { ok: true }
+      },
+    })
+    await fire('notificationclick', { notification: { close: vi.fn(), data: { url: '/app/inbox', itemId: 'item-1' } } })
+    expect(fetchCalls).toEqual([
+      {
+        url: '/api/inbox/read',
+        init: expect.objectContaining({ method: 'POST', credentials: 'same-origin', body: JSON.stringify({ itemIds: ['item-1'] }) }),
+      },
+    ])
+    expect(order).toEqual(['read', 'navigate'])
+  })
+
+  it('still opens the item when the read fails, or when the notification names no item', async () => {
+    const client = { url: `${ORIGIN}/app`, focused: true, focus: vi.fn(async () => undefined), navigate: vi.fn(async () => ({})), postMessage: vi.fn() }
+    const failing = boot({ windows: [client], fetchImpl: async () => Promise.reject(new Error('offline')) })
+    await failing.fire('notificationclick', { notification: { close: vi.fn(), data: { url: '/app/inbox', itemId: 'item-1' } } })
+    expect(client.navigate).toHaveBeenCalledTimes(1)
+
+    const silent = boot({ windows: [client] })
+    await silent.fire('notificationclick', { notification: { close: vi.fn(), data: { url: '/app/inbox' } } })
+    expect(silent.fetchCalls).toEqual([])
+    expect(client.navigate).toHaveBeenCalledTimes(2)
   })
 
   it('asks the page to route itself when the browser refuses to navigate it', async () => {

@@ -23,11 +23,16 @@ vi.mock('@/lib/db/tenant-context', () => ({
 vi.mock('./repository', () => ({
   INBOX_LIST_LIMIT: 50,
   listInboxItems: vi.fn(),
+  countInboxFilters: vi.fn(async () => ({ requests: 0, unread: 0 })),
+  markAnchorItemsRead: vi.fn(),
+  markInboxItemsUnread: vi.fn(),
+  unarchiveInboxItem: vi.fn(),
   countPendingInboxItems: vi.fn(),
   markInboxItemsRead: vi.fn(),
   markAllInboxItemsRead: vi.fn(),
   archiveInboxItem: vi.fn(),
   markResourceItemsRead: vi.fn(),
+  markItemsInertAnchoredOn: vi.fn(),
   markItemsInertForResource: vi.fn(),
   markItemsInertForSubjectRow: vi.fn(),
   resolveInboxItemsForTargets: vi.fn(),
@@ -58,14 +63,21 @@ import {
   upsertWaves,
   emitInboxItems,
   resolveInboxItemsAnchoredOn,
+  markInboxItemsInertAnchoredOn,
   archiveItem,
   getInboxSummary,
   listInbox,
   markAllRead,
   markRead,
   markResourceItemsReadFor,
+  markAnchorItemsReadFor,
+  markUnread,
+  unarchiveItem,
+  decodeInboxCursor,
+  encodeInboxCursor,
   viewInboxItemAs,
 } from './service'
+import { BadRequestError } from '@/lib/api/errors'
 
 /**
  * A COMPLETE session, not a two-field cast.
@@ -131,6 +143,9 @@ const ALL_TYPES = [
   // A reading of a project's documents is ready for review (ADR-0111): setting
   // a project up is not a chat feature.
   'piloti.intake_ready',
+  // A colleague's work on an Anmerkung: marks are not a chat feature either.
+  'annotation.assigned_to_you',
+  'annotation.activity',
 ] as const satisfies readonly InboxItemType[]
 
 /** What a tenant WITHOUT collaboration may see: the operational types only. */
@@ -166,6 +181,9 @@ const OPERATIONAL_TYPES = [
   // A reading of a project's documents is ready for review (ADR-0111): setting
   // a project up is not a chat feature.
   'piloti.intake_ready',
+  // A colleague's work on an Anmerkung: marks are not a chat feature either.
+  'annotation.assigned_to_you',
+  'annotation.activity',
 ] as const satisfies readonly InboxItemType[]
 
 const at = new Date('2026-07-29T10:00:00.000Z')
@@ -350,7 +368,13 @@ describe('listInbox — projection', () => {
 
     const { items } = await listInbox(session)
 
-    expect(items.map((item) => item.state)).toEqual(['read', 'resolved', 'archived', 'inert'])
+    // By id: rows that share a moment are ordered by id, as the SQL orders them.
+    expect(Object.fromEntries(items.map((item) => [item.id, item.state]))).toEqual({
+      r: 'read',
+      s: 'resolved',
+      t: 'archived',
+      u: 'inert',
+    })
   })
 
   it('coerces attacker-influenced payload text instead of trusting its shape', async () => {
@@ -427,11 +451,13 @@ describe('listInbox — projection', () => {
   })
 
   it('scopes the query to the caller and caps the page', async () => {
-    await listInbox(session, { pendingOnly: true })
+    await listInbox(session, { filter: 'pending' })
 
     expect(repository.listInboxItems).toHaveBeenCalledWith('org_1', 'user_1', {
-      pendingOnly: true,
-      limit: 50,
+      filter: 'pending',
+      cursor: null,
+      // One past the page: the extra row is how the page knows there is another.
+      limit: 51,
       // The type set travels INTO the query rather than filtering rows after
       // they come back, so a type this reader may not see is never fetched.
       types: [...ALL_TYPES],
@@ -445,7 +471,7 @@ describe('listInbox — projection', () => {
       row({ id: 'req', type: 'mention.requested', actionable: true, anchorId: 'msg_7', readAt: at }),
     ])
 
-    const { items } = await listInbox(session, { pendingOnly: true })
+    const { items } = await listInbox(session, { filter: 'pending' })
 
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({ state: 'read', actionable: true })
@@ -664,6 +690,112 @@ describe('mutations are scoped to the caller\'s own inbox', () => {
   })
 })
 
+describe('the reader’s own read state and archive', () => {
+  it('marks items unread for the caller only, in the types they may see, and refreshes the badge', async () => {
+    vi.mocked(repository.markInboxItemsUnread).mockResolvedValue(1)
+    vi.mocked(repository.countPendingInboxItems).mockResolvedValue(4)
+
+    expect(await markUnread(session, ['item_1'])).toEqual({ affected: 1, pending: 4 })
+    expect(repository.markInboxItemsUnread).toHaveBeenCalledWith('org_1', 'user_1', ['item_1'], [...ALL_TYPES])
+    expect(publishToUser).toHaveBeenCalledWith('user_1', { kind: 'inbox.changed', pending: 4 })
+  })
+
+  it('restores an archived item, and answers 404 for one that is not the caller’s', async () => {
+    vi.mocked(repository.unarchiveInboxItem).mockResolvedValueOnce(true)
+    expect(await unarchiveItem(session, 'item_1')).toEqual({ affected: 1, pending: 3 })
+    expect(repository.unarchiveInboxItem).toHaveBeenCalledWith('org_1', 'user_1', 'item_1', [...ALL_TYPES])
+
+    vi.mocked(repository.unarchiveInboxItem).mockResolvedValueOnce(false)
+    await expect(unarchiveItem(session, 'item_of_another_user')).rejects.toBeInstanceOf(NotFoundError)
+  })
+
+  it('reads the news about one mark when the caller opens it, in the types they may see', async () => {
+    vi.mocked(repository.markAnchorItemsRead).mockResolvedValue(2)
+    vi.mocked(repository.countPendingInboxItems).mockResolvedValue(1)
+
+    expect(await markAnchorItemsReadFor(session, 'document', 'doc_1', 'mark_4')).toEqual({ affected: 2, pending: 1 })
+    expect(repository.markAnchorItemsRead).toHaveBeenCalledWith('org_1', 'user_1', 'document', 'doc_1', 'mark_4', [
+      ...ALL_TYPES,
+    ])
+    expect(publishToUser).toHaveBeenCalledWith('user_1', { kind: 'inbox.changed', pending: 1 })
+  })
+
+  it('nudges nobody when the mark had no news: every open inbox would re-read for nothing', async () => {
+    vi.mocked(repository.markAnchorItemsRead).mockResolvedValue(0)
+    vi.mocked(repository.countPendingInboxItems).mockResolvedValue(4)
+
+    expect(await markAnchorItemsReadFor(session, 'document', 'doc_1', 'mark_4')).toEqual({ affected: 0, pending: 4 })
+    expect(publishToUser).not.toHaveBeenCalled()
+  })
+})
+
+describe('listInbox — one page at a time', () => {
+  const stamp = (minute: number) => new Date(`2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`)
+  const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+
+  it('says there is more when a lane returned past the page, and where the next page starts, to the microsecond', async () => {
+    vi.mocked(repository.listInboxItems).mockResolvedValue(
+      Array.from({ length: 51 }, (_, n) => ({
+        ...row({ id: id(n), updatedAt: stamp(59 - n) }),
+        listedAtMicros: String(BigInt(stamp(59 - n).getTime()) * BigInt(1000) + BigInt(7)),
+      })),
+    )
+
+    const page = await listInbox(session, { filter: 'requests' })
+
+    expect(page.items).toHaveLength(50)
+    expect(page.hasMore).toBe(true)
+    expect(decodeInboxCursor(page.nextCursor as string)).toEqual({
+      micros: String(BigInt(stamp(10).getTime()) * BigInt(1000) + BigInt(7)),
+      id: id(49),
+    })
+    expect(repository.listInboxItems).toHaveBeenCalledWith('org_1', 'user_1', expect.objectContaining({ filter: 'requests', limit: 51 }))
+  })
+
+  it('merges lanes by the stored microsecond, not the millisecond a Date keeps', async () => {
+    vi.mocked(hasPlatformPermission).mockResolvedValue(true)
+    const sameMillisecond = stamp(30)
+    vi.mocked(repository.listInboxItems).mockImplementation(async (organizationId) =>
+      organizationId !== 'org_platform'
+        ? [{ ...row({ id: id(1), updatedAt: sameMillisecond }), listedAtMicros: String(BigInt(sameMillisecond.getTime()) * BigInt(1000) + BigInt(100)) }]
+        : [{ ...row({ id: id(2), type: 'feedback.submitted', updatedAt: sameMillisecond }), listedAtMicros: String(BigInt(sameMillisecond.getTime()) * BigInt(1000) + BigInt(900)) }],
+    )
+
+    const { items } = await listInbox(session)
+
+    expect(items.map((item) => item.id)).toEqual([id(2), id(1)])
+  })
+
+  it('says there is no more on the last page, and reads after the cursor it is given', async () => {
+    vi.mocked(repository.listInboxItems).mockResolvedValue([row()])
+    const cursor = encodeInboxCursor({ micros: '1790848800123456', id: id(7) })
+
+    const page = await listInbox(session, { cursor })
+
+    expect(page).toMatchObject({ hasMore: false, nextCursor: null })
+    expect(repository.listInboxItems).toHaveBeenCalledWith(
+      'org_1',
+      'user_1',
+      expect.objectContaining({ cursor: { micros: '1790848800123456', id: id(7) } }),
+    )
+  })
+
+  it('refuses a cursor it did not write', async () => {
+    expect(() => decodeInboxCursor('not-a-cursor')).toThrow(BadRequestError)
+    expect(() => decodeInboxCursor(Buffer.from('2026-10-01T10:00:00.000Z|' + id(1)).toString('base64url'))).toThrow(BadRequestError)
+    expect(() => decodeInboxCursor(Buffer.from('123|x').toString('base64url'))).toThrow(BadRequestError)
+  })
+
+  it('carries the numbers beside the filters, and whether each row is archived', async () => {
+    vi.mocked(repository.countInboxFilters).mockResolvedValue({ requests: 2, unread: 5 })
+    vi.mocked(repository.listInboxItems).mockResolvedValue([row({ id: 'a', archivedAt: at, inertAt: at })])
+    const page = await listInbox(session, { filter: 'archived' })
+    expect(page.counts).toEqual({ requests: 2, unread: 5 })
+    // Archived and redacted: the state says inert, the flag still says archived.
+    expect(page.items[0]).toMatchObject({ state: 'inert', archived: true })
+  })
+})
+
 /**
  * The two predicates the inbox's correctness rests on live in SQL, so they are
  * asserted by rendering the real repository's WHERE clause through drizzle's
@@ -680,7 +812,7 @@ describe('the SQL predicates behind the filters', () => {
     return vi.importActual<typeof import('./repository')>('./repository')
   }
 
-  it('pendingOnly keeps unresolved actionable requests but drops read informational ones', async () => {
+  it('the pending filter keeps unresolved actionable requests but drops read informational ones', async () => {
     let condition: unknown
     const limit = vi.fn().mockResolvedValue([])
     const orderBy = vi.fn(() => ({ limit }))
@@ -692,7 +824,7 @@ describe('the SQL predicates behind the filters', () => {
 
     const real = await realRepository()
     await real.listInboxItems('org_1', 'user_1', {
-      pendingOnly: true,
+      filter: 'pending',
       types: real.EVERY_INBOX_TYPE,
     })
     const { sql, params } = render(condition)
@@ -786,8 +918,9 @@ describe('visibleInboxTypes gate — the inbox is not collaboration-only', () =>
 
     // Not a 403 and not an empty set: the operational types, and only those.
     expect(repository.listInboxItems).toHaveBeenCalledWith('org_1', 'user_1', {
-      pendingOnly: false,
-      limit: 50,
+      filter: 'all',
+      cursor: null,
+      limit: 51,
       types: [...OPERATIONAL_TYPES],
     })
   })
@@ -806,8 +939,9 @@ describe('visibleInboxTypes gate — the inbox is not collaboration-only', () =>
     await listInbox(makeSession())
 
     expect(repository.listInboxItems).toHaveBeenCalledWith('org_1', 'user_1', {
-      pendingOnly: false,
-      limit: 50,
+      filter: 'all',
+      cursor: null,
+      limit: 51,
       types: [...ALL_TYPES],
     })
   })
@@ -984,6 +1118,20 @@ describe('resolveInboxItemsAnchoredOn', () => {
       await resolveInboxItemsAnchoredOn({ organizationId: 'org_1', types: ['piloti.asks_you'], anchorId: 'ann_1' }),
     ).toBe(0)
     expect(publishToUser).not.toHaveBeenCalled()
+  })
+})
+
+describe('markInboxItemsInertAnchoredOn', () => {
+  it('turns the rows inert through the repository and nudges each person whose badge moved', async () => {
+    vi.mocked(repository.markItemsInertAnchoredOn).mockResolvedValue(['user_a', 'user_b'])
+    vi.mocked(publishToUser).mockClear()
+
+    const input = { organizationId: 'org_1', types: ['annotation.activity'] as InboxItemType[], anchorId: 'ann_1' }
+    expect(await markInboxItemsInertAnchoredOn(input)).toBe(2)
+
+    expect(repository.markItemsInertAnchoredOn).toHaveBeenCalledWith(input)
+    expect(publishToUser).toHaveBeenCalledTimes(2)
+    expect(publishToUser).toHaveBeenCalledWith('user_b', { kind: 'inbox.changed', pending: -1 })
   })
 })
 

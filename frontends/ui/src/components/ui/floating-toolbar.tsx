@@ -50,7 +50,8 @@ export function ToolbarIconButton({
       variant="ghost"
       size="icon"
       className={cn(
-        'text-muted-foreground hover:text-foreground size-7 rounded-md [&_svg]:size-3.5 pointer-coarse:size-11',
+        // Never squeezed: a pill too long for its stage scrolls, and every target keeps its 28px (WCAG 2.5.8).
+        'text-muted-foreground hover:text-foreground size-7 shrink-0 rounded-md [&_svg]:size-3.5 pointer-coarse:size-11',
         'aria-pressed:bg-accent aria-pressed:text-foreground contrast-more:text-foreground',
         className,
       )}
@@ -74,7 +75,7 @@ export function ToolbarTextButton({
       variant="ghost"
       size="sm"
       className={cn(
-        'text-muted-foreground hover:text-foreground h-7 rounded-md px-1.5 text-xs font-normal tabular-nums pointer-coarse:h-11',
+        'text-muted-foreground hover:text-foreground h-7 shrink-0 rounded-md px-1.5 text-xs font-normal tabular-nums pointer-coarse:h-11',
         'contrast-more:text-foreground',
         className,
       )}

@@ -1609,16 +1609,29 @@ def test_the_row_is_the_typed_result_in_wire_spelling():
 
 
 async def test_the_hello_names_nothing_it_accepts_while_the_additive_fields_are_off(harness, monkeypatch):
-    """An open tab of the previous release parses the hello strictly: ``accepts`` would mark it outdated."""
+    """The rollback: a hello with no ``accepts``, as for a tab that parses the hello strictly."""
     monkeypatch.setenv("GRID_GIT_SHA", "abc1234")
-    monkeypatch.delenv("GRID_WIRE_V2_ADDITIVE_FIELDS", raising=False)
+    monkeypatch.setenv("GRID_WIRE_V2_ADDITIVE_FIELDS", "off")
     sock = harness().connect()
     await until(lambda: sock.frames)
 
     assert sock.frames[0]["value"] == {"build": "abc1234"}
 
 
-@pytest.mark.parametrize(("flag", "sent"), [(None, False), ("off", False), ("on", True), ("1", True)])
+async def test_the_hello_names_the_canvas_fields_by_default(harness, monkeypatch):
+    """Unset, the hello says it reads the canvas's box, thread target and notes: without them a
+    canvas question reaches Piloti without its box and never answers in its thread."""
+    monkeypatch.delenv("GRID_WIRE_V2_ADDITIVE_FIELDS", raising=False)
+    sock = harness().connect()
+    await until(lambda: sock.frames)
+
+    accepts = sock.frames[0]["value"]["accepts"]
+    assert "user_message.focus_region" in accepts
+    assert "user_message.reply_in_thread" in accepts
+    assert "steer" in accepts
+
+
+@pytest.mark.parametrize(("flag", "sent"), [(None, True), ("off", False), ("on", True), ("1", True)])
 async def test_the_level_reaches_the_frame_only_with_the_additive_fields_on(persisted, monkeypatch, flag, sent):
     if flag is None:
         monkeypatch.delenv("GRID_WIRE_V2_ADDITIVE_FIELDS", raising=False)

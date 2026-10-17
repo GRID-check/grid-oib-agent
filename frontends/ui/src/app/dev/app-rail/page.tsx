@@ -48,6 +48,7 @@ import { ProjectSwitcherSheet } from '@/components/shell/project-switcher-sheet'
 import { recordRecentProject } from '@/components/shell/recent-projects'
 import { useShellOverlays } from '@/components/shell/shell-overlays'
 import { useLayoutStore } from '@/features/layout/store'
+import { installInboxBadgeFake } from '../_fixtures/inbox-badge'
 
 const SIDEBAR_STORAGE_KEY = 'grid.sidebar.collapsed'
 const SIDEBAR_WIDTH_STORAGE_KEY = 'grid.sidebar.width'
@@ -57,6 +58,9 @@ const WIDE_WIDTH = 400
 // Module scope, not an effect — see the header note. Reads the variant from the
 // URL directly because `useSearchParams` is only available during render, which
 // is already too late for the provider's restore effect.
+// The badge shows a count, as it does for anyone with something waiting.
+installInboxBadgeFake(3)
+
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   try {
     const variant = new URLSearchParams(window.location.search).get('variant')

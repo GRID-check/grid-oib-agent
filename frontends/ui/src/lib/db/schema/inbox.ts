@@ -164,6 +164,20 @@ export const INBOX_ITEM_TYPES = [
    * Resolved when somebody finishes the review.
    */
   'piloti.intake_ready',
+  /**
+   * Actionable, operational tier: a colleague made the recipient the
+   * Zuständige of an Anmerkung, or Piloti did in a colleague's name (ADR-0106).
+   * Anchored on the mark. Resolved when someone else becomes responsible, and
+   * for everyone when the mark is closed; made inert when it is deleted.
+   */
+  'annotation.assigned_to_you',
+  /**
+   * Informational, operational tier: news on an Anmerkung the recipient takes
+   * part in (wrote, is responsible for, delegated or answered in): a reply, or
+   * their own mark closed or reopened by someone else. One counted row per
+   * mark; the people are derived when it happens, never stored.
+   */
+  'annotation.activity',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
 

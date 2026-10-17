@@ -7,15 +7,17 @@
  * ## The one way in
  *
  * The file preview pane already answers a link into the review: `review=1`
- * and `mark=<annotationId>` open the full-screen review at that mark once the
- * pane shows the document as a PDF, and the pane then strips both params
- * (`file-preview-pane.tsx`). So this adds no second channel into the canvas.
- * It puts the document in the pane the chat already has beside it (the
- * preview store, the way a citation opens one) and writes those two params
- * onto the CURRENT url with `router.replace`: the session, the scroll and the
- * composer stay as they were, and Back does not reopen the review.
+ * and `mark=<annotationId>` (and `tool`) open the full-screen review at that
+ * mark once the pane shows the document as a PDF. The pane keeps them in the
+ * URL while the review is open, `mark` and `tool` following the selection and
+ * the tool in hand, and takes them off when it closes (`file-preview-pane.tsx`),
+ * so a reload stays in the review and Back leaves it. So this adds no second
+ * channel into the canvas. It puts the document in the pane the chat already
+ * has beside it (the preview store, the way a citation opens one) and writes
+ * those params onto the CURRENT url with `router.replace`: the session, the
+ * scroll and the composer stay as they were.
  *
- * Closing the review is the review's own Escape or ✕. The URL is left alone,
+ * Closing the review is the review's own Escape or ✕, or Back. The params go,
  * the document stays in the peek beside the chat, and the conversation is
  * where it was.
  *
@@ -40,11 +42,55 @@ import { documentFilesHref } from './document-question'
 export const REVIEW_PARAM = 'review'
 export const MARK_PARAM = 'mark'
 export const DOC_PARAM = 'doc'
+/** The tool in hand when the review opens: „Anmerken" arms the point. */
+export const TOOL_PARAM = 'tool'
+
+/** The tools a link may arm: the ones that set a mark. Selecting is the review's own start. */
+export type ReviewLinkTool = 'point' | 'region'
+const isReviewLinkTool = (value: string | null | undefined): value is ReviewLinkTool =>
+  value === 'point' || value === 'region'
 
 export interface ReviewTarget {
   documentId: string
   /** The mark to open the review at; absent opens the review at its start. */
   annotationId?: string | null
+  /** A tool to have in hand when the review opens. */
+  tool?: ReviewLinkTool | null
+}
+
+/** What a page's params say about the review: open, at which mark, with which tool. */
+export interface ReviewParams {
+  /** The document `doc` names, where the page names one. */
+  documentId: string | null
+  open: boolean
+  annotationId: string | null
+  tool: ReviewLinkTool | null
+}
+
+/** Read the review off a page's params. A `mark` or `tool` without `review` opens nothing. */
+export function readReviewParams(params: Pick<URLSearchParams, 'get'> | null | undefined): ReviewParams {
+  const open = Boolean(params?.get(REVIEW_PARAM))
+  const tool = params?.get(TOOL_PARAM)
+  return {
+    documentId: params?.get(DOC_PARAM) || null,
+    open,
+    annotationId: open ? params?.get(MARK_PARAM) || null : null,
+    tool: open && isReviewLinkTool(tool) ? tool : null,
+  }
+}
+
+/** Take the review off `params` (mutates it). `doc` stays: the document is still open. */
+export function clearReviewParams(params: URLSearchParams): URLSearchParams {
+  params.delete(REVIEW_PARAM)
+  params.delete(MARK_PARAM)
+  params.delete(TOOL_PARAM)
+  return params
+}
+
+/** `pathname` with `params`, without a dangling `?`. */
+export const hrefWithParams = (pathname: string, params: URLSearchParams): string => {
+  const query = params.toString()
+  return query ? `${pathname}?${query}` : pathname
 }
 
 /** Where a review link points: `pathname`, `search` and `hash` of a URL. */
@@ -60,6 +106,8 @@ export function setReviewParams(
   params.set(REVIEW_PARAM, '1')
   if (target.annotationId) params.set(MARK_PARAM, target.annotationId)
   else params.delete(MARK_PARAM)
+  if (target.tool) params.set(TOOL_PARAM, target.tool)
+  else params.delete(TOOL_PARAM)
   return params
 }
 

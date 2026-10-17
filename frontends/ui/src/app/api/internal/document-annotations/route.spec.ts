@@ -62,7 +62,7 @@ vi.mock('@/lib/annotations/repository', async (original) => ({
   insertAnnotationReply: vi.fn(),
 }))
 vi.mock('@/lib/sharing/directory', () => ({ loadOrganizationDirectory: vi.fn() }))
-vi.mock('@/lib/authz/project-membership', () => ({ canUserAccessProject: vi.fn() }))
+vi.mock('@/lib/authz/project-membership', () => ({ PERMISSION_CHECKS_AT_ONCE: 8, userHoldsProjectPermission: vi.fn(), resolveSubjectMembership: vi.fn() }))
 vi.mock('@/lib/db/tenant-context', async (original) => ({
   ...(await original<typeof import('@/lib/db/tenant-context')>()),
   withTenant: (_scope: unknown, run: () => unknown) => run(),
@@ -74,6 +74,10 @@ vi.mock('@/lib/annotations/attention', () => ({
   onPilotiWrote: vi.fn(async () => undefined),
   onMarkSettledByPerson: vi.fn(async () => undefined),
   onWakeEnded: vi.fn(async () => undefined),
+  onAssigneeChanged: vi.fn(async () => undefined),
+  onMarkReplied: vi.fn(async () => undefined),
+  onMarkMoved: vi.fn(async () => undefined),
+  onMarkDeleted: vi.fn(async () => undefined),
 }))
 
 import { requirePinnedSession, requireVerifiedContext } from '@/lib/api/internal-envelope'
@@ -98,10 +102,10 @@ import {
   type AnnotationRecord,
   type NewAnnotationsInput,
 } from '@/lib/annotations/repository'
-import { canUserAccessProject } from '@/lib/authz/project-membership'
+import { userHoldsProjectPermission } from '@/lib/authz/project-membership'
 import type { DocumentAnnotationReplyRow, DocumentAnnotationRow } from '@/lib/db/schema'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
-import { onPilotiWrote } from '@/lib/annotations/attention'
+import { onAssigneeChanged, onMarkMoved, onMarkReplied, onMarkSettledByPerson, onPilotiWrote } from '@/lib/annotations/attention'
 import { insertPilotiChanges } from '@/lib/changes/repository'
 import { recordAuditEvent, type AuditEventInput } from '@/lib/audit/service'
 import { expectRegistered } from '@/test-utils/audit'
@@ -369,6 +373,18 @@ describe('POST /api/internal/document-annotations', () => {
       ])
     })
 
+    it('says what Piloti reads: a box on the page, clamped onto it, or the whole page', async () => {
+      await post({ op: 'look', page: 2, x: 0.7, y: 0.1, w: 0.5, h: 0.2 })
+      await post({ op: 'look', page: 3 })
+
+      expect(vi.mocked(publishAsAgent).mock.calls.map((call) => call[3])).toEqual([
+        { op: 'presence', state: 'here' },
+        { op: 'activity', state: 'reading', box: { page: 2, x: 0.7, y: 0.1, w: expect.closeTo(0.3), h: 0.2 } },
+        { op: 'presence', state: 'here' },
+        { op: 'activity', state: 'reading', box: { page: 3, x: 0, y: 0, w: 1, h: 1 } },
+      ])
+    })
+
     it('leaves: pointer off, activity cleared, presence gone', async () => {
       await post({ op: 'leave' })
 
@@ -513,7 +529,7 @@ describe('POST /api/internal/document-annotations — what the asker asks for', 
     marks = new Map([[MARK_ID, record()]])
     fakeRepository()
     vi.mocked(getAccessibleDocument).mockResolvedValue(DOC_ROW)
-    vi.mocked(canUserAccessProject).mockResolvedValue(true)
+    vi.mocked(userHoldsProjectPermission).mockResolvedValue(true)
     vi.mocked(loadOrganizationDirectory).mockResolvedValue(
       new Map([
         ['user_1', { userId: 'user_1', email: 'martin@buero.at', name: 'Martin Huber', profilePictureUrl: null }],
@@ -586,7 +602,40 @@ describe('POST /api/internal/document-annotations — what the asker asks for', 
       after: { assigneeUserId: 'user_anna', assigneeName: 'Anna Berger', dueOn: '2026-10-20' },
       noted: true,
     })
-    expect(canUserAccessProject).toHaveBeenCalledWith(SESSION, 'proj_1', 'user_anna')
+    expect(userHoldsProjectPermission).toHaveBeenCalledWith({ organizationId: SESSION.organizationId }, 'proj_1', 'user_anna', 'project:view')
+  })
+
+  it('tells the new Zuständige as the asker’s own change would, saying Piloti did it for them, and the note tells nobody twice', async () => {
+    await post({ op: 'update', annotationId: MARK_ID, assignee: 'Anna Berger', note: 'Anna übernimmt.' })
+
+    await vi.waitFor(() => expect(onAssigneeChanged).toHaveBeenCalledTimes(1))
+    expect(onAssigneeChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org_1',
+        documentId: DOC_ID,
+        annotationId: MARK_ID,
+        annotationNumber: 4,
+        actorUserId: 'user_1',
+        byPiloti: true,
+        previousAssigneeUserId: null,
+        assigneeUserId: 'user_anna',
+        open: true,
+      })
+    )
+    expect(insertAnnotationReply).toHaveBeenCalledTimes(1)
+    expect(onMarkReplied).not.toHaveBeenCalled()
+  })
+
+  it('settles the mark and tells its author when Piloti resolves it for the asker', async () => {
+    marks.set(MARK_ID, record({ createdBy: 'user_anna' }))
+
+    await post({ op: 'update', annotationId: MARK_ID, status: 'resolved', note: NOTE })
+
+    await vi.waitFor(() => expect(onMarkMoved).toHaveBeenCalledTimes(1))
+    expect(onMarkMoved).toHaveBeenCalledWith(
+      expect.objectContaining({ move: 'resolved', actorUserId: 'user_1', byPiloti: true, annotationId: MARK_ID })
+    )
+    expect(onMarkSettledByPerson).toHaveBeenCalledWith({ organizationId: 'org_1', annotationId: MARK_ID, closed: true })
   })
 
   it('asks back when a name means two people, and changes nothing', async () => {
@@ -705,7 +754,7 @@ describe('POST /api/internal/document-annotations — what a turn changed is rec
     marks = new Map([[MARK_ID, record()]])
     fakeRepository()
     vi.mocked(getAccessibleDocument).mockResolvedValue(DOC_ROW)
-    vi.mocked(canUserAccessProject).mockResolvedValue(true)
+    vi.mocked(userHoldsProjectPermission).mockResolvedValue(true)
     vi.mocked(loadOrganizationDirectory).mockResolvedValue(
       new Map([['user_anna', { userId: 'user_anna', email: 'anna@buero.at', name: 'Anna Berger', profilePictureUrl: null }]])
     )
@@ -911,7 +960,7 @@ describe('POST /api/internal/document-annotations — what a turn changed is in 
     marks = new Map([[MARK_ID, record()]])
     fakeRepository()
     vi.mocked(getAccessibleDocument).mockResolvedValue(DOC_ROW)
-    vi.mocked(canUserAccessProject).mockResolvedValue(true)
+    vi.mocked(userHoldsProjectPermission).mockResolvedValue(true)
     vi.mocked(loadOrganizationDirectory).mockResolvedValue(
       new Map([['user_anna', { userId: 'user_anna', email: 'anna@buero.at', name: 'Anna Berger', profilePictureUrl: null }]])
     )
@@ -1033,7 +1082,7 @@ describe('POST /api/internal/document-annotations — an office that has Piloti 
     marks = new Map([[MARK_ID, record({ createdBy: 'user_1' })]])
     fakeRepository()
     vi.mocked(getAccessibleDocument).mockResolvedValue(DOC_ROW)
-    vi.mocked(canUserAccessProject).mockResolvedValue(true)
+    vi.mocked(userHoldsProjectPermission).mockResolvedValue(true)
     SESSION.featureFlags = []
   })
 

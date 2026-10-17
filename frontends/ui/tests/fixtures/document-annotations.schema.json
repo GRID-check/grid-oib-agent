@@ -471,6 +471,42 @@
           "type": "object",
           "properties": {
             "op": {
+              "const": "look"
+            },
+            "answerMessageId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "documentId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "page": {
+              "type": "integer"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "w": {
+              "type": "number"
+            },
+            "h": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "op",
+            "page"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
               "const": "leave"
             },
             "answerMessageId": {

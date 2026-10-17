@@ -20,7 +20,10 @@ import {
   Info,
   ListTree,
   Maximize2,
+  MessageSquarePlus,
+  MessageSquareText,
   RotateCcw,
+  ScanEye,
   ShieldAlert,
   ShieldOff,
   Sparkles,
@@ -49,7 +52,7 @@ import type { FassungFacts } from '@/lib/documents/fassung'
 import { documentTypeOf } from '@/lib/documents/tag-vocabulary'
 import { ClampedText } from '@/components/ui/clamped-text'
 import { documentFileUrl } from '@/lib/documents/urls'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
 import { inferDocumentKind } from '../document-kind'
@@ -101,8 +104,21 @@ import { dropFileSubject } from '../lib/open-file-peek'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { useDocumentReview } from '../hooks/use-document-review'
 import { AnnotationsSummary } from './review/annotations-summary'
-import { DocumentReviewMode } from './review/document-review'
+import { DocumentReviewMode, Presence, useRoomCompany } from './review/document-review'
 import { ReviewPageLayer } from './review/review-page-layer'
+import { InlineMarkPeek } from './inline-mark-peek'
+import {
+  clearReviewParams,
+  hrefWithParams,
+  readReviewParams,
+  reviewFilesHref,
+  setReviewParams,
+  type ReviewLinkTool,
+} from '../lib/open-review'
+import { isLive } from '@/lib/annotations/types'
+import { CountPill } from '@/components/ui/count-pill'
+import { ToolbarTextButton } from '@/components/ui/floating-toolbar'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useCurrentProject } from '@/features/projects/lib/current-project'
 import { ProjectClosedChip } from '@/components/projects/project-status'
 
@@ -603,8 +619,9 @@ export function FilePreviewPane({
    * nobody but its reviewers reads. One instance for the inline preview and
    * the focused review, so the tab is in the room once.
    */
+  const reviewEnabled = pdfInWell && showMetadataPanel && !isHeld
   const review = useDocumentReview(file.id, {
-    enabled: pdfInWell && showMetadataPanel && !isHeld,
+    enabled: reviewEnabled,
     // Piloti on the canvas. Over the chat (the pane is its peek) a question is
     // a turn of the chat's own conversation, through its driver, so closing
     // the review finds it in the transcript; elsewhere it goes into the
@@ -617,33 +634,183 @@ export function FilePreviewPane({
       chatHosted: inChat,
     },
   })
+  const liveMarks = review.annotations.filter(isLive).length
   const [reviewOpen, setReviewOpen] = useState(false)
-  const [reviewFocus, setReviewFocus] = useState<{ annotationId: string; key: number } | null>(null)
-  const openReview = useCallback((annotationId?: string) => {
-    setReviewFocus(annotationId ? { annotationId, key: Date.now() } : null)
-    setReviewOpen(true)
+  /**
+   * The inline viewer steps aside while the review is open, as it does for the
+   * enlarged dialog: the review is the document full screen, and a second
+   * viewer under it rasterised the same pages and redrew the same marks and
+   * pointers for nobody to see.
+   */
+  const inlineViewer = showInlinePdf && !reviewOpen
+  /**
+   * The page the reader was on in the review: once it closes, the inline
+   * viewer (mounted afresh) opens there, not at the first page.
+   */
+  const reviewPage = useRef<number | null>(null)
+  const onReviewPage = useCallback((page: number) => {
+    reviewPage.current = page
   }, [])
+  const reviewWasOpen = useRef(false)
+  useEffect(() => {
+    const was = reviewWasOpen.current
+    reviewWasOpen.current = reviewOpen
+    if (reviewOpen) {
+      if (!was) reviewPage.current = null
+      return
+    }
+    const page = reviewPage.current
+    reviewPage.current = null
+    if (was && page !== null) setShownPage(page)
+  }, [reviewOpen])
+  const [reviewFocus, setReviewFocus] = useState<{ annotationId: string; key: number } | null>(null)
+  /** The tool the review opens with: the point, from „Anmerken". */
+  const [reviewTool, setReviewTool] = useState<ReviewLinkTool | null>(null)
+  const { setTool: setReviewToolInHand } = review
+  /** Open the review's state, at a mark and with a tool when given; the URL is the callers'. */
+  const showReview = useCallback(
+    (annotationId?: string | null, tool?: ReviewLinkTool | null) => {
+      setReviewFocus(annotationId ? { annotationId, key: Date.now() } : null)
+      setReviewTool(tool ?? null)
+      if (tool) setReviewToolInHand(tool)
+      setReviewOpen(true)
+    },
+    [setReviewToolInHand]
+  )
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
-  // A link into the review (`?doc=…&review=1&mark=…`, „Link kopieren" on a
-  // thread) opens it at its mark once, then leaves the URL to the preview.
-  const reviewParam = searchParams?.get('review') ?? null
-  const markParam = searchParams?.get('mark') ?? null
-  const docParam = searchParams?.get('doc') ?? null
+  /**
+   * THE REVIEW HAS AN ADDRESS while it is open: `review=1`, with `mark` and
+   * `tool` following the selection and the tool in hand
+   * (`lib/open-review.ts`). A reload stays in it, Back leaves it, and a
+   * bookmark or a copied link comes back to it. Opening from here pushes, so
+   * Back closes; what follows replaces, so walking the marks is one entry.
+   *
+   * In the chat the pane is the peek, and `doc` there means „a new chat about
+   * this file" (`project-chat-client.tsx`): the review of the peeked document
+   * is `review`, `mark` and `tool` alone, and this pane writes no `doc`.
+   */
+  const reviewLink = readReviewParams(searchParams)
+  /** This page's address names this pane's document: Dateien's `doc`, or the chat's peek. Elsewhere the pane writes no address. */
+  const addressed = reviewLink.documentId === file.id || (reviewLink.documentId === null && inChat)
+  const urlOpen = reviewLink.open && addressed && pdfInWell
+  /** This pane pushed the entry the review is on, so closing goes Back to the one before. */
+  const pushedReview = useRef(false)
+  const urlWasOpen = useRef(false)
+  const reviewOpenRef = useRef(reviewOpen)
   useEffect(() => {
-    // In the chat the pane is the peek, and `doc` there means „a new chat about
-    // this file" (`project-chat-client.tsx`): a link into the review of the
-    // peeked document carries `review` and `mark` alone.
-    const forThisFile = docParam === file.id || (docParam === null && inChat)
-    if (!reviewParam || !forThisFile || !pdfInWell) return
-    openReview(markParam ?? undefined)
-    const params = new URLSearchParams(searchParams?.toString() ?? '')
-    params.delete('review')
-    params.delete('mark')
-    const query = params.toString()
-    router.replace(query ? `${pathname ?? ''}?${query}` : (pathname ?? ''), { scroll: false })
-  }, [reviewParam, markParam, docParam, file.id, inChat, pdfInWell, openReview, pathname, router, searchParams])
+    reviewOpenRef.current = reviewOpen
+  }, [reviewOpen])
+  const replaceParams = useCallback(
+    (params: URLSearchParams, how: 'push' | 'replace' = 'replace') => {
+      const href = hrefWithParams(pathname ?? '', params)
+      if (how === 'push') router.push(href, { scroll: false })
+      else router.replace(href, { scroll: false })
+    },
+    [pathname, router]
+  )
+  // The address moved: a link arrived (or this pane's push landed), or Back took it away.
+  useEffect(() => {
+    const was = urlWasOpen.current
+    urlWasOpen.current = urlOpen
+    if (urlOpen && !was && !reviewOpenRef.current) showReview(reviewLink.annotationId, reviewLink.tool)
+    if (!urlOpen && was && reviewOpenRef.current) {
+      pushedReview.current = false
+      setReviewOpen(false)
+      setReviewToolInHand('select')
+    }
+  }, [urlOpen, reviewLink.annotationId, reviewLink.tool, showReview, setReviewToolInHand])
+  /** Open the review from this pane: its state, and its address pushed. */
+  const openReview = useCallback(
+    (annotationId?: string, tool?: ReviewLinkTool) => {
+      showReview(annotationId, tool)
+      if (urlOpen || !addressed) return
+      const params = setReviewParams(
+        new URLSearchParams(searchParams?.toString() ?? ''),
+        { documentId: file.id, annotationId, tool },
+        { withDocument: false }
+      )
+      pushedReview.current = true
+      replaceParams(params, 'push')
+    },
+    [showReview, urlOpen, addressed, searchParams, file.id, replaceParams]
+  )
+  // While open, the address follows the mark selected and the tool in hand.
+  const linkTool: ReviewLinkTool | null = review.tool === 'point' || review.tool === 'region' ? review.tool : null
+  useEffect(() => {
+    if (!reviewOpen || !urlOpen) return
+    if (reviewLink.annotationId === review.selectedId && reviewLink.tool === linkTool) return
+    // A link's mark waits for the list: the review opens at it once it is read.
+    if (review.load !== 'ready' && reviewLink.annotationId && !review.selectedId) return
+    replaceParams(
+      setReviewParams(
+        new URLSearchParams(searchParams?.toString() ?? ''),
+        { documentId: file.id, annotationId: review.selectedId, tool: linkTool },
+        { withDocument: false }
+      )
+    )
+  }, [reviewOpen, urlOpen, reviewLink.annotationId, reviewLink.tool, review.selectedId, review.load, linkTool, searchParams, file.id, replaceParams])
+  const onReviewOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) return openReview()
+      setReviewOpen(false)
+      if (!urlOpen) return
+      if (pushedReview.current) {
+        pushedReview.current = false
+        router.back()
+        return
+      }
+      replaceParams(clearReviewParams(new URLSearchParams(searchParams?.toString() ?? '')))
+    },
+    [openReview, urlOpen, router, replaceParams, searchParams]
+  )
+  /** The review on its own, in a tab of its own: the document on its shelf, at the review. */
+  const popoutHref =
+    projectId && scope !== 'archiv' && typeof window !== 'undefined'
+      ? new URL(reviewFilesHref(projectId, { documentId: file.id }), window.location.origin).toString()
+      : undefined
+  const { locale } = useLocale()
+  // Who is here, read off the room by membership: a pointer moving does not re-render this pane.
+  const company = useRoomCompany(review.room)
+  const presenceNames = [...company.people.map((person) => person.name), ...(company.piloti ? ['Piloti'] : [])]
+  const presenceSentence =
+    presenceNames.length > 0
+      ? t('annotations.peopleHere', {
+          count: presenceNames.length,
+          names: new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(presenceNames),
+        })
+      : null
+  /** „Anmerken" in the viewer's pill: the review, with the point in hand. */
+  const annotateLead =
+    reviewEnabled && review.load === 'ready' && review.canAnnotate && !reader ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <ToolbarTextButton
+            className="text-foreground gap-1 px-2 [&_svg]:size-3.5"
+            data-testid="inline-annotate"
+            onClick={() => openReview(undefined, 'point')}
+          >
+            <MessageSquarePlus aria-hidden />
+            {t('annotations.annotate')}
+          </ToolbarTextButton>
+        </TooltipTrigger>
+        <TooltipContent side="top">{t('annotations.annotateHint')}</TooltipContent>
+      </Tooltip>
+    ) : undefined
+  /**
+   * The reader's way onto the marks, at the thumb beside Details: „Anmerken"
+   * arms the point; with marks it says how many and opens them.
+   */
+  const readerAnnotate: ReaderAnnotate | null =
+    reviewEnabled && review.load === 'ready' && (review.canAnnotate || liveMarks > 0)
+      ? {
+          label: liveMarks > 0 ? t('annotations.section') : t('annotations.annotate'),
+          count: liveMarks,
+          countLabel: t('annotations.readerCount', { count: liveMarks }),
+          onClick: () => (liveMarks > 0 ? openReview() : openReview(undefined, 'point')),
+        }
+      : null
 
   useEffect(() => {
     loadPreview()
@@ -811,6 +978,7 @@ export function FilePreviewPane({
                 detailsLabel={t('preview.peekViews.details')}
                 detailsOpen={detailsOpen}
                 onDetails={() => setDetailsOpen(true)}
+                annotate={readerAnnotate}
                 discuss={
                   projectId && !inChat ? (
                     <DiscussDocumentButton
@@ -957,6 +1125,24 @@ export function FilePreviewPane({
               )}
             </div>
           </div>
+          {/* Who is in the document right now. Following someone is the
+            review's; here the faces only tell, and the words say who. */}
+          {reviewEnabled && presenceSentence && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  role="img"
+                  tabIndex={0}
+                  aria-label={presenceSentence}
+                  data-testid="file-preview-presence"
+                  className="flex h-8 shrink-0 items-center rounded-full outline-none focus-visible:ring-2"
+                >
+                  <Presence review={review} />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{presenceSentence}</TooltipContent>
+            </Tooltip>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -982,7 +1168,30 @@ export function FilePreviewPane({
             onRenamed={onRenamed}
             onDeleted={handleDeleted}
           />
-          {canExpandPreview && previewUrl && (
+          {/* A PDF that carries Anmerkungen opens full screen AS the review,
+            with its marks, the room and the tools; the bare enlarged viewer
+            showed the same pages without any of them. Images (and a PDF that
+            cannot carry marks) keep the enlarged viewer. */}
+          {reviewEnabled ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={() => openReview()}
+                  aria-label={t('annotations.openReview')}
+                  data-testid="file-preview-open-review"
+                >
+                  <ScanEye className="size-4" aria-hidden />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <span className="block">{t('annotations.openReview')}</span>
+                <span className="block opacity-80">{t('annotations.openReviewHint')}</span>
+              </TooltipContent>
+            </Tooltip>
+          ) : canExpandPreview && previewUrl && (
             <Button
               variant="ghost"
               size="icon"
@@ -1054,7 +1263,7 @@ export function FilePreviewPane({
         </div>
       )}
 
-      {canExpandPreview && previewUrl && (
+      {canExpandPreview && previewUrl && !reviewEnabled && (
         <PdfViewerDialog
           open={isLargePreviewOpen}
           onOpenChange={setIsLargePreviewOpen}
@@ -1203,7 +1412,7 @@ export function FilePreviewPane({
                 // for an office file streams the rendition (ADR-0070). The
                 // preview route above still decides whether there is anything
                 // to show; this only decides how it is drawn.
-                showInlinePdf ? (
+                inlineViewer ? (
                   <PdfDocumentView
                     key={file.id}
                     src={documentFileUrl(file.id)}
@@ -1214,8 +1423,12 @@ export function FilePreviewPane({
                     ground={peeking ? 'host' : 'stage'}
                     bleed={reader}
                     pageOverlay={(page) => (
-                      <ReviewPageLayer page={page} review={review} focused={false} onOpenMark={openReview} />
+                      <>
+                        <ReviewPageLayer page={page} review={review} focused={false} onOpenMark={openReview} />
+                        <InlineMarkPeek page={page} review={review} onOpenMark={openReview} />
+                      </>
                     )}
+                    toolbarLead={annotateLead}
                     className="size-full"
                   />
                 ) : (
@@ -1582,7 +1795,7 @@ export function FilePreviewPane({
               approval state, before the page readings: what the office found
               on the sheets is work waiting, and the readings are the longest
               list on the rail. */}
-            {pdfInWell && review.load === 'ready' && (
+            {reviewEnabled && (
               <AnnotationsSummary
                 review={review}
                 onOpenReview={openReview}
@@ -1758,6 +1971,7 @@ export function FilePreviewPane({
           detailsLabel={t('preview.peekViews.details')}
           detailsOpen={detailsOpen}
           onDetails={() => setDetailsOpen(true)}
+          annotate={readerAnnotate}
           discuss={
             projectId && !inChat ? (
               <DiscussDocumentButton
@@ -1796,7 +2010,7 @@ export function FilePreviewPane({
       {pdfInWell && (
         <DocumentReviewMode
           open={reviewOpen}
-          onOpenChange={setReviewOpen}
+          onOpenChange={onReviewOpenChange}
           review={review}
           documentName={actions.name}
           fassungLabel={
@@ -1806,6 +2020,9 @@ export function FilePreviewPane({
           }
           canPickAssignee={canCollaborate}
           focusRequest={reviewFocus}
+          popoutHref={popoutHref}
+          initialTool={reviewTool ?? undefined}
+          onPage={onReviewPage}
         />
       )}
     </div>
@@ -2221,11 +2438,21 @@ function ReaderHeader({
  * The details are a sheet over the document rather than a scroll under it, so
  * the drawing keeps the screen while the reader checks its Fassung.
  */
+interface ReaderAnnotate {
+  label: string
+  /** Live marks; none shows „Anmerken" alone. */
+  count: number
+  /** The count in words, for a screen reader. */
+  countLabel: string
+  onClick: () => void
+}
+
 function ReaderActions({
   layout,
   detailsLabel,
   detailsOpen,
   onDetails,
+  annotate,
   discuss,
   menu,
 }: {
@@ -2233,6 +2460,8 @@ function ReaderActions({
   detailsLabel: string
   detailsOpen: boolean
   onDetails: () => void
+  /** The document's marks, where it can carry them. */
+  annotate: ReaderAnnotate | null
   discuss: ReactNode
   menu: ReactNode
 }): JSX.Element {
@@ -2251,15 +2480,40 @@ function ReaderActions({
         type="button"
         variant="outline"
         size={bar ? 'default' : 'sm'}
-        className={cn('gap-1.5', bar ? 'h-11' : 'h-9 pointer-coarse:h-11', bar && !discuss && 'flex-1')}
+        className={cn(
+          'gap-1.5',
+          bar ? 'h-11' : 'h-9 pointer-coarse:h-11',
+          bar && annotate && 'max-[27.5rem]:w-11 max-[27.5rem]:px-0',
+          bar && !discuss && 'flex-1'
+        )}
         aria-expanded={detailsOpen}
         aria-haspopup="dialog"
         onClick={onDetails}
         data-testid="file-reader-details"
       >
         <ListTree className="size-4" aria-hidden />
-        {detailsLabel}
+        {/* Three actions and the menu do not fit a 393px bar in words: the two
+            beside „Besprechen" keep their glyphs and give their names to a
+            screen reader. */}
+        <span className={cn(bar && annotate && 'max-[27.5rem]:sr-only')}>{detailsLabel}</span>
       </Button>
+      {annotate && (
+        <Button
+          type="button"
+          variant="outline"
+          size={bar ? 'default' : 'sm'}
+          className={cn('gap-1.5', bar ? 'h-11 min-w-11 shrink-0 px-3' : 'h-9 pointer-coarse:h-11')}
+          // On a narrow bar the words give way to the glyph and the count, so
+          // „Besprechen" keeps its label; the name stays for a screen reader.
+          aria-label={annotate.count > 0 ? annotate.countLabel : annotate.label}
+          onClick={annotate.onClick}
+          data-testid="file-reader-annotate"
+        >
+          {annotate.count > 0 ? <MessageSquareText className="size-4" aria-hidden /> : <MessageSquarePlus className="size-4" aria-hidden />}
+          <span className={cn('truncate', bar && 'max-[27.5rem]:sr-only')}>{annotate.label}</span>
+          {annotate.count > 0 && <CountPill aria-hidden>{annotate.count}</CountPill>}
+        </Button>
+      )}
       {discuss}
       <span className="[&_[data-testid=document-actions-trigger]]:size-11 contents">{menu}</span>
     </div>

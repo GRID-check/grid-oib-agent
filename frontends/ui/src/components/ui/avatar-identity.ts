@@ -47,6 +47,10 @@ import type { CSSProperties } from 'react'
  */
 export const AVATAR_HUES = [22, 56, 92, 138, 176, 214, 250, 288, 320, 352] as const
 
+/** The identity ink's lightness and chroma: see {@link identityInk}. */
+const IDENTITY_INK_LIGHTNESS = 0.52
+const IDENTITY_INK_CHROMA = 0.16
+
 /** Lightness/chroma of the identity hue before it is mixed into the theme. */
 const BASE_LIGHTNESS = 0.62
 const BASE_CHROMA = 0.13
@@ -121,7 +125,13 @@ export function personInitials(name: string): string {
  * pointer moving over a drawing and the avatar in the corner read as one
  * person; strong enough to stay legible over the black linework of a drawing.
  * Multiplayer identity, the one place hue means a person rather than a source.
+ *
+ * White text sits on it (a pointer's name tag, a cursor chat, a pin filled
+ * in its colour), so its lightness is where every hue of the ring holds
+ * 4.5:1 against white (WCAG 1.4.3): at 0.58, five of the ten fell short,
+ * the greens and teals down to 3.7:1; at 0.52 the weakest is 4.67:1
+ * (`avatar-identity.spec.ts` measures them).
  */
 export function identityInk(userId: string): string {
-  return `oklch(0.58 0.16 ${avatarHue(userId)})`
+  return `oklch(${IDENTITY_INK_LIGHTNESS} ${IDENTITY_INK_CHROMA} ${avatarHue(userId)})`
 }

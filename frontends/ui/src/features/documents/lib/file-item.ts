@@ -12,6 +12,7 @@
  */
 
 import { documentStatusFacts } from '@/lib/documents/document-status'
+import { sameValue } from '@/lib/utils/same-value'
 import type { FileAssignee, FileItem } from '../components/project-file-workspace'
 
 /**
@@ -109,12 +110,6 @@ const TRAILING_METADATA: ReadonlySet<keyof FileItem> = new Set<keyof FileItem>([
   'capture',
   'revisionFacts',
 ])
-
-function sameValue(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
-  return JSON.stringify(a) === JSON.stringify(b)
-}
 
 /** What a stale in-flight read would take back along with the status. */
 const REGRESSION_FIELDS: ReadonlySet<keyof FileItem> = new Set<keyof FileItem>(['status', 'errorMessage'])

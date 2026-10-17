@@ -12,7 +12,7 @@
  */
 
 import 'server-only'
-import { NotFoundError } from '@/lib/api/errors'
+import { BadRequestError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { getPlatformOrganizationId, hasPlatformPermission } from '@/lib/authz/platform'
@@ -31,18 +31,24 @@ import { unreadableRunIds, type RunRef } from '@/lib/tasks/subject-access'
 import { findInboxTarget, type InboxTargetAccess, type RunMessageRef } from './targets'
 import {
   archiveInboxItem,
+  countInboxFilters,
   countPendingInboxItems,
   INBOX_LIST_LIMIT,
   listInboxItems,
   markAllInboxItemsRead,
+  markAnchorItemsRead,
   markInboxItemsRead,
+  markInboxItemsUnread,
+  markItemsInertAnchoredOn,
   markItemsInertForResource,
   markItemsInertForSubjectRow,
   markResourceItemsRead,
   openRecipientsOfGroup,
   resolveInboxItemsForTargets,
   resolveOpenItemsAnchoredOn,
+  unarchiveInboxItem,
   upsertInboxItems,
+  type InboxCursor,
   type InboxResolutionTarget,
 } from './repository'
 import {
@@ -54,7 +60,9 @@ import {
 import type {
   InboxItemState,
   InboxItemView,
+  InboxListFilter,
   InboxListResponse,
+  InboxMutationResult,
   InboxSummaryResponse,
 } from './types'
 
@@ -212,6 +220,21 @@ export async function resolveInboxItemsAnchoredOn(input: {
 }
 
 /**
+ * Neutralise the items of these types anchored on a thing that is gone (a
+ * deleted mark), for everyone: no row keeps a link to it, or the text it
+ * quoted. Session-less, like the emitter.
+ */
+export async function markInboxItemsInertAnchoredOn(input: {
+  organizationId: string
+  types: readonly InboxItemType[]
+  anchorId: string
+}): Promise<number> {
+  const recipients = await markItemsInertAnchoredOn(input)
+  await Promise.all(recipients.map((userId) => publishToUser(userId, { kind: 'inbox.changed', pending: -1 })))
+  return recipients.length
+}
+
+/**
  * Neutralise one person's items for a resource, in the SAME operation that
  * revokes their access (spec IB-14).
  *
@@ -254,8 +277,46 @@ export { INBOX_LIST_LIMIT }
 export type { InboxResolutionTarget }
 
 export interface ListInboxParams {
-  /** `true` = only what needs attention; omitted = everything unarchived. */
-  pendingOnly?: boolean
+  /** Which slice (`InboxListFilter`); everything unarchived when omitted. */
+  filter?: InboxListFilter
+  /** The previous page's `nextCursor`; the first page when omitted. */
+  cursor?: string | null
+}
+
+/**
+ * A page's end as the browser carries it: opaque, so nobody builds one by
+ * hand, and only ever read back by {@link decodeInboxCursor}.
+ */
+export function encodeInboxCursor(cursor: InboxCursor): string {
+  return Buffer.from(`${cursor.micros}|${cursor.id}`, 'utf8').toString('base64url')
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** A cursor this server wrote, or a 400: a forged one must not reach the SQL as a malformed cast. */
+export function decodeInboxCursor(cursor: string): InboxCursor {
+  const [micros, id, ...rest] = Buffer.from(cursor, 'base64url').toString('utf8').split('|')
+  if (rest.length > 0 || !id || !UUID.test(id) || !micros || !/^\d{1,19}$/.test(micros)) {
+    throw new BadRequestError('Invalid inbox cursor')
+  }
+  return { micros, id }
+}
+
+/**
+ * The exact moment a listed row is ordered by. A row from a stub without the
+ * column falls back to its millisecond, which orders the same unless two rows
+ * share one.
+ */
+function microsOf(row: InboxItem & { listedAtMicros?: string }): bigint {
+  return row.listedAtMicros ? BigInt(row.listedAtMicros) : BigInt(row.updatedAt.getTime()) * BigInt(1000)
+}
+
+/** Newest first, as the repository orders a lane: by the stored microsecond, then by id. */
+function newestFirst(a: InboxItem, b: InboxItem): number {
+  const ta = microsOf(a)
+  const tb = microsOf(b)
+  if (ta !== tb) return tb > ta ? 1 : -1
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0
 }
 
 /** Key for the per-page target cache — one entry per DISTINCT resource. */
@@ -520,6 +581,7 @@ function toItemView(
     id: row.id,
     type: row.type,
     state: deriveState(row),
+    archived: row.archivedAt !== null,
     actionable: row.actionable,
     resourceType: row.resourceType,
     resourceId: row.resourceId,
@@ -564,13 +626,18 @@ export async function listInbox(
   session: AuthorizedSession,
   params: ListInboxParams = {},
 ): Promise<InboxListResponse> {
+  const filter: InboxListFilter = params.filter ?? 'all'
+  const cursor = params.cursor ? decodeInboxCursor(params.cursor) : null
   const lanes = await lanesFor(session)
+  // One more than a page per lane: the extra row is how the page knows there
+  // is a further one, without a count.
   const perLane = await Promise.all(
     lanes.map((lane) =>
       inLane(session, lane, () =>
         listInboxItems(lane.organizationId, session.userId, {
-          pendingOnly: params.pendingOnly ?? false,
-          limit: INBOX_LIST_LIMIT,
+          filter,
+          cursor,
+          limit: INBOX_LIST_LIMIT + 1,
           types: lane.types,
         }),
       ),
@@ -578,23 +645,46 @@ export async function listInbox(
   )
   // Each lane is already newest-first and bounded, so the merged page is the
   // newest INBOX_LIST_LIMIT across them — the same bound one lane had.
-  const rows = perLane
-    .flat()
-    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-    .slice(0, INBOX_LIST_LIMIT)
+  const merged = perLane.flat().sort(newestFirst)
+  const rows = merged.slice(0, INBOX_LIST_LIMIT)
+  const hasMore = merged.length > INBOX_LIST_LIMIT
+  const last = rows.at(-1)
 
   const actorIds = [...new Set(rows.flatMap((row) => (row.actorUserId ? [row.actorUserId] : [])))]
 
-  const [targets, withheld, people, pending] = await Promise.all([
+  const [targets, withheld, people, pending, counts] = await Promise.all([
     resolveTargets(session, rows),
     rowsWithUnreadableRuns(session, rows),
     resolvePeople(session.organizationId, actorIds),
     countPendingAcross(session, lanes),
+    countFiltersAcross(session, lanes),
   ])
 
   const actorNames = new Map([...people].map(([userId, person]) => [userId, person.name]))
 
-  return { items: rows.map((row) => toItemView(row, targets, actorNames, withheld)), pending }
+  return {
+    items: rows.map((row) => toItemView(row, targets, actorNames, withheld)),
+    pending,
+    counts,
+    hasMore,
+    nextCursor: hasMore && last ? encodeInboxCursor({ micros: microsOf(last).toString(), id: last.id }) : null,
+  }
+}
+
+/** The numbers beside the filters, across every lane. */
+async function countFiltersAcross(
+  session: AuthorizedSession,
+  lanes: readonly InboxLane[],
+): Promise<InboxListResponse['counts']> {
+  const counts = await Promise.all(
+    lanes.map((lane) =>
+      inLane(session, lane, () => countInboxFilters(lane.organizationId, session.userId, lane.types)),
+    ),
+  )
+  return counts.reduce(
+    (sum, value) => ({ requests: sum.requests + value.requests, unread: sum.unread + value.unread }),
+    { requests: 0, unread: 0 },
+  )
 }
 
 /**
@@ -637,12 +727,7 @@ export async function getInboxSummary(session: AuthorizedSession): Promise<Inbox
 // Mutating the caller's own inbox
 // ---------------------------------------------------------------------------
 
-export interface InboxMutationResult {
-  /** Rows the operation actually touched (0 is a legitimate no-op). */
-  affected: number
-  /** Recomputed badge count, so the caller needs no follow-up request. */
-  pending: number
-}
+export type { InboxMutationResult }
 
 /**
  * Recompute the badge and push it to the caller's own channel.
@@ -715,6 +800,35 @@ export async function archiveItem(session: AuthorizedSession, itemId: string): P
 }
 
 /**
+ * Mark specific items unread again („Als ungelesen markieren“). Quiet for ids
+ * that are not the caller's, exactly as {@link markRead} is.
+ */
+export async function markUnread(
+  session: AuthorizedSession,
+  itemIds: readonly string[],
+): Promise<InboxMutationResult> {
+  const lanes = await lanesFor(session)
+  const affected = await mutateAcross(session, lanes, (lane) =>
+    markInboxItemsUnread(lane.organizationId, session.userId, [...itemIds], lane.types),
+  )
+  return publishPending(session, lanes, affected)
+}
+
+/**
+ * Take one archived item back („Wiederherstellen“ under „Archiviert“). A miss
+ * is a 404, the same for "not archived", "not yours" and "not there", as
+ * {@link archiveItem} answers.
+ */
+export async function unarchiveItem(session: AuthorizedSession, itemId: string): Promise<InboxMutationResult> {
+  const lanes = await lanesFor(session)
+  const restored = await mutateAcross(session, lanes, async (lane) =>
+    (await unarchiveInboxItem(lane.organizationId, session.userId, itemId, lane.types)) ? 1 : 0,
+  )
+  if (restored === 0) throw new NotFoundError()
+  return publishPending(session, lanes, restored)
+}
+
+/**
  * Clear the ambient items for a resource because the caller has now actually
  * looked at it (spec IB-9) — called by the conversation read path, not by a
  * button.
@@ -738,4 +852,27 @@ export async function markResourceItemsReadFor(
     resourceId,
   )
   return publishPending(session, await lanesFor(session), affected)
+}
+
+/**
+ * {@link markResourceItemsReadFor} for one mark: the caller opened an
+ * Anmerkung in the review, so the news about THAT mark (a reply, a closed
+ * mark, Piloti's finished work) is read, and the rest of the document's is
+ * not. Requests survive being seen, as they do for the resource. Only the
+ * caller's own rows, in the types their lanes may see.
+ */
+export async function markAnchorItemsReadFor(
+  session: AuthorizedSession,
+  resourceType: ShareableResourceType,
+  resourceId: string,
+  anchorId: string,
+): Promise<InboxMutationResult> {
+  const lanes = await lanesFor(session)
+  const affected = await mutateAcross(session, lanes, (lane) =>
+    markAnchorItemsRead(lane.organizationId, session.userId, resourceType, resourceId, anchorId, lane.types),
+  )
+  // Most marks a reader opens have no news: then nothing changed, and a
+  // nudge would make every open inbox of theirs re-read for nothing.
+  if (affected === 0) return { affected, pending: await countPendingAcross(session, lanes) }
+  return publishPending(session, lanes, affected)
 }

@@ -4,7 +4,7 @@ import type { JSX } from 'react'
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Archive, Inbox, MessageSquarePlus } from 'lucide-react'
+import { Archive, Bell, MessageSquarePlus } from 'lucide-react'
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useInboxBadge } from '@/features/collaboration/hooks/use-inbox'
@@ -99,7 +99,7 @@ export function OrgHeader({
             <OrgHeaderIconLink
               href="/app/inbox"
               label={tCollaboration('inbox.navLabel')}
-              icon={Inbox}
+              icon={Bell}
               tourAnchor={TOUR_ANCHORS.inbox}
               active={pathname === '/app/inbox' || pathname.startsWith('/app/inbox/')}
               badgeCount={inboxPending}

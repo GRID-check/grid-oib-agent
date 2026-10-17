@@ -32,13 +32,15 @@
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
-import { Inbox as InboxIcon } from 'lucide-react'
+import { Bell } from 'lucide-react'
 
 import { I18nProvider } from '@/i18n'
 import { InboxBadge, InboxList } from '@/features/collaboration/components'
 import type { InboxItemView } from '@/lib/inbox/types'
 
-const now = Date.parse('2026-07-29T10:00:00Z')
+// Relative to now, so „vor 4 Minuten“ reads as it would in the product rather
+// than every row claiming months.
+const now = Date.now()
 const ago = (minutes: number): string => new Date(now - minutes * 60_000).toISOString()
 
 const ITEMS: InboxItemView[] = [
@@ -48,6 +50,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i0',
     type: 'feedback.submitted',
     state: 'unread',
+    archived: false,
     actionable: false,
     resourceType: 'product_feedback',
     resourceId: 'f1',
@@ -67,6 +70,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i1',
     type: 'mention.requested',
     state: 'unread',
+    archived: false,
     actionable: true,
     resourceType: 'conversation',
     resourceId: 'c1',
@@ -87,6 +91,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i2',
     type: 'conversation.activity',
     state: 'unread',
+    archived: false,
     actionable: false,
     resourceType: 'conversation',
     resourceId: 'c2',
@@ -106,6 +111,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i3',
     type: 'conversation.shared_with_you',
     state: 'read',
+    archived: false,
     actionable: false,
     resourceType: 'conversation',
     resourceId: 'c3',
@@ -125,6 +131,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i4',
     type: 'mention.requested',
     state: 'resolved',
+    archived: false,
     actionable: true,
     resourceType: 'conversation',
     resourceId: 'c4',
@@ -144,6 +151,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i5',
     type: 'mention.answered',
     state: 'read',
+    archived: false,
     actionable: false,
     resourceType: 'conversation',
     resourceId: 'c5',
@@ -172,6 +180,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i5a',
     type: 'storage.quota_warning',
     state: 'unread',
+    archived: false,
     actionable: false,
     resourceType: 'organization',
     resourceId: 'org-1',
@@ -203,6 +212,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i5b',
     type: 'conversation.activity',
     state: 'read',
+    archived: false,
     actionable: false,
     resourceType: 'conversation',
     resourceId: 'c5b',
@@ -232,6 +242,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i5c',
     type: 'conversation.summarized' as unknown as InboxItemView['type'],
     state: 'read',
+    archived: false,
     actionable: false,
     resourceType: 'conversation',
     resourceId: 'c5c',
@@ -252,6 +263,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i6',
     type: 'conversation.activity',
     state: 'inert',
+    archived: false,
     actionable: false,
     resourceType: 'conversation',
     resourceId: 'c6',
@@ -276,6 +288,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i-fassung',
     type: 'document.new_fassung',
     state: 'unread',
+    archived: false,
     actionable: false,
     resourceType: 'document',
     resourceId: 'd-eg-c',
@@ -298,6 +311,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i-piloti-failed',
     type: 'piloti.work_failed',
     state: 'unread',
+    archived: false,
     actionable: false,
     resourceType: 'document',
     resourceId: 'd-eg-c',
@@ -317,6 +331,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i-piloti-asks',
     type: 'piloti.asks_you',
     state: 'unread',
+    archived: false,
     actionable: true,
     resourceType: 'document',
     resourceId: 'd-schnitt',
@@ -336,6 +351,7 @@ const ITEMS: InboxItemView[] = [
     id: 'i-piloti-done',
     type: 'piloti.work_done',
     state: 'read',
+    archived: false,
     actionable: false,
     resourceType: 'document',
     resourceId: 'd-eg-c',
@@ -351,18 +367,63 @@ const ITEMS: InboxItemView[] = [
     createdAt: ago(40),
     updatedAt: ago(40),
   },
+  // A colleague made the reader responsible for a mark: the row opens at the
+  // mark, and the reader can answer or resolve it from here.
+  {
+    id: 'i-mark-assigned',
+    type: 'annotation.assigned_to_you',
+    state: 'unread',
+    archived: false,
+    actionable: true,
+    resourceType: 'document',
+    resourceId: 'd-eg-c',
+    anchorId: 'mark-9',
+    actorName: 'Anna Weber',
+    actorUserId: 'u-anna',
+    count: 1,
+    href: '/app/projects/p1/files?doc=d-eg-c&review=1&mark=mark-9',
+    subject: 'Grundriss EG',
+    related: '9',
+    excerpt: 'Brandschutztür T30 zum Stiegenhaus fehlt in der Legende.',
+    variant: null,
+    createdAt: ago(7),
+    updatedAt: ago(7),
+  },
+  // Two replies on a mark the reader wrote, the newest by Markus.
+  {
+    id: 'i-mark-activity',
+    type: 'annotation.activity',
+    state: 'unread',
+    archived: false,
+    actionable: false,
+    resourceType: 'document',
+    resourceId: 'd-schnitt',
+    anchorId: 'mark-3',
+    actorName: 'Markus Hofer',
+    actorUserId: 'u-markus',
+    count: 2,
+    href: '/app/projects/p1/files?doc=d-schnitt&review=1&mark=mark-3',
+    subject: 'Schnitt A-A',
+    related: '3',
+    excerpt: 'Passt, die Brüstung ist mit 1,00 m ab FFB eingetragen.',
+    variant: 'reply',
+    createdAt: ago(30),
+    updatedAt: ago(14),
+  },
   {
     id: 'i-piloti-proposal',
     type: 'piloti.proposal_waiting',
     state: 'unread',
+    archived: false,
     actionable: true,
-    resourceType: 'conversation',
-    resourceId: 'c-ablage',
+    // A filing suggestion no chat made: it waits on its file under Dateien.
+    resourceType: 'project',
+    resourceId: 'p1',
     anchorId: 'prop-1',
     actorName: null,
     actorUserId: null,
     count: 1,
-    href: '/app/projects/p1/chat?session=c-ablage',
+    href: '/app/projects/p1/files',
     subject: null,
     related: null,
     excerpt: 'Grundriss EG.pdf, Schnitt A-A.pdf +3',
@@ -372,8 +433,25 @@ const ITEMS: InboxItemView[] = [
   },
 ]
 
-/** Items the "needs me" filter returns: outstanding requests + unread. */
-const PENDING = ITEMS.filter((item) => (item.actionable && item.state !== 'resolved') || item.state === 'unread')
+/** Newest first, as the server orders a page. */
+const NEWEST_FIRST = [...ITEMS].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+
+const isOpenRequest = (item: InboxItemView) => item.actionable && item.state !== 'resolved' && item.state !== 'inert'
+
+/** The badge's set: outstanding requests + unread. */
+const PENDING = NEWEST_FIRST.filter((item) => isOpenRequest(item) || item.state === 'unread')
+
+/** What each `?filter=` returns (`InboxListFilter`). Nothing is archived in this fixture. */
+const BY_FILTER: Record<string, InboxItemView[]> = {
+  pending: PENDING,
+  requests: NEWEST_FIRST.filter(isOpenRequest),
+  unread: NEWEST_FIRST.filter((item) => item.state === 'unread'),
+  all: NEWEST_FIRST,
+  archived: [],
+}
+
+/** A page size small enough that „Ältere Einträge laden“ shows in the evidence. */
+const PAGE = 12
 
 /**
  * `?variant=empty` serves an inbox with nothing in it, so the crafted empty state
@@ -395,10 +473,22 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       if (url.startsWith('/api/inbox/summary')) {
         return Response.json({ pending: empty ? 0 : PENDING.length })
       }
+      if (url.startsWith('/api/inbox') && (init?.method ?? 'GET') !== 'GET') {
+        // Every mutation lands; the list re-reads the same fixture.
+        return Response.json({ affected: 1, pending: empty ? 0 : PENDING.length })
+      }
       if (url.startsWith('/api/inbox')) {
-        if (empty) return Response.json({ items: [], pending: 0 })
-        const pendingOnly = url.includes('pendingOnly=true')
-        return Response.json({ items: pendingOnly ? PENDING : ITEMS, pending: PENDING.length })
+        const counts = {
+          requests: empty ? 0 : BY_FILTER.requests.length,
+          unread: empty ? 0 : BY_FILTER.unread.length,
+        }
+        if (empty) return Response.json({ items: [], pending: 0, counts, hasMore: false, nextCursor: null })
+        const params = new URL(url, window.location.origin).searchParams
+        const rows = BY_FILTER[params.get('filter') ?? 'all'] ?? NEWEST_FIRST
+        const start = Number(params.get('cursor') ?? 0)
+        const items = rows.slice(start, start + PAGE)
+        const hasMore = start + PAGE < rows.length
+        return Response.json({ items, pending: PENDING.length, counts, hasMore, nextCursor: hasMore ? String(start + PAGE) : null })
       }
       // The live channel is deliberately absent here: the list must render fully
       // from the plain fetch (spec RT-3/RT-4), which is what a screenshot proves.
@@ -458,7 +548,7 @@ export default function InboxDevPage(): JSX.Element {
               ))}
               {/* Collapsed-rail case: icon tile with the pill in the corner. */}
               <div className="relative flex size-9 items-center justify-center rounded-[10px] border border-border bg-card shadow-xs">
-                <InboxIcon className="size-4 text-muted-foreground" aria-hidden />
+                <Bell className="size-4 text-muted-foreground" aria-hidden />
                 <InboxBadge pending={7} className="absolute -top-1 -right-1 shadow-xs" />
               </div>
             </div>

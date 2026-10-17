@@ -31,7 +31,8 @@ const session = {
 
 vi.mock('@/lib/auth/require-auth', () => ({ requireAuthorizedSession: vi.fn(async () => session) }))
 vi.mock('@/lib/documents/access', () => ({ getAccessibleDocument: vi.fn() }))
-vi.mock('@/lib/authz/project-membership', () => ({ canUserAccessProject: vi.fn() }))
+vi.mock('@/lib/authz/project-membership', () => ({ PERMISSION_CHECKS_AT_ONCE: 8, userHoldsProjectPermission: vi.fn(), resolveSubjectMembership: vi.fn() }))
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/sharing/directory', () => ({ loadOrganizationDirectory: vi.fn().mockResolvedValue(new Map()) }))
 vi.mock('@/lib/realtime/document-channel', () => ({ publishToDocumentRoom: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
@@ -46,6 +47,7 @@ vi.mock('@/lib/annotations/wake-repository', () => ({
   insertWake: vi.fn(),
   findLiveDelegationWake: vi.fn(),
   settleWake: vi.fn(),
+  listLatestWakes: vi.fn(async () => []),
 }))
 // Only the write after the commit (`settleTakenBack`) opens a handle of its own.
 vi.mock('@/lib/db', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/db')>()), getDb: () => TX_DB }))
@@ -53,7 +55,13 @@ vi.mock('@/lib/db/tenant-context', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/db/tenant-context')>()),
   withTenant: (_context: unknown, run: () => unknown) => run(),
 }))
-vi.mock('@/lib/annotations/attention', () => ({ onMarkSettledByPerson: vi.fn() }))
+vi.mock('@/lib/annotations/attention', () => ({
+  onMarkSettledByPerson: vi.fn(),
+  onAssigneeChanged: vi.fn(),
+  onMarkReplied: vi.fn(),
+  onMarkMoved: vi.fn(),
+  onMarkDeleted: vi.fn(),
+}))
 vi.mock('@/lib/langfuse/decision-score', () => ({ recordDecisionScore: vi.fn() }))
 vi.mock('@/lib/annotations/repository', () => ({
   AnnotationLimitReachedError: class AnnotationLimitReachedError extends Error {},
@@ -68,7 +76,13 @@ vi.mock('@/lib/annotations/repository', () => ({
 
 import { ForbiddenError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { onMarkSettledByPerson } from '@/lib/annotations/attention'
+import {
+  onAssigneeChanged,
+  onMarkDeleted,
+  onMarkMoved,
+  onMarkReplied,
+  onMarkSettledByPerson,
+} from '@/lib/annotations/attention'
 import {
   deleteAnnotation,
   listAnnotations,
@@ -80,18 +94,32 @@ import {
   deleteDocumentAnnotation,
   findDocumentAnnotation,
   insertAnnotationReply,
+  insertDocumentAnnotations,
   listDocumentAnnotations,
   updateDocumentAnnotation,
   type AnnotationRecord,
 } from '@/lib/annotations/repository'
-import { PILOTI, replyToAnnotation as replyAs, updateAnnotation as updateAs } from '@/lib/annotations/service'
-import { countWakes, findLiveDelegationWake, insertWake, settleWake } from '@/lib/annotations/wake-repository'
+import {
+  createAnnotation as createAs,
+  PILOTI,
+  replyToAnnotation as replyAs,
+  updateAnnotation as updateAs,
+} from '@/lib/annotations/service'
+import {
+  countWakes,
+  findLiveDelegationWake,
+  insertWake,
+  listLatestWakes,
+  settleWake,
+} from '@/lib/annotations/wake-repository'
 import { delegationEventId, documentThreadConversationId, wakeTurnId } from '@/lib/annotations/wake-ids'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { expectRegistered } from '@/test-utils/audit'
 import type { DbTransaction } from '@/lib/db/executor'
 import type { Document, DocumentAnnotationReplyRow, PilotiWakeRow } from '@/lib/db/schema'
 import { getAccessibleDocument } from '@/lib/documents/access'
+import { userHoldsProjectPermission } from '@/lib/authz/project-membership'
+import { filterUsersWhoMayReadFolder } from '@/lib/authz/folder-access'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
 import { recordDecisionScore } from '@/lib/langfuse/decision-score'
 
@@ -520,12 +548,11 @@ describe('what a person’s decision leaves behind', () => {
     expect(onMarkSettledByPerson).toHaveBeenCalledWith({
       organizationId: 'org_1',
       annotationId: MARK_ID,
-      userId: 'user_1',
       closed: false,
     })
   })
 
-  it('says it once, closed, when a person resolves, dismisses or deletes the mark', async () => {
+  it('says it once, closed, when a person resolves or dismisses the mark, and clears its rows when it is deleted', async () => {
     await updateAnnotation(DOC_ID, MARK_ID, { status: 'resolved' }, { run })
     expect(onMarkSettledByPerson).toHaveBeenCalledTimes(1)
     vi.mocked(findDocumentAnnotation).mockResolvedValue({ ...MARK, status: 'resolved' })
@@ -538,8 +565,10 @@ describe('what a person’s decision leaves behind', () => {
     vi.mocked(findDocumentAnnotation).mockResolvedValue({ ...MARK, createdBy: 'user_1' })
     await deleteAnnotation(DOC_ID, MARK_ID, { run })
 
-    expect(onMarkSettledByPerson).toHaveBeenCalledTimes(3)
+    expect(onMarkSettledByPerson).toHaveBeenCalledTimes(2)
     expect(vi.mocked(onMarkSettledByPerson).mock.calls.every(([call]) => call.closed)).toBe(true)
+    expect(onMarkDeleted).toHaveBeenCalledTimes(1)
+    expect(onMarkDeleted).toHaveBeenCalledWith({ organizationId: 'org_1', annotationId: MARK_ID })
   })
 
   it('does not call it for a reply of Piloti’s, or for a move that settles nothing (a rewording)', async () => {
@@ -611,6 +640,132 @@ describe('what a person’s decision leaves behind', () => {
 
     expect(recordDecisionScore).not.toHaveBeenCalled()
     expect(onMarkSettledByPerson).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * What a colleague's change or reply tells people (`./attention`), from the
+ * service itself, so the route and Piloti for the asker go through the same
+ * call. Who exactly hears it is `attention.spec.ts`; here, that each event is
+ * named once, with the right facts, and filtered by who may open the document.
+ */
+describe('what a change or a reply tells people', () => {
+  beforeEach(() => {
+    vi.mocked(userHoldsProjectPermission).mockResolvedValue(true)
+  })
+
+  it('tells the new Zuständige and settles the previous one’s row when a person reassigns the mark', async () => {
+    await updateAnnotation(DOC_ID, MARK_ID, { assigneeUserId: 'user_3' }, { run })
+
+    expect(onAssigneeChanged).toHaveBeenCalledTimes(1)
+    expect(onAssigneeChanged).toHaveBeenCalledWith({
+      organizationId: 'org_1',
+      documentId: DOC_ID,
+      annotationId: MARK_ID,
+      annotationNumber: 4,
+      projectId: 'proj_1',
+      actorUserId: 'user_1',
+      byPiloti: false,
+      markText: 'Türbreite prüfen',
+      previousAssigneeUserId: 'user_2',
+      assigneeUserId: 'user_3',
+      open: true,
+    })
+  })
+
+  it('refuses a Zuständige who is in the project but may not read the folder the document is filed in', async () => {
+    vi.mocked(getAccessibleDocument).mockResolvedValue({ ...DOC, folderId: 'fld_hr' })
+    vi.mocked(filterUsersWhoMayReadFolder).mockResolvedValueOnce(new Set())
+
+    await expect(updateAnnotation(DOC_ID, MARK_ID, { assigneeUserId: 'user_3' }, { run })).rejects.toMatchObject({
+      status: 422,
+    })
+
+    expect(filterUsersWhoMayReadFolder).toHaveBeenCalledWith('org_1', 'proj_1', 'fld_hr', ['user_3'])
+    expect(updateDocumentAnnotation).not.toHaveBeenCalled()
+    expect(onAssigneeChanged).not.toHaveBeenCalled()
+  })
+
+  it('tells nobody new when the Zuständige stays, or only the wording changes', async () => {
+    await updateAnnotation(DOC_ID, MARK_ID, { assigneeUserId: 'user_2' }, { run })
+    await updateAnnotation(DOC_ID, MARK_ID, { body: 'Neu gefasst' }, { run })
+
+    expect(onAssigneeChanged).not.toHaveBeenCalled()
+    expect(onMarkMoved).not.toHaveBeenCalled()
+  })
+
+  it('tells the Zuständige a proposal already named once a person takes it over', async () => {
+    vi.mocked(findDocumentAnnotation).mockResolvedValue({ ...MARK, authorKind: 'piloti', status: 'proposed', assigneeUserId: 'user_3' })
+
+    await updateAnnotation(DOC_ID, MARK_ID, { status: 'open' }, { run })
+
+    expect(onAssigneeChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ previousAssigneeUserId: null, assigneeUserId: 'user_3', open: true, byPiloti: false })
+    )
+    expect(onMarkMoved).not.toHaveBeenCalled()
+  })
+
+  it('says Piloti did it when Piloti assigns for the asker', async () => {
+    await updateAs(session as unknown as AuthorizedSession, DOC_ID, MARK_ID, { assigneeUserId: 'user_3' }, PILOTI)
+
+    expect(onAssigneeChanged).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'user_1', byPiloti: true }))
+  })
+
+  it('tells the author when someone resolves, dismisses or reopens their mark, and settles a closed one even when Piloti closed it', async () => {
+    await updateAnnotation(DOC_ID, MARK_ID, { status: 'resolved' }, { run })
+    vi.mocked(findDocumentAnnotation).mockResolvedValue({ ...MARK, status: 'resolved' })
+    await updateAnnotation(DOC_ID, MARK_ID, { status: 'open' }, { run })
+    vi.mocked(findDocumentAnnotation).mockResolvedValue(MARK)
+    await updateAs(session as unknown as AuthorizedSession, DOC_ID, MARK_ID, { status: 'resolved' }, PILOTI)
+    vi.mocked(findDocumentAnnotation).mockResolvedValue({ ...MARK, authorKind: 'piloti', status: 'proposed' })
+    await updateAnnotation(DOC_ID, MARK_ID, { status: 'dismissed' }, { run })
+
+    expect(vi.mocked(onMarkMoved).mock.calls.map(([input]) => [input.move, input.byPiloti])).toEqual([
+      ['resolved', false],
+      ['reopened', false],
+      ['resolved', true],
+      ['dismissed', false],
+    ])
+    expect(vi.mocked(onMarkMoved).mock.calls[0][0]).toMatchObject({ actorUserId: 'user_1', mark: MARK, markText: 'Türbreite prüfen' })
+    expect(vi.mocked(onMarkSettledByPerson).mock.calls.map(([input]) => input.closed)).toEqual([true, true, true])
+  })
+
+  it('tells the thread when a person replies, filtered by who may open the document now', async () => {
+    await replyToAnnotation(DOC_ID, MARK_ID, { body: 'Ist bestellt.' }, { run })
+
+    expect(onMarkReplied).toHaveBeenCalledTimes(1)
+    const [input] = vi.mocked(onMarkReplied).mock.calls[0]
+    expect(input).toMatchObject({
+      annotationId: MARK_ID,
+      annotationNumber: 4,
+      actorUserId: 'user_1',
+      byPiloti: false,
+      mark: MARK,
+      replyText: 'Ist bestellt.',
+    })
+    vi.mocked(userHoldsProjectPermission).mockImplementation(async (_session, _project, userId) => userId === 'user_2')
+    await expect(input.mayOpen(['user_2', 'user_outside'])).resolves.toEqual(new Set(['user_2']))
+  })
+
+  it('tells the thread when Piloti replies, as the person its turn acted for', async () => {
+    await replyAs(session as unknown as AuthorizedSession, DOC_ID, MARK_ID, { body: 'Steht im Schnitt B-B.' }, PILOTI)
+
+    expect(onMarkReplied).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'user_1', byPiloti: true }))
+  })
+
+  it('tells the Zuständige a person names when setting a mark, and nobody when they name themselves or nobody', async () => {
+    vi.mocked(insertDocumentAnnotations).mockImplementation(async (input) =>
+      input.marks.map((mark, index) => ({ ...MARK, id: `${MARK_ID.slice(0, -1)}${index}`, ...mark, status: 'open' as const }))
+    )
+    const place = { page: 1, shape: 'point' as const, x: 0.1, y: 0.1, kind: 'defect' as const, body: 'Fluchtweg' }
+
+    await createAs(session as unknown as AuthorizedSession, DOC_ID, { ...place, assigneeUserId: 'user_3' })
+    await createAs(session as unknown as AuthorizedSession, DOC_ID, place)
+
+    expect(onAssigneeChanged).toHaveBeenCalledTimes(1)
+    expect(onAssigneeChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ assigneeUserId: 'user_3', previousAssigneeUserId: null, actorUserId: 'user_1', markText: 'Fluchtweg' })
+    )
   })
 })
 
@@ -713,5 +868,17 @@ describe('the audit trail of a wake taken back', () => {
     expect(response.status).toBe(200)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('piloti.wake.stopped'), expect.any(Error))
     warn.mockRestore()
+  })
+})
+
+describe('what a write reads back of Piloti’s work', () => {
+  it('reads the wakes of the mark it wrote, not of the whole document, while the list reads the document’s', async () => {
+    await updateAnnotation(DOC_ID, MARK_ID, { body: 'Neu gefasst' }, { run })
+    expect(listLatestWakes).toHaveBeenCalled()
+    for (const call of vi.mocked(listLatestWakes).mock.calls) expect(call).toEqual(['org_1', DOC_ID, MARK_ID])
+
+    vi.mocked(listLatestWakes).mockClear()
+    await listAnnotations(DOC_ID, run)
+    expect(listLatestWakes).toHaveBeenCalledWith('org_1', DOC_ID, undefined)
   })
 })

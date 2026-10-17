@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AnnotationRequestError,
   createAnnotation,
   deleteAnnotation,
+  getAnnotation,
   listAnnotations,
   replyToAnnotation,
   updateAnnotation,
@@ -17,12 +18,43 @@ import {
   type AnnotationView,
   type UpdateAnnotationRequest,
 } from '@/lib/annotations/types'
+import { inboxClient, type InboxClient } from '@/lib/inbox/client'
 import { useCanvasAsk, type UseCanvasAskOptions } from './use-canvas-ask'
 import { useDocumentRoom, type RoomTransport } from './use-document-room'
 
 /** `ask`: drag a box and ask Piloti about it (P). */
 export type ReviewTool = 'select' | 'point' | 'region' | 'ask'
 export type ReviewFilter = 'open' | 'closed'
+
+/** A burst of hints naming more marks than this reads the list once instead of each mark on its own. */
+export const HINT_READ_ONE_BY_ONE = 8
+
+/** How long a mark must stay open before opening it counts as reading its news: J/K past it does not. */
+export const MARK_NEWS_SETTLE_MS = 400
+/** How soon the same mark's news is read again in this tab: once a minute is enough for a busy thread. */
+const MARK_NEWS_AGAIN_MS = 60_000
+/** When this tab last read each mark's news (`documentId:annotationId`). Per tab, per session. */
+const markNewsReadAt = new Map<string, number>()
+
+/**
+ * Opening a mark is reading its news: the reader's informational inbox items
+ * anchored on it (a reply, the mark closed, Piloti's finished work) are read,
+ * through the inbox's own client (`POST /api/inbox/read` with the anchor), so
+ * the inbox stops calling news the reader has just seen. Requests stay open:
+ * seeing a mark is not answering it. Best effort; a miss costs an unread row.
+ */
+export function readMarkNews(documentId: string, annotationId: string, client: InboxClient = inboxClient): void {
+  const key = `${documentId}:${annotationId}`
+  const last = markNewsReadAt.get(key)
+  if (last !== undefined && Date.now() - last < MARK_NEWS_AGAIN_MS) return
+  markNewsReadAt.set(key, Date.now())
+  void client.markMarkRead({ documentId, annotationId }).catch(() => markNewsReadAt.delete(key))
+}
+
+/** For the specs: forget what this tab has read. */
+export function forgetMarkNewsReads(): void {
+  markNewsReadAt.clear()
+}
 
 /** A place picked on a page and not yet saved: a point, or a region dragged out. */
 export interface ReviewDraft {
@@ -73,14 +105,37 @@ export function useDocumentReview(
   // Which mark this reader has open, for the room: Piloti resolves „diese Anmerkung“ by it.
   const { sendSelection } = room
   useEffect(() => sendSelection(selectedId), [selectedId, sendSelection])
+  // A mark that stays open has been read, and so has its news in the inbox.
+  useEffect(() => {
+    if (!enabled || !selectedId) return
+    const timer = setTimeout(() => readMarkNews(documentId, selectedId), MARK_NEWS_SETTLE_MS)
+    return () => clearTimeout(timer)
+  }, [enabled, documentId, selectedId])
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [filter, setFilter] = useState<ReviewFilter>('open')
   /** Only what is on this reader's plate: assigned to them, or set by them. */
   const [mine, setMine] = useState(false)
   const [notice, setNotice] = useState<'conflict' | null>(null)
 
+  /**
+   * Which reads may still land. A read of one mark lands only if it is the
+   * latest asked for that mark and no list read was asked since; a drop counts
+   * as newer than any read in flight. The document that asked must still be
+   * the one shown: the pane is not keyed by document, so a read of A that
+   * answers after B opened must not draw A's mark on B.
+   */
+  const reads = useRef({ documentId, list: 0, mark: new Map<string, number>() })
+  reads.current.documentId = documentId
+  const bumpMark = useCallback((annotationId: string) => {
+    const next = (reads.current.mark.get(annotationId) ?? 0) + 1
+    reads.current.mark.set(annotationId, next)
+    return next
+  }, [])
+
   const fetchList = useCallback(async () => {
+    const ticket = ++reads.current.list
     const result = await listAnnotations(documentId)
+    if (reads.current.documentId !== documentId || reads.current.list !== ticket) return result.annotations
     setAnnotations(result.annotations)
     setCanAnnotate(result.canAnnotate)
     setPilotiWakes(result.pilotiWakes)
@@ -96,32 +151,92 @@ export function useDocumentReview(
     fetchList().catch(() => setLoad('error'))
   }, [enabled, fetchList, attempt])
 
-  // Somebody else changed the Anmerkungen: read them again. Several hints in a
-  // burst (a batch of replies) are one read. Subscribed on the room's stable
-  // callbacks, not on `room`: pointers re-render it a dozen times a second, and
-  // re-subscribing on each would cancel the pending read every time.
-  const { onAnnotationsChanged, peerId } = room
-  useEffect(() => {
-    if (!enabled) return
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const unsubscribe = onAnnotationsChanged((event) => {
-      if (event.actor.peerId && event.actor.peerId === peerId) return
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => {
-        void fetchList().catch(() => {})
-      }, 120)
-    })
-    return () => {
-      unsubscribe()
-      if (timer) clearTimeout(timer)
-    }
-  }, [enabled, onAnnotationsChanged, peerId, fetchList])
-
   const replace = useCallback((next: AnnotationView) => {
     setAnnotations((current) =>
       [...current.filter((annotation) => annotation.id !== next.id), next].sort(compareAnnotations)
     )
   }, [])
+  const drop = useCallback(
+    (annotationId: string) => {
+      // Gone is newer than any read of it still on its way.
+      bumpMark(annotationId)
+      setAnnotations((current) => current.filter((annotation) => annotation.id !== annotationId))
+      setSelectedId((current) => (current === annotationId ? null : current))
+    },
+    [bumpMark]
+  )
+
+  /**
+   * Somebody else changed the Anmerkungen: read again what the hint names,
+   * each mark on its own (`GET …/annotations/{id}`), not the whole list. A
+   * mark that is not there any more for this reader leaves the list. Several
+   * hints in a burst (a batch of replies) are one round of reads; a burst that
+   * names more marks than {@link HINT_READ_ONE_BY_ONE} reads the list once.
+   * Subscribed on the room's stable callbacks, never on `room`.
+   */
+  const { onAnnotationsChanged, peerId } = room
+  useEffect(() => {
+    if (!enabled) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let named = new Set<string>()
+    // Cleared with the subscription: an answer for the document left behind lands nowhere.
+    let live = true
+    const readNamed = () => {
+      timer = null
+      const ids = [...named]
+      named = new Set()
+      if (ids.length > HINT_READ_ONE_BY_ONE) {
+        void fetchList().catch(() => {})
+        return
+      }
+      for (const id of ids) {
+        const ticket = bumpMark(id)
+        const list = reads.current.list
+        const current = () => live && reads.current.mark.get(id) === ticket && reads.current.list === list
+        getAnnotation(documentId, id)
+          .then((fresh) => {
+            if (current()) replace(fresh)
+          })
+          .catch((error: unknown) => {
+            if (current() && error instanceof AnnotationRequestError && error.status === 404) drop(id)
+          })
+      }
+    }
+    const unsubscribe = onAnnotationsChanged((event) => {
+      if (event.actor.peerId && event.actor.peerId === peerId) return
+      for (const id of event.annotationIds) named.add(id)
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(readNamed, 120)
+    })
+    return () => {
+      live = false
+      unsubscribe()
+      if (timer) clearTimeout(timer)
+    }
+  }, [enabled, onAnnotationsChanged, peerId, fetchList, documentId, replace, drop, bumpMark])
+
+  // A hint is a nudge, and a dropped one must cost seconds, not a stale list: the
+  // list is read again when the room comes back after a drop, and when the tab
+  // comes back into view (a laptop woken from sleep heard nothing meanwhile).
+  const { status: roomStatus } = room
+  const wasLive = useRef(roomStatus === 'live')
+  const everLive = useRef(roomStatus === 'live')
+  useEffect(() => {
+    const live = roomStatus === 'live'
+    // Back after a drop, not the first connect: the first read is the mount's own.
+    const back = live && !wasLive.current && everLive.current
+    wasLive.current = live
+    everLive.current ||= live
+    if (enabled && back) void fetchList().catch(() => {})
+  }, [enabled, roomStatus, fetchList])
+  useEffect(() => {
+    if (!enabled || typeof document === 'undefined') return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void fetchList().catch(() => {})
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [enabled, fetchList])
 
   /** A write a colleague beat: say so, and show what they did. */
   const guard = useCallback(
@@ -241,10 +356,9 @@ export function useDocumentReview(
   const remove = useCallback(
     async (annotationId: string) => {
       await guard(() => deleteAnnotation(documentId, annotationId, write))
-      setAnnotations((current) => current.filter((annotation) => annotation.id !== annotationId))
-      setSelectedId((current) => (current === annotationId ? null : current))
+      drop(annotationId)
     },
-    [documentId, guard, write]
+    [documentId, guard, write, drop]
   )
 
   const counts = useMemo(
@@ -267,53 +381,98 @@ export function useDocumentReview(
     [annotations, filter, mine, me]
   )
 
-  /** Step to the next or previous live mark, in the order a review walks them. */
+  /**
+   * Step to the next or previous mark, in the order the list shows them: what
+   * the filter and „Mine" leave, Piloti's proposals first, as their group
+   * leads the list. Only marks on this Fassung, which are on the sheet. From
+   * nothing selected, J starts at the first and K at the last.
+   */
   const step = useCallback(
     (direction: 1 | -1, scope: 'live' | 'proposed' = 'live') => {
-      const live = annotations.filter(
-        (annotation) =>
-          annotation.onCurrentFassung && (scope === 'proposed' ? annotation.status === 'proposed' : isLive(annotation))
-      )
-      if (live.length === 0) return null
-      const index = live.findIndex((annotation) => annotation.id === selectedId)
-      const next = live[(index + direction + live.length) % live.length] ?? live[0]
+      const shown = scope === 'proposed' ? annotations.filter((annotation) => annotation.status === 'proposed') : listed
+      const walk = [
+        ...shown.filter((annotation) => annotation.status === 'proposed'),
+        ...shown.filter((annotation) => annotation.status !== 'proposed'),
+      ].filter((annotation) => annotation.onCurrentFassung)
+      if (walk.length === 0) return null
+      const index = walk.findIndex((annotation) => annotation.id === selectedId)
+      const next =
+        index === -1
+          ? walk[direction === 1 ? 0 : walk.length - 1]
+          : walk[(index + direction + walk.length) % walk.length]
+      if (!next) return null
       setSelectedId(next.id)
       return next
     },
-    [annotations, selectedId]
+    [annotations, listed, selectedId]
   )
 
-  return {
-    documentId,
-    room,
-    piloti,
-    load,
-    retry: () => setAttempt((value) => value + 1),
-    annotations,
-    listed,
-    counts,
-    canAnnotate,
-    pilotiWakes,
-    tool,
-    setTool,
-    draft,
-    setDraft: placeDraft,
-    selectedId,
-    select,
-    hoveredId,
-    hover: setHoveredId,
-    filter,
-    setFilter,
-    mine,
-    setMine,
-    notice,
-    dismissNotice: () => setNotice(null),
-    create,
-    update,
-    reply,
-    remove,
-    step,
-  }
+  const retry = useCallback(() => setAttempt((value) => value + 1), [])
+  const dismissNotice = useCallback(() => setNotice(null), [])
+
+  // One object while nothing in it changed: a host that re-renders for its own
+  // reasons hands the same review on, and what is memoised under it stays put.
+  return useMemo(
+    () => ({
+      documentId,
+      room,
+      piloti,
+      load,
+      retry,
+      annotations,
+      listed,
+      counts,
+      canAnnotate,
+      pilotiWakes,
+      tool,
+      setTool,
+      draft,
+      setDraft: placeDraft,
+      selectedId,
+      select,
+      hoveredId,
+      hover: setHoveredId,
+      filter,
+      setFilter,
+      mine,
+      setMine,
+      notice,
+      dismissNotice,
+      create,
+      update,
+      reply,
+      remove,
+      step,
+    }),
+    [
+      documentId,
+      room,
+      piloti,
+      load,
+      retry,
+      annotations,
+      listed,
+      counts,
+      canAnnotate,
+      pilotiWakes,
+      tool,
+      setTool,
+      draft,
+      placeDraft,
+      selectedId,
+      select,
+      hoveredId,
+      filter,
+      mine,
+      notice,
+      dismissNotice,
+      create,
+      update,
+      reply,
+      remove,
+      step,
+    ]
+  )
 }
 
 export type DocumentReview = ReturnType<typeof useDocumentReview>

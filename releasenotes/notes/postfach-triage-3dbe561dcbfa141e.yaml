@@ -1,0 +1,23 @@
+---
+features:
+  - >
+    The Postfach says who: a row shows the colleague's face and names them in
+    the title, „Anna Weber hat in „Atrium“ geschrieben“. A row about an
+    Anmerkung opens it with „Zur Anmerkung“, and an Anmerkung assigned to you,
+    or Piloti's question, can be answered or resolved right in the row.
+  - >
+    The Postfach has four filters: „Für mich“ is what waits on you,
+    „Ungelesen“ what you have not opened, „Alle“ everything, and „Archiviert“
+    what you put away, which you can restore. A row can be marked unread again,
+    older entries load at the end of the list, and J, K, Enter, E and U work
+    the list from the keyboard.
+  - >
+    The first time something waits on you, Piloti offers once to notify you on
+    this device, also if you never open the Postfach.
+fixes:
+  - >
+    An entry is marked read however you reach it: from a notification on your
+    device, or by opening its Anmerkung in the Prüfansicht.
+  - >
+    A suggestion Piloti made for a file says it waits on the file under
+    Dateien, not in a chat.

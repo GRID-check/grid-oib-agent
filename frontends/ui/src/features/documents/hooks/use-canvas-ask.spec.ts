@@ -6,8 +6,8 @@
  * over the chat, a question is a turn of the chat's conversation through the
  * chat's sender and read back from the chat store (never a second driver on
  * it); elsewhere it goes to the canvas client; a thread reply's entry goes
- * once its turn ended; a reply the server wakes Piloti for runs nothing here
- * and waits.
+ * once its turn ended, unless its thread target never reached the server; a
+ * turn that ended is read by its outcome (a refusal is not an answer).
  */
 
 import { act, renderHook } from '@testing-library/react'
@@ -21,7 +21,7 @@ import {
 import { initialTurnView, type TurnView } from '@/features/chat/lib/turn-fold'
 import { useChatStore } from '@/features/chat/store'
 import type { CanvasQuestion, CanvasTurnClient, CanvasTurnClientOptions } from '../lib/canvas-turn-client'
-import { askRegionOf, useCanvasAsk, WAKE_REPLY_TIMEOUT_MS, type UseCanvasAskOptions } from './use-canvas-ask'
+import { askRegionOf, statusOf, useCanvasAsk, type UseCanvasAskOptions } from './use-canvas-ask'
 
 const REGION = { page: 1, x: 0.1, y: 0.2, w: 0.3, h: 0.2 }
 
@@ -296,44 +296,38 @@ describe('while Piloti works', () => {
   })
 })
 
-describe('a reply the server wakes Piloti for (ADR-0106)', () => {
-  it('runs nothing here, keeps the canvas free, and says „später" when the reply is slow', () => {
-    vi.useFakeTimers()
-    try {
-      const { made, createClient } = fakeClients()
-      const { result } = hook({ createClient })
-      act(() => {
-        result.current.awaitWake({ annotationId: 'ann_3', region: REGION, question: 'Stimmt das?', baseline: 1, outcome: 'queued' })
-      })
-      expect(made).toEqual([])
-      expect(resolveThread).not.toHaveBeenCalled()
-      expect(result.current.asks[0]).toMatchObject({
-        backend: 'server',
-        status: 'thinking',
-        annotationId: 'ann_3',
-        replyInThread: true,
-        baseline: 1,
-        turnId: null,
-      })
-      // The server's wake keeps nothing on this tab busy.
-      expect(result.current.busy).toBe(false)
+describe('how a turn that ended stands (statusOf)', () => {
+  const ended = (patch: Partial<TurnView>): TurnView => ({ ...initialTurnView('t', 'conv'), phase: 'finished', ...patch })
+  const result = (patch: Record<string, unknown>) => ({ message_id: 'm', text: 'x', ...patch }) as TurnView['result']
 
-      act(() => void vi.advanceTimersByTime(WAKE_REPLY_TIMEOUT_MS))
-      expect(result.current.asks[0].status).toBe('later')
-    } finally {
-      vi.useRealTimers()
-    }
+  it('reads the outcome, not the phase: a refusal and a full queue are not answers to keep', () => {
+    expect(statusOf(ended({ outcome: 'answered' }))).toBe('answered')
+    expect(statusOf(ended({ outcome: 'refused' }))).toBe('declined')
+    expect(statusOf(ended({ outcome: 'answered', result: result({ job_admission_rejected: true }) }))).toBe('declined')
+    expect(statusOf(ended({ outcome: 'handed_off' }))).toBe('handedOff')
+    expect(statusOf(ended({ outcome: 'answered', result: result({ run: { run_id: 'r', run_message_id: 'rm' } }) }))).toBe(
+      'handedOff'
+    )
+    expect(statusOf(ended({ outcome: 'cancelled' }))).toBe('stopped')
+    expect(statusOf({ ...initialTurnView('t', 'conv') })).toBe('thinking')
+    expect(statusOf(ended({ phase: 'failed' }))).toBe('failed')
   })
+})
 
-  it('says once that a cap held it, and goes when dismissed', () => {
-    const { createClient } = fakeClients()
+describe('a question that went without part of itself', () => {
+  it('keeps a thread answer whose thread target never reached the server, and marks the box it lost', async () => {
+    const { made, createClient } = fakeClients()
     const { result } = hook({ createClient })
     let id = ''
     act(() => {
-      id = result.current.awaitWake({ annotationId: 'ann_3', region: null, question: 'x', baseline: 0, outcome: 'suppressed' })
+      id = result.current.ask({ text: '@Piloti stimmt das?', region: REGION, annotationId: 'ann_3', replyInThread: true, baseline: 0 })
     })
-    expect(result.current.asks[0]).toMatchObject({ backend: 'server', status: 'held' })
-    act(() => result.current.dismiss(id))
-    expect(result.current.asks).toEqual([])
+    await flush()
+    act(() => made[0].options.onDegraded?.(id, ['region', 'thread']))
+    expect(result.current.asks[0].degraded).toEqual(['region', 'thread'])
+
+    act(() => made[0].options.onTurn(finished(id, 'Ja.')))
+    // Its answer is only here: the thread offers it, rather than it vanishing.
+    expect(result.current.asks).toEqual([expect.objectContaining({ id, status: 'answered' })])
   })
 })

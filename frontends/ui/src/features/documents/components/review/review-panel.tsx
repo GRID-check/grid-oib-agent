@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, type JSX } from 'react'
-import { CheckCheck, ChevronDown, Clock, MessageCircle, MousePointerClick, Sparkles } from 'lucide-react'
+import { memo, useState, type JSX } from 'react'
+import { useMediaQuery } from '@/hooks/use-media-query'
+import { CheckCheck, ChevronDown, Clock, MessageCircle, MousePointerClick, Sparkles, UserRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CommentPin } from '@/components/ui/comment-pin'
 import { Spinner } from '@/components/ui/spinner'
@@ -13,40 +14,41 @@ import type { DocumentReview, ReviewFilter } from '../../hooks/use-document-revi
 import { usePilotiByline } from './piloti-attribution'
 import { markInk } from './review-page-layer'
 
+/** Open a mark from the list; `byKeyboard` when Enter or Space did it, so its card takes the focus. */
+export type OpenMark = (annotation: AnnotationView, byKeyboard?: boolean) => void
+
 /**
  * One mark in the list: its number (what people say aloud), what it says, and
- * one quiet line of who, how many answers, and by when.
+ * one quiet line of who, how many answers, and by when. Memoised on its mark:
+ * a list of five hundred redraws the row that changed.
  */
-function Row({
+const Row = memo(function Row({
   annotation,
-  review,
+  selected,
+  onHover,
   onOpen,
 }: {
   annotation: AnnotationView
-  review: DocumentReview
-  onOpen: (annotation: AnnotationView) => void
+  selected: boolean
+  onHover: (annotationId: string | null) => void
+  onOpen: OpenMark
 }): JSX.Element {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const byline = usePilotiByline()
-  const selected = annotation.id === review.selectedId
   const overdue = isOverdue(annotation, localCalendarDay())
-  const meta = [
-    t(`annotations.kinds.${annotation.kind}`),
-    annotation.authorKind === 'piloti'
-      ? byline(annotation.createdByName)
-      : (annotation.createdByName ?? t('review.someone')),
-    annotation.assigneeName && `→ ${annotation.assigneeName}`,
-  ].filter(Boolean)
+  const author =
+    annotation.authorKind === 'piloti' ? byline(annotation.createdByName) : (annotation.createdByName ?? t('review.someone'))
   return (
     <li>
       <button
         type="button"
         data-testid="review-row"
         aria-current={selected || undefined}
-        onClick={() => onOpen(annotation)}
-        onPointerEnter={() => review.hover(annotation.id)}
-        onPointerLeave={() => review.hover(null)}
+        // `detail` is 0 for a click the keyboard made.
+        onClick={(event) => onOpen(annotation, event.detail === 0)}
+        onPointerEnter={() => onHover(annotation.id)}
+        onPointerLeave={() => onHover(null)}
         className={cn(
           'flex w-full gap-3 rounded-lg px-2.5 py-2 text-left transition-colors duration-quick ease-out outline-none',
           'hover:bg-accent/60 focus-visible:ring-ring/60 focus-visible:ring-2',
@@ -66,17 +68,26 @@ function Row({
           <span className={cn('text-foreground line-clamp-2 text-sm leading-5', !isLive(annotation) && 'text-muted-foreground')}>
             {annotation.body}
           </span>
-          <span className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs">
-            <span className="truncate">{meta.join(' · ')}</span>
+          {/* Items separated by space and their own icons, never a leading „·"
+              when a line wraps; each item keeps to one line. */}
+          <span className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs" data-testid="review-row-meta">
+            <span className="whitespace-nowrap">{t(`annotations.kinds.${annotation.kind}`)}</span>
+            <span className="min-w-0 truncate">{author}</span>
+            {annotation.assigneeName && (
+              <span className="inline-flex min-w-0 items-center gap-0.5 whitespace-nowrap">
+                <UserRound className="size-3 shrink-0" aria-hidden />
+                <span className="truncate">{annotation.assigneeName}</span>
+              </span>
+            )}
             {annotation.replies.length > 0 && (
-              <span className="inline-flex items-center gap-0.5">
-                · <MessageCircle className="size-3" aria-hidden />
+              <span className="inline-flex items-center gap-0.5 whitespace-nowrap">
+                <MessageCircle className="size-3" aria-hidden />
                 {annotation.replies.length}
               </span>
             )}
             {annotation.dueOn && (
-              <span className={cn('inline-flex items-center gap-0.5', overdue && 'text-foreground font-semibold')}>
-                · <Clock className="size-3" aria-hidden />
+              <span className={cn('inline-flex items-center gap-0.5 whitespace-nowrap', overdue && 'text-foreground font-semibold')}>
+                <Clock className="size-3" aria-hidden />
                 {overdue ? t('review.overdue') : formatDayRange(annotation.dueOn, annotation.dueOn, locale)}
               </span>
             )}
@@ -92,7 +103,7 @@ function Row({
       </button>
     </li>
   )
-}
+})
 
 /** Marks grouped by page; the page heading only where there is more than one page to tell apart. */
 function Pages({
@@ -102,7 +113,7 @@ function Pages({
 }: {
   marks: readonly AnnotationView[]
   review: DocumentReview
-  onOpen: (annotation: AnnotationView) => void
+  onOpen: OpenMark
 }): JSX.Element {
   const t = useTranslations('files')
   const pages = [...new Set(marks.map((annotation) => annotation.page))]
@@ -120,7 +131,13 @@ function Pages({
             {marks
               .filter((annotation) => annotation.page === page)
               .map((annotation) => (
-                <Row key={annotation.id} annotation={annotation} review={review} onOpen={onOpen} />
+                <Row
+                  key={annotation.id}
+                  annotation={annotation}
+                  selected={annotation.id === review.selectedId}
+                  onHover={review.hover}
+                  onOpen={onOpen}
+                />
               ))}
           </ul>
         </section>
@@ -130,6 +147,26 @@ function Pages({
 }
 
 const FILTERS: ReviewFilter[] = ['open', 'closed']
+
+/**
+ * The counts on the Offen / Erledigt tabs, over what the list would show:
+ * with „Mir zugewiesen" on, only the marks assigned to or set by the reader,
+ * the same marks the list holds, so a tab never promises six and shows two.
+ */
+export function tabCounts(
+  annotations: readonly Pick<AnnotationView, 'status' | 'assigneeUserId' | 'createdBy'>[],
+  mine: { on: boolean; me: string | null }
+): Record<ReviewFilter, number> {
+  const shown = mine.on
+    ? annotations.filter(
+        (annotation) => mine.me !== null && (annotation.assigneeUserId === mine.me || annotation.createdBy === mine.me)
+      )
+    : annotations
+  return {
+    open: shown.filter((annotation) => isLive(annotation)).length,
+    closed: shown.filter((annotation) => !isLive(annotation)).length,
+  }
+}
 
 /**
  * The review's list: every mark of the document, in the order a review walks
@@ -145,7 +182,7 @@ export function ReviewPanel({
   presentation = 'rail',
 }: {
   review: DocumentReview
-  onOpen: (annotation: AnnotationView) => void
+  onOpen: OpenMark
   /** Start going through Piloti's proposals one by one. */
   onWalkProposals?: () => void
   /**
@@ -157,7 +194,8 @@ export function ReviewPanel({
   presentation?: 'rail' | 'sheet'
 }): JSX.Element {
   const t = useTranslations('files')
-  const { counts, listed, filter, setFilter, load, mine, setMine } = review
+  const { listed, filter, setFilter, load, mine, setMine } = review
+  const counts = tabCounts(review.annotations, { on: mine, me: review.room.self?.userId ?? null })
   const [proposalsOpen, setProposalsOpen] = useState(true)
   const proposals = filter === 'open' ? listed.filter((annotation) => annotation.status === 'proposed') : []
   const rest = listed.filter((annotation) => !proposals.includes(annotation))
@@ -172,15 +210,15 @@ export function ReviewPanel({
       )}
     >
       <div className="flex items-center gap-2 px-4 pt-4 pb-3">
-        <div role="tablist" aria-label={t('review.filter')} className="bg-muted inline-flex rounded-lg p-0.5">
+        {/* Two buttons that say which is on, not a tab list: there is no tab panel, and Tab reaches each. */}
+        <div role="group" aria-label={t('review.filter')} className="bg-muted inline-flex rounded-lg p-0.5">
           {FILTERS.map((option) => {
-            const count = option === 'open' ? counts.open + counts.proposed : counts.closed
+            const count = counts[option]
             return (
               <button
                 key={option}
                 type="button"
-                role="tab"
-                aria-selected={filter === option}
+                aria-pressed={filter === option}
                 data-testid={`review-filter-${option}`}
                 onClick={() => setFilter(option)}
                 className={cn(
@@ -259,6 +297,9 @@ export function ReviewPanel({
                 {proposalsOpen && (
                   <div className="px-0.5 pb-1">
                     <Pages marks={proposals} review={review} onOpen={onOpen} />
+                    <p className="text-muted-foreground px-2.5 pt-1 pb-1.5 text-[11px] leading-4" data-testid="review-proposals-legend">
+                      {t('review.proposalsLegend')}
+                    </p>
                   </div>
                 )}
               </section>
@@ -275,6 +316,8 @@ export function ReviewPanel({
 function EmptyList({ review }: { review: DocumentReview }): JSX.Element {
   const t = useTranslations('files')
   const { counts, filter, annotations, mine } = review
+  // A finger has no C or R: the touch copy names the button instead.
+  const touch = useMediaQuery('(pointer: coarse)')
   const allDone = filter === 'open' && !mine && annotations.length > 0 && counts.open + counts.proposed === 0
   const Icon = allDone ? CheckCheck : MousePointerClick
   const key = mine
@@ -292,7 +335,9 @@ function EmptyList({ review }: { review: DocumentReview }): JSX.Element {
         <Icon className="size-5" aria-hidden />
       </span>
       <p className="text-foreground mt-3 text-sm font-medium">{t(`review.empty.${key}Title`)}</p>
-      <p className="text-muted-foreground mt-1 text-xs leading-5">{t(`review.empty.${key}Body`)}</p>
+      <p className="text-muted-foreground mt-1 text-xs leading-5">
+        {key === 'none' && touch ? t('review.empty.noneBodyTouch') : t(`review.empty.${key}Body`)}
+      </p>
     </div>
   )
 }

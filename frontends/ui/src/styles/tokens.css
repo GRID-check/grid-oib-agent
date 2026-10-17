@@ -488,6 +488,8 @@
   --color-input-background: var(--input-background);
   --color-ring: var(--ring);
   --color-overlay: var(--overlay);
+  --color-paper-ink: var(--paper-ink);
+  --color-paper-ink-foreground: var(--paper-ink-foreground);
 
   /* sidebar primitive — aliases onto the existing paper/ink tokens, not a second palette */
   --color-sidebar: var(--background-color-surface-sunken);
@@ -555,6 +557,20 @@
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+}
+
+/* =============================================================================
+   Ink on paper: what a canvas draws ON a document's page (a mark's outline,
+   Piloti's pointer and the boxes it points out, a draft being set). The page
+   is the document's own paper and stays white in both themes, so this ink
+   must not flip with the theme: `--foreground` turns paper-white in dark mode
+   and vanished against the sheet. DOCUMENTED EXCEPTION: deliberately no
+   `.dark` override, and none under `prefers-contrast` either (it is already
+   the strongest ink). Use it only for what sits on a page.
+   ============================================================================= */
+:root {
+  --paper-ink: oklch(0.244 0.006 271.2); /* #1f2023, the light theme's ink */
+  --paper-ink-foreground: oklch(1 0 0); /* words on a paper-ink tag */
 }
 
 /* =============================================================================

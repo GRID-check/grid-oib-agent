@@ -38,7 +38,7 @@ import { captureServer } from '@/lib/analytics/posthog-server'
 import { resolvePinnedRequesterSessionStrict } from '@/lib/auth/pinned-session'
 import type { Locale } from '@/i18n/config'
 import { resolvePushPreferences } from '@/lib/inbox/push-categories'
-import { isPushStillDue, isPushWanted, pushPolicyFor, PUSH_TTL_SECONDS } from '@/lib/inbox/push-policy'
+import { isPushStillDue, isPushWanted, pushCategoryOf, pushPolicyFor, PUSH_TTL_SECONDS } from '@/lib/inbox/push-policy'
 import { findInboxItemForRecipient } from '@/lib/inbox/repository'
 import { viewInboxItemAs } from '@/lib/inbox/service'
 import type { JobAttempt } from '@/lib/jobs-queue/types'
@@ -128,7 +128,7 @@ export async function runInboxPush(
 
   const prefs = await findUserPreferences(userId, organizationId)
   const preferences = resolvePushPreferences(prefs?.pushNotifications)
-  if (!isPushWanted(row.type, preferences)) return { sent: false, reason: 'category-off' }
+  if (!isPushWanted(row.type, preferences, row.payload)) return { sent: false, reason: 'category-off' }
 
   const view = await viewInboxItemAs(session, row)
   if (!view) return { sent: false, reason: 'not-visible' }
@@ -161,7 +161,7 @@ export async function runInboxPush(
     event: 'push_notification_sent',
     distinctId: null,
     organizationId,
-    properties: { item_type: row.type, category: policy?.category, urgency, devices: devices.length, ...tally },
+    properties: { item_type: row.type, category: pushCategoryOf(row.type, row.payload), urgency, devices: devices.length, ...tally },
   })
   if (tally.transient > 0 && !attempt.last) {
     throw new Error(`[push] ${tally.transient} of ${devices.length} devices could not be reached; trying again`)

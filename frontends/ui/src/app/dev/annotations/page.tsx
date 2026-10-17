@@ -101,12 +101,15 @@ const buildSheet = (): Uint8Array<ArrayBuffer> => {
   const content = sheetContent()
   return assemblePdf([
     '<</Type/Catalog/Pages 2 0 R>>',
-    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
+    // Two sheets of the same drawing: a colleague on the second shows at the edge of the first.
+    '<</Type/Pages/Kids[3 0 R 7 0 R]/Count 2>>',
     `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${SHEET_WIDTH} ${SHEET_HEIGHT}]` +
       '/Resources<</Font<</F1 5 0 R/F2 6 0 R>>>>/Contents 4 0 R>>',
     `<</Length ${content.length}>>\nstream\n${content}endstream`,
     '<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>',
     '<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold/Encoding/WinAnsiEncoding>>',
+    `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${SHEET_WIDTH} ${SHEET_HEIGHT}]` +
+      '/Resources<</Font<</F1 5 0 R/F2 6 0 R>>>>/Contents 4 0 R>>',
   ])
 }
 
@@ -121,7 +124,7 @@ const FILE: FileItem = {
   createdAt: '2026-10-01T09:00:00Z',
   errorMessage: null,
   summary: 'Grundriss des Regelgeschosses im Maßstab 1:100 mit Gang, fünf Räumen, Bad, Technik und Stiege.',
-  pageCount: 1,
+  pageCount: 2,
   chunkCount: 3,
   contentTypes: ['drawing', 'text'],
   tags: ['Grundriss'],
@@ -134,7 +137,8 @@ const FILE: FileItem = {
 const ME = { userId: 'u-1', name: 'Miriam Hofer' }
 const ANNA = { userId: 'u-2', name: 'Anna Berger' }
 const JAKOB = { userId: 'u-3', name: 'Jakob Huber' }
-const NAMES: Record<string, string> = { 'u-1': ME.name, 'u-2': ANNA.name, 'u-3': JAKOB.name }
+const LENA = { userId: 'u-4', name: 'Lena Gruber' }
+const NAMES: Record<string, string> = { 'u-1': ME.name, 'u-2': ANNA.name, 'u-3': JAKOB.name, 'u-4': LENA.name }
 
 /** A point on the sheet in PDF points (bottom-left origin), as a share of the page (top-left). */
 const pt = (x: number, y: number) => ({ x: +(x / SHEET_WIDTH).toFixed(4), y: +(1 - y / SHEET_HEIGHT).toFixed(4) })
@@ -301,6 +305,7 @@ const broadcast = (event: RoomEvent) => sources.forEach((listener) => listener({
 const peer = (who: { userId: string; name: string }, peerId: string): RoomPeer => ({ ...who, peerId, kind: 'person' })
 const annaPeer = peer(ANNA, 'peer-anna-0001')
 const jakobPeer = peer(JAKOB, 'peer-jakob-001')
+const lenaPeer = peer(LENA, 'peer-lena-0001')
 /** Piloti in the room, as `publishAsAgent` names it: on behalf of the person who asked. */
 const pilotiPeer: RoomPeer = { peerId: 'piloti-dev-conv', userId: ME.userId, name: 'Piloti', kind: 'piloti' }
 
@@ -351,10 +356,16 @@ function startRoom(withPiloti: boolean) {
   if (started) return
   started = true
   const t0 = performance.now()
-  for (const who of [annaPeer, jakobPeer]) broadcast({ kind: 'presence', peer: who, state: 'here', ttlMs: 25_000 })
+  const everyone = [annaPeer, jakobPeer, lenaPeer]
+  for (const who of everyone) broadcast({ kind: 'presence', peer: who, state: 'here', ttlMs: 25_000 })
   setInterval(() => {
-    for (const who of [annaPeer, jakobPeer]) broadcast({ kind: 'presence', peer: who, state: 'here', ttlMs: 25_000 })
+    for (const who of everyone) broadcast({ kind: 'presence', peer: who, state: 'here', ttlMs: 25_000 })
   }, 8_000)
+  // Anna has Anmerkung 1 open: the others see it ringed in her colour, with her name.
+  broadcast({ kind: 'viewport', peer: annaPeer, viewport: { page: 1, y: 0.45 }, selected: 'ann-1' })
+  // Lena reads the second sheet, still: an edge chip says where she is, and her pointer rests.
+  broadcast({ kind: 'viewport', peer: lenaPeer, viewport: { page: 2, y: 0.4 } })
+  broadcast({ kind: 'cursor', peer: lenaPeer, tool: 'select', cursor: { page: 2, x: 0.42, y: 0.38 } })
   setInterval(() => {
     const s = (performance.now() - t0) / 1000
     // Anna walks the corridor, pausing at the doors, and now and then says so beside her pointer.
@@ -885,6 +896,8 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       if (one) {
         const current = annotations.find((annotation) => annotation.id === one[1])
         if (!current) return json({ error: 'Not found', code: 'NOT_FOUND' }, 404)
+        // What a room hint names, read again on its own.
+        if (method === 'GET') return json({ annotation: current })
         if (method === 'DELETE') {
           annotations = annotations.filter((annotation) => annotation.id !== current.id)
           return new Response(null, { status: 204 })

@@ -19,6 +19,7 @@ import type { RoomPeerState } from '../../hooks/use-document-room'
 import { pilotiForShort, ReviewPageLayer } from './review-page-layer'
 import { ReviewPanel } from './review-panel'
 import { ThreadCard } from './thread-card'
+import { fixedStore } from '@/features/realtime/use-channel'
 
 const PILOTI: RoomPeer = {
   peerId: 'piloti-conv_42',
@@ -31,6 +32,7 @@ const PILOTI: RoomPeer = {
 const pilotiState = (overrides: Partial<RoomPeerState> = {}): RoomPeerState => ({
   peer: PILOTI,
   cursor: { page: 1, x: 0.4, y: 0.5 },
+  movedAt: null,
   tool: 'select',
   viewport: null,
   draft: null,
@@ -45,7 +47,12 @@ const pilotiState = (overrides: Partial<RoomPeerState> = {}): RoomPeerState => (
 
 /** The review as far as the page layer reads it: no marks, no tool in hand, one room. */
 function reviewWith(peers: RoomPeerState[]): DocumentReview {
-  const room: Partial<DocumentReview['room']> = { peers, sendCursor: () => {}, sendDraft: () => {} }
+  const room: Partial<DocumentReview['room']> = {
+    peers: fixedStore(peers),
+    highlights: fixedStore([]),
+    sendCursor: () => {},
+    sendDraft: () => {},
+  }
   const piloti: Partial<DocumentReview['piloti']> = { asks: [], openId: null, compose: () => 'ask_1', open: () => {} }
   const review: Partial<DocumentReview> = {
     annotations: [],
@@ -95,15 +102,21 @@ describe('Piloti’s cursor on the canvas', () => {
 
   it('keeps „for Anna" beside its pointer label and what it is doing, outside the part that truncates', () => {
     renderLayer([pilotiState({ label: 'Treppe' })])
-    expect(within(cursorTag()).getByText('Treppe')).toHaveClass('truncate')
+    // Its name always leads: a pointer saying „Treppe" is never taken for a colleague of that name.
+    expect(within(cursorTag()).getByText('Piloti · Treppe')).toHaveClass('truncate')
     expect(within(cursorTag()).getByTestId('piloti-cursor-for')).toHaveTextContent('· for Anna')
     expect(within(cursorTag()).getByTestId('piloti-cursor-for')).not.toHaveClass('truncate')
   })
 
   it('says it while it works, too', () => {
     renderLayer([pilotiState({ activity: { state: 'reading', box: null, label: 'sieht sich Seite 2 an' } })])
-    expect(within(cursorTag()).getByText('sieht sich Seite 2 an')).toBeInTheDocument()
+    expect(within(cursorTag()).getByText('Piloti · sieht sich Seite 2 an')).toBeInTheDocument()
     expect(within(cursorTag()).getByTestId('piloti-cursor-for')).toHaveTextContent('· for Anna')
+  })
+
+  it('says which page it reads when the room only knows the box it reads', () => {
+    renderLayer([pilotiState({ activity: { state: 'reading', box: { page: 2, x: 0, y: 0, w: 1, h: 1 }, label: null } })])
+    expect(within(cursorTag()).getByText('Piloti · reading page 2')).toBeInTheDocument()
   })
 
   it('names nobody when the server could not', () => {
@@ -199,7 +212,7 @@ function reviewOf(annotations: AnnotationView[]): DocumentReview {
 }
 
 const renderThread = (annotation: AnnotationView) =>
-  render(<ThreadCard review={reviewOf([annotation])} annotation={annotation} flip={false} canPickAssignee={false} />)
+  render(<ThreadCard review={reviewOf([annotation])} annotation={annotation} placement="right" canPickAssignee={false} />)
 
 describe('Piloti’s marks name the person they were set for', () => {
   it('on the pin’s tooltip and for a screen reader', () => {

@@ -14,7 +14,10 @@ import type { FileItem } from '../components/project-file-workspace'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { resetFilePeekBinding } from './open-file-peek'
 import {
+  clearReviewParams,
+  hrefWithParams,
   isProjectChatPath,
+  readReviewParams,
   openReviewAt,
   reviewFilesHref,
   reviewHrefAt,
@@ -74,6 +77,42 @@ describe('the review link', () => {
     expect(isProjectChatPath('/app/projects/p1/chat')).toBe(true)
     expect(isProjectChatPath('/app/projects/p1/files')).toBe(false)
     expect(isProjectChatPath('/app/platform/cards')).toBe(false)
+  })
+})
+
+describe('the review in the url', () => {
+  it('reads the document, the mark and the armed tool', () => {
+    expect(readReviewParams(new URLSearchParams(`doc=${DOC}&review=1&mark=ann-7&tool=point`))).toEqual({
+      documentId: DOC,
+      open: true,
+      annotationId: 'ann-7',
+      tool: 'point',
+    })
+  })
+
+  it('opens nothing from a mark or a tool without review, and arms no tool it does not know', () => {
+    expect(readReviewParams(new URLSearchParams('mark=ann-7&tool=point'))).toMatchObject({
+      open: false,
+      annotationId: null,
+      tool: null,
+    })
+    expect(readReviewParams(new URLSearchParams('review=1&tool=delete')).tool).toBeNull()
+    expect(readReviewParams(null).open).toBe(false)
+  })
+
+  it('arms a tool on the Dateien link, and drops a stale one on the chat', () => {
+    expect(reviewFilesHref('p1', { documentId: DOC, tool: 'point' })).toBe(`/app/projects/p1/files?doc=${DOC}&review=1&tool=point`)
+    expect(reviewHrefAt({ ...CHAT, search: '?session=s1&tool=region' }, { documentId: DOC })).toBe(
+      '/app/projects/p1/chat?session=s1&review=1#message-m1'
+    )
+  })
+
+  it('takes the review off and leaves the document open', () => {
+    const params = clearReviewParams(new URLSearchParams(`doc=${DOC}&review=1&mark=ann-2&tool=point&session=s1`))
+    expect(params.toString()).toBe(`doc=${DOC}&session=s1`)
+    expect(hrefWithParams('/app/projects/p1/chat', clearReviewParams(new URLSearchParams('review=1')))).toBe(
+      '/app/projects/p1/chat'
+    )
   })
 })
 

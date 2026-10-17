@@ -44,8 +44,6 @@
 
 import 'server-only'
 import { listAssignmentsForResources } from '@/lib/assignments/repository'
-import { filterUsersWhoMayReadFolder } from '@/lib/authz/folder-access'
-import { resolveSubjectMembership, userHoldsProjectPermission } from '@/lib/authz/project-membership'
 import type { Document } from '@/lib/db/schema'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { recipientsHoldingGroup } from '@/lib/inbox/repository'
@@ -55,6 +53,7 @@ import { SCREENED_ONLY } from './document-reader'
 import { documentDisplayName, splitDocumentName, type NamedDocument } from './display-name'
 import { claimFassungAnnouncement, releaseFassungAnnouncement } from './fassung-announcement-repository'
 import type { FassungNames } from './fassung'
+import { mayOpenDocument } from './may-open'
 import { documentNameKey } from './name-match'
 import { readFassungNames, refreshCollectionFiles } from './reconcile-status'
 import { findDocumentInOrg, findFassungCounterparts } from './repository'
@@ -142,30 +141,6 @@ export function fassungRecipients(input: {
   return [...new Set(everyone.filter((id): id is string => Boolean(id) && id !== input.actorUserId))]
 }
 
-/** Which of `userIds` may open this document now. Fails closed per person. */
-async function peopleWhoMayOpen(organizationId: string, document: Document, userIds: readonly string[]): Promise<Set<string>> {
-  if (userIds.length === 0) return new Set()
-  if (document.scope === 'archiv') {
-    const members = await Promise.all(
-      userIds.map(async (userId) => ((await resolveSubjectMembership(organizationId, userId)) ? userId : null)),
-    )
-    return new Set(members.filter((userId): userId is string => userId !== null))
-  }
-  if (document.scope !== 'project' || !document.projectId) return new Set()
-  const projectId = document.projectId
-  const inProject = await Promise.all(
-    userIds.map(async (userId) =>
-      (await userHoldsProjectPermission({ organizationId }, projectId, userId, 'project:view')) ? userId : null,
-    ),
-  )
-  return filterUsersWhoMayReadFolder(
-    organizationId,
-    projectId,
-    document.folderId,
-    inProject.filter((userId): userId is string => userId !== null),
-  )
-}
-
 /**
  * Write the items. Returns how many people were told.
  *
@@ -217,10 +192,10 @@ async function writeFassungItems(
   })
   if (candidates.length === 0) return 0
 
-  const mayOpenNewer = await peopleWhoMayOpen(organizationId, newer, candidates)
+  const mayOpenNewer = await mayOpenDocument({ organizationId }, newer, candidates)
   const mayOpenBoth = sameDocument
     ? mayOpenNewer
-    : await peopleWhoMayOpen(organizationId, follow, [...mayOpenNewer])
+    : await mayOpenDocument({ organizationId }, follow, [...mayOpenNewer])
   if (mayOpenBoth.size === 0) return 0
 
   const groupKey = inboxGroupKey('document.new_fassung', 'document', newer.id, anchorId)

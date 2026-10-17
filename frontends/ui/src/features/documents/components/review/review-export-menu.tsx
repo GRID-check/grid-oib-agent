@@ -137,7 +137,8 @@ export function ReviewExportMenu({
         <DropdownMenuSeparator />
         <DropdownMenuLabel>{t('review.export.formatLabel')}</DropdownMenuLabel>
         {ANNOTATION_EXPORT_FORMATS.map((format) => (
-          <DropdownMenuItem key={format} onSelect={() => void download(format)} data-testid={`review-export-${format}`}>
+          // Inset to the radio items' text: one column of words down the menu.
+          <DropdownMenuItem key={format} inset onSelect={() => void download(format)} data-testid={`review-export-${format}`}>
             {t(`review.export.formats.${format}`)}
           </DropdownMenuItem>
         ))}

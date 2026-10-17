@@ -52,11 +52,11 @@ export const notifications = {
     },
     results: {
       label: 'Results',
-      hint: 'Finished background work and what went wrong with it.',
+      hint: 'Finished background work, what went wrong with it, and answers to your questions and annotations.',
     },
     access: {
       label: 'Access and assignments',
-      hint: 'A chat is shared with you, a file is assigned to you.',
+      hint: 'A chat is shared with you, a file or an annotation is assigned to you.',
     },
     activity: {
       label: 'Activity',
@@ -74,9 +74,18 @@ export const notifications = {
   preferencesFailed: 'Your choice could not be saved. Please try again.',
   prompt: {
     title: 'Get notified when something arrives?',
-    body: 'Piloti can tell you on this device as soon as something lands in your inbox.',
+    body: 'Piloti tells you on this device when someone needs you.',
     turnOn: 'Turn on',
     dismiss: 'Not now',
-    dismissLabel: 'Dismiss the notification suggestion',
+    /** The browser said no: one line to the page that says how to change it (the profile). */
+    blocked: 'Notifications are blocked – here is how to turn them on',
+  },
+  /** The same offer, once, as a toast the first time something waits on the person. */
+  offer: {
+    mentioned: '{actor} mentioned you. Do you want to be notified on this device?',
+    actor: '{actor} needs you in Piloti. Do you want to be notified on this device?',
+    someone: 'Someone needs you in Piloti. Do you want to be notified on this device?',
+    turnOn: 'Turn on',
+    notNow: 'Not now',
   },
 }

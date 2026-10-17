@@ -5,9 +5,15 @@
  */
 
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RoomFrame, RoomPost } from '@/lib/annotations/room-types'
-import { useDocumentRoom, type RoomTransport } from './use-document-room'
+import {
+  createHighlightTracker,
+  HIGHLIGHT_MS,
+  useDocumentRoom,
+  type RoomPeerState,
+  type RoomTransport,
+} from './use-document-room'
 
 function scriptedRoom() {
   let deliver: ((frame: RoomFrame) => void) | null = null
@@ -42,7 +48,7 @@ describe('useDocumentRoom', () => {
 
     // Piloti in the room is not company for the pointer: it reads the server's snapshot.
     room.send({ kind: 'event', event: { kind: 'presence', peer: PILOTI, state: 'here', ttlMs: 25_000 } })
-    await waitFor(() => expect(result.current.peers).toHaveLength(1))
+    await waitFor(() => expect(result.current.peers.get()).toHaveLength(1))
 
     act(() => {
       for (let step = 0; step < 20; step += 1) result.current.sendCursor({ page: 1, x: step / 20, y: 0.5 }, 'select')
@@ -67,7 +73,7 @@ describe('useDocumentRoom', () => {
     const room = scriptedRoom()
     const { result } = renderHook(() => useDocumentRoom('doc_1', { enabled: true, transport: room.transport }))
     room.send({ kind: 'event', event: { kind: 'presence', peer: ANNA, state: 'here', ttlMs: 25_000 } })
-    await waitFor(() => expect(result.current.peers).toHaveLength(1))
+    await waitFor(() => expect(result.current.peers.get()).toHaveLength(1))
 
     act(() => {
       result.current.sendDraft({ x: 0.4, y: 0.4, w: 0.1, h: 0.1 })
@@ -107,7 +113,7 @@ describe('useDocumentRoom', () => {
     room.send({ kind: 'event', event: { kind: 'cursor', peer: ANNA, cursor: { page: 1, x: 0.3, y: 0.3 } } })
 
     await waitFor(() =>
-      expect(result.current.peers[0]).toMatchObject({
+      expect(result.current.peers.get()[0]).toMatchObject({
         peer: ANNA,
         cursor: { page: 1, x: 0.3, y: 0.3 },
         tool: 'region',
@@ -128,7 +134,7 @@ describe('useDocumentRoom', () => {
     room.send({ kind: 'event', event: { kind: 'highlight', peer: PILOTI, box, label: 'Laufbreite', ttlMs: 6_000 } })
 
     await waitFor(() =>
-      expect(result.current.peers).toEqual([
+      expect(result.current.peers.get()).toEqual([
         expect.objectContaining({
           peer: PILOTI,
           cursor: { page: 1, x: 0.2, y: 0.25 },
@@ -142,9 +148,9 @@ describe('useDocumentRoom', () => {
     expect(room.posts.filter((post) => post.presence === 'here')).toHaveLength(1)
 
     room.send({ kind: 'event', event: { kind: 'activity', peer: PILOTI, state: 'idle' } })
-    await waitFor(() => expect(result.current.peers[0]?.activity).toBeNull())
+    await waitFor(() => expect(result.current.peers.get()[0]?.activity).toBeNull())
     room.send({ kind: 'event', event: { kind: 'presence', peer: PILOTI, state: 'gone', ttlMs: 25_000 } })
-    await waitFor(() => expect(result.current.peers).toEqual([]))
+    await waitFor(() => expect(result.current.peers.get()).toEqual([]))
   })
 
   it('knows which Anmerkung a colleague has selected', async () => {
@@ -153,7 +159,7 @@ describe('useDocumentRoom', () => {
     room.send({ kind: 'event', event: { kind: 'viewport', peer: ANNA, viewport: { page: 2, y: 0.5 } } })
     room.send({ kind: 'event', event: { kind: 'viewport', peer: ANNA, selected: 'ann_3' } })
     await waitFor(() =>
-      expect(result.current.peers[0]).toMatchObject({ viewport: { page: 2, y: 0.5 }, selected: 'ann_3' })
+      expect(result.current.peers.get()[0]).toMatchObject({ viewport: { page: 2, y: 0.5 }, selected: 'ann_3' })
     )
   })
 
@@ -169,11 +175,11 @@ describe('useDocumentRoom', () => {
       event: { kind: 'annotations.changed', annotationIds: ['a1'], change: 'created', actor: { ...ANNA } },
     })
     room.send({ kind: 'event', event: { kind: 'presence', peer: ANNA, state: 'here', ttlMs: 25_000 } })
-    await waitFor(() => expect(result.current.peers).toHaveLength(1))
+    await waitFor(() => expect(result.current.peers.get()).toHaveLength(1))
     expect(heard).toEqual([['a1']])
 
     room.send({ kind: 'revoked' })
-    await waitFor(() => expect(result.current.peers).toEqual([]))
+    await waitFor(() => expect(result.current.peers.get()).toEqual([]))
     expect(result.current.status).toBe('offline')
   })
 
@@ -182,5 +188,79 @@ describe('useDocumentRoom', () => {
     const { result } = renderHook(() => useDocumentRoom('doc_1', { enabled: false, transport: room.transport }))
     expect(result.current.status).toBe('offline')
     expect(room.posts).toEqual([])
+  })
+})
+
+describe('useDocumentRoom after it closed', () => {
+  it('sends nothing once the room is gone, so a line that lingers past the review raises no ghost', () => {
+    const room = scriptedRoom()
+    const { result, unmount } = renderHook(() => useDocumentRoom('doc_1', { enabled: true, transport: room.transport }))
+    const { sendChat } = result.current
+
+    unmount()
+    expect(room.posts.at(-1)).toMatchObject({ presence: 'gone' })
+    const said = room.posts.length
+
+    // `CursorChat`'s linger clears the line after the review closed.
+    sendChat(null)
+    expect(room.posts).toHaveLength(said)
+  })
+})
+
+describe('the room as a store', () => {
+  const JAKOB = { peerId: 'peer_jakob_0001', userId: 'user_jakob', name: 'Jakob Huber', kind: 'person' as const }
+
+  it('keeps the object of a peer that did not move, so a page that reads only it is not redrawn', async () => {
+    const room = scriptedRoom()
+    const { result } = renderHook(() => useDocumentRoom('doc_1', { enabled: true, transport: room.transport }))
+    room.send({ kind: 'event', event: { kind: 'cursor', peer: ANNA, cursor: { page: 1, x: 0.1, y: 0.1 } } })
+    room.send({ kind: 'event', event: { kind: 'cursor', peer: JAKOB, cursor: { page: 2, x: 0.5, y: 0.5 } } })
+    await waitFor(() => expect(result.current.peers.get()).toHaveLength(2))
+    const jakob = result.current.peers.get().find((state) => state.peer.peerId === JAKOB.peerId)
+
+    room.send({ kind: 'event', event: { kind: 'cursor', peer: ANNA, cursor: { page: 1, x: 0.2, y: 0.1 } } })
+    await waitFor(() =>
+      expect(result.current.peers.get().find((state) => state.peer.peerId === ANNA.peerId)?.cursor?.x).toBe(0.2)
+    )
+    expect(result.current.peers.get().find((state) => state.peer.peerId === JAKOB.peerId)).toBe(jakob)
+  })
+})
+
+describe('createHighlightTracker', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const piloti = (box: { page: number; x: number; y: number; w: number; h: number }): RoomPeerState => ({
+    peer: PILOTI,
+    expiresAt: Date.now() + 25_000,
+    cursor: null,
+    movedAt: null,
+    tool: 'select',
+    viewport: null,
+    draft: null,
+    chat: null,
+    label: null,
+    selected: null,
+    activity: null,
+    highlight: { box, label: 'Breite', expiresAt: Date.now() + 60_000 },
+  })
+
+  it('shows a box Piloti points out once for the room, for its time, however often the room is read', () => {
+    vi.useFakeTimers()
+    const tracker = createHighlightTracker()
+    const box = { page: 1, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }
+    const read = [piloti(box)]
+    tracker.update(read)
+    const shown = tracker.store.get()
+    expect(shown).toHaveLength(1)
+    // Every pointer frame reads the room again: nothing new, nothing redrawn, no second timer.
+    for (let frame = 0; frame < 50; frame += 1) tracker.update(read)
+    expect(tracker.store.get()).toBe(shown)
+    expect(vi.getTimerCount()).toBe(1)
+
+    vi.advanceTimersByTime(HIGHLIGHT_MS + 1)
+    expect(tracker.store.get()).toEqual([])
+    tracker.stop()
   })
 })

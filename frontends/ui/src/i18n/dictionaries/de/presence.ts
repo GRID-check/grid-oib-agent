@@ -21,5 +21,7 @@ export const presence: typeof en.presence = {
     onBehalfOf: 'Piloti · für {name}',
     /** After the words on Piloti's cursor tag („Piloti“, „Treppe“), never clipped: „Treppe · für Anna“. */
     forSuffix: '· für {name}',
+    /** Was Pilotis Zeiger sagt, während es eine Seite oder einen Ausschnitt liest, nach seinem Namen. */
+    reading: 'liest Seite {page}',
   },
 }

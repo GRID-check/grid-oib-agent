@@ -4,8 +4,8 @@
  *
  * What it does:
  *   - push                 shows the notification the server sent
- *   - notificationclick    focuses an open Piloti tab and takes it to the item,
- *                          or opens one
+ *   - notificationclick    marks the item read, then focuses an open Piloti tab
+ *                          and takes it to the item, or opens one
  *   - pushsubscriptionchange   subscribes again and tells the server
  *   - message              closes notifications the page says are no longer news
  *
@@ -14,8 +14,9 @@
  * origin, and a worker that answered requests from a cache could answer one
  * person with what another person's session fetched, or keep a revoked
  * document alive on a device. The browser's own HTTP cache rules stay in charge
- * of every request. The worker calls `fetch()` once, to re-register a rotated
- * subscription, and that is a request it makes, not one it intercepts.
+ * of every request. The worker calls `fetch()` twice, to mark a tapped item
+ * read and to re-register a rotated subscription, and those are requests it
+ * makes, not ones it intercepts.
  *
  * It is a classic script with no build step and no imports, so it can be served
  * as a static file with `Cache-Control: no-cache` (next.config.ts) and updated
@@ -35,6 +36,10 @@ var GENERIC_TITLE = 'Piloti'
 var ICON = '/icons/icon-192.png'
 var CONFIG_PATH = '/api/notifications/push/config'
 var DEVICES_PATH = '/api/notifications/push/devices'
+/** The inbox's read endpoint (`INBOX_READ_PATH` in `src/lib/inbox/client.ts`, which this file cannot import). */
+var READ_PATH = '/api/inbox/read'
+/** How long a tap waits for the read before it opens the item anyway. */
+var READ_WAIT_MS = 400
 
 /** The page-to-worker and worker-to-page message types. */
 var MESSAGE_CLOSE = 'piloti:close-notifications'
@@ -138,6 +143,26 @@ function showPush(scope, event) {
   return scope.registration.showNotification(message.title, notificationOptions(message))
 }
 
+/**
+ * A tap is the person opening the item, as a click on its row is: mark it read
+ * on the server, with the signed-in session's cookie, before the page loads, so
+ * the inbox does not still call it new. Best effort and never in the way: a
+ * failure (signed out, offline, an item another tab archived) still opens it.
+ */
+async function markRead(itemId) {
+  if (!isString(itemId)) return
+  try {
+    await fetch(READ_PATH, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemIds: [itemId] }),
+    })
+  } catch (error) {
+    // Opening the item matters more than its read state.
+  }
+}
+
 async function openItem(scope, rawUrl) {
   var target = safeTarget(rawUrl, scope.location.origin)
   var windows = await scope.clients.matchAll({ type: 'window', includeUncontrolled: true })
@@ -218,7 +243,20 @@ function register(scope) {
   scope.addEventListener('notificationclick', function (event) {
     event.notification.close()
     var data = event.notification.data || {}
-    event.waitUntil(openItem(scope, data.url))
+    // The read is sent first and given a moment to land before the page loads,
+    // never longer: a browser lets a tap open a window only for a short while.
+    var reading = markRead(data.itemId)
+    var settled = new Promise(function (resolve) {
+      setTimeout(resolve, READ_WAIT_MS)
+    })
+    event.waitUntil(
+      Promise.all([
+        reading,
+        Promise.race([reading, settled]).then(function () {
+          return openItem(scope, data.url)
+        }),
+      ])
+    )
   })
   scope.addEventListener('pushsubscriptionchange', function (event) {
     event.waitUntil(resubscribe(scope, event))
@@ -240,8 +278,10 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     MESSAGE_CLOSE: MESSAGE_CLOSE,
     MESSAGE_NAVIGATE: MESSAGE_NAVIGATE,
+    READ_PATH: READ_PATH,
     notificationOptions: notificationOptions,
     notificationsToClose: notificationsToClose,
+    markRead: markRead,
     openItem: openItem,
     parseMessage: parseMessage,
     pickWindow: pickWindow,

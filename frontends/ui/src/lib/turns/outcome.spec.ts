@@ -204,15 +204,15 @@ describe('recordTurnOutcome', () => {
       markIs(new Date('2026-10-13T09:30:00.000Z'))
       expect(await recordTurnOutcome(request(DELEGATION))).toEqual({ settled: true })
       expect(handBackDelegation).not.toHaveBeenCalled()
-      expect(publishToDocumentRoom).not.toHaveBeenCalled()
     })
 
-    it('does not announce a mark the compare-and-swap found already changed', async () => {
+    it('announces the end once even when the compare-and-swap found the mark already changed', async () => {
       wakeEndsAs(DELEGATION)
       markIs(DELEGATED_AT)
       vi.mocked(handBackDelegation).mockResolvedValue(false)
       await recordTurnOutcome(request(DELEGATION))
-      expect(publishToDocumentRoom).not.toHaveBeenCalled()
+      // The mark's „Piloti arbeitet" line moved (`piloti-work.ts`), whatever became of the delegation.
+      expect(publishToDocumentRoom).toHaveBeenCalledTimes(1)
     })
 
     it('leaves a mark that is no longer delegated alone', async () => {
@@ -235,7 +235,11 @@ describe('recordTurnOutcome', () => {
     markIs(DELEGATED_AT)
     await recordTurnOutcome(request(MENTION))
     expect(handBackDelegation).not.toHaveBeenCalled()
-    expect(publishToDocumentRoom).not.toHaveBeenCalled()
+    // The room still hears that the wake ended: every reader's thread drops „Piloti antwortet".
+    expect(publishToDocumentRoom).toHaveBeenCalledWith(
+      DOC_ID,
+      expect.objectContaining({ kind: 'annotations.changed', annotationIds: [MARK_ID], change: 'updated' })
+    )
   })
 
   it('tells attention once, with the wake\'s final word', async () => {

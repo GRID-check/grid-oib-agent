@@ -3,8 +3,8 @@ import {
   Archive,
   BookOpenCheck,
   ClipboardList,
+  Bell,
   Folder,
-  Inbox,
   MessageSquare,
   LayoutDashboard,
   Zap,
@@ -212,7 +212,9 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     key: 'inbox',
     segment: null,
     href: '/app/inbox',
-    icon: Inbox,
+    // A bell, not a tray: the Büroablage beside it is a box, and a tray
+    // beside a box read as two shelves rather than "something wants you".
+    icon: Bell,
     i18nKey: 'inbox',
     label: { namespace: 'collaboration', key: 'inbox.navLabel' },
     gate: 'canAccessInbox',

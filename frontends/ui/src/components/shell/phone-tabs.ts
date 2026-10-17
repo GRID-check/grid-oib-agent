@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react'
-import { Archive, FolderKanban, Inbox, MoreHorizontal } from 'lucide-react'
+import { Archive, Bell, FolderKanban, MoreHorizontal } from 'lucide-react'
 
 import { TOUR_ANCHORS, sectionAnchor } from '@/features/onboarding/lib/product-tour'
 import {
@@ -97,7 +97,7 @@ function inboxTab(pathname: string, tourAnchor: string): PhoneTab {
   return {
     key: 'inbox',
     href: INBOX_HREF,
-    icon: Inbox,
+    icon: Bell,
     label: { namespace: 'collaboration', key: 'inbox.navLabel' },
     active: isUnder(pathname, INBOX_HREF),
     tourAnchor,

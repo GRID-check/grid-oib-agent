@@ -39,8 +39,15 @@ export interface ChannelDefinition<TParams = unknown, TUp extends UpstreamBase =
   /** What a browser may say, if anything. */
   readonly upstream?: {
     readonly schema: ZodType<TUp>
-    /** Spent once per message, per member (`memberSubject`). */
+    /** Spent once per message, per member and channel (`./send`). */
     readonly limit: LimitRule
+    /**
+     * A message that carries a claim (`presence`, or any of `fields`) spends
+     * this budget instead of `limit`, so a burst of motion can never refuse
+     * the claim that keeps a person in the channel. Without it, every message
+     * spends `limit`.
+     */
+    readonly claims?: { readonly limit: LimitRule; readonly fields?: readonly string[] }
     /** The ephemeral events a message becomes. Presence is handled before this, from `msg.presence`. */
     handle(msg: TUp, peer: RealtimePeer, params: TParams): Array<{ kind: string }>
   }

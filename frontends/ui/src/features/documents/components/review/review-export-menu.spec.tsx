@@ -54,7 +54,7 @@ describe('ReviewExportMenu', () => {
 
   it('carries the scope, the Fassung and the proposals into the link, and stays open while choosing', async () => {
     const user = await open({ hasFassungen: true, hasProposals: true })
-    await user.click(await screen.findByRole('menuitemradio', { name: 'All, resolved ones too' }))
+    await user.click(await screen.findByRole('menuitemradio', { name: 'Resolved ones too' }))
     await user.click(screen.getByRole('menuitemradio', { name: 'All revisions' }))
     await user.click(screen.getByRole('menuitemcheckbox', { name: 'Add Piloti’s proposals' }))
     await user.click(screen.getByRole('menuitem', { name: 'Word (.docx)' }))
@@ -66,7 +66,7 @@ describe('ReviewExportMenu', () => {
 
   it('offers no Fassung or proposal choice where the document has neither', async () => {
     await open()
-    expect(await screen.findByRole('menuitemradio', { name: 'Open ones' })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitemradio', { name: 'Open only' })).toBeInTheDocument()
     expect(screen.queryByRole('menuitemradio', { name: 'All revisions' })).toBeNull()
     expect(screen.queryByRole('menuitemcheckbox', { name: 'Add Piloti’s proposals' })).toBeNull()
   })

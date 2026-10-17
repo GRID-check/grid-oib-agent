@@ -269,3 +269,30 @@ export async function listAnsweringWakes(organizationId: string, documentId: str
 
 /** A document carries at most this many marks, each with a bounded number of wakes; this only keeps the read bounded. */
 const MAX_WAKE_SPANS = 2000
+
+/**
+ * The newest wake of each mark on one document, whatever it came to: what
+ * `./piloti-work.ts` reads. `annotationId` narrows it to that one mark, for a
+ * read that renders one mark and has no use for the rest of the document's.
+ */
+export async function listLatestWakes(
+  organizationId: string,
+  documentId: string,
+  annotationId?: string
+): Promise<PilotiWakeRow[]> {
+  const db = getDb()
+  return withTenant({ organizationId }, () =>
+    db
+      .selectDistinctOn([pilotiWakes.annotationId])
+      .from(pilotiWakes)
+      .where(
+        and(
+          eq(pilotiWakes.organizationId, organizationId),
+          eq(pilotiWakes.documentId, documentId),
+          annotationId ? eq(pilotiWakes.annotationId, annotationId) : undefined
+        )
+      )
+      .orderBy(pilotiWakes.annotationId, desc(pilotiWakes.createdAt))
+      .limit(MAX_WAKE_SPANS)
+  )
+}

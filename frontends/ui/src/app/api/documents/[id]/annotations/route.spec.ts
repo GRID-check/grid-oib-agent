@@ -30,7 +30,7 @@ vi.mock('@/lib/auth/require-auth', () => ({
 }))
 
 vi.mock('@/lib/documents/access', () => ({ getAccessibleDocument: vi.fn() }))
-vi.mock('@/lib/authz/project-membership', () => ({ canUserAccessProject: vi.fn() }))
+vi.mock('@/lib/authz/project-membership', () => ({ PERMISSION_CHECKS_AT_ONCE: 8, userHoldsProjectPermission: vi.fn(), resolveSubjectMembership: vi.fn() }))
 vi.mock('@/lib/sharing/directory', () => ({ loadOrganizationDirectory: vi.fn() }))
 vi.mock('@/lib/realtime/document-channel', () => ({ publishToDocumentRoom: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
@@ -51,6 +51,7 @@ import {
   AnnotationRequestError,
   createAnnotation,
   deleteAnnotation,
+  getAnnotation,
   listAnnotations,
   replyToAnnotation,
   updateAnnotation,
@@ -68,7 +69,7 @@ import {
   type AnnotationRecord,
 } from '@/lib/annotations/repository'
 import { publishToDocumentRoom } from '@/lib/realtime/document-channel'
-import { canUserAccessProject } from '@/lib/authz/project-membership'
+import { userHoldsProjectPermission } from '@/lib/authz/project-membership'
 import type { Document } from '@/lib/db/schema'
 import { getAccessibleDocument } from '@/lib/documents/access'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
@@ -76,7 +77,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { expectRegistered } from '@/test-utils/audit'
 
 import { GET as list, POST as create } from './route'
-import { DELETE as remove, PATCH as patch } from './[annotationId]/route'
+import { DELETE as remove, GET as readOne, PATCH as patch } from './[annotationId]/route'
 import { POST as reply } from './[annotationId]/replies/route'
 
 type Handler = (request: Request, context?: { params?: Promise<Record<string, string>> }) => Promise<Response>
@@ -84,6 +85,12 @@ type Handler = (request: Request, context?: { params?: Promise<Record<string, st
 const ROUTES: Array<{ pattern: RegExp; method: string; handler: Handler; params: string[] }> = [
   { pattern: /^\/api\/documents\/([^/]+)\/annotations$/, method: 'GET', handler: list, params: ['id'] },
   { pattern: /^\/api\/documents\/([^/]+)\/annotations$/, method: 'POST', handler: create, params: ['id'] },
+  {
+    pattern: /^\/api\/documents\/([^/]+)\/annotations\/([^/]+)$/,
+    method: 'GET',
+    handler: readOne,
+    params: ['id', 'annotationId'],
+  },
   {
     pattern: /^\/api\/documents\/([^/]+)\/annotations\/([^/]+)$/,
     method: 'PATCH',
@@ -250,6 +257,23 @@ describe('GET /api/documents/[id]/annotations', () => {
   })
 })
 
+describe('GET /api/documents/[id]/annotations/[annotationId]', () => {
+  it('reads one mark as the list would show it to this reader', async () => {
+    writable = false
+
+    const mark = await getAnnotation('doc_1', 'ann_1', run)
+
+    expect(findDocumentAnnotation).toHaveBeenCalledWith('org_1', 'doc_1', 'ann_1')
+    expect(mark).toMatchObject({ id: 'ann_1', number: 1, canEdit: false, createdByName: 'Anna Berger' })
+  })
+
+  it('is not found for a mark that is gone, so a hint about it takes it off the list', async () => {
+    vi.mocked(findDocumentAnnotation).mockResolvedValueOnce(null)
+
+    await expect(getAnnotation('doc_1', 'ann_gone', run)).rejects.toMatchObject({ status: 404 })
+  })
+})
+
 describe('POST /api/documents/[id]/annotations', () => {
   it('sets a region on the Fassung shown now, as a person, and tells the room which tab did it', async () => {
     await createAnnotation(
@@ -297,7 +321,7 @@ describe('POST /api/documents/[id]/annotations', () => {
   })
 
   it('refuses an assignee who cannot open the project', async () => {
-    vi.mocked(canUserAccessProject).mockResolvedValueOnce(false)
+    vi.mocked(userHoldsProjectPermission).mockResolvedValueOnce(false)
 
     await expect(
       createAnnotation(

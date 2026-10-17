@@ -72,6 +72,13 @@ export interface DiscussDocumentButtonProps {
   size?: 'sm' | 'default'
   /** Icon-led, for a dense row (the inbox) where the label alone reads as chrome. */
   withIcon?: boolean
+  /**
+   * The icon alone below `sm`, the label kept for assistive technology: a
+   * phone row with three labelled buttons wraps them onto three lines.
+   */
+  iconOnlyOnPhone?: boolean
+  /** Told just before the navigation, for a caller that counts it as opening something (the inbox row marks itself read). */
+  onNavigate?: () => void
   className?: string
 }
 
@@ -84,6 +91,8 @@ export function DiscussDocumentButton({
   variant = 'default',
   size = 'sm',
   withIcon = false,
+  iconOnlyOnPhone = false,
+  onNavigate,
   className,
 }: DiscussDocumentButtonProps): JSX.Element {
   const t = useTranslations('files')
@@ -96,8 +105,10 @@ export function DiscussDocumentButton({
       size={size}
       className={cn('h-8', className)}
       title={hint}
+      aria-label={iconOnlyOnPhone ? t('assignment.discuss') : undefined}
       data-testid="discuss-document"
       onClick={() => {
+        onNavigate?.()
         const navigate = (href: string): void => router.push(href)
         if (file) {
           askAboutFile({ projectId, file, navigate })
@@ -110,8 +121,8 @@ export function DiscussDocumentButton({
     >
       {/* Sparkles is Piloti's glyph across the rail („Von Piloti gelesen“), so
           the button that talks to Piloti carries it too. */}
-      {withIcon && <Sparkles className="size-3.5" aria-hidden />}
-      {t('assignment.discuss')}
+      {(withIcon || iconOnlyOnPhone) && <Sparkles className="size-3.5" aria-hidden />}
+      {iconOnlyOnPhone ? <span className="max-sm:hidden">{t('assignment.discuss')}</span> : t('assignment.discuss')}
     </Button>
   )
 }

@@ -329,20 +329,19 @@ field, a new required field, a known `CUSTOM` whose value no longer parses.
 `shared/wire/v2/newer-events.jsonl` holds the tolerated drift; the UI spec
 reads it, the Python test refuses it.
 
-**This release is the exception, and it is staged.** The lenient read above
-ships in this release; the bundle before it generated every server-to-client
-schema `.strict()`. A tab of that bundle still open after the deploy refuses
-a hello that names `accepts` (its socket ends `outdated`) and a `RUN_FINISHED`
-whose result has `reasoning_effort` (the turn never ends). So the server
-withholds both until `GRID_WIRE_V2_ADDITIVE_FIELDS` is on, and it is off by
-default in this release (`STAGED_SERVER_FIELDS`, `aiq_api/chat_socket.py`). A
-new tab works without them: with no `accepts` it sends no `shown`, so a Stop
-stores everything streamed so far, as before; a Stop that crossed the
-finished answer is still cut by the BFF (`cutStoppedAnswer`), which needs
-neither field; and the answer shows the level the asker chose, while the
-stored row keeps the resolved one. The next release turns the flag on by
-default and then removes it and the list, once no tab of the strict bundle can
-still be open. Per-client gating was not available: the hello is the server's
+**The release that shipped the lenient read was staged.** The bundle before
+it generated every server-to-client schema `.strict()`. A tab of that bundle
+still open after the deploy refused a hello that names `accepts` (its socket
+ends `outdated`) and a `RUN_FINISHED` whose result has `reasoning_effort` (the
+turn never ends). So for that one release the server withheld both behind
+`GRID_WIRE_V2_ADDITIVE_FIELDS`, off by default (`STAGED_SERVER_FIELDS`,
+`aiq_api/chat_socket.py`). Every bundle since parses leniently, so the flag is
+now on by default; `off` is the rollback. A new tab works without the two
+fields: with no `accepts` it sends no `shown`, so a Stop stores everything
+streamed so far; a Stop that crossed the finished answer is still cut by the
+BFF (`cutStoppedAnswer`), which needs neither field; and the answer shows the
+level the asker chose, while the stored row keeps the resolved one. The flag
+and the list go once the rollback is no longer needed. Per-client gating was not available: the hello is the server's
 first frame and the client sends nothing before it, so the server cannot know
 which bundle it talks to.
 

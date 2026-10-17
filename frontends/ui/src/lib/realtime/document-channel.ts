@@ -28,7 +28,7 @@
 import 'server-only'
 import { getAccessibleDocument } from '@/lib/documents/access'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
-import { ROOM_LIMIT } from '@/lib/limits'
+import { ROOM_CLAIM_LIMIT, ROOM_LIMIT } from '@/lib/limits'
 import {
   CURSOR_CHAT_MAX,
   HIGHLIGHT_TTL_MS,
@@ -98,6 +98,8 @@ export const documentChannel = defineChannel({
   upstream: {
     schema: roomPostSchema,
     limit: ROOM_LIMIT,
+    // Presence and the selected mark are claims: motion must never refuse them.
+    claims: { limit: ROOM_CLAIM_LIMIT, fields: ['selected'] },
     handle: (post, peer) => {
       const events: RoomEvent[] = []
       if (post.cursor !== undefined) {

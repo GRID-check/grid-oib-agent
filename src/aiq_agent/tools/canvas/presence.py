@@ -27,6 +27,7 @@ import contextvars
 import logging
 from dataclasses import dataclass
 from dataclasses import field
+from typing import Any
 
 from aiq_agent import project_context
 from aiq_agent.observability.retrieval_trace import emit_step_span
@@ -69,6 +70,30 @@ def note_presence(document_id: str | None) -> None:
     presence = _presence.get()
     if presence is not None:
         presence.documents.add(document_id or SUBJECT)
+
+
+async def show_reading(
+    target_body: dict[str, Any],
+    document_id: str | None,
+    signed: SignedEnvelope,
+    page: int,
+    region: list[float] | None,
+) -> None:
+    """Tell the room what Piloti reads, the page or the box on it. Never raises.
+
+    Everyone in the document sees the box Piloti reads, the way people round a
+    table follow a finger on the sheet. Presence, not content: it says where
+    Piloti looks, never what it found, so no shared-write rule applies. A
+    failure costs the glow, never the look; the turn's ``leave`` clears it.
+    """
+    payload: dict[str, Any] = {"op": "look", "page": page, **target_body}
+    if region is not None and len(region) == 4:
+        payload.update(zip(("x", "y", "w", "h"), (round(float(value), 4) for value in region), strict=True))
+    try:
+        await asyncio.to_thread(post_canvas, payload, signed, timeout=LEAVE_TIMEOUT_SECONDS)
+        note_presence(document_id)
+    except Exception as exc:  # noqa: BLE001 - presence never takes the look down
+        logger.info("Showing what Piloti reads failed: %s", exc)
 
 
 def _envelope() -> SignedEnvelope | None:

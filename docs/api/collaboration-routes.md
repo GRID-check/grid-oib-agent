@@ -279,11 +279,33 @@ asked in it (spec IB-9).
 
 ## Inbox
 
-### `GET /api/inbox?pendingOnly=true|false`
+Every route below has one typed client, `frontends/ui/src/lib/inbox/client.ts`
+(ADR-0055): the inbox list and badge, the review (opening a mark reads its
+news) and the shell's notification offer call it, and `app/api/inbox/routes.spec.ts`
+drives the real handlers through it. The service worker posts a tapped
+notification's item to `POST /api/inbox/read` itself (`public/sw.js` cannot
+import), and the same spec holds its path to the client's.
 
-Returns `InboxListResponse` = `{ items: InboxItemView[], pending: number }`,
-bounded by `INBOX_LIST_LIMIT`. `pendingOnly` is an explicit `'true' | 'false'`
-enum, not a coerced boolean (`z.coerce.boolean()` reads `"false"` as `true`).
+### `GET /api/inbox?filter=…&cursor=…`
+
+Returns `InboxListResponse` = `{ items: InboxItemView[], pending, counts:
+{ requests, unread }, hasMore, nextCursor }`, one page of `INBOX_LIST_LIMIT`
+rows, newest first (by `updated_at` as stored, to the microsecond, then by
+id, on the bare column the list index covers). `filter` picks the slice
+(`InboxListFilter` in `lib/inbox/types.ts`):
+
+| `filter` | Rows | The list's filter |
+|---|---|---|
+| `requests` | actionable, not resolved, not redacted, not archived | „Für mich“ |
+| `unread` | not opened, not redacted, not archived | „Ungelesen“ |
+| `all` (default) | everything not archived | „Alle“ |
+| `archived` | only archived rows | „Archiviert“ |
+| `pending` | the badge's own set: unread, or a request still open | — |
+
+`counts` are the numbers beside the first two
+filters. `hasMore` says a further page exists; pass `nextCursor` back as
+`?cursor=` to read it. A cursor is opaque and written by the server; one it did
+not write is a `400`.
 
 **Access is re-checked at read time** (spec IB-13). An item never grants access.
 For every distinct target on the page — resolved **once per resource**, not once
@@ -297,7 +319,9 @@ in a folder the reader may not read is redacted like a revoked target
 and the run view withhold it.
 
 `InboxItemView` carries `type`, `state` (`unread`/`read`/`resolved`/`archived`/
-`inert`), `actionable`, `count`, `actorName`, `actorUserId`, `subject`,
+`inert`), `archived` (the reader archived it; its own fact, because an archived
+row whose target went away reads `state: 'inert'` and is still restored, never
+archived again), `actionable`, `count`, `actorName`, `actorUserId`, `subject`,
 `related` (the second name a type shows, e.g. the newer document of a
 `document.new_fassung`), `excerpt`, `variant` (which wording of its type the
 row reads, a key segment: why Piloti could not work a mark, what a proposal
@@ -328,20 +352,32 @@ index `idx_inbox_items_pending`.
 
 ### `POST /api/inbox/read`
 
-Body `{ itemIds: string[] }` or `{ all: true }` — at least one of them; `{}` is a
-`400`. `itemIds` must be uuids and is capped at `INBOX_LIST_LIMIT`, because a
-mark-read request can only ever be about rows the client was shown. If both are
-sent, `all` wins. Scoped to the caller, so ids belonging to someone else cannot be
-poked (they simply match nothing — telling you an item is not yours would confirm
-it exists).
+Exactly one of three bodies; anything else (`{}`, two shapes at once) is a `400`:
 
-Returns `{ affected, pending }`: rows actually touched (`0` is a legitimate
-no-op) and the recomputed badge, so no follow-up read is needed.
+- `{ itemIds: string[] }` — the rows the reader opened. Uuids, capped at
+  `INBOX_LIST_LIMIT`, because a mark-read request can only ever be about rows
+  the client was shown.
+- `{ all: true }` — „Alle als gelesen markieren“, in the types the caller may see.
+- `{ resourceType: 'document', resourceId, anchorId }` — the reader opened one
+  mark in the review: their informational items anchored on it are read
+  (`markAnchorItemsRead`); requests stay open, as for a whole resource.
 
-### `POST /api/inbox/{id}/archive`
+Scoped to the caller, so ids belonging to someone else cannot be poked (they
+simply match nothing — telling you an item is not yours would confirm it
+exists). Returns `{ affected, pending }`: rows actually touched (`0` is a
+legitimate no-op) and the recomputed badge, so no follow-up read is needed.
 
-Archive one item. `404` on a miss — indistinguishable from "not yours". Returns
-the same `{ affected, pending }`.
+### `POST /api/inbox/unread`
+
+`{ itemIds: string[] }` — „Als ungelesen markieren“: the caller's own live rows
+lose their `readAt`. `count` stays as reading left it. Same bounds and the
+same `{ affected, pending }`.
+
+### `POST /api/inbox/{id}/archive`, `DELETE /api/inbox/{id}/archive`
+
+`POST` archives one item; `DELETE` takes it out of the archive again
+(„Wiederherstellen“ under „Archiviert“). `404` on a miss — indistinguishable
+from "not yours". Both return `{ affected, pending }`.
 
 ---
 

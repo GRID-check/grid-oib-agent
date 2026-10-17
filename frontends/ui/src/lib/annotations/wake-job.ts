@@ -53,6 +53,7 @@ import { regionAround } from './types'
 import { auditSuppressedWake, capReached, wakesEnabled } from './wake'
 import { auditWakeEnded, auditWakeStarted, type AuditedWake } from './wake-audit'
 import { delegationEventId } from './wake-ids'
+import { announcePilotiWork } from './piloti-work'
 import { findWake, handBackDelegation, settleWake } from './wake-repository'
 
 /** The hello entries a server must name before a wake is sent: without `if_idle` it would supersede. */
@@ -245,6 +246,7 @@ export async function runPilotiWake(
   // Nothing to tell: the person's own act, a rule or a cap held it.
   const end = async (status: 'suppressed', reason: string): Promise<Result> => {
     if (await settleWake(organizationId, payload.wakeId, { status, reason })) {
+      void announcePilotiWork(wake)
       auditSuppressedWake({
         organizationId,
         actor: payload.actor,
@@ -274,6 +276,7 @@ export async function runPilotiWake(
   // the settle that moved it from `queued` goes on: a turn that already reported its end adds nothing.
   const fail = async (status: 'refused' | 'failed', reason: string): Promise<Result> => {
     if (await settleWake(organizationId, payload.wakeId, { status, reason })) {
+      void announcePilotiWork(wake)
       await afterEndWithoutAnswer({ organizationId, payload, doc, mark, status, reason })
     }
     return done
@@ -343,6 +346,7 @@ export async function runPilotiWake(
       // Only the settle that moved it from `queued`: a second run of the job, or
       // a turn that already reported its end, adds no line.
       if (await settleWake(organizationId, payload.wakeId, { status: 'started' })) {
+        void announcePilotiWork(wake)
         auditWakeStarted(auditedWake(organizationId, payload, doc, mark), payload.waits)
       }
       return done

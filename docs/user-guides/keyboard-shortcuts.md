@@ -77,6 +77,18 @@ While the mention picker is open it owns the navigation keys: ↑/↓ move the
 selection, Tab or Enter inserts the name, and Escape dismisses the picker without
 closing the chat around it. Enter never sends a message while the picker is open.
 
+## In the inbox
+
+While the inbox is open (and you are not typing in a field), it can be worked
+without the mouse:
+
+| Shortcut | What it does |
+|---|---|
+| **J** / **K** | Move to the next or previous item |
+| **Enter** | Open the item (and mark it read) |
+| **E** | Archive the item (Undo stays on offer for a few seconds); under *Archived*, restore it |
+| **U** | Mark the item read, or unread again |
+
 ## The command palette
 
 ⌘K opens a searchable list of everything the UI can already do: jump to one of

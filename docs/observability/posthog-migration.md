@@ -150,8 +150,8 @@ date.
    Either stop writing free text into the score and keep it in Postgres, or add
    PostHog person and event deletion to the erasure pipeline.
 6. **Replay link needs two flags.** The browser's session id only reaches the
-   trace with `GRID_WIRE_V2_ADDITIVE_FIELDS` on (the hello withholds `accepts`
-   otherwise) and `GRID_TRACE_IDENTITY_ATTRIBUTES` on.
+   trace with `GRID_WIRE_V2_ADDITIVE_FIELDS` on, its default (the hello withholds
+   `accepts` when it is set off) and `GRID_TRACE_IDENTITY_ATTRIBUTES` on.
 7. **Support replies.** A feedback report opens a PostHog Support ticket, but
    replies are visible to the member only through PostHog's own widget, which
    adds its own bubble. The alternative is an in-app "Antworten vom Support" view

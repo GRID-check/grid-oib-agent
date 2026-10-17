@@ -220,7 +220,7 @@ describe('where an anchor lands (marks, proposals and Fassungen anchor rows too)
     return deepLink.mock.calls.at(-1)?.[1]
   }
 
-  it.each(['piloti.asks_you', 'piloti.work_done', 'piloti.work_failed'] as const)(
+  it.each(['piloti.asks_you', 'piloti.work_done', 'piloti.work_failed', 'annotation.assigned_to_you', 'annotation.activity'] as const)(
     'opens a document at the mark for %s',
     async (itemType) => {
       expect(await linkFor('document', { itemType, anchorId: 'ann-1' })).toEqual({

@@ -15,12 +15,13 @@ export interface UndoableArchive {
 }
 
 /**
- * Archiving that can be taken back, without a restore endpoint.
+ * Archiving that can be taken back within a toast's lifetime.
  *
- * The inbox API has `POST /api/inbox/:id/archive` and no way to un-archive, so
- * the write itself is what waits: the row leaves the list at once (that is the
+ * The write itself is what waits: the row leaves the list at once (that is the
  * feedback), and the request is sent when the undo window closes. Undo inside
- * the window therefore never touches the server, and cannot half-succeed.
+ * the window therefore never touches the server, and cannot half-succeed. After
+ * the window, the row is under „Archiviert“, which restores it
+ * (`DELETE /api/inbox/:id/archive`).
  *
  * Anything still waiting is sent when the list goes away (a route change, the
  * sheet closing) and when the page is hidden, so leaving never turns an

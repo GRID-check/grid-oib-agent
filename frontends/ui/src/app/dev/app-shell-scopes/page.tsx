@@ -29,11 +29,15 @@ import type { JSX } from 'react'
 import { AppSidebar } from '@/components/shell/app-sidebar'
 import { OrgHeader } from '@/components/shell/org-header'
 import { PhoneTabBar } from '@/components/shell/phone-tab-bar'
+import { installInboxBadgeFake } from '../_fixtures/inbox-badge'
 
 const PROJECTS = [
   { id: 'p-1', name: 'Wohnbau Seestadt Baufeld D12' },
   { id: 'p-2', name: 'Sanierung Amtshaus Favoriten' },
 ]
+
+// The badge shows a count, as it does for anyone with something waiting.
+installInboxBadgeFake(3)
 
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   try {

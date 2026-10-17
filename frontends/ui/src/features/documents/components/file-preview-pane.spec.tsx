@@ -208,7 +208,7 @@ describe('FilePreviewPane', () => {
     expect(screen.queryByText(/still use the previous revision/)).toBeNull()
   })
 
-  it('offers an expand affordance for a PDF once its preview URL has loaded', async () => {
+  it('offers the review for a PDF once its preview URL has loaded, in place of the enlarged viewer', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({ url: 'https://example.test/plan.pdf' }),
@@ -216,7 +216,8 @@ describe('FilePreviewPane', () => {
 
     render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
 
-    expect(await screen.findByRole('button', { name: /open large preview/i })).toBeDefined()
+    expect(await screen.findByRole('button', { name: 'Open review' })).toBeDefined()
+    expect(screen.queryByRole('button', { name: /open large preview/i })).toBeNull()
   })
 
   it('names the format in the facts line under the name and keeps the MIME type in its tooltip', () => {
@@ -274,14 +275,16 @@ describe('FilePreviewPane', () => {
     expect(screen.getByRole('button', { name: /try again/i })).toBeDefined()
   })
 
-  it('opens the large preview dialog when the expand affordance is clicked', async () => {
+  it('opens the large preview dialog for an image when the expand affordance is clicked', async () => {
     const user = userEvent.setup()
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ url: 'https://example.test/plan.pdf' }),
+      json: async () => ({ url: 'https://example.test/diagram.png' }),
     } as Response)
 
-    render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+    render(
+      <FilePreviewPane file={{ ...mockFile, filename: 'diagram.png', contentType: 'image/png' }} projectId="proj-1" />
+    )
 
     await user.click(await screen.findByRole('button', { name: /open large preview/i }))
 
@@ -317,7 +320,8 @@ describe('FilePreviewPane', () => {
     it('opens one document at a time: the enlarged view borrows it from the pane', async () => {
       const user = userEvent.setup()
       presigned()
-      render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+      // A PDF that carries no marks (no rail to show them in) keeps the enlarged viewer.
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" showMetadataPanel={false} />)
       await screen.findByRole('group', { name: 'plan.pdf' })
 
       await user.click(screen.getByRole('button', { name: /open large preview/i }))
@@ -354,7 +358,7 @@ describe('FilePreviewPane', () => {
       } as Response)
       render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
 
-      await screen.findByRole('button', { name: /open large preview/i })
+      await screen.findByRole('button', { name: 'Open review' })
       expect(screen.queryByTestId('pdf-scroll')).toBeNull()
       expect(pdf.opened).toEqual([])
     })
@@ -1337,13 +1341,11 @@ describe('FilePreviewPane', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1/preview', expect.anything())
     })
 
-    it('shows the rendition in the PDF viewer, says so, and can enlarge it', async () => {
+    it('shows the rendition in the PDF viewer, says so, and opens it as the review', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(rendition))
       const { container } = render(<FilePreviewPane file={docx} projectId="proj-1" />)
 
-      expect(
-        await screen.findByRole('button', { name: /open large preview/i })
-      ).toBeInTheDocument()
+      expect(await screen.findByRole('button', { name: 'Open review' })).toBeInTheDocument()
       // `/file` streams the rendition for an office file, so the viewer reads
       // the same address it reads for a PDF upload.
       await waitFor(() => expect(container.querySelectorAll('[data-page]')).toHaveLength(1))
@@ -1362,7 +1364,7 @@ describe('FilePreviewPane', () => {
         <FilePreviewPane file={{ ...docx, contentType: null }} projectId="proj-1" />
       )
 
-      await screen.findByRole('button', { name: /open large preview/i })
+      await screen.findByRole('button', { name: 'Open review' })
       await waitFor(() => expect(container.querySelectorAll('[data-page]')).toHaveLength(1))
     })
 
