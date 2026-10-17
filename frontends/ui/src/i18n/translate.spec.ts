@@ -83,6 +83,14 @@ describe('interpolate plural blocks', () => {
     expect(interpolate(template, { hits: 4, docs: 2 })).toBe('4 hits in 2 documents')
   })
 
+  test('an exact branch wins over the category', () => {
+    const files = '{n, plural, =0 {Keine Datei} one {# Datei} other {# Dateien}} abgelegt'
+    expect(interpolate(files, { n: 0 })).toBe('Keine Datei abgelegt')
+    expect(interpolate(files, { n: 1 })).toBe('1 Datei abgelegt')
+    expect(interpolate(files, { n: 2 })).toBe('2 Dateien abgelegt')
+    expect(interpolate('{n, plural, =1 {eine} other {#}}', { n: 1 })).toBe('eine')
+  })
+
   test('falls to the plural branch when the count is missing or not a number', () => {
     expect(interpolate(steps, { other: 1 })).toBe(' Schritte')
     expect(interpolate(steps, { count: 'viele' })).toBe('viele Schritte')

@@ -23,12 +23,14 @@ vi.mock('./client', () => ({
 }))
 
 import { FEATURE_FLAGS } from '@/lib/authz/feature-flags'
+import { TransientAuthzError } from '@/lib/authz/errors'
 import {
   _clearFeatureFlagCache,
   enabledPostAnswerStages,
   isDeepResearchEnabledForOrg,
   isMemoryReflectionEnabled,
   isOrgFeatureEnabled,
+  isProjectMailInboxEnabledForOrg,
   isTaskAutomationEnabledForOrg,
   POST_ANSWER_STAGE_FLAGS,
 } from './feature-flags'
@@ -192,5 +194,45 @@ describe('enabledPostAnswerStages', () => {
     listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: 'other' }]))
     const [viaStages, viaLegacy] = [await enabledPostAnswerStages('org-1'), await isMemoryReflectionEnabled('org-1')]
     expect(viaStages.includes('memory_reflection')).toBe(viaLegacy)
+  })
+})
+
+describe('isProjectMailInboxEnabledForOrg, the session-less half', () => {
+  it('is off without an organization', async () => {
+    await expect(isProjectMailInboxEnabledForOrg(null)).resolves.toBe(false)
+    expect(listOrganizationFeatureFlags).not.toHaveBeenCalled()
+  })
+
+  it('follows the per-org flag', async () => {
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: 'project-mail-inbox' }]))
+    await expect(isProjectMailInboxEnabledForOrg('org-1')).resolves.toBe(true)
+    await _clearFeatureFlagCache('org-1')
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: 'skills' }]))
+    await expect(isProjectMailInboxEnabledForOrg('org-1')).resolves.toBe(false)
+  })
+
+  it('reads every page, so a flag past the tenth is not read as off', async () => {
+    listOrganizationFeatureFlags.mockResolvedValue(
+      paginated([{ slug: 'a' }], [{ slug: 'b' }, { slug: 'project-mail-inbox' }])
+    )
+    await expect(isProjectMailInboxEnabledForOrg('org-1')).resolves.toBe(true)
+  })
+
+  // "Off" bounces the mail; "could not ask" must make the sender's server retry.
+  it('throws TransientAuthzError when WorkOS cannot be asked', async () => {
+    listOrganizationFeatureFlags.mockRejectedValue(new Error('workos down'))
+    await expect(isProjectMailInboxEnabledForOrg('org-1')).rejects.toBeInstanceOf(TransientAuthzError)
+  })
+
+  it('throws TransientAuthzError without an API key, rather than answering off', async () => {
+    vi.stubEnv('WORKOS_API_KEY', '')
+    await expect(isProjectMailInboxEnabledForOrg('org-1')).rejects.toBeInstanceOf(TransientAuthzError)
+    expect(listOrganizationFeatureFlags).not.toHaveBeenCalled()
+  })
+
+  it('is off where nobody signs in, and never asks WorkOS', async () => {
+    vi.stubEnv('REQUIRE_AUTH', 'false')
+    await expect(isProjectMailInboxEnabledForOrg('org-1')).resolves.toBe(false)
+    expect(listOrganizationFeatureFlags).not.toHaveBeenCalled()
   })
 })

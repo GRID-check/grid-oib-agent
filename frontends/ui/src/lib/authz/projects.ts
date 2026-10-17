@@ -9,6 +9,7 @@ import {
 } from '@/lib/projects/project-status'
 import { hasPermission, ORG_PERMISSIONS } from './permissions'
 import { checkResourcePermission } from './resource-check'
+import type { AuthzLookupOptions } from './errors'
 
 export type ProjectPermission =
   | 'project:view'
@@ -75,6 +76,11 @@ export async function requireProjectAccess(
    * that grant working while new roles can be given just the narrow one.
    */
   permission: ProjectPermission | readonly ProjectPermission[] = 'project:view',
+  /**
+   * `onError: 'throw'` raises `TransientAuthzError` when an FGA check could not
+   * complete, instead of the default NotFound. For an unattended caller (the
+   * inbound-mail filing job) a WorkOS blip must be a retry, not a refusal.
+   */
   options: {
     includeDeleted?: boolean
     /**
@@ -82,7 +88,7 @@ export async function requireProjectAccess(
      * closed project allows, reopening it (`project:manage`); never to read.
      */
     evenWhenClosed?: boolean
-  } = {}
+  } & AuthzLookupOptions = {}
 ): Promise<ProjectAccess> {
   const requested: readonly ProjectPermission[] = Array.isArray(permission)
     ? permission
@@ -129,13 +135,16 @@ export async function requireProjectAccess(
   }
 
   const check = (permissionSlug: ProjectPermission) =>
-    checkResourcePermission({
-      organizationMembershipId: session.organizationMembershipId,
-      organizationId: session.organizationId,
-      permissionSlug,
-      resourceExternalId: projectId,
-      resourceTypeSlug: 'project',
-    })
+    checkResourcePermission(
+      {
+        organizationMembershipId: session.organizationMembershipId,
+        organizationId: session.organizationId,
+        permissionSlug,
+        resourceExternalId: projectId,
+        resourceTypeSlug: 'project',
+      },
+      { onError: options.onError }
+    )
 
   // One round of concurrent checks rather than three sequential ones: the
   // requested permission gates access; manage/edit only refine the derived role.

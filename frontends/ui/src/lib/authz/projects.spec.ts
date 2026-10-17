@@ -14,6 +14,8 @@ vi.mock('@/lib/projects/repository', () => ({
 }))
 
 import { requireProjectAccess } from './projects'
+import { TransientAuthzError } from './errors'
+import { NotFoundError } from '@/lib/api/errors'
 import { setCacheStore, type CacheStore } from '@/lib/cache'
 import type { AuthorizedSession } from '@/lib/auth/types'
 
@@ -155,6 +157,41 @@ describe('requireProjectAccess', () => {
   it('project:edit makes two FGA round-trips (edit + manage) when uncached', async () => {
     await requireProjectAccess(session(), PROJECT_ID, 'project:edit')
     expect(check).toHaveBeenCalledTimes(2)
+  })
+
+  describe('a WorkOS error (C2): NotFound by default, a retry when asked', () => {
+    beforeEach(() => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      check.mockRejectedValue(new Error('workos 503'))
+    })
+
+    it('keeps the fail-closed default: a check that broke is a NotFound', async () => {
+      await expect(requireProjectAccess(session(), PROJECT_ID, 'project:edit')).rejects.toBeInstanceOf(
+        NotFoundError
+      )
+    })
+
+    it('raises TransientAuthzError with onError: throw, so an unattended caller retries', async () => {
+      await expect(
+        requireProjectAccess(session(), PROJECT_ID, ['project:documents:write', 'project:edit'], {
+          onError: 'throw',
+        })
+      ).rejects.toBeInstanceOf(TransientAuthzError)
+    })
+
+    it('still answers a completed denial as NotFound with onError: throw', async () => {
+      check.mockResolvedValue({ authorized: false })
+      await expect(
+        requireProjectAccess(session(), PROJECT_ID, 'project:edit', { onError: 'throw' })
+      ).rejects.toBeInstanceOf(NotFoundError)
+    })
+
+    it('does not cache the transient error', async () => {
+      await expect(
+        requireProjectAccess(session(), PROJECT_ID, 'project:edit', { onError: 'throw' })
+      ).rejects.toBeInstanceOf(TransientAuthzError)
+      expect(store.map.size).toBe(0)
+    })
   })
 
   describe('cache disabled (GRID_AUTHZ_CACHE_TTL_MS=0)', () => {

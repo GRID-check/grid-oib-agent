@@ -39,6 +39,16 @@ function withVariant(variant: string | null, leaves: readonly string[]): string[
   return variant ? [...leaves.map((leaf) => `variants.${variant}.${leaf}`), ...leaves] : [...leaves]
 }
 
+/** The params a template can interpolate: strings and numbers, not lists. */
+function scalarParams(params: InboxItemView['params']): Record<string, string | number> {
+  if (!params) return {}
+  return Object.fromEntries(
+    Object.entries(params).filter(
+      (entry): entry is [string, string | number] => typeof entry[1] === 'string' || typeof entry[1] === 'number',
+    ),
+  )
+}
+
 export interface InboxItemCopy {
   title: string
   body: string | null
@@ -58,6 +68,10 @@ export function inboxItemCopy(item: InboxItemView, t: Translator, dictionary: un
   const redacted = !item.href
 
   const vars = {
+    // A type's own values first, so the shared names below always mean what
+    // every other type's copy means by them. Only the scalar ones: a list (a
+    // mail's skipped files) is drawn by the row, not interpolated.
+    ...scalarParams(item.params),
     actor: item.actorName ?? t('inbox.unknownActor'),
     subject: item.subject ?? t(redacted ? 'inbox.inert' : 'inbox.untitledConversation'),
     related: item.related ?? '',
@@ -74,9 +88,14 @@ export function inboxItemCopy(item: InboxItemView, t: Translator, dictionary: un
   // lost the first name (a document that could not be described) reads the
   // title written without it. A type that is a sentence about a person
   // (`{actor} hat …`) may say it without one when the actor is unknown, rather
-  // than „Jemand hat …".
+  // than „Jemand hat …". A type whose copy names its params may ship a title
+  // for a row whose params were withheld or no longer parse, and one for a row
+  // with no subject, so neither renders a blank count or quotes a placeholder
+  // as if it were the subject.
   const titleCandidates = withVariant(item.variant, [
     ...(item.actorName === null ? ['titleNoActor'] : []),
+    ...(item.params === undefined ? ['titleWithheld'] : []),
+    ...(item.subject === null ? ['titleUntitled'] : []),
     ...(item.related !== null && !redacted
       ? [...(item.subject === null ? ['titleRelatedNoSubject'] : []), 'titleRelated']
       : []),

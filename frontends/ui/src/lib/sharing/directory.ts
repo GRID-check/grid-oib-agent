@@ -81,6 +81,34 @@ export async function loadOrganizationDirectory(
 }
 
 /**
+ * The member of `organizationId` whose email is `email`, asked of WorkOS now
+ * rather than read from the cached roster: for a caller whose "not found" is
+ * final, such as a mail bounced as from a non-member, which a person invited
+ * within the roster's five minutes must not get. `email` is compared ASCII-
+ * lowercased. THROWS when WorkOS cannot be asked; the caller decides.
+ */
+export async function findOrganizationMemberByEmail(
+  organizationId: string,
+  email: string,
+): Promise<DirectoryPerson | null> {
+  const wanted = asciiLower(email.trim())
+  const page = await getWorkOS().userManagement.listUsers({ organizationId, email: wanted, limit: 10 })
+  const user = page.data.find((candidate) => candidate.email && asciiLower(candidate.email.trim()) === wanted)
+  if (!user) return null
+  return {
+    userId: user.id,
+    email: user.email ?? null,
+    name: displayName(user),
+    profilePictureUrl: user.profilePictureUrl ?? null,
+  }
+}
+
+/** Lowercase ASCII letters only, so no Unicode case fold can make two addresses meet. */
+function asciiLower(value: string): string {
+  return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
+}
+
+/**
  * Resolve a subset of ids to people. Unknown ids are simply absent from the
  * result — a deactivated or cross-org id must not fabricate a person.
  */

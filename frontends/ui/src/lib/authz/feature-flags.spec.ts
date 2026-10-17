@@ -13,6 +13,7 @@ import {
   isIfcModelsEnabled,
   isMailImportEnabled,
   isProjectKnowledgePageEnabled,
+  isProjectMailInboxEnabled,
   isSkillsEnabled,
   requireFeature,
   requireSkillsEnabled,
@@ -49,6 +50,7 @@ describe('the registry', () => {
         'mail-import',
         'piloti-acts',
         'piloti-wakes',
+        'project-mail-inbox',
         'runtime-model-config',
         'skills',
         'task-automation',
@@ -153,5 +155,23 @@ describe('where nobody signs in (REQUIRE_AUTH unset): rollouts on, entitlements 
     vi.stubEnv('GRID_SKILLS_ENABLED', 'true')
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
     expect(isSkillsEnabled({ featureFlags: [FEATURE_FLAGS.skills] })).toBe(false)
+  })
+})
+
+describe('project-mail-inbox, an entitlement', () => {
+  it('registry carries the project-mail-inbox slug', () => {
+    expect(FEATURE_FLAGS.projectMailInbox).toBe('project-mail-inbox')
+  })
+
+  it('is OFF where nobody signs in, whatever a session claims', () => {
+    vi.stubEnv('REQUIRE_AUTH', 'false')
+    expect(isProjectMailInboxEnabled({ featureFlags: [FEATURE_FLAGS.projectMailInbox] })).toBe(false)
+  })
+
+  it('follows the per-org claim where people sign in', () => {
+    vi.stubEnv('REQUIRE_AUTH', 'true')
+    expect(isProjectMailInboxEnabled({ featureFlags: [FEATURE_FLAGS.projectMailInbox] })).toBe(true)
+    expect(isProjectMailInboxEnabled({ featureFlags: [] })).toBe(false)
+    expect(isProjectMailInboxEnabled({ featureFlags: null })).toBe(false)
   })
 })

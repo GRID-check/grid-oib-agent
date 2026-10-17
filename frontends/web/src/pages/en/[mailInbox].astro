@@ -1,0 +1,24 @@
+---
+/** The English twin of pages/[mailInbox].astro, at /en/<MAIL_INBOX_SLUG>/. */
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import MailInbox from '../../components/organisms/MailInbox.astro'
+import EndInvite from '../../components/molecules/EndInvite.astro'
+import { MAIL_INBOX_SLUG } from '../../consts'
+import { ui } from '../../i18n/ui'
+import { SHARE_ART, pageLd } from '../../lib/seo'
+
+export const getStaticPaths = () => [{ params: { mailInbox: MAIL_INBOX_SLUG } }]
+
+const t = ui.en.seo.pages.mailInbox
+---
+
+<BaseLayout
+  locale="en"
+  title={t.title}
+  description={t.description}
+  ogArt={SHARE_ART.mailInbox}
+  jsonLd={pageLd('en', t.title, Astro.url.pathname, Astro.site)}
+>
+  <MailInbox locale="en" />
+  <EndInvite locale="en" page="mailInbox" />
+</BaseLayout>

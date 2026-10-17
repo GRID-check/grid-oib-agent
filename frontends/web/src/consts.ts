@@ -32,3 +32,19 @@ export function mailtoHref(subject?: string, body?: string) {
  * decided at build time here.
  */
 export const SIGN_IN_HREF = '/sign-in'
+
+/**
+ * The public page on the project mail inbox: `/e-mail-eingang/` and
+ * `/en/e-mail-eingang/`, prerendered by `pages/[mailInbox].astro` and
+ * `pages/en/[mailInbox].astro` from this slug alone.
+ *
+ * Stable ON PURPOSE, and pure ASCII: the app's settings card links it
+ * (`mailInboxHelpUrl` in frontends/ui/src/lib/brand.ts) and the Worker's bounce
+ * text for a refused mail names it, so every copy of that bounce in a mailbox
+ * carries this URL. The path is `paths.mailInbox` in `shared/public-site.json`;
+ * the Docker build cannot read that file, so this is a copy, and
+ * `scripts/check-public-site.mjs` (`npm run check`) fails when it drifts.
+ * Renaming it breaks every link already handed out; do not.
+ */
+export const MAIL_INBOX_SLUG = 'e-mail-eingang'
+export const MAIL_INBOX_PATH = `/${MAIL_INBOX_SLUG}/`

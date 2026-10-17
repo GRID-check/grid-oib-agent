@@ -43,6 +43,7 @@ import {
   EyeOff,
   HardDrive,
   Layers,
+  Mail,
   Megaphone,
   MessageSquare,
   ShieldAlert,
@@ -84,6 +85,7 @@ import type { DocumentVersionView } from '@/lib/documents/lifecycle-types'
 import { DiscussDocumentButton } from '@/features/documents/components/discuss-document-button'
 import { projectIdFromDocumentHref } from '@/features/documents/lib/document-question'
 import { compareFassungHref } from '@/features/documents/lib/fassung-compare-link'
+import { InboundMailSkippedFiles } from './InboundMailSkippedFiles'
 
 /**
  * The ONE place the registry's icon names become components. Keeping the map here
@@ -101,6 +103,7 @@ const ICONS: Record<(typeof INBOX_TYPE_PRESENTATION)[keyof typeof INBOX_TYPE_PRE
     clock: Clock,
     layers: Layers,
     megaphone: Megaphone,
+    mail: Mail,
     'shield-alert': ShieldAlert,
   }
 
@@ -406,6 +409,13 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
           </ItemTitle>
 
           {body && <ItemDescription className="mt-0.5">{body}</ItemDescription>}
+
+          {/* A mail's skipped files: a list, so it is drawn rather than
+              interpolated. Keyed on the params' shape, which the registry's
+              schema fixed, not on the type name. */}
+          {item.params && 'skippedFiles' in item.params && (
+            <InboundMailSkippedFiles params={item.params} />
+          )}
 
           {/* Three lines when it is the only body: then it is the news, and
               on a phone two lines cut a change off mid-sentence. */}

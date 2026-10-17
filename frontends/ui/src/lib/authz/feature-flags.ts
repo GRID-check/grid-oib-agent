@@ -159,6 +159,19 @@ export const FEATURE_FLAGS = {
    *  organization (`fireScheduledJob`). Jobs ride this one flag: they ship as
    *  one feature, so a second flag could only let them disagree. */
   skills: 'skills',
+  /**
+   * The project email address: mail sent to a project's own address files its
+   * attachments into the project as the sender (`lib/inbound-mail`, ADR-0075).
+   *
+   * An entitlement: mail from outside reaches a tenant's file system, so an
+   * organization gets it after it has been told, never by default.
+   *
+   * Gates the address surface (`/api/projects/[id]/inbound-address`), the
+   * webhook (a refusal the sender's server does not retry) and the filing job.
+   * The webhook and the filing job have no session, so they read the org-level
+   * half, `isProjectMailInboxEnabledForOrg` in `lib/workos/feature-flags.ts`.
+   */
+  projectMailInbox: 'project-mail-inbox',
   /** Outlook archive (.pst/.ost) import into a project (ADR-0085). It files the
    *  correspondence of everyone who wrote to the office, so an operator
    *  switches it on per organization, deliberately. */
@@ -215,6 +228,7 @@ export const FLAG_KINDS: Readonly<Record<KnownFeatureFlag, 'entitlement' | 'roll
   collaboration: 'entitlement',
   skills: 'entitlement',
   'mail-import': 'entitlement',
+  'project-mail-inbox': 'entitlement',
   'piloti-wakes': 'entitlement',
   'piloti-acts': 'entitlement',
   'web-search': 'rollout',
@@ -268,6 +282,11 @@ export function isProjectKnowledgePageEnabled(session: Pick<GridSession, 'featur
  */
 export function isMailImportEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
   return isFeatureEnabled(session, FEATURE_FLAGS.mailImport)
+}
+
+/** The project email address (ADR-0075). */
+export function isProjectMailInboxEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  return isFeatureEnabled(session, FEATURE_FLAGS.projectMailInbox)
 }
 
 /** Whether events on Piloti's work wake a turn for this organization (ADR-0106). */

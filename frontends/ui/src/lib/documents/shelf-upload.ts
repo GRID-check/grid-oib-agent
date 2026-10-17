@@ -89,6 +89,18 @@ export interface ShelfUploadInput {
    * behalf, the mail import (ADR-0085), says `bulk` so it yields to them.
    */
   priority?: IngestPriority
+  /**
+   * The intake channel, for an upload no person made at a screen, recorded on
+   * the upload's audit event as `channel` and `channelRef`, so the trail tells
+   * a mailed attachment from a dropped file.
+   */
+  audit?: UploadAuditChannel
+}
+
+export interface UploadAuditChannel {
+  channel: 'inbound-mail'
+  /** The channel's own id for the delivery: the inbound-mail message row. */
+  ref: string
 }
 
 export interface UploadDocumentResult {
@@ -151,6 +163,7 @@ async function uploadAuditEvent(
     fassungOf: string | null
     /** Why that choice was dropped, when it was: the file went in as a document of its own. */
     fassungOfIgnored: FassungOfIgnoredReason | null
+    audit?: UploadAuditChannel
   },
 ): Promise<void> {
   const located =
@@ -173,6 +186,7 @@ async function uploadAuditEvent(
       ...(event.replaced ? { replaced: true } : {}),
       ...(event.fassungOf ? { fassungOf: event.fassungOf.slice(0, 200) } : {}),
       ...(event.fassungOfIgnored ? { fassungOfIgnored: event.fassungOfIgnored } : {}),
+      ...(event.audit ? { channel: event.audit.channel, channelRef: event.audit.ref.slice(0, 200) } : {}),
     },
     request,
   })
@@ -557,6 +571,7 @@ export async function uploadToShelf(
     replaced: placed.replaced,
     fassungOf: input.fassungOf && upload.fassungOf ? input.fassungOf : null,
     fassungOfIgnored: upload.fassungOfIgnored,
+    audit: input.audit,
   })
   await auditScreeningOverride(
     session,

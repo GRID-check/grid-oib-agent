@@ -41,6 +41,7 @@ vi.mock('@/lib/cache', () => ({
 }))
 
 import { getCached, setCached } from '@/lib/cache'
+import { TransientAuthzError } from './errors'
 import {
   ensureFolderResource,
   FOLDER_ROLE_BY_LEVEL,
@@ -174,6 +175,16 @@ describe('heldFolderLevels', () => {
 
     // The next request asks again, and gets the real answer.
     expect(await heldFolderLevels(ORG, 'om_1', PROJECT)).toEqual({ 'f-1': 'read', 'f-2': 'write' })
+  })
+
+  it('raises TransientAuthzError instead when a caller that retries asks (the project mail inbox)', async () => {
+    resourcesFor({ 'folder:read': [folder('f-1')], 'folder:write': [] })
+    workos.listResourcesForMembership.mockRejectedValueOnce(serverError())
+
+    await expect(heldFolderLevels(ORG, 'om_1', PROJECT, { onError: 'throw' })).rejects.toBeInstanceOf(
+      TransientAuthzError
+    )
+    expect(levelKeys()).toEqual([])
   })
 })
 

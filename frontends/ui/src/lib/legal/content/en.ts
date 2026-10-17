@@ -56,7 +56,7 @@ export const en: LegalContent = {
 
   privacy: {
     title: 'Privacy Policy',
-    updated: '2026-10-10',
+    updated: '2026-10-17',
     intro:
       'This policy explains how personal data is processed when you use Piloti, pursuant to Regulation (EU) 2016/679 (GDPR / DSGVO).',
     sections: [
@@ -72,6 +72,7 @@ export const en: LegalContent = {
         list: [
           'Account and organization data: name, email address, organization membership, roles and permissions. Identity is managed by our identity provider WorkOS (AuthKit); we deliberately keep no separate local copy of your identity profile.',
           'Content data: your chat questions and the answers generated for you, research reports, project documents you upload (plans, permits, specifications — which may themselves contain personal data), and project/organization memory entries derived from your interactions.',
+          'Files received by email: when project members send email to a project’s email address, the attachments are stored as project documents, in a folder whose name contains the time of receipt and the sender’s name. The text of the email is not stored, and the subject is in no folder or file name. Until they are filed, the selected attachments are held in the organization’s object storage. For each email we keep a delivery record (the sending account, a checksum of the Message-ID and the attachments, the folder name, counts and the processing status; until filing also the subject and the names of files not filed) and a notification to the sender that names the subject and the files not filed.',
           'Usage and billing data: a usage ledger recording, per AI request, the requested and actually serving AI model, token counts and cost, attributed to your organization, project and user.',
           'Audit data: privileged administrative actions (e.g. model configuration changes, budget changes, deletions, legal holds) are recorded with actor, timestamp, IP address and user agent.',
           'Technical data: server logs, session cookie (authentication), locale preference cookie.',
@@ -83,6 +84,7 @@ export const en: LegalContent = {
         list: [
           'Providing the service, answering your questions, storing your projects — Art. 6(1)(b) (performance of contract).',
           'Security, access control, audit trails, abuse prevention (rate limits, admission control) — Art. 6(1)(f) (legitimate interest in secure, accountable operation).',
+          'Checking and refusing email to project email addresses that cannot be matched to an authorised member; we are responsible for this ourselves, and nothing of a refused email is stored — Art. 6(1)(f) (legitimate interest in secure operation).',
           'Usage metering and budget enforcement — Art. 6(1)(b) and (f).',
           'Compliance with legal obligations (e.g. retention under legal hold, accounting) — Art. 6(1)(c).',
           'Product improvement, debugging, support and surveys (product analytics, session replay, error tracking) — Art. 6(1)(f) (legitimate interest in a stable, understandable product). For storage of information on your device see Section 7. You may object to this processing at any time (Sections 7 and 8).',
@@ -91,7 +93,7 @@ export const en: LegalContent = {
       {
         heading: '4. AI processing and recipients of your content',
         paragraphs: [
-          'To generate answers, your chat messages, relevant excerpts of your uploaded documents and retrieved regulation passages are transmitted to external AI model providers via the API gateway OpenRouter, Inc. (USA). Web-research queries derived from your questions are sent to the search provider Tavily. Identity and sign-in are handled by WorkOS, Inc. (USA).',
+          'To generate answers, your chat messages, relevant excerpts of your uploaded documents and retrieved regulation passages are transmitted to external AI model providers via the API gateway OpenRouter, Inc. (USA). Web-research queries derived from your questions are sent to the search provider Tavily. Identity and sign-in are handled by WorkOS, Inc. (USA). Emails to project email addresses are received by Cloudflare, Inc. (USA), which passes them on to Piloti. Cloudflare does not store their content, but keeps a delivery log with sender, recipient and subject for about 30 days.',
           'For product analytics, session replay, error tracking, surveys and support we use PostHog (PostHog, Inc.; data stored in the EU Cloud, Frankfurt). PostHog processes this data on our behalf under a data processing agreement (Art. 28 GDPR). PostHog also receives AI-request metadata (time, model, duration, token counts, cost, names of the processing steps) and the ratings you give to answers, including your comment, from our tracing system Langfuse. Chat messages, answers and document contents are not part of it.',
         ],
         notice:
@@ -110,6 +112,7 @@ export const en: LegalContent = {
           'Project content is stored in our application database, in object storage (uploaded documents) and in a vector index (document embeddings) — all operated within our own infrastructure. When a project is deleted it is first soft-deleted and restorable during a grace period, after which an automated purge permanently removes it from all stores (database, object storage, vector index, and the associated authorization records). Deletion can be suspended by a legal hold (Art. 18 GDPR restriction) placed by your organization’s compliance role; every hold and release is recorded in the audit trail.',
           'Usage-ledger and audit records are retained for accountability and billing purposes for as long as the organization’s contract and statutory retention periods require.',
           'At PostHog, product-analytics events (including error reports, survey answers and the AI metadata received from Langfuse) are kept up to 12 months and session recordings up to 30 days. Messages to support are kept until we delete them. On request we delete the data stored at PostHog under your user ID.',
+          'Attachments received by email are deleted from interim storage once filed, at the latest after 7 days. The delivery record of an email is deleted after 30 days; the subject and file names are removed as soon as the email is filed or given up. The notification to the sender is deleted after 30 days.',
         ],
       },
       {
@@ -130,7 +133,7 @@ export const en: LegalContent = {
       {
         heading: '9. Data security (Art. 32 GDPR)',
         paragraphs: [
-          'Access is protected by single sign-on with optional multi-factor authentication, role-based permissions and tenant isolation enforced on every request. Administrative actions are audit-logged. Transport encryption (TLS) protects data in transit. Internal service-to-service calls are authenticated with dedicated tokens.',
+          'Access is protected by single sign-on with optional multi-factor authentication, role-based permissions and tenant isolation enforced on every request. Administrative actions are audit-logged. Connections to the application are encrypted with TLS. Email to project email addresses reaches Cloudflare encrypted only if the sending mail server uses TLS, which is outside our control. Internal service-to-service calls are authenticated with dedicated tokens.',
         ],
       },
       {
@@ -257,7 +260,7 @@ export const en: LegalContent = {
 
   subprocessors: {
     title: 'External Services & Subprocessors',
-    updated: '2026-10-10',
+    updated: '2026-10-17',
     intro:
       'All external services that can process data when you use Piloti, and the infrastructure the operator runs itself. This page implements the transparency commitment referenced in the Privacy Policy.',
     sections: [
@@ -335,6 +338,13 @@ export const en: LegalContent = {
               'Chat messages, document excerpts, project profile text',
               'USA',
               'Optional (only if configured)',
+            ],
+            [
+              'Cloudflare, Inc.',
+              'Receiving the project email addresses (Email Routing, Email Worker) and DNS',
+              'Incoming emails in transit (headers, text, attachments); no storage of content; delivery log with sender, recipient, subject and status for about 30 days',
+              'USA / global edge network (EU-US Data Privacy Framework)',
+              'Only if the project mail inbox is switched on for your organization',
             ],
             [
               'Hosting provider',

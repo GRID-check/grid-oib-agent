@@ -46,10 +46,14 @@ import {
   type InboxResolutionTarget,
 } from './repository'
 import {
+  assertInboxParams,
   inboxItemIsActionable,
   PLATFORM_INBOX_PERMISSION,
   platformInboxTypes,
+  readInboxParams,
   visibleInboxTypes,
+  type InboxParamsByType,
+  type InboxTypeWithParams,
 } from './registry'
 import type {
   InboxItemState,
@@ -59,19 +63,23 @@ import type {
 } from './types'
 
 /**
- * One notification to create. `groupKey` decides grouping/dedup/idempotency —
- * build it with the registry's helper rather than by hand.
+ * A type's payload: free-form display data, plus `params` exactly as the
+ * type's schema in `./registry` declares them. A type with a params schema
+ * must send them; a type without one may not.
  */
-export interface InboxEmission {
+export type InboxPayload<T extends InboxItemType> = Record<string, unknown> &
+  (T extends keyof InboxParamsByType ? { params: InboxParamsByType[T] } : { params?: never })
+
+interface InboxEmissionOf<T extends InboxItemType> {
   organizationId: string
   recipientUserId: string
-  type: InboxItemType
+  type: T
   resourceType: InboxTargetType
   resourceId: string
   anchorId?: string | null
   actorUserId?: string | null
   groupKey: string
-  payload?: Record<string, unknown>
+  payload?: InboxPayload<T>
 }
 
 /** Split rows into waves in which no (recipient, group key) repeats, keeping their order. */
@@ -93,6 +101,21 @@ export function upsertWaves<T extends { recipientUserId: string; groupKey: strin
 }
 
 /**
+ * One notification to create. `groupKey` decides grouping/dedup/idempotency —
+ * build it with the registry's helper rather than by hand. A union over the
+ * types, so `payload.params` is checked against the emitted type's schema at
+ * compile time, and again at run time by {@link emitInboxItems}.
+ */
+export type InboxEmission =
+  | { [T in InboxTypeWithParams]: InboxEmissionOf<T> }[InboxTypeWithParams]
+  // Every type without params as one shape, so an emitter that picks its type
+  // at run time (`'piloti.work_done' | 'piloti.work_failed'`) still compiles.
+  | InboxEmissionOf<InboxTypeWithoutParams>
+
+/** The types whose payload carries no `params`. */
+export type InboxTypeWithoutParams = Exclude<InboxItemType, InboxTypeWithParams>
+
+/**
  * Create (or fold) notifications, queue their system notifications and nudge
  * each recipient's badge.
  *
@@ -101,6 +124,12 @@ export function upsertWaves<T extends { recipientUserId: string; groupKey: strin
  * feels like noise.
  */
 export async function emitInboxItems(emissions: InboxEmission[]): Promise<number> {
+  // Before anything is written: params that do not match their type's schema
+  // are an emitter bug, and a row stored with them would render with a blank
+  // where a count belongs. Throwing here fails the emitter's own tests.
+  for (const emission of emissions) {
+    assertInboxParams(emission.type, emission.payload?.params)
+  }
   const rows: NewInboxItem[] = emissions
     .filter((emission) => emission.recipientUserId !== emission.actorUserId)
     .map((emission) => ({
@@ -515,6 +544,13 @@ function toItemView(
   const messageId = nonEmpty(payload.runMessageId)
   const run: RunMessageRef | null =
     conversationId && runId && messageId ? { conversationId, runId, messageId } : null
+  // The folder a mail's files were filed into (`inbound_mail.filed`), so the
+  // row opens that folder rather than the project's file root.
+  const folderId = nonEmpty(payload.folderId)
+  // Parsed through the type's own schema (`./registry`): stored JSON an older
+  // deploy may have written, so a row whose params no longer fit renders
+  // without them rather than with a part of them.
+  const params = access ? readInboxParams(row.type, payload.params) : undefined
 
   return {
     id: row.id,
@@ -537,12 +573,13 @@ function toItemView(
     actorUserId: row.actorUserId,
     count: row.count,
     href: access
-      ? access.deepLink({ itemType: row.type, anchorId: row.anchorId, taskId, run })
+      ? access.deepLink({ itemType: row.type, anchorId: row.anchorId, taskId, run, folderId })
       : null,
     subject: access ? coerceText(payload.subject, SUBJECT_MAX_LENGTH) : null,
     related: access ? coerceText(payload.related, SUBJECT_MAX_LENGTH) : null,
     excerpt: access ? coerceText(payload.excerpt, EXCERPT_MAX_LENGTH) : null,
     variant: access ? coerceVariant(payload.variant) : null,
+    ...(params ? { params } : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }

@@ -1,0 +1,122 @@
+---
+/**
+ * /e-mail-eingang/: how the project mail inbox works. A help page, not a
+ * search page: it answers the member who is about to mail a project and the
+ * one whose mail came back, whose bounce links here. Copy in i18n/pages.ts
+ * (`mailInbox`); every rule on it is one the receiving side enforces.
+ */
+import PageHead from '../molecules/PageHead.astro'
+import { pages } from '../../i18n/pages'
+import type { Locale } from '../../i18n/ui'
+
+interface Props {
+  locale: Locale
+}
+const { locale } = Astro.props
+const t = pages[locale].mailInbox
+const h2 = 'm-0 font-voice text-v4 text-ink'
+const lead = 'm-0 mt-5 max-w-measure text-base leading-relaxed text-ink-soft md:text-lg'
+const code = 'rounded-md bg-surface px-1.5 py-0.5 font-mono text-[0.88em] text-ink [overflow-wrap:anywhere]'
+
+/** A string with `backticks` as runs of text and code, for the folder names, `winmail.dat` and DMARC values. */
+const runs = (text: string) => text.split('`').map((part, i) => ({ part, isCode: i % 2 === 1 }))
+---
+
+<div class="frame pt-28 md:pt-36">
+  <PageHead title={t.heading} locale={locale}>
+    <p class="m-0">{t.lede}</p>
+  </PageHead>
+</div>
+
+<div class="frame">
+  <section aria-labelledby="inbox-address" class="section-y">
+    <p id="inbox-address" class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">{t.address.label}</p>
+    <p class="m-0 mt-3 font-mono text-lg text-ink [overflow-wrap:anywhere] md:text-2xl">{t.address.example}</p>
+    <p class="m-0 mt-4 max-w-measure text-base leading-relaxed text-ink-soft">{t.address.note}</p>
+  </section>
+
+  <section aria-labelledby="inbox-steps" class="section-y border-t border-ink/15">
+    <h2 id="inbox-steps" class={h2}>{t.steps.title}</h2>
+    <ol class="m-0 mt-8 grid list-none gap-x-10 gap-y-8 p-0 md:grid-cols-3">
+      {
+        t.steps.items.map((step, i) => (
+          <li class="border-t border-ink/15 pt-5">
+            <p class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">{String(i + 1).padStart(2, '0')}</p>
+            <h3 class="m-0 mt-2 text-lg font-semibold text-ink">{step.name}</h3>
+            <p class="m-0 mt-2 max-w-measure text-base leading-relaxed text-ink-soft">
+              {runs(step.body).map((r) => (r.isCode ? <code class={code}>{r.part}</code> : r.part))}
+            </p>
+          </li>
+        ))
+      }
+    </ol>
+    <p class="m-0 mt-8 max-w-measure text-base leading-relaxed text-ink-mute">{t.steps.missing}</p>
+  </section>
+
+  <section aria-labelledby="inbox-files" class="section-y border-t border-ink/15">
+    <h2 id="inbox-files" class={h2}>{t.files.title}</h2>
+    <ul class="m-0 mt-6 max-w-measure list-disc space-y-3 pl-5 text-base leading-relaxed text-ink-soft">
+      {t.files.items.map((item) => <li>{runs(item).map((r) => (r.isCode ? <code class={code}>{r.part}</code> : r.part))}</li>)}
+    </ul>
+  </section>
+
+  <section aria-labelledby="inbox-senders" class="section-y border-t border-ink/15">
+    <h2 id="inbox-senders" class={h2}>{t.senders.title}</h2>
+    {t.senders.body.map((p) => <p class={lead}>{p}</p>)}
+  </section>
+
+  <section aria-labelledby="inbox-verify" class="section-y border-t border-ink/15">
+    <h2 id="inbox-verify" class={h2}>{t.verify.title}</h2>
+    {
+      t.verify.body.map((p) => (
+        <p class={lead}>{runs(p).map((r) => (r.isCode ? <code class={code}>{r.part}</code> : r.part))}</p>
+      ))
+    }
+    <h3 class="m-0 mt-10 text-lg font-semibold text-ink">{t.verify.fixTitle}</h3>
+    <dl class="m-0 mt-4 grid gap-x-10 gap-y-6 md:grid-cols-2">
+      {
+        t.verify.fixes.map((f) => (
+          <div class="border-t border-ink/15 pt-4">
+            <dt class="text-base font-semibold text-ink">{f.name}</dt>
+            <dd class="m-0 mt-1 max-w-measure text-base leading-relaxed text-ink-soft">{f.body}</dd>
+          </div>
+        ))
+      }
+    </dl>
+    <p class="m-0 mt-6 max-w-measure text-base leading-relaxed text-ink-mute">{t.verify.fixNote}</p>
+  </section>
+
+  <section aria-labelledby="inbox-bounce" class="section-y border-t border-ink/15">
+    <h2 id="inbox-bounce" class={h2}>{t.bounce.title}</h2>
+    <p class={lead}>{t.bounce.body}</p>
+    <dl class="m-0 mt-8 max-w-4xl">
+      {
+        t.bounce.reasons.map((r) => (
+          <div class="grid gap-1 border-t border-ink/15 py-4 md:grid-cols-2 md:gap-10">
+            <dt class="text-base font-semibold text-ink">{r.name}</dt>
+            <dd class="m-0 text-base leading-relaxed text-ink-soft">{r.body}</dd>
+          </div>
+        ))
+      }
+    </dl>
+  </section>
+
+  <section aria-labelledby="inbox-limits" class="section-y border-t border-ink/15">
+    <h2 id="inbox-limits" class={h2}>{t.limits.title}</h2>
+    <ul class="m-0 mt-6 max-w-measure list-disc space-y-3 pl-5 text-base leading-relaxed text-ink-soft">
+      {t.limits.items.map((item) => <li>{item}</li>)}
+    </ul>
+  </section>
+
+  <section aria-labelledby="inbox-privacy" class="section-y border-t border-ink/15">
+    <h2 id="inbox-privacy" class={h2}>{t.privacy.title}</h2>
+    <ul class="m-0 mt-6 max-w-measure list-disc space-y-3 pl-5 text-base leading-relaxed text-ink-soft">
+      {t.privacy.items.map((item) => <li>{item}</li>)}
+    </ul>
+  </section>
+
+  <section aria-labelledby="inbox-rotate" class="section-y border-t border-ink/15">
+    <h2 id="inbox-rotate" class={h2}>{t.rotate.title}</h2>
+    {t.rotate.body.map((p) => <p class={lead}>{p}</p>)}
+  </section>
+</div>

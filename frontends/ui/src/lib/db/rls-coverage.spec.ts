@@ -165,6 +165,10 @@ const BOUNDARY_MIGRATIONS = [
   // on for (ADR-0112). Keyed directly by its organization; the endpoint is
   // unique across tenants, so a device belongs to its last registrant.
   '0147_push_subscriptions.sql',
+  // Adds the project mail inbox (ADR-0075): inbound_mail_addresses and
+  // inbound_mail_messages. Keyed by the organization, with the organization
+  // inside every foreign key, secured exactly as `document_roles`.
+  '0148_inbound_mail.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

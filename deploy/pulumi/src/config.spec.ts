@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as pulumi from "@pulumi/pulumi";
 import { loadConfig } from "./config";
 import { baseStackConfig } from "./test-support/stack-config";
+import { APP_ZONE, APP_ZONE_ID, appZoneStackConfig } from "./test-support/app-zone-config";
 
 // `new pulumi.Config()` (config.ts:873) namespaces every key by the PROJECT
 // name, which the runtime reads from the mock context. Without this the keys
@@ -54,6 +55,12 @@ function loadWith(values: Record<string, string>, omit: string[] = []): Error | 
   } catch (error) {
     return error as Error;
   }
+}
+
+/** `loadWith`, for a config that loads: the resolved values. */
+function loadValues(values: Record<string, string>) {
+  pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...values });
+  return loadConfig();
 }
 
 describe("tenant bucket prefix", () => {
@@ -271,5 +278,105 @@ describe("chat tier scale-out (ADR-0080)", () => {
     // so the first socket the Service hands to the wrong replica hangs silently.
     const error = loadWith({ "grid-oib:chatAffinity": "false", "grid-oib:conversationBus": "false" });
     expect(error?.message).toMatch(/needs grid-oib:conversationBus=true/);
+  });
+});
+
+describe("project mail inbox", () => {
+  const mail = {
+    "grid-oib:inboundMailDomain": "post.example.test",
+    "grid-oib:inboundMailZoneId": "zone-mail-1",
+    "grid-oib:inboundMailToken": "inbound-token", // pragma: allowlist secret
+    "grid-oib:cloudflareApiToken": "cf-token", // pragma: allowlist secret
+  };
+
+  it("is off, and asks for nothing, while the domain is unset", () => {
+    expect(loadWith({})).toBeNull();
+  });
+
+  it("loads with the domain, the zone and both tokens", () => {
+    expect(loadWith(mail)).toBeNull();
+  });
+
+  // A domain without the BFF token deploys a Worker whose every delivery gets
+  // a 503: the sender's MTA retries for days, then bounces. Nothing fails here.
+  it.each(["grid-oib:inboundMailToken", "grid-oib:cloudflareApiToken"])(
+    "refuses the domain without %s",
+    (key) => {
+      expect(loadWith(mail, [key])?.message).toContain(key);
+    },
+  );
+
+  it("counts an empty token as missing", () => {
+    expect(loadWith({ ...mail, "grid-oib:inboundMailToken": "" })?.message).toContain(
+      "grid-oib:inboundMailToken",
+    );
+  });
+
+  it("refuses the domain without the zone to enable routing on", () => {
+    expect(loadWith(mail, ["grid-oib:inboundMailZoneId"])?.message).toMatch(
+      /inboundMailZoneId is required/,
+    );
+  });
+
+  it.each(["https://post.example.test", "inbox@post.example.test", "post"])(
+    "refuses %s as a domain",
+    (domain) => {
+      expect(loadWith({ ...mail, "grid-oib:inboundMailDomain": domain })?.message).toMatch(
+        /must be a bare domain name/,
+      );
+    },
+  );
+
+  it("refuses a subdomain of the DNS zone, which the catch-all cannot cover", () => {
+    // The natural choice, `eingang.<zone>`, and the one Cloudflare cannot do:
+    // catch-all rules exist only for a zone's apex.
+    const error = loadWith({
+      ...mail,
+      "grid-oib:inboundMailDomain": "eingang.example.test",
+      "grid-oib:inboundMailZoneId": "zone-dns-1",
+      "grid-oib:dnsZoneId": "zone-dns-1",
+      "grid-oib:dnsZoneName": "example.test",
+    });
+    expect(error?.message).toMatch(/is not the apex of its zone/);
+  });
+
+  it("accepts the app zone's own apex on the stack that owns the zone", () => {
+    expect(
+      loadWith({
+        ...appZoneStackConfig(),
+        ...mail,
+        "grid-oib:inboundMailDomain": APP_ZONE,
+        "grid-oib:inboundMailZoneId": APP_ZONE_ID,
+      }),
+    ).toBeNull();
+  });
+
+  it("takes the app zone when the domain is its apex and no zone is given", () => {
+    const values = {
+      ...appZoneStackConfig(),
+      "grid-oib:inboundMailDomain": APP_ZONE,
+      "grid-oib:inboundMailToken": mail["grid-oib:inboundMailToken"],
+    };
+    expect(loadWith(values)).toBeNull();
+    expect(loadValues(values).inboundMail.zoneId).toBe(APP_ZONE_ID);
+  });
+
+  it.each([
+    ["grid-oib:dnsZoneBaseline", "false"],
+    ["grid-oib:dnsEnabled", "false"],
+  ])("refuses the inbox on the app zone unless this stack owns it (%s=%s)", (key, value) => {
+    // The catch-all is one object per zone: a second stack's `up` would
+    // silently repoint it at its own Worker.
+    const error = loadWith({
+      ...appZoneStackConfig(),
+      ...mail,
+      "grid-oib:inboundMailDomain": APP_ZONE,
+      "grid-oib:inboundMailZoneId": APP_ZONE_ID,
+      // The apex-serving stack must itself be the baseline; serve a subdomain
+      // so that the only refusal left is the inbox's.
+      "grid-oib:baseDomain": `www2.${APP_ZONE}`,
+      [key]: value,
+    });
+    expect(error?.message).toMatch(/inboundMailDomain on the app zone needs grid-oib:dnsEnabled/);
   });
 });

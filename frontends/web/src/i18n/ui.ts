@@ -61,6 +61,11 @@ const de = {
         description:
           'Wie die Piloti-Website mit Ihren Daten umgeht: welche Reichweitenmessung wir einsetzen und was sie speichert, welche Dienste beteiligt sind und welche Anbieter die Piloti-Anwendung nutzt.',
       },
+      mailInbox: {
+        title: 'E-Mail-Eingang: Dateien per E-Mail ins Projekt – Piloti',
+        description:
+          'Jedes Projekt in Piloti hat eine eigene E-Mail-Adresse. Wer senden darf, was mit Anhängen passiert, warum eine E-Mail zurückkommt und wie Sie DKIM einschalten.',
+      },
       warum: {
         title: 'Warum Piloti: KI für Architekturbüros in Österreich',
         description:
@@ -428,6 +433,7 @@ const de = {
     neu: 'Die Pilotbüros helfen mit, was als Nächstes kommt. Schreiben Sie uns, wenn Ihr Büro dabei sein soll.',
     rechenweg: 'Gemessen hat das noch niemand. Messen wir es in Ihrem Büro.',
     warum: 'Die beste Probe ist eine Frage aus Ihrem laufenden Projekt. Schicken Sie uns eine.',
+    mailInbox: 'Die Unterlagen kommen per E-Mail, die Fragen dazu beantwortet Piloti. Schicken Sie uns eine aus Ihrem laufenden Projekt.',
   },
   chat: {
     fictional: 'Fiktives Beispiel',
@@ -522,6 +528,7 @@ const de = {
     data: 'Quellen und Daten',
     value: 'Wertrechner',
     working: 'Rechenweg',
+    mailInbox: 'E-Mail-Eingang',
     team: 'Team',
     why: 'Warum Piloti',
     blog: 'Blog',
@@ -635,7 +642,7 @@ const de = {
         },
         {
           heading: 'Anmeldung und Piloti-Anwendung',
-          html: 'Mit „Anmelden“ verlassen Sie diese Website und gelangen zur Piloti-Anwendung; dort gilt deren eigene Datenschutzerklärung. Kurz vorab: Die Anmeldung läuft über WorkOS, Inc. (USA). KI-Anfragen werden über OpenRouter, Inc. (USA) an Modellanbieter weitergeleitet, die ihren Sitz auch außerhalb der EU haben können. Produktanalyse, Fehlererfassung, Umfragen und Support der Anwendung laufen über PostHog (Rechenzentrum in Frankfurt am Main). Wir selbst trainieren keine KI-Modelle mit Ihren Daten.',
+          html: 'Mit „Anmelden“ verlassen Sie diese Website und gelangen zur Piloti-Anwendung; dort gilt deren eigene Datenschutzerklärung. Kurz vorab: Die Anmeldung läuft über WorkOS, Inc. (USA). KI-Anfragen werden über OpenRouter, Inc. (USA) an Modellanbieter weitergeleitet, die ihren Sitz auch außerhalb der EU haben können. Produktanalyse, Fehlererfassung, Umfragen und Support der Anwendung laufen über PostHog (Rechenzentrum in Frankfurt am Main). E-Mails an die E-Mail-Adresse eines Projekts nimmt Cloudflare, Inc. (USA) entgegen und reicht sie an die Anwendung weiter; lehnt die Anwendung eine solche E-Mail ab, verarbeiten wir sie nur, um sie abzulehnen, und speichern nichts davon (berechtigtes Interesse, Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f DSGVO). Wir selbst trainieren keine KI-Modelle mit Ihren Daten.',
         },
         {
           heading: 'Redaktionsbereich',
@@ -732,6 +739,11 @@ const en: typeof de = {
         title: 'Privacy policy – Piloti',
         description:
           'How the Piloti website handles your data: which audience measurement we use and what it stores, which services are involved, and which providers the Piloti application relies on.',
+      },
+      mailInbox: {
+        title: 'Project mail inbox: send files to a project by email – Piloti',
+        description:
+          'Every Piloti project has its own email address. Who can send, what happens to attachments, why a mail bounces, and how to switch on DKIM for your domain.',
       },
       warum: {
         title: 'Why Piloti: AI for architecture firms in Austria',
@@ -1085,6 +1097,7 @@ const en: typeof de = {
     neu: 'The pilot offices help decide what comes next. Write to us if your office should be one of them.',
     rechenweg: 'Nobody has measured this yet. Let us measure it in your office.',
     warum: 'The best test is a question from your current project. Send us one.',
+    mailInbox: 'The drawings arrive by email; Piloti answers the questions about them. Send us one from your current project.',
   },
   chat: {
     fictional: 'Fictional example',
@@ -1175,6 +1188,7 @@ const en: typeof de = {
     data: 'Sources and data',
     value: 'Value calculator',
     working: 'The maths',
+    mailInbox: 'Project mail inbox',
     team: 'Team',
     why: 'Why Piloti',
     blog: 'Blog',
@@ -1280,7 +1294,7 @@ const en: typeof de = {
         },
         {
           heading: 'Sign-in and the Piloti application',
-          html: '“Sign in” takes you from this website to the Piloti application, which has its own privacy policy. In short: sign-in is handled by WorkOS, Inc. (USA). AI requests are routed through OpenRouter, Inc. (USA) to model providers that may be based outside the EU. Product analytics, error tracking, surveys and support in the application run through PostHog (data centre in Frankfurt, Germany). We do not train AI models on your data.',
+          html: '“Sign in” takes you from this website to the Piloti application, which has its own privacy policy. In short: sign-in is handled by WorkOS, Inc. (USA). AI requests are routed through OpenRouter, Inc. (USA) to model providers that may be based outside the EU. Product analytics, error tracking, surveys and support in the application run through PostHog (data centre in Frankfurt, Germany). Mail sent to a project’s email address is received by Cloudflare, Inc. (USA) and passed on to the application; if the application refuses such a mail, we process it only to refuse it and store none of it (legitimate interest, Art. 6(1)(f) GDPR). We do not train AI models on your data.',
         },
         {
           heading: 'Editorial area',

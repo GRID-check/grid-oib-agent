@@ -445,7 +445,7 @@ describe('the session loaders', () => {
 
   it('clearanceOf: the levels WorkOS reports for the session’s membership in this project', async () => {
     expect(await clearanceOf(session('bh'), 'proj-1')).toEqual({ levels: levelsOf('bh'), seesEverything: false })
-    expect(heldFolderLevels).toHaveBeenCalledWith('org-1', 'om-bh', 'proj-1')
+    expect(heldFolderLevels).toHaveBeenCalledWith('org-1', 'om-bh', 'proj-1', {})
   })
 
   it("with WorkOS unreachable the admin bypass is the token's permission", async () => {
@@ -551,7 +551,7 @@ describe('the session loaders', () => {
 
     vi.mocked(resolveMembershipRoles).mockResolvedValue(['member'])
     expect(await clearanceOfMember('org-1', 'bh', 'proj-1')).toEqual({ levels: levelsOf('bh'), seesEverything: false })
-    expect(heldFolderLevels).toHaveBeenCalledWith('org-1', 'om-bh', 'proj-1')
+    expect(heldFolderLevels).toHaveBeenCalledWith('org-1', 'om-bh', 'proj-1', {})
   })
 
   it('clearanceOfMember: fails closed when the roles or the membership cannot be read', async () => {
@@ -684,7 +684,7 @@ describe('requireFolderWrite — the one write check', () => {
 
   it('lets a writer write', async () => {
     await expect(requireFolderWrite(session('pl'), 'proj-1', [F.vertraege])).resolves.toBeUndefined()
-    expect(requireProjectAccess).toHaveBeenCalledWith(expect.anything(), 'proj-1', ['project:documents:write', 'project:edit'])
+    expect(requireProjectAccess).toHaveBeenCalledWith(expect.anything(), 'proj-1', ['project:documents:write', 'project:edit'], { onError: undefined })
   })
 
   it('refuses a read-only member with a typed 403', async () => {

@@ -36,8 +36,7 @@ import { isLive } from './types'
 import { wakeEndReasonKind } from './wake-end-reason'
 import { bestEffortInbox } from '@/lib/inbox/best-effort'
 import { inboxGroupKey } from '@/lib/inbox/registry'
-import { emitInboxItems, resolveInboxItemsAnchoredOn } from '@/lib/inbox/service'
-import type { InboxItemType } from '@/lib/db/schema'
+import { emitInboxItems, resolveInboxItemsAnchoredOn, type InboxTypeWithoutParams } from '@/lib/inbox/service'
 import { describeResource } from '@/lib/sharing/registry'
 
 /** The mark an event is about. */
@@ -72,7 +71,7 @@ async function documentName(ref: MarkRef): Promise<string | null> {
 
 /** One item about a mark, addressed to one person. `variant` picks the row's wording, where its type has more than one. */
 async function emitAboutMark(
-  type: InboxItemType,
+  type: InboxTypeWithoutParams,
   ref: MarkRef,
   recipientUserId: string,
   excerpt: string | null,

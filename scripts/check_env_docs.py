@@ -32,6 +32,7 @@ SCOPE = (
     "frontends/ui/scheduler/*.js",
     "frontends/ui/src/lib/jobs-queue/*.ts",
     "frontends/ui/src/lib/mail-import/*.ts",
+    "frontends/ui/src/lib/inbound-mail/*.ts",
 )
 
 #: Read but not ours to document: the container runtime sets it.

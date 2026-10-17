@@ -224,6 +224,25 @@ describe('purgeProject', () => {
     ])
   })
 
+  // A mail not yet filed is staged under the project prefix in the bucket its
+  // delivery row recorded (ADR-0075). A project with no document in that
+  // bucket would otherwise leave the staged attachments behind.
+  it('asks the mail inbox delivery rows for the buckets their staging is in', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+      documentBucketRows: [{ storage_bucket: 'grid-org-org1-abcdef123456' }],
+    })
+
+    await purgeProject(tx, entry, makeDeps())
+
+    const bucketRead = executed.find(({ text }) => text.startsWith('SELECT DISTINCT storage_bucket'))
+    expect(bucketRead.text).toContain('FROM inbound_mail_messages')
+    expect(bucketRead.text).toContain('staging_bucket IS NOT NULL')
+    expect(bucketRead.text).toContain('FROM mail_imports')
+    expect(bucketRead.values).toEqual(['p1', 'p1', 'p1'])
+  })
+
   // The shared bucket is unconditional: NULL means shared (migration 0033), so
   // a project whose documents all predate the column records nothing, and the
   // sweep must still reach them.
@@ -660,6 +679,25 @@ describe('collaboration rows', () => {
     ]) {
       expect(table(name)).toBeLessThan(table('DELETE FROM conversations'))
     }
+  })
+
+  it("purges the inbox items that point at the project itself", async () => {
+    // Run outcomes and filed mail (ADR-0075) target `project`, not a chat or a
+    // document, so neither subquery above reaches them, and nothing cascades.
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_p1' },
+      conversationRows: [],
+    })
+
+    await purgeProject(tx, entry, makeDeps())
+
+    const projectItems = executed.filter(
+      (call) =>
+        call.text.startsWith('DELETE FROM inbox_items') &&
+        call.text.includes("resource_type = 'project'"),
+    )
+    expect(projectItems).toHaveLength(1)
+    expect(projectItems[0].values).toEqual(['p1'])
   })
 
   it('expresses the conversation set as a subquery, not as N bound parameters', async () => {

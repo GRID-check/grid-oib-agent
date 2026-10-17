@@ -30,7 +30,7 @@ export default async function ProjectDocumentsSettingsPage({
       <DocumentsSettings
         projectId={id}
         currentUserId={session.userId}
-        canReindex={access.writeDocuments}
+        canWriteDocuments={access.writeDocuments}
         showKnowledgeLink={isProjectKnowledgePageEnabled(session)}
       />
     )
