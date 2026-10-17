@@ -117,6 +117,15 @@ export function isNeverIndexed(file: { status?: string | null }): boolean {
 }
 
 /**
+ * The content check holds this document back (ADR-0086, *zurückgehalten*):
+ * nothing reads it until someone allows it through (*zulassen*) or deletes it.
+ * Asked of the state the badge names, so a surface's line and the badge agree.
+ */
+export function isHeldStatus(status: string | null | undefined): boolean {
+  return surfaceStateOf(status) === 'held'
+}
+
+/**
  * Ask may open this document — the same claim the green badge makes, decided
  * by the same status (see {@link isNeverIndexed} for why authorship no longer
  * overrides it).

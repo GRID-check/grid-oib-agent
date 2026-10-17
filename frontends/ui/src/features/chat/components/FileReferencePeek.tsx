@@ -24,7 +24,8 @@ import { documentDisplayName } from '@/lib/documents/display-name'
 import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel } from '@/features/documents/document-kind'
-import { isCitable, isFailedStatus, isNeverIndexed } from '@/features/documents/components/document-status'
+import { isCitable, isFailedStatus, isHeldStatus, isNeverIndexed } from '@/features/documents/components/document-status'
+import { IngestionGlyph } from '@/features/documents/components/ingestion-atoms'
 import type { StoredFile } from '@/features/documents/hooks/use-surfaced-documents'
 import { PEEK_ACTION_CLASSES } from './CitationPeek'
 
@@ -47,6 +48,10 @@ export const FileReferencePeek: FC<{
   // it after asking a question about it.
   const notIndexed = isNeverIndexed(file)
   const failed = isFailedStatus(file.status)
+  // Held back by the content check (ADR-0086): it is the reader's own upload
+  // or one they review, since nobody else is shown it. Not a failure; a person
+  // decides, and Piloti cites it only after that.
+  const held = isHeldStatus(file.status)
 
   const facts = [
     ext || null,
@@ -90,6 +95,16 @@ export const FileReferencePeek: FC<{
 
       {file.summary && (
         <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">{file.summary}</p>
+      )}
+
+      {held && (
+        <p
+          className="flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground"
+          data-testid="file-reference-held"
+        >
+          <IngestionGlyph mark="held" className="mt-px text-warning" />
+          {t('fileReference.held')}
+        </p>
       )}
 
       {(failed || notIndexed) && (

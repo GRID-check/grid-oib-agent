@@ -18,7 +18,9 @@ import { motion, motionQuick, springDrawer, useMotionToken } from '@/components/
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { useLocale, useTranslations } from '@/i18n'
 import { IngestFailureNotice } from '@/features/documents/components/ingest-failure-notice'
-import { QuarantineFindings } from '@/features/documents/components/quarantine-findings'
+import { HeldUploadReason } from '@/features/documents/components/held-upload-reason'
+import type { TrackedFile } from '@/features/documents/types'
+import type { QuarantineVerdict } from '@/lib/upload-screening/quarantine'
 import { formatBytes } from '@/lib/format'
 
 /**
@@ -43,14 +45,21 @@ export interface FileSourceCardProps {
   description?: string
   /** Current status of the file */
   status: FileSourceStatus
-  /** Error message when status is 'error'; the stored `quarantined:{…}` verdict when it is 'held' */
+  /** Error message when status is 'error'. Never set for 'held': that file says why through `quarantine`. */
   errorMessage?: string
+  /** Why the content check held the file, when status is 'held' (`quarantineVerdictOf`, ADR-0113). */
+  quarantine?: QuarantineVerdict | null
   /**
    * The failure happened while the file was being read, so `errorMessage` is a
    * stored ingest failure: it is said in the reader's language, raw text behind
    * „Details". Otherwise it is the upload's own message, shown as it is.
    */
   failedWhileReading?: boolean
+  /**
+   * The file was refused because the document it would replace is held
+   * (ADR-0086): `errorMessage` is then that sentence, not a verdict.
+   */
+  replacesHeld?: TrackedFile['replacesHeld']
   /** Hours after upload before the file may expire (0 = no expiry shown) */
   expirationIntervalHours?: number
   /**
@@ -203,7 +212,9 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
   description,
   status,
   errorMessage,
+  quarantine = null,
   failedWhileReading = false,
+  replacesHeld,
   expirationIntervalHours = 0,
   onDelete,
   onOpen,
@@ -309,10 +320,16 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
         )}
 
         {/* Why it was held, and the sentence that says what happens next: the
-            same reasons the tray and the Files preview list, never the stored
-            `quarantined:{…}` text behind a „Details“ disclosure. */}
+            same reasons the tray and the Files preview list, from the typed
+            verdict, never a stored message behind a „Details“ disclosure. */}
         {status === 'held' && (
-          <QuarantineFindings errorMessage={errorMessage} className="mt-1" testId="file-source-card-held" />
+          <HeldUploadReason
+            verdict={quarantine}
+            replacesHeld={replacesHeld}
+            message={errorMessage}
+            className="mt-1"
+            testId="file-source-card-held"
+          />
         )}
       </div>
     </>

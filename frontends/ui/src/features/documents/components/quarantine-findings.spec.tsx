@@ -35,7 +35,7 @@ describe('QuarantineFindings', () => {
   })
 
   it('claims nothing about the content when the reason cannot be read', () => {
-    render(<QuarantineFindings errorMessage="quarantined:{broken" />)
+    render(<QuarantineFindings verdict={null} />)
     expect(screen.getByText(en.files.ingestFailure.quarantinedUnreadable)).toBeInTheDocument()
     expect(screen.queryByText(en.files.ingestFailure.quarantined)).toBeNull()
   })
@@ -43,6 +43,14 @@ describe('QuarantineFindings', () => {
   it('does not call a verdict unreadable when it only left its reasons out', () => {
     render(<QuarantineFindings verdict={{ reasons: [], omitted: 2 }} />)
     expect(screen.getByText(en.files.ingestFailure.quarantined)).toBeInTheDocument()
+  })
+
+  it('does not claim no model saw a file caught in its scanned pages\' transcript', () => {
+    render(<QuarantineFindings verdict={{ ...verdict, checked: 'partial', after_transcription: true }} />)
+    expect(screen.getByTestId('quarantine-findings-sentence')).toHaveTextContent(
+      en.files.ingestFailure.quarantinedAfterTranscription
+    )
+    expect(screen.queryByText(en.files.ingestFailure.quarantined)).toBeNull()
   })
 
   it('gives the explaining sentence when reasons are listed', () => {

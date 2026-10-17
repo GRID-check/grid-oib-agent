@@ -21,6 +21,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import SerializerFunctionWrapHandler
+from pydantic import model_serializer
 from pydantic import model_validator
 
 
@@ -195,6 +197,76 @@ class CollectionInfo(BaseModel):
     )
 
 
+class QuarantineReason(BaseModel):
+    """One reason the upload screen held a file back (ADR-0086, ADR-0113).
+
+    A term the office listed, or a detector (``iban``, ``at_svnr``,
+    ``credit_card``); never a matched value. A detector's ``sample`` is masked
+    before it gets here (``AT61 •••• •••• •••• 3201``). ``kind`` is open: a
+    detector the job learns first reaches a reader as a kind it does not know,
+    which it reads as ``other`` rather than failing the whole verdict.
+
+    Serialised in one shape wherever it is dumped (the job status, the
+    collection file list, the legacy ``quarantined:`` string): ``term`` and
+    ``sample`` only when set, ``pages_truncated`` only when true. The BFF's
+    ``verdictSchema`` (``frontends/ui/src/lib/upload-screening/quarantine.ts``)
+    reads exactly that, and ``tests/fixtures/quarantine_verdict_cases.json``
+    holds the two to it.
+    """
+
+    kind: str = Field(..., min_length=1, description="`term`, or the detector that matched.")
+    term: str | None = Field(None, description="The office's term, as it wrote it; only for `kind == 'term'`.")
+    count: int = Field(..., ge=0, description="How often it was found.")
+    pages: list[int] = Field(default_factory=list, description="The pages it was found on, ascending, capped.")
+    pages_truncated: bool = Field(False, description="`pages` is not every page it was found on.")
+    sample: str | None = Field(None, description="A detector's MASKED sample; never the value.")
+
+    @model_serializer(mode="wrap")
+    def _compact(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        for key in ("term", "sample"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        if not data.get("pages_truncated"):
+            data.pop("pages_truncated", None)
+        return data
+
+
+class QuarantineVerdict(BaseModel):
+    """Why the upload screen held a file back, as data (ADR-0113).
+
+    Built only by ``ScreeningVerdict.to_model`` in the knowledge layer's
+    ``screening.py``, which bounds it: at most ten reasons, at most fifty pages
+    a reason, and the whole within two thousand characters of JSON, cutting
+    pages before reasons. ``omitted`` says how many reasons it left out, so a
+    short list is never read as the whole one; it is serialised only when it is
+    not zero, and ``checked`` always. ``after_transcription`` is serialised only
+    when true.
+    """
+
+    reasons: list[QuarantineReason] = Field(default_factory=list)
+    checked: Literal["full", "partial"] = Field(
+        ..., description="`partial` when some of the file's content went unscreened (pages without a text layer)."
+    )
+    omitted: int = Field(0, ge=0, description="Reasons found and not listed.")
+    after_transcription: bool = Field(
+        False,
+        description=(
+            "The match was in the vision model's transcript of the file's scanned pages: the vision model saw "
+            "those pages, and no later model call (summary, tags, embeddings) saw anything of the file."
+        ),
+    )
+
+    @model_serializer(mode="wrap")
+    def _compact(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if not data.get("omitted"):
+            data.pop("omitted", None)
+        if not data.get("after_transcription"):
+            data.pop("after_transcription", None)
+        return data
+
+
 class FileInfo(BaseModel):
     """
     Metadata about a file within a collection.
@@ -212,6 +284,13 @@ class FileInfo(BaseModel):
     ingested_at: datetime | None = Field(None, description="When ingestion completed.")
     expiration_date: datetime | None = Field(None, description="When the file will be auto-deleted.")
     error_message: str | None = Field(None, description="Error message if processing failed.")
+    quarantine: QuarantineVerdict | None = Field(
+        None,
+        description=(
+            "Why the upload screen held the file back (ADR-0086), when it did: the job's typed verdict "
+            "(ADR-0113). Read this, never the `quarantined:` text `error_message` still carries for older readers."
+        ),
+    )
     summary: str | None = Field(None, description="One-sentence summary of the document content, if generated.")
     tags: list[str] | None = Field(
         None,
@@ -311,7 +390,16 @@ class FileProgress(BaseModel):
             "(null otherwise): `clean` (all its content was screened, nothing matched), "
             "`partial` (its text layer was clean, but some pages go to OCR or drawing analysis "
             "unscreened), `unchecked` (an image, or no local text at all), `quarantined` "
-            "(a match; the file FAILED and `error_message` starts with `quarantined:`)."
+            "(a match; the file FAILED and `quarantine` says why)."
+        ),
+    )
+    quarantine: QuarantineVerdict | None = Field(
+        default=None,
+        description=(
+            "Why the upload screen held the file back, set with `screening == 'quarantined'` and null otherwise "
+            "(ADR-0113). The typed verdict: reasons (kind, term, count, pages, pages_truncated, masked sample), "
+            "`checked`, and `omitted`. `error_message` still carries the same verdict as `quarantined:{json}` "
+            "for one release, for a BFF that predates this field; nothing new reads that string."
         ),
     )
     failure_category: str | None = Field(

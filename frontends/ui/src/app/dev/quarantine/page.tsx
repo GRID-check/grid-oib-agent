@@ -5,8 +5,9 @@
  * from fixtures: a project file caught by a content term on two pages and by
  * another on more pages than the job lists (`pages_truncated`), an
  * Archiv file caught by an IBAN and a card number (masked, as the job stores
- * them), a chat attachment whose scan was only partly checked, and a row whose
- * verdict could not be read. `?empty=1` shows the empty state instead.
+ * them), a chat attachment whose scan was only partly checked, a scan caught
+ * in the vision model's transcript of its pages (`after_transcription`), and a
+ * row whose verdict could not be read. `?empty=1` shows the empty state instead.
  *
  * A module-scope fetch shim (browser + dev only) serves the queue and the
  * projects list and answers release and delete with success, so a row can be
@@ -77,6 +78,20 @@ const ITEMS = [
     },
   },
   {
+    id: 'doc-5',
+    filename: 'Scan_Bauakt_1987.pdf',
+    scope: 'project',
+    projectId: 'proj_2',
+    conversationId: null,
+    uploadedBy: 'user_02',
+    quarantinedAt: at(5),
+    verdict: {
+      reasons: [{ kind: 'term', term: 'Gehaltsabrechnung', count: 1, pages: [3] }],
+      checked: 'partial',
+      after_transcription: true,
+    },
+  },
+  {
     id: 'doc-4',
     filename: 'Altbestand.docx',
     scope: 'project',
@@ -119,7 +134,7 @@ export default function QuarantineDevPage(): JSX.Element {
     <main className="mx-auto flex max-w-3xl flex-col gap-6 p-4 sm:p-8" data-testid="quarantine-preview">
       <PageHeader
         title="Quarantäne"
-        subtitle="Dateien, die die Inhaltsprüfung zurückgehalten hat. Kein Modell hat sie gelesen. Wer sie prüfen darf, lässt sie hier zu oder löscht sie."
+        subtitle="Dateien, die die Inhaltsprüfung zurückgehalten hat. Solange sie hier liegen, zeigt Piloti sie keinem Modell. Wer sie prüfen darf, lässt sie hier zu oder löscht sie."
       />
       <QuarantineQueue />
     </main>

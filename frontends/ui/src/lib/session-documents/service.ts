@@ -23,6 +23,7 @@
  */
 
 import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
+import { normalizeOriginPath } from '@/lib/documents/origin-path'
 import { assertMayReplaceHeld, shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
 import 'server-only'
@@ -59,6 +60,7 @@ import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { purgeCollectionChunks } from './cleanup'
 import { collectionFileRef } from '@/lib/documents/collection-file-ref'
+import { quarantineVerdictOf, type QuarantineVerdict } from '@/lib/upload-screening/quarantine'
 import {
   deleteSessionDocument as deleteSessionDocumentRow,
   findSessionDocument,
@@ -67,7 +69,16 @@ import {
 } from './repository'
 
 export interface SessionDocumentListResult {
-  documents: Array<Omit<DocumentListRow, 'projectId' | 'scope' | 'metadata' | 'createdBy' | 'screeningOutcome' | 'screenedHash'> & DocumentMetadata>
+  documents: Array<
+    Omit<
+      DocumentListRow,
+      'projectId' | 'scope' | 'metadata' | 'createdBy' | 'screeningOutcome' | 'screenedHash' | 'quarantine'
+    > &
+      DocumentMetadata & {
+        /** Why a held attachment is held (ADR-0113); only its uploader and the reviewers are listed it. */
+        quarantine: QuarantineVerdict | null
+      }
+  >
   collectionName: string
 }
 
@@ -94,7 +105,16 @@ export async function listSessionDocuments(
 
   return {
     documents: reconciled.map(
-      ({ metadata: _metadata, createdBy: _createdBy, projectId: _projectId, scope: _scope, screeningOutcome: _screening, screenedHash: _screened, ...row }) => row
+      ({
+        metadata: _metadata,
+        createdBy: _createdBy,
+        projectId: _projectId,
+        scope: _scope,
+        screeningOutcome: _screening,
+        screenedHash: _screened,
+        quarantine,
+        ...row
+      }) => ({ ...row, quarantine: quarantineVerdictOf({ quarantine, errorMessage: row.errorMessage }) })
     ),
     collectionName: sessionCollectionName(conversationId),
   }
@@ -114,6 +134,12 @@ export interface UploadSessionDocumentInput {
   screeningRelease?: boolean
   /** See `UploadDocumentInput.uploadBatchId`. */
   uploadBatchId?: string | null
+  /**
+   * Where the file sat before it was dropped into the chat (a dropped folder's
+   * `webkitRelativePath`). Screened, never stored: the browser screened its
+   * folder names, so the server's repeat reads the same segments (ADR-0086).
+   */
+  originPath?: string | null
 }
 
 export interface UploadSessionDocumentResult {
@@ -156,10 +182,11 @@ export async function uploadSessionDocument(
   await createConversation(session, { id: conversationId, projectId: input.projectId ?? null })
 
   // The name gate's server-side repeat (ADR-0086), before a byte is stored.
-  // A chat attachment reaches the model as surely as a project file does.
+  // A chat attachment reaches the model as surely as a project file does, and
+  // the folders it was dropped from are screened as the browser screened them.
   const nameGate = await assertUploadNameAllowed(
     session.organizationId,
-    { filename: file.name },
+    { filename: file.name, originPath: normalizeOriginPath(input.originPath) },
     input.screeningRelease === true,
   )
   await assertUploadTypeAllowed(session, file.name)

@@ -877,6 +877,26 @@ def test_a_document_deleted_while_its_job_waited_is_not_read_at_all(tmp_path, mo
     assert status.file_details[0].error_message == adapter_module.DOCUMENT_DELETED_DURING_INGEST
 
 
+@pytest.mark.parametrize("policy", [{"content_terms": "Gehalt"}, {"detectors": ["passport"]}])
+def test_a_screening_policy_that_cannot_be_applied_holds_the_file_unread(tmp_path, monkeypatch, live_ingestor, policy):
+    """The office asked for its files to be checked: a file read without the check would reach a model."""
+    read = []
+    monkeypatch.setattr(
+        "knowledge_layer.deferred_files.resolve_original", lambda entry, downloaded: read.append(entry) or entry
+    )
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Gehaltsabrechnung März", encoding="utf-8")
+
+    config = {**_dispatched("lohn.txt"), "screening": policy}
+    job_id = live_ingestor.submit_job([str(upload)], "proj_unusable", config=config)
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert read == []
+    detail = status.file_details[0]
+    assert detail.error_message == adapter_module.SCREENING_UNAVAILABLE
+    assert (detail.failure_category, detail.retryable) == ("configuration", True)
+
+
 def test_a_run_that_lost_its_claim_stops_before_writing(tmp_path, live_ingestor, stores, presence):
     """Another worker holds the job now: this run writes no chunk and no status."""
     upload = tmp_path / "tmp_upload.txt"

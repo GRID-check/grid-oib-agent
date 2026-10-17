@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 vi.mock('./repository', () => ({
+  addUploadBatchExclusions: vi.fn().mockResolvedValue(true),
   countBatchDocumentsByStatus: vi.fn(),
   findUploadBatch: vi.fn(),
   insertUploadBatch: vi.fn().mockResolvedValue(undefined),
@@ -40,6 +41,7 @@ import { findFolderPathsInProject } from '@/lib/documents/repository'
 import { encodeDocumentListCursor } from '@/lib/documents/list-cursor'
 import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
 import {
+  addUploadBatchExclusions,
   countBatchDocumentsByStatus,
   findUploadBatch,
   insertUploadBatch,
@@ -55,6 +57,7 @@ import {
   listProjectUploadHistory,
   openUploadBatch,
   readUploadBatchId,
+  recordJobUploadExclusions,
   sealOwnUploadBatch,
 } from './service'
 import { settleUploadBatches } from './settle'
@@ -185,10 +188,31 @@ describe('sealOwnUploadBatch', () => {
     expect(settleUploadBatches).toHaveBeenCalledWith('org-1', [BATCH_ID])
   })
 
+  it('passes on what the server’s name check refused, by term and count', async () => {
+    vi.mocked(sealUploadBatch).mockResolvedValue(true)
+    const excluded = [{ term: 'Personal', count: 2 }]
+    await sealOwnUploadBatch(session, BATCH_ID, { unchanged: 0, failed: 0, excluded })
+    expect(sealUploadBatch).toHaveBeenCalledWith('org-1', BATCH_ID, 'uploader', { unchanged: 0, failed: 0, excluded }, expect.any(Date))
+  })
+
   it("does not let anyone else seal it", async () => {
     vi.mocked(findUploadBatch).mockResolvedValue(batch({ createdBy: 'someone-else' }))
     await expect(sealOwnUploadBatch(session, BATCH_ID, { unchanged: 0, failed: 0 })).rejects.toBeInstanceOf(NotFoundError)
     expect(sealUploadBatch).not.toHaveBeenCalled()
+  })
+})
+
+describe('recordJobUploadExclusions', () => {
+  it('adds the stops to the job’s batch as its person', async () => {
+    await recordJobUploadExclusions('org-1', BATCH_ID, 'uploader', [{ term: 'Vertrag', count: 1 }])
+    expect(addUploadBatchExclusions).toHaveBeenCalledWith('org-1', BATCH_ID, 'uploader', [{ term: 'Vertrag', count: 1 }])
+  })
+
+  it('never fails the import over its summary', async () => {
+    vi.mocked(addUploadBatchExclusions).mockRejectedValueOnce(new Error('db down'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await expect(recordJobUploadExclusions('org-1', BATCH_ID, 'uploader', [{ term: 'Vertrag', count: 1 }])).resolves.toBeUndefined()
+    warn.mockRestore()
   })
 })
 

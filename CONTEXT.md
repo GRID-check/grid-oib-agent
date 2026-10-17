@@ -153,8 +153,22 @@ work is assigned to people and delegated to Piloti.
 **Zurückgehalten** (held back):
 An upload the content check (*Inhaltsprüfung*) keeps from every model until
 someone with the right *prüft* it and lets it through (*zulassen*, “allow”) or
-deletes it (ADR-0086). It waits in the *Quarantäne*.
-_Avoid_: „freigeben“, “release”: both collide with **Freigabe**.
+deletes it (ADR-0086). It waits in the *Quarantäne*: „zurückgehalten“ is the
+state, the Quarantäne the place.
+_Avoid_: „freigeben“, “release”: both collide with **Freigabe**; „zurückgehalten“
+for a file the **Namensprüfung** stopped.
+
+**Namensprüfung** (name check):
+The check of a file's name and its folders' names against the office's list,
+before the upload (ADR-0086): in the browser, before any byte or name leaves;
+repeated by the server, and by the e-mail import. What it stops is *Nicht
+hochgeladen* (“Not uploaded”), and nothing of it is stored; the upload summary
+counts it by term, never by name. The uploader may upload one file anyway
+(*Trotzdem hochladen*, “Upload anyway”), their own call, which the audit trail
+records.
+_Avoid_: „zurückgehalten“, „Quarantäne“ (the *Inhaltsprüfung*'s, see
+**Zurückgehalten**), „ausgeschlossen“, „Namensfilter“, „bleibt auf Ihrem
+Rechner“ as the state's name.
 
 **Piloti-Dokument**:
 A document Piloti wrote and a person approved and published, which then counts

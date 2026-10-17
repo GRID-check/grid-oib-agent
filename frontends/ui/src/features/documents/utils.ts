@@ -4,7 +4,7 @@
  * Shared utility functions for status mapping and other common operations.
  */
 
-import { QUARANTINED_PREFIX } from '@/lib/upload-screening/quarantine'
+import { reportsQuarantine } from '@/lib/upload-screening/quarantine'
 import type { DocumentFileStatus, TrackedFileStatus } from './types'
 import type { ListedFileStatus } from '@/adapters/api/documents-schemas'
 import type { FileSourceStatus } from '@/features/layout/components/FileSourceCard'
@@ -27,16 +27,18 @@ export const mapBackendStatus = (backendStatus: string): DocumentFileStatus => {
  * (`file_details`) or a listed file (`FileInfo`).
  *
  * The backend's file vocabulary has no word for a file the content check held
- * back (ADR-0086): the job ends it `failed` with `quarantined:{…}` as its error.
- * Read as `failed`, the tray coloured it red and offered to retry it, and the
- * retry was refused, because a re-upload onto a held file is a 409. So the
- * prefix decides here, once, for every path that reads a backend file.
+ * back (ADR-0086): the job ends it `failed` and says why in `quarantine`
+ * (ADR-0113; a job from before the field, in a `quarantined:{…}` error). Read
+ * as `failed`, the tray coloured it red and offered to retry it, and the retry
+ * was refused, because a re-upload onto a held file is a 409. So the report
+ * decides here, once, for every path that reads a backend file.
  */
 export const trackedStatusOfJobFile = (jobFile: {
   status: string
   error_message?: string | null
+  quarantine?: unknown
 }): TrackedFileStatus => {
-  if (jobFile.status === 'failed' && jobFile.error_message?.startsWith(QUARANTINED_PREFIX)) return 'held'
+  if (jobFile.status === 'failed' && reportsQuarantine(jobFile)) return 'held'
   // The two at-rest states only a listing says (`ListedFileStatusSchema`):
   // kept as they are, or a re-list would read them as an upload in flight.
   if (isAtRestListedStatus(jobFile.status)) return jobFile.status

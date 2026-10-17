@@ -75,6 +75,7 @@ const LISTED = {
   createdAt: new Date('2020-01-01T00:00:00Z'),
   updatedAt: new Date('2020-01-01T00:00:00Z'),
   errorMessage: null,
+  quarantine: null,
   assignees: [],
 } as ListedDocument
 

@@ -1370,7 +1370,13 @@ describe('reconcileDocumentStatuses — upload screening', () => {
     expect(result.status).toBe('quarantined')
     expect(result.errorMessage).toBe(verdict)
     expect(db.set).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'quarantined', errorMessage: verdict, screeningOutcome: 'quarantined' })
+      expect.objectContaining({
+        status: 'quarantined',
+        errorMessage: verdict,
+        screeningOutcome: 'quarantined',
+        // A job from before the typed field: its message is read once, here, and stored as data.
+        quarantine: { reasons: [{ kind: 'term', term: 'Lohnzettel', count: 1, pages: [1] }], checked: 'full' },
+      })
     )
     // The versions holding the bytes this job judged lose any earlier pass (migration 0131).
     expect(db.set).toHaveBeenNthCalledWith(2, { screenedHash: null })
@@ -1384,9 +1390,79 @@ describe('reconcileDocumentStatuses — upload screening', () => {
       projectId: 'p1',
       filename: 'a.pdf',
       reasons: 'term:Lohnzettel',
+      reasonsOmitted: 0,
       checked: 'full',
       uploadedBy: 'user-1',
     })
+  })
+
+  // ADR-0113: the job's typed verdict decides and is what the row stores, and
+  // its message is not read when the verdict is there.
+  const typed = {
+    reasons: [
+      { kind: 'iban', count: 2, pages: [3, 4], sample: 'AT61 •••• •••• •••• 3201' },
+      { kind: 'passport', count: 1, pages: [5] },
+    ],
+    checked: 'partial',
+    omitted: 4,
+  }
+
+  it('quarantines from the typed verdict alone, and stores it with every kind as the job wrote it', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(
+      batchResponse({
+        'job-1': {
+          status: 'failed',
+          error_message: '1/1 file(s) failed',
+          file_details: [{ status: 'failed', error_message: null, screening: 'quarantined', quarantine: typed }],
+        },
+      })
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ quarantine: null } as Partial<ReconcilableDocument>)], 'org-1')
+
+    expect(result.status).toBe('quarantined')
+    expect((result as { quarantine?: unknown }).quarantine).toEqual(typed)
+    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ status: 'quarantined', quarantine: typed }))
+    expect(db.values).toHaveBeenCalledWith(
+      expect.objectContaining({ reasons: 'iban,passport', reasonsOmitted: 4, checked: 'partial' })
+    )
+  })
+
+  it('takes the typed verdict over the message beside it', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(
+      batchResponse({
+        'job-1': {
+          status: 'completed',
+          file_details: [{ status: 'failed', error_message: verdict, screening: 'quarantined', quarantine: typed }],
+        },
+      })
+    )
+
+    await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ quarantine: typed }))
+    expect(db.values).toHaveBeenCalledWith(expect.objectContaining({ reasons: 'iban,passport' }))
+  })
+
+  it('quarantines from the collection file list by its typed verdict', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([{ file_name: 'plan.pdf', status: 'failed', error_message: null, quarantine: typed }])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ metadata: null })], 'org-1')
+
+    expect(result.status).toBe('quarantined')
+    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ quarantine: typed }))
+  })
+
+  it('writes no verdict for an ordinary failure', async () => {
+    const failed = makeDbMock()
+    mockFetch.mockResolvedValue(batchResponse({ 'job-1': { status: 'failed', error_message: 'unparseable PDF' } }))
+    await reconcileDocumentStatuses([makeRow()], 'org-1')
+    expect(failed.set).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', quarantine: null }))
   })
 
   it('quarantines from a failed job too', async () => {

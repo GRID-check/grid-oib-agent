@@ -112,6 +112,8 @@ export const chat: typeof en.chat = {
     notIndexed:
       'Abgelegt, nicht gelesen. Sie können die Datei öffnen, aber Piloti zitiert sie nicht.',
     failed: 'Lesen fehlgeschlagen. Piloti kann diese Datei nicht zitieren.',
+    // Von der Inhaltsprüfung zurückgehalten (ADR-0086): nie „freigeben“.
+    held: 'Zurückgehalten: Die Inhaltsprüfung hält diese Datei von Piloti fern. Piloti zitiert sie erst, wenn jemand sie zulässt.',
   },
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */

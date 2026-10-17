@@ -254,6 +254,7 @@ import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { recordDocumentAccess } from '@/lib/download-log/service'
+import { NAME_TAKEN_REASON } from '@/lib/documents/name-taken'
 
 const session: AuthorizedSession = {
   userId: 'user-1',
@@ -448,6 +449,23 @@ describe('uploadDocument server-side name screening', () => {
     expect(error).toMatchObject({
       details: { matches: [{ term: 'Personal', segment: 'Personalunterlagen', kind: 'folder' }] },
     })
+  })
+
+  it('screens a folder past the stored label’s cut, which the label alone would let through', async () => {
+    // 1100 characters of harmless folders first: the stored origin path stops
+    // at 1024, before „Personalunterlagen“.
+    const deep = Array.from({ length: 100 }, (_, index) => `Ordner${String(index).padStart(4, '0')}`).join('/')
+    expect(deep.length).toBeGreaterThan(1024)
+    const error = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'scan_0042.pdf' }), originPath: `${deep}/Personalunterlagen/scan_0042.pdf` },
+      new Request('http://x')
+    ).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({
+      code: 'UPLOAD_SCREENED',
+      details: { matches: [{ term: 'Personal', segment: 'Personalunterlagen', kind: 'folder' }] },
+    })
+    expect(admitOrDiscard).not.toHaveBeenCalled()
   })
 
   it('stores a matching file the uploader released, and audits the override', async () => {
@@ -2235,6 +2253,26 @@ describe('getDocumentStatus', () => {
     await expect(getDocumentStatus(session, 'doc-1')).resolves.toMatchObject({ scope: 'archiv' })
   })
 
+  // ADR-0113: a reader allowed to see a held row is told why as data, read
+  // from the stored verdict, and a row without one says null.
+  it('carries why a held document is held, as the stored verdict says', async () => {
+    await expect(getDocumentStatus(session, 'doc-1')).resolves.toHaveProperty('quarantine', null)
+
+    vi.mocked(findDocumentInOrg).mockResolvedValue({
+      ...projectDoc,
+      status: 'quarantined',
+      screeningOutcome: 'quarantined',
+      createdBy: session.userId,
+      quarantine: { reasons: [{ kind: 'passport', count: 1, pages: [4] }], checked: 'full', omitted: 2 },
+    })
+
+    await expect(getDocumentStatus(session, 'doc-1')).resolves.toHaveProperty('quarantine', {
+      reasons: [{ kind: 'other', count: 1, pages: [4] }],
+      checked: 'full',
+      omitted: 2,
+    })
+  })
+
   it('reports a null displayName rather than omitting the key', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, displayName: null })
 
@@ -3113,18 +3151,24 @@ describe('re-uploading a filename this collection already holds', () => {
         status: 'quarantined' as const,
       })
 
-      await expect(
-        uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
-      ).rejects.toBeInstanceOf(ConflictError)
+      const refusal = uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+      await expect(refusal).rejects.toBeInstanceOf(ConflictError)
+      // Exactly what a taken name answers: the same reason, no document, no hint of the hold.
+      await expect(refusal).rejects.toMatchObject({ details: { reason: NAME_TAKEN_REASON } })
+      const details = await refusal.catch((error: ConflictError) => error.details)
+      expect(details).toStrictEqual({ reason: NAME_TAKEN_REASON })
       expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
     })
 
-    it('refuses its uploader too, saying it waits in quarantine', async () => {
+    it('refuses its uploader too, saying it waits in quarantine and naming it', async () => {
       vi.mocked(findLiveDocumentByFilename).mockResolvedValue({ ...existing, createdBy: 'user-1', status: 'quarantined' as const })
 
       const refusal = uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
       await expect(refusal).rejects.toBeInstanceOf(ConflictError)
-      await expect(refusal).rejects.toMatchObject({ details: { reason: 'quarantined' } })
+      // The id lets the upload row ask the reviewers; `ownUpload` says it may.
+      await expect(refusal).rejects.toMatchObject({
+        details: { reason: 'quarantined', documentId: 'doc-existing', ownUpload: true },
+      })
       expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
     })
   })
@@ -3789,6 +3833,8 @@ describe('restricted folders (ADR-0087)', () => {
 
     await expect(refusal).rejects.toBeInstanceOf(ConflictError)
     await expect(refusal).rejects.not.toThrow(/Honorare|Verwaltung/)
+    // The reason the browser says in the reader's words, the same a hidden held file answers.
+    await expect(refusal).rejects.toMatchObject({ details: { reason: NAME_TAKEN_REASON } })
     expect(admitOrDiscard).not.toHaveBeenCalled()
   })
 })

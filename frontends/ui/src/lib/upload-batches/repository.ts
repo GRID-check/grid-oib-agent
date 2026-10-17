@@ -14,6 +14,7 @@ import {
   type Document,
   type NewUploadBatch,
   type UploadBatch,
+  type UploadBatchExclusion,
 } from '@/lib/db/schema'
 import { IN_FLIGHT_DOCUMENT_STATUSES, columnStatuses } from '@/lib/documents/document-status'
 import { CURSOR_TIMESTAMP_FORMAT, type DocumentListCursor } from '@/lib/documents/list-cursor'
@@ -46,23 +47,72 @@ export async function findUploadBatch(organizationId: string, batchId: string): 
 }
 
 /**
+ * The batch's `excluded` with `entries` added: one entry per term, counts
+ * summed, each term where it first appeared. In SQL, so two writers adding at
+ * once (a job's slices, a seal) both land without a read-modify-write.
+ */
+function excludedPlus(entries: readonly UploadBatchExclusion[]) {
+  return sql`(
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('term', merged.term, 'count', merged.total) ORDER BY merged.first_at), '[]'::jsonb)
+    FROM (
+      SELECT entry.value->>'term' AS term, SUM((entry.value->>'count')::int) AS total, MIN(entry.ordinality) AS first_at
+      FROM jsonb_array_elements(${uploadBatches.excluded} || ${JSON.stringify(entries)}::jsonb) WITH ORDINALITY AS entry(value, ordinality)
+      GROUP BY entry.value->>'term'
+    ) AS merged
+  )`
+}
+
+/**
  * Seal a batch its creator finished sending. Only the creator, and only once.
  * `expected` rewrites the announced count, for a job that could not know it
- * when it opened the batch (the mail import).
+ * when it opened the batch (the mail import). `excluded` adds the files the
+ * server's repeat of the name check refused after the batch was opened
+ * (ADR-0086), by term and count: they wrote no row either.
  */
 export async function sealUploadBatch(
   organizationId: string,
   batchId: string,
   createdBy: string,
-  counts: { unchanged: number; failed: number; expected?: number },
+  counts: { unchanged: number; failed: number; expected?: number; excluded?: readonly UploadBatchExclusion[] },
   sealedAt: Date
 ): Promise<boolean> {
   const db = getDb()
   const expected = counts.expected === undefined ? {} : { expectedCount: counts.expected }
+  const excluded = counts.excluded?.length ? { excluded: excludedPlus(counts.excluded) } : {}
   const rows = await withTenant({ organizationId }, () =>
     db
       .update(uploadBatches)
-      .set({ unchangedCount: counts.unchanged, failedCount: counts.failed, sealedAt, ...expected })
+      .set({ unchangedCount: counts.unchanged, failedCount: counts.failed, sealedAt, ...expected, ...excluded })
+      .where(
+        and(
+          eq(uploadBatches.id, batchId),
+          eq(uploadBatches.organizationId, organizationId),
+          eq(uploadBatches.createdBy, createdBy),
+          isNull(uploadBatches.sealedAt)
+        )
+      )
+      .returning({ id: uploadBatches.id })
+  )
+  return rows.length > 0
+}
+
+/**
+ * Add name-check refusals to an open batch its creator is still filing into
+ * (the mail import, ADR-0085/0086), by term and count. A sealed batch is left
+ * alone: its summary has been settled on. Whether it took them.
+ */
+export async function addUploadBatchExclusions(
+  organizationId: string,
+  batchId: string,
+  createdBy: string,
+  entries: readonly UploadBatchExclusion[]
+): Promise<boolean> {
+  if (entries.length === 0) return true
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .update(uploadBatches)
+      .set({ excluded: excludedPlus(entries) })
       .where(
         and(
           eq(uploadBatches.id, batchId),

@@ -74,8 +74,9 @@ retry would meet the same 409 until somebody deletes or releases that file, so
 held row from being retried.
 
 Every path that settles a row agrees on these. The ingest job poll reads a
-`failed` file whose error starts `quarantined:` as held
-(`trackedStatusOfJobFile` in `features/documents/utils.ts`); a status read maps
+`failed` file that carries a `quarantine` verdict (or, from a job before the
+field, an error starting `quarantined:`) as held (`trackedStatusOfJobFile` in
+`features/documents/utils.ts`, through `reportsQuarantine`); a status read maps
 by the status's read family (`trackedPatchFromStatus`), so a `quarantined`
 document is held and an `uploaded` one stored; the upload response's
 `uploaded` is stored unless the answer is *unchanged*. The chat says the same:

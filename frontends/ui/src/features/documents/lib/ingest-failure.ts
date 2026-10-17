@@ -33,6 +33,7 @@ export type IngestFailureKind =
   | 'empty'
   | 'deleted'
   | 'quarantined'
+  | 'screening_unavailable'
   | 'unknown'
 
 export type IngestFailure =
@@ -57,6 +58,7 @@ export const INGEST_FAILURE_PREFIXES = {
   vlm_not_configured: 'vision_not_configured',
   document_deleted: 'deleted',
   quarantined: 'quarantined',
+  screening_unavailable: 'screening_unavailable',
 } as const satisfies Record<string, IngestFailureKind>
 
 /**

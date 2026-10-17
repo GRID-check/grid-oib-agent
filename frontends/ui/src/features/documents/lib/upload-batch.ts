@@ -8,28 +8,18 @@
  * without one. A seal that never arrives is done by the server's sweep.
  */
 
-import type { NameMatch } from '@/lib/upload-screening/name-screen'
+import type { NameStopTally } from '@/lib/upload-screening/name-stop'
 
 export type UploadBatchShelf = 'project' | 'archiv' | 'session'
 
-export interface UploadBatchExclusion {
-  term: string
-  count: number
-}
+export type UploadBatchExclusion = NameStopTally
 
 /**
- * What the screening kept back, as the batch records it: one entry per term,
- * counting the files it caught first. Names are dropped here, in the browser —
- * they never reached the server as files and do not reach it as text.
+ * What the screening kept back, as the batch records it: one entry per term.
+ * Names are dropped in the browser — they never reached the server as files
+ * and do not reach it as text. The mail import counts its stops by the same rule.
  */
-export function exclusionsByTerm(screened: ReadonlyArray<readonly NameMatch[]>): UploadBatchExclusion[] {
-  const counts = new Map<string, number>()
-  for (const matches of screened) {
-    const term = matches[0]?.term
-    if (term) counts.set(term, (counts.get(term) ?? 0) + 1)
-  }
-  return [...counts].map(([term, count]) => ({ term, count }))
-}
+export { exclusionsByTerm } from '@/lib/upload-screening/name-stop'
 
 export interface OpenBatchInput {
   id: string
@@ -54,8 +44,14 @@ export async function openUploadBatch(input: OpenBatchInput): Promise<string | n
   }
 }
 
-/** Seal the batch with the files that wrote no row. Never rejects. */
-export async function sealUploadBatch(id: string, counts: { unchanged: number; failed: number }): Promise<void> {
+/**
+ * Seal the batch with the files that wrote no row: unchanged, failed, and the
+ * ones the server's name check refused (`excluded`, by term). Never rejects.
+ */
+export async function sealUploadBatch(
+  id: string,
+  counts: { unchanged: number; failed: number; excluded?: UploadBatchExclusion[] }
+): Promise<void> {
   try {
     await fetch(`/api/upload-batches/${encodeURIComponent(id)}/seal`, {
       method: 'POST',

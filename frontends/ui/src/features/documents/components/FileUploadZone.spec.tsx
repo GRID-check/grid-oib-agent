@@ -11,6 +11,7 @@ let mockTrackedFiles: Array<{
   fileSize: number
   progress?: number
   errorMessage?: string
+  replacesHeld?: { documentId: string | null; ownUpload: boolean }
 }> = []
 
 vi.mock('../store', () => ({
@@ -215,6 +216,51 @@ describe('FileUploadZone', () => {
       render(<FileUploadZone onUpload={mockOnUpload} sessionId="session-1" />)
 
       expect(screen.getByText('uploading.pdf')).toBeInTheDocument()
+    })
+
+    // The zone draws the tray's glyph for the same phase (`ingestionMarkOfPhase`):
+    // its own icon list had a check for „stored" and a red-looking cross for
+    // „canceled", which the tray draws as an open ring and a ban sign.
+    test.each([
+      ['success', 'citable'],
+      ['held', 'held'],
+      ['stored', 'stored'],
+      ['canceled', 'canceled'],
+      ['failed', 'unreadable'],
+    ] as const)('draws a %s file with the tray’s %s glyph', (status, mark) => {
+      mockTrackedFiles = [
+        {
+          id: 'file-1',
+          file: new File(['content'], 'plan.pdf', { type: 'application/pdf' }),
+          collectionName: 'session-1',
+          status,
+          fileSize: 1000,
+        },
+      ]
+
+      const { container } = render(<FileUploadZone onUpload={mockOnUpload} sessionId="session-1" />)
+
+      expect(container.querySelector(`svg[data-mark="${mark}"]`)).not.toBeNull()
+      expect(container.querySelectorAll('svg[data-mark]')).toHaveLength(1)
+    })
+
+    test('says why a file refused over a held document waits, not that a reason was lost', () => {
+      mockTrackedFiles = [
+        {
+          id: 'file-1',
+          file: new File(['content'], 'plan.pdf', { type: 'application/pdf' }),
+          collectionName: 'session-1',
+          status: 'held',
+          fileSize: 1000,
+          errorMessage: 'It waits for the file it replaces.',
+          replacesHeld: { documentId: 'doc-held', ownUpload: true },
+        },
+      ]
+
+      render(<FileUploadZone onUpload={mockOnUpload} sessionId="session-1" />)
+
+      expect(screen.getByTestId('upload-zone-held-replaces')).toHaveTextContent('It waits for the file it replaces.')
+      expect(screen.queryByTestId('upload-zone-held')).not.toBeInTheDocument()
     })
   })
 

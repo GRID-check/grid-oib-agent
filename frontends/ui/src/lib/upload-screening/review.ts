@@ -35,7 +35,7 @@ import { publishShelfChanged } from '@/lib/documents/shelf-live'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems } from '@/lib/inbox/service'
 import { quarantineReviewersOf } from '@/lib/upload-batches/settle'
-import { parseQuarantine, type QuarantineVerdict } from './quarantine'
+import { quarantineNoticePayload, quarantineVerdictOf, type QuarantineVerdict } from './quarantine'
 import { mayReviewQuarantine } from './quarantine-reviewers'
 
 export { mayReviewQuarantine }
@@ -99,7 +99,7 @@ export async function releaseQuarantinedDocument(
     folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
   })
 
-  const reasons = parseQuarantine(doc.errorMessage)?.reasons ?? []
+  const reasons = quarantineVerdictOf(doc)?.reasons ?? []
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },
@@ -164,8 +164,9 @@ export async function requestQuarantineRelease(
       anchorId: doc.id,
       actorUserId: session.userId,
       groupKey: inboxGroupKey('document.release_requested', 'organization', session.organizationId, doc.id),
-      // The file's name, which every recipient may already see in their queue.
-      payload: { subject: doc.filename },
+      // The file's name, which every recipient may already see in their queue,
+      // and the kind of reason it was held for.
+      payload: quarantineNoticePayload(doc),
     }))
   )
   return { id: doc.id, notified: reviewers.length }
@@ -261,6 +262,6 @@ export async function listQuarantineQueue(session: AuthorizedSession): Promise<Q
     conversationId: row.conversationId,
     uploadedBy: row.createdBy,
     quarantinedAt: new Date(row.updatedAt).toISOString(),
-    verdict: parseQuarantine(row.errorMessage),
+    verdict: quarantineVerdictOf(row),
   }))
 }

@@ -9,15 +9,18 @@
 'use client'
 
 import { type ChangeEvent, type FC, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, FileText, ShieldAlert, Upload, XCircle } from 'lucide-react'
+import { FileText, Upload } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatBytes } from '@/lib/format'
 import { useDocumentsStore } from '../store'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
-import type { TrackedFileStatus } from '../types'
-import { QuarantineFindings } from './quarantine-findings'
+import type { TrackedFile } from '../types'
+import { uploadPhase, type UploadPhase } from '../lib/upload-progress'
+import { HeldUploadReason } from './held-upload-reason'
+import { ingestionMarkOfPhase, IngestionStatusWord } from './ingestion-atoms'
+import { quarantineVerdictOf, type QuarantineVerdict } from '@/lib/upload-screening/quarantine'
 import { photoIntake, prepareSitePhotos } from '../lib/site-photo'
 import { ACCEPTED_FILE_TYPES, MAX_FILE_SIZE } from '../'
 import type { Transition } from 'motion/react'
@@ -37,38 +40,24 @@ import { cn } from '@/lib/utils'
 // ============================================================================
 
 /**
- * What a row shows. `held` (the content check held it back, ADR-0086) and
- * `stored` (kept, not read) are at rest and neither green nor red; `canceled`
- * is the user's own decision. Each used to fall to `uploading` and spin.
+ * What a row shows: the upload tray's phase of the same file (`uploadPhase`),
+ * drawn with the same glyph (`ingestionMarkOfPhase`), so the zone and the tray
+ * cannot name one file's state two ways. `held` (the content check, ADR-0086)
+ * and `stored` (kept, not read) are at rest and neither green nor red;
+ * `canceled` is the user's own decision.
  */
-type UploadZoneStatus = 'uploading' | 'success' | 'held' | 'stored' | 'canceled' | 'error'
-
 interface UploadedFile {
   id: string
   file: File
-  status: UploadZoneStatus
+  phase: UploadPhase
   errorMessage?: string
+  replacesHeld?: TrackedFile['replacesHeld']
+  /** Why a held file is held (`quarantineVerdictOf`), read once where the row is mirrored. */
+  verdict: QuarantineVerdict | null
 }
 
-/** A tracked file's status as the zone shows it, decided for every status there is. */
-function zoneStatusOf(status: TrackedFileStatus): UploadZoneStatus {
-  switch (status) {
-    case 'failed':
-      return 'error'
-    case 'success':
-      return 'success'
-    case 'held':
-      return 'held'
-    case 'stored':
-      return 'stored'
-    case 'canceled':
-      return 'canceled'
-    case 'uploading':
-    case 'ingesting':
-    case 'deleting':
-      return 'uploading'
-  }
-}
+/** In flight: the zone's one moving mark, since it has no header to carry the loop. */
+const IN_FLIGHT: ReadonlySet<UploadPhase> = new Set<UploadPhase>(['queued', 'uploading', 'processing'])
 
 interface FileUploadZoneProps {
   /** Collection name for filtering displayed files */
@@ -132,8 +121,10 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
       .map((tf) => ({
         id: tf.id,
         file: tf.file!,
-        status: zoneStatusOf(tf.status),
+        phase: uploadPhase(tf),
         errorMessage: tf.errorMessage ?? undefined,
+        replacesHeld: tf.replacesHeld,
+        verdict: tf.status === 'held' ? quarantineVerdictOf(tf) : null,
       }))
     setUploadValue(mapped)
   }, [collectionFiles])
@@ -247,26 +238,28 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
                 <p className="truncate text-sm text-foreground">{item.file.name}</p>
                 {/* A held file's stored text is the verdict as JSON: it reads
                     as its reasons, never as a red error line. */}
-                {item.status === 'held' ? (
-                  <QuarantineFindings errorMessage={item.errorMessage} testId="upload-zone-held" />
-                ) : item.status === 'error' && item.errorMessage ? (
+                {item.phase === 'held' ? (
+                  <HeldUploadReason
+                    verdict={item.verdict}
+                    replacesHeld={item.replacesHeld}
+                    message={item.errorMessage}
+                    testId="upload-zone-held"
+                  />
+                ) : item.phase === 'failed' && item.errorMessage ? (
                   <p className="text-xs text-destructive">{item.errorMessage}</p>
                 ) : null}
               </div>
-              {item.status === 'uploading' ? (
+              {IN_FLIGHT.has(item.phase) ? (
                 <Spinner size="sm" className="shrink-0 text-muted-foreground" />
-              ) : null}
-              {item.status === 'success' ? <CheckCircle2 className="size-4 shrink-0 text-success" aria-hidden /> : null}
-              {item.status === 'held' ? (
-                <ShieldAlert className="size-4 shrink-0 text-warning" aria-label={t('uploads.row.held')} />
-              ) : null}
-              {item.status === 'stored' ? (
-                <CheckCircle2 className="size-4 shrink-0 text-muted-foreground" aria-label={t('uploads.row.stored')} />
-              ) : null}
-              {item.status === 'canceled' ? (
-                <XCircle className="size-4 shrink-0 text-muted-foreground" aria-label={t('uploads.row.canceled')} />
-              ) : null}
-              {item.status === 'error' ? <XCircle className="size-4 shrink-0 text-destructive" aria-hidden /> : null}
+              ) : (
+                // The tray's glyph and ink for the same phase; the word is for
+                // assistive tech, the row has no room for it.
+                <IngestionStatusWord mark={ingestionMarkOfPhase(item.phase)} className="shrink-0">
+                  <span className="sr-only" data-testid="upload-zone-state">
+                    {t(`uploads.row.${item.phase}`)}
+                  </span>
+                </IngestionStatusWord>
+              )}
             </motion.li>
           ))}
           </AnimatePresence>

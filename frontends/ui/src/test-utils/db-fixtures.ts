@@ -152,6 +152,7 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-02T00:00:00Z'),
   errorMessage: null,
+  quarantine: null,
   metadata: null,
   screeningOutcome: null,
   screeningReleasedHash: null,

@@ -38,6 +38,7 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { queueIntakeReadsAfterUpload } from '@/lib/project-intake/trigger'
 import { queueFilingReviewsAfterSettle } from '@/lib/filing/trigger'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
+import { quarantineNoticePayload } from '@/lib/upload-screening/quarantine'
 import { auditOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
 import { batchIdsOfDocuments, completeSettledBatches, reopenCompletedBatches } from './repository'
 
@@ -184,9 +185,12 @@ async function onQuarantined(organizationId: string, documentIds: readonly strin
 /**
  * Tell the reviewers that files wait for them. One collapsed row per reviewer
  * and organization, counted, pointing at the quarantine queue — which is where
- * each file and its reasons are, for the people allowed to see them. The row
- * names no file: a reviewer of one project must not learn another project's
- * file names from a badge.
+ * each file and its reasons are. The row names the newest file and the kind of
+ * reason it was held for (`quarantineNoticeVariant`), never a matched value.
+ * Each emission goes only to the reviewers of that file, cleared for its
+ * project and its folder (`quarantineReviewersOf`), so a row only ever names a
+ * file its reader could open in the queue anyway; a reviewer of one project
+ * learns nothing of another's.
  */
 async function notifyQuarantineReviewers(organizationId: string, documents: readonly Document[]): Promise<void> {
   const emissions: InboxEmission[] = []
@@ -200,6 +204,7 @@ async function notifyQuarantineReviewers(organizationId: string, documents: read
         resourceId: organizationId,
         actorUserId: document.createdBy,
         groupKey: inboxGroupKey('document.quarantined', 'organization', organizationId),
+        payload: quarantineNoticePayload(document),
       })
     }
   }

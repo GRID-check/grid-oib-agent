@@ -74,6 +74,28 @@ describe('screenUploadName', () => {
     expect(screenUploadName(policy(), { filename: 'Bauvertrag Rohbau.pdf' }).blocked).toBe(false)
     expect(screenUploadName(policy(), { filename: 'Architektenvertrag.pdf' }).blocked).toBe(true)
   })
+
+  it('reads past invisible characters in a name, a term and an exception', () => {
+    const p = policy({ nameTerms: ['Lohn\u00ADzettel'], nameExceptions: [] })
+    expect(screenUploadName(p, { filename: 'Lohn\u200Bzettel 2026.pdf' }).blocked).toBe(true)
+    const excepted = policy({ nameTerms: ['Rechnung'], nameExceptions: ['Be\u200Brechnung'] })
+    expect(screenUploadName(excepted, { filename: 'Statische Be\u2060rechnung.pdf' }).blocked).toBe(false)
+  })
+
+  it('matches a long term split once by a space, hyphen, underscore or full stop', () => {
+    const p = policy({ nameTerms: ['Gehaltsabrechnung'], nameExceptions: [] })
+    const names = ['Gehalts-Abrechnung_Mai.pdf', 'Gehalts_abrechnung.pdf', 'Gehalts abrechnung.pdf', 'Gehalts.Abrechnung.pdf']
+    for (const filename of names) {
+      expect(screenUploadName(p, { filename }).matches).toEqual([{ term: 'Gehaltsabrechnung', segment: filename, kind: 'file' }])
+    }
+  })
+
+  it('does not join a short term, or a split that leaves a part under three characters', () => {
+    expect(screenUploadName(policy({ nameTerms: ['Lohn'], nameExceptions: [] }), { filename: 'Lo-hn.pdf' }).blocked).toBe(false)
+    const p = policy({ nameTerms: ['Gehaltsabrechnung'], nameExceptions: [] })
+    expect(screenUploadName(p, { filename: 'Ge-haltsabrechnung.pdf' }).blocked).toBe(false)
+    expect(screenUploadName(p, { filename: 'Gehalts-ab-rechnung.pdf' }).blocked).toBe(false)
+  })
 })
 
 describe('foldForScreening', () => {

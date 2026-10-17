@@ -54,7 +54,7 @@ export const organization: typeof en.organization = {
     quarantine: {
       title: 'Quarantäne',
       subtitle:
-        'Dateien, die die Inhaltsprüfung zurückgehalten hat. Kein Modell hat sie gelesen. Wer sie prüfen darf, lässt sie hier zu oder löscht sie.',
+        'Dateien, die die Inhaltsprüfung zurückgehalten hat. Solange sie hier liegen, zeigt Piloti sie keinem Modell. Wer sie prüfen darf, lässt sie hier zu oder löscht sie.',
     },
     downloads: {
       title: 'Download-Protokoll',
@@ -649,7 +649,7 @@ export const organization: typeof en.organization = {
   screening: {
     title: 'Prüfliste',
     description:
-      'Piloti prüft jeden Upload gegen diese Listen, Chat-Nachrichten gegen die Inhaltsbegriffe und Nummern. Was anschlägt, liest kein Modell.',
+      'Piloti prüft jeden Upload gegen diese Listen, Chat-Nachrichten gegen die Inhaltsbegriffe und Nummern. Was anschlägt, zeigt Piloti keinem Modell mehr, bis es jemand zulässt.',
     enabled: 'Uploads und Chat prüfen',
     enabledHint: 'Ausgeschaltet prüft Piloti nichts. Ihre Listen bleiben gespeichert.',
     suggestedTitle: 'Es gilt der Vorschlag von Piloti',

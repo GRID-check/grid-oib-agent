@@ -30,6 +30,7 @@ import {
   type ScreeningFacts,
   type ShelfReader,
 } from '@/lib/documents/document-reader'
+import { NAME_TAKEN_DETAILS, nameTakenMessage } from '@/lib/documents/name-taken'
 import { QUARANTINED_REPLACE_REASON } from './quarantine'
 
 type ReviewedDocument = Pick<Document, 'scope' | 'projectId' | 'folderId'>
@@ -78,7 +79,7 @@ export async function shelfReaderFor(
 }
 
 /** The row a re-upload would replace, as `findLiveDocumentByFilename` reads it. */
-type SupersededDocument = ReviewedDocument & ScreeningFacts & Pick<Document, 'createdBy'>
+type SupersededDocument = ReviewedDocument & ScreeningFacts & Pick<Document, 'id' | 'createdBy'>
 
 /**
  * Refuse an upload that would replace a held document this session may not
@@ -93,10 +94,15 @@ type SupersededDocument = ReviewedDocument & ScreeningFacts & Pick<Document, 'cr
  * is no longer quarantined, so the held-back bytes would be a version every
  * member can open as text.
  *
- * Somebody who may not see the file is refused like a name that is taken,
+ * Somebody who may not see the file is refused like a name that is taken
+ * (`NAME_TAKEN_REASON`, the same details every taken-name 409 carries),
  * learning nothing about the hold. Its uploader and its reviewers may replace a
  * file still on its way through the gate (a corrected copy), and are told what
- * to do about a quarantined one: delete it (or have it released), then upload.
+ * to do about a quarantined one: delete it (or have it allowed through), then
+ * upload. They may see the held document, so the refusal names it
+ * (`documentId`), and says whether this session uploaded it (`ownUpload`): its
+ * uploader can ask the reviewers from the upload row (`requestQuarantineRelease`).
+ * The English messages are for logs; the browser says each in the reader's words.
  */
 export async function assertMayReplaceHeld(
   session: AuthorizedSession,
@@ -108,9 +114,9 @@ export async function assertMayReplaceHeld(
   if (visible && superseded.status !== 'quarantined') return
   if (visible) {
     throw new ConflictError(
-      `"${filename}" is waiting in quarantine. Delete it, or have it released, before uploading a new version.`,
-      { reason: QUARANTINED_REPLACE_REASON }
+      `"${filename}" is waiting in quarantine. Delete it, or have it allowed through, before uploading a new version.`,
+      { reason: QUARANTINED_REPLACE_REASON, documentId: superseded.id, ownUpload: superseded.createdBy === session.userId }
     )
   }
-  throw new ConflictError(`A document named "${filename}" already exists here. Rename the file to upload it.`)
+  throw new ConflictError(nameTakenMessage(filename), NAME_TAKEN_DETAILS)
 }

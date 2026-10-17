@@ -42,6 +42,9 @@ from dataclasses import field
 from typing import TYPE_CHECKING
 from typing import Any
 
+from aiq_agent.common.page_text import furniture_key
+from aiq_agent.common.page_text import running_furniture
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from llama_index.core import Document
 
@@ -123,10 +126,6 @@ MIN_SECTION_COVERAGE = 0.5
 #: Above this share of lines being headings the "structure" is a form, a slide list or
 #: a table of short rows, and cutting on it yields one-line chunks.
 MAX_HEADING_LINE_SHARE = 0.3
-
-#: Running header/footer: a first-or-last-two line repeating on this share of pages.
-_FURNITURE_PAGE_SHARE = 0.5
-_FURNITURE_MIN_PAGES = 3
 
 _HYPHEN_BREAK_RE = re.compile(r"(\w)-\n([a-zäöüß])")
 _SENTENCE_END_RE = re.compile(r"[.!?:;]\s*$")
@@ -247,27 +246,16 @@ def _page_lines(page: dict[str, Any]) -> list[Line]:
     return lines
 
 
-def _furniture_key(text: str) -> str:
-    return re.sub(r"\d+", "#", text.lower())
-
-
 def _furniture(pages: list[list[Line]]) -> set[str]:
-    """Normalised running headers/footers: an edge line repeating on most pages."""
-    if len(pages) < _FURNITURE_MIN_PAGES:
-        return set()
-    counts: Counter[str] = Counter()
-    for lines in pages:
-        edges = {_furniture_key(line.text) for line in [*lines[:2], *lines[-2:]]}
-        counts.update(edges)
-    threshold = max(_FURNITURE_MIN_PAGES, _FURNITURE_PAGE_SHARE * len(pages))
-    return {key for key, count in counts.items() if count >= threshold}
+    """Normalised running headers/footers: an edge line repeating on most pages (``aiq_agent.common.page_text``)."""
+    return running_furniture([[line.text for line in lines] for lines in pages])
 
 
 def document_lines(text_pages: list[dict[str, Any]]) -> list[Line]:
     """The whole document as one line stream, running headers and footers removed."""
     pages = [_page_lines(page) for page in text_pages]
     furniture = _furniture(pages)
-    return [line for lines in pages for line in lines if _furniture_key(line.text) not in furniture]
+    return [line for lines in pages for line in lines if furniture_key(line.text) not in furniture]
 
 
 def body_size(lines: list[Line]) -> float | None:

@@ -1,11 +1,14 @@
 /**
  * Seal an upload (ADR-0086): the browser has sent its last file. `unchanged`
- * and `failed` are the files that, for those reasons, wrote no row.
+ * and `failed` are the files that, for those reasons, wrote no row; `excluded`
+ * the ones the server's name check refused, as terms and counts only — never
+ * file names.
  */
 
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { sealOwnUploadBatch, UPLOAD_BATCH_MAX_FILES } from '@/lib/upload-batches/service'
+import { uploadBatchExclusionsSchema } from '../../exclusions-schema'
 
 type Params = { id: string }
 
@@ -13,6 +16,7 @@ const bodySchema = z
   .object({
     unchanged: z.number().int().min(0).max(UPLOAD_BATCH_MAX_FILES),
     failed: z.number().int().min(0).max(UPLOAD_BATCH_MAX_FILES),
+    excluded: uploadBatchExclusionsSchema,
   })
   .strict()
 

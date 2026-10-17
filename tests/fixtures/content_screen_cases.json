@@ -1516,6 +1516,199 @@
           "count": 3
         }
       ]
+    },
+    {
+      "name": "a capital after a line-break hyphen is a compound that keeps its hyphen",
+      "terms": [
+        "Honorar"
+      ],
+      "detectors": [],
+      "text": "Büro-\nHonorar und Büro-\nhonorar",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "Honorar",
+          "text": "Honorar"
+        }
+      ],
+      "masked": "Büro-\n[Begriff entfernt] und Büro-\nhonorar",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "Honorar",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "an IBAN printed in groups of two",
+      "terms": [],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "IBAN AT 61 19 04 30 02 34 57 32 01 bitte",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT 61 19 04 30 02 34 57 32 01"
+        }
+      ],
+      "masked": "IBAN [IBAN entfernt] bitte",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 1,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "a card wrapped at one line end is found",
+      "terms": [],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "Karte 4111 1111\n1111 1111 und 5555\r\n5555 5555 4444",
+      "matches": [
+        {
+          "kind": "credit_card",
+          "text": "4111 1111\n1111 1111"
+        },
+        {
+          "kind": "credit_card",
+          "text": "5555\r\n5555 5555 4444"
+        }
+      ],
+      "masked": "Karte [Kartennummer entfernt] und [Kartennummer entfernt]",
+      "findings": [
+        {
+          "kind": "credit_card",
+          "count": 2,
+          "sample": "•••• 1111"
+        }
+      ]
+    },
+    {
+      "name": "a wrapped run in any layout but four groups of four is not a card",
+      "terms": [],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "4111 1111 11\n11 1111 und 2019 2020\n2021 2022",
+      "matches": [],
+      "masked": "4111 1111 11\n11 1111 und 2019 2020\n2021 2022",
+      "findings": []
+    },
+    {
+      "name": "a long term split once by a space or hyphen matches",
+      "terms": [
+        "Gehaltsabrechnung"
+      ],
+      "detectors": [],
+      "text": "Gehalts abrechnung, Gehalts-abrechnung, Ge-haltsabrechnung, Gehalts - abrechnung, Gehalts-ab-rechnung",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "Gehaltsabrechnung",
+          "text": "Gehalts abrechnung"
+        },
+        {
+          "kind": "term",
+          "term": "Gehaltsabrechnung",
+          "text": "Gehalts-abrechnung"
+        }
+      ],
+      "masked": "[Begriff entfernt], [Begriff entfernt], Ge-haltsabrechnung, Gehalts - abrechnung, Gehalts-ab-rechnung",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "Gehaltsabrechnung",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "name": "a number glued before a term is a label, a letter makes a compound",
+      "terms": [
+        "Honorar"
+      ],
+      "detectors": [],
+      "text": "2024Honorar, Pos.3Honorar, Ehrenhonorar",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "Honorar",
+          "text": "Honorar"
+        },
+        {
+          "kind": "term",
+          "term": "Honorar",
+          "text": "Honorar"
+        }
+      ],
+      "masked": "2024[Begriff entfernt], Pos.3[Begriff entfernt], Ehrenhonorar",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "Honorar",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "name": "a row of years is no card number, even when it passes Luhn",
+      "terms": [],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "Jahre 2011 2029 2019 2015 und\n2017 2015\n2012 2020",
+      "matches": [],
+      "masked": "Jahre 2011 2029 2019 2015 und\n2017 2015\n2012 2020",
+      "findings": []
+    },
+    {
+      "name": "every card network's issuer range is a card",
+      "terms": [],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "Mir 2200 0000 0000 0004, Diners 3056 9309 0259 04, JCB 3530 1113 3330 0000, Maestro 6759 6498 2643 8453",
+      "matches": [
+        {
+          "kind": "credit_card",
+          "text": "2200 0000 0000 0004"
+        },
+        {
+          "kind": "credit_card",
+          "text": "3056 9309 0259 04"
+        },
+        {
+          "kind": "credit_card",
+          "text": "3530 1113 3330 0000"
+        },
+        {
+          "kind": "credit_card",
+          "text": "6759 6498 2643 8453"
+        }
+      ],
+      "masked": "Mir [Kartennummer entfernt], Diners [Kartennummer entfernt], JCB [Kartennummer entfernt], Maestro [Kartennummer entfernt]",
+      "findings": [
+        {
+          "kind": "credit_card",
+          "count": 4,
+          "sample": "•••• 0004"
+        }
+      ]
     }
   ],
   "unicode": {

@@ -303,18 +303,54 @@ export const collaboration: typeof en.collaboration = {
         body: '{subject}: Öffnen Sie die Übersicht, um zu sehen, was angekommen ist.',
         bodyNoSubject: 'Öffnen Sie die Übersicht, um zu sehen, was angekommen ist.',
       },
-      // ADR-0086: die Inhaltsprüfung hat Dateien zurückgehalten.
+      // ADR-0086: die Inhaltsprüfung hat Dateien zurückgehalten. {subject} ist
+      // die neueste davon; die Variante sagt, wofür sie zurückgehalten wurde
+      // (nie den gefundenen Wert). `transcript`: gefunden im Text gescannter
+      // Seiten, die ein Bildmodell gelesen hat – dort darf kein „kein Modell“
+      // stehen. bodyNoSubject liest eine Zeile von vor dieser Fassung.
       documentQuarantined: {
         titleOne: '1 Datei wartet in der Quarantäne',
         titleMany: '{count} Dateien warten in der Quarantäne',
         titleNone: 'Dateien in der Quarantäne',
-        body: 'Kein Modell hat sie gelesen. Prüfen Sie sie: zulassen oder löschen.',
+        body: '„{subject}“: Kein Modell hat sie gelesen. Prüfen Sie sie: zulassen oder löschen.',
+        bodyMany: 'Zuletzt „{subject}“. Prüfen Sie sie in der Quarantäne: zulassen oder löschen.',
+        bodyNoSubject: 'Kein Modell hat sie gelesen. Prüfen Sie sie: zulassen oder löschen.',
+        variants: {
+          term: {
+            body: '„{subject}“ enthält einen Begriff aus der Liste sensibler Daten Ihres Büros. Kein Modell hat sie gelesen. Zulassen oder löschen?',
+            bodyMany: 'Zuletzt „{subject}“, mit einem Begriff aus der Liste sensibler Daten. Prüfen Sie sie: zulassen oder löschen.',
+          },
+          iban: {
+            body: '„{subject}“ enthält eine IBAN. Kein Modell hat sie gelesen. Zulassen oder löschen?',
+            bodyMany: 'Zuletzt „{subject}“, mit einer IBAN. Prüfen Sie sie: zulassen oder löschen.',
+          },
+          at_svnr: {
+            body: '„{subject}“ enthält eine Sozialversicherungsnummer. Kein Modell hat sie gelesen. Zulassen oder löschen?',
+            bodyMany: 'Zuletzt „{subject}“, mit einer Sozialversicherungsnummer. Prüfen Sie sie: zulassen oder löschen.',
+          },
+          credit_card: {
+            body: '„{subject}“ enthält eine Kreditkartennummer. Kein Modell hat sie gelesen. Zulassen oder löschen?',
+            bodyMany: 'Zuletzt „{subject}“, mit einer Kreditkartennummer. Prüfen Sie sie: zulassen oder löschen.',
+          },
+          transcript: {
+            body: '„{subject}“: gefunden im Text gescannter Seiten, die ein Bildmodell gelesen hat; kein anderes Modell hat sie gesehen. Zulassen oder löschen?',
+            bodyMany: 'Zuletzt „{subject}“, gefunden im Text gescannter Seiten. Prüfen Sie sie: zulassen oder löschen.',
+          },
+        },
       },
       // ADR-0086: wer eine Datei hochgeladen hat, die in der Quarantäne liegt,
       // bittet darum, sie zu prüfen. {subject} ist der Dateiname.
       documentReleaseRequested: {
         title: '{actor} bittet Sie, „{subject}“ zu prüfen',
         body: 'Die Datei liegt in der Quarantäne. Sehen Sie sie an und lassen Sie sie zu oder löschen Sie sie.',
+        // Wofür die Datei zurückgehalten wurde, wie bei documentQuarantined.
+        variants: {
+          term: { body: 'Sie enthält einen Begriff aus der Liste sensibler Daten. Sehen Sie sie an und lassen Sie sie zu oder löschen Sie sie.' },
+          iban: { body: 'Sie enthält eine IBAN. Sehen Sie sie an und lassen Sie sie zu oder löschen Sie sie.' },
+          at_svnr: { body: 'Sie enthält eine Sozialversicherungsnummer. Sehen Sie sie an und lassen Sie sie zu oder löschen Sie sie.' },
+          credit_card: { body: 'Sie enthält eine Kreditkartennummer. Sehen Sie sie an und lassen Sie sie zu oder löschen Sie sie.' },
+          transcript: { body: 'Gefunden im Text gescannter Seiten, die ein Bildmodell gelesen hat. Sehen Sie sie an und lassen Sie sie zu oder löschen Sie sie.' },
+        },
       },
       // Die Zeile führt zum Lauf selbst (seinem Block im Verlauf, sonst der
       // Aufgabe): dort stehen Ergebnis und Grund, nicht in einer „Laufhistorie“.

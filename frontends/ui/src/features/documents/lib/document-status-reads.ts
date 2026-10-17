@@ -20,6 +20,7 @@ import { documentReadFamily, documentStatusFacts } from '@/lib/documents/documen
 import type { FileItem } from '../components/project-file-workspace'
 import type { TrackedFile } from '../types'
 import { refreshedFileFields } from './file-item'
+import type { QuarantineVerdict } from '@/lib/upload-screening/quarantine'
 
 /** Most documents one tick asks about. A tick's cost stays flat however big the batch. */
 export const STATUS_READ_BATCH = 24
@@ -31,6 +32,7 @@ export const STATUS_READ_CONCURRENCY = 6
 export const STATUS_FIELDS: readonly (keyof FileItem)[] = [
   'status',
   'errorMessage',
+  'quarantine',
   'summary',
   'pageCount',
   'chunkCount',
@@ -167,7 +169,8 @@ export function isJoblessIngesting(upload: TrackedFile): boolean {
  */
 export function trackedPatchFromStatus(
   status: string | null | undefined,
-  errorMessage?: string | null
+  errorMessage?: string | null,
+  quarantine?: QuarantineVerdict | null
 ): Partial<TrackedFile> | null {
   if (documentStatusFacts(status)?.phase !== 'terminal') return null
   switch (documentReadFamily(status)) {
@@ -179,7 +182,7 @@ export function trackedPatchFromStatus(
     case 'failed':
       return { status: 'failed', ...(errorMessage ? { errorMessage } : {}) }
     case 'held':
-      return { status: 'held', ...(errorMessage ? { errorMessage } : {}) }
+      return { status: 'held', ...(errorMessage ? { errorMessage } : {}), ...(quarantine ? { quarantine } : {}) }
     case 'unindexed':
       return { status: 'stored', progress: 100 }
     case 'reading':

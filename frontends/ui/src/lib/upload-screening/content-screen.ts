@@ -24,17 +24,22 @@
  *    so a span in the folded text maps back to the characters it came from and
  *    a decomposed `ü` folds like the composed one.
  *  - Every rule runs on the text as a person reads it (`read`): invisible
- *    characters (`SCREENING_IGNORABLE`) left out, and a hyphen that breaks a word
- *    across ONE line break joined. A span is given back in the original text.
+ *    characters (`SCREENING_IGNORABLE`, `./reading`) left out, and a hyphen that
+ *    breaks a word across ONE line break joined; before a capital only the break
+ *    goes (`Büro-Honorar`). A span is given back in the original text.
  *  - A term matches at a word start and may run on (`Honorar` finds
- *    `Honorarvereinbarung`), never inside a word (`Ehrenhonorar`, judged on the
- *    reading); its span runs to the end of that word. A multi-word term
- *    matches across any whitespace.
+ *    `Honorarvereinbarung`), never after a letter (`Ehrenhonorar`, judged on the
+ *    reading); a digit before it is a label (`2024Honorar`). Its span runs to the
+ *    end of that word. A multi-word term matches across any whitespace; a
+ *    single word of eight or more characters across one space or hyphen
+ *    (`splitTermEnd`).
  *  - A detector counts only a checksum-valid number (IBAN mod 97 at its
  *    country's registered length, the Austrian social-security check digit,
- *    Luhn); the shapes around the checksum are wide (any case, any whitespace
- *    run, `-` or `.` between groups, a label against the number). A card is found
- *    by layout inside a run of digit groups (`cardsIn`), never across a tab.
+ *    Luhn in a card network's issuer range); the shapes around the checksum are wide (any case, any whitespace
+ *    run, `-` or `.` between groups, a label against the number; an IBAN in
+ *    groups of four or two). A card is found by layout inside a run of digit
+ *    groups (`cardsIn`), never across a tab; across one line break only as four
+ *    groups of four.
  *    The digits of an IBAN are not also a card or a social-security number.
  *  - Placeholders are protected: a match overlapping one does not count, so
  *    masking a masked text changes nothing. Masking repeats until a pass finds
@@ -46,6 +51,7 @@
 
 import { foldForScreening } from './name-screen'
 import { SCREENING_DETECTORS, type ScreeningDetector, type UploadScreeningPolicy } from './policy'
+import { SCREENING_IGNORABLE, SPLIT_TERM_MIN, splitTermEnd, TERM_FRAGMENT } from './reading'
 
 export type ContentScreenKind = ScreeningDetector | 'term'
 
@@ -109,6 +115,8 @@ export const SCREENING_WHITESPACE =
 const SPACE_RUN = /[\t-\r \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/u
 
 const LETTER_OR_NUMBER = /[\p{L}\p{N}]/u
+const LETTER = /\p{L}/u
+const UPPERCASE_LETTER = /\p{Lu}/u
 const WORD_CHAR = /[\p{L}\p{N}\p{M}]/u
 const MARK = /\p{M}/u
 const DECIMAL_DIGIT = /\p{Nd}/u
@@ -208,17 +216,13 @@ function splitWords(text: string): string[] {
 
 // --------------------------------------------------------------- reading
 
-/**
- * Characters that print as nothing and sit inside words in extracted text: the
- * soft hyphen, the zero-width space, non-joiner and joiner, the word joiner and
- * the byte-order mark. A reading leaves them out.
- */
-export const SCREENING_IGNORABLE = '\u00ad\u200b\u200c\u200d\u2060\ufeff'
 /** Hyphens a line may be broken at; with a letter or digit on both sides of the break they are not part of the text. */
 const BREAK_HYPHENS = '-\u2010\u2011'
 const LINE_BREAKS = '\n\v\f\r\x85\u2028\u2029'
 /** Whitespace that keeps a line. */
-const HORIZONTAL_SPACE = [...SCREENING_WHITESPACE].filter((char) => !LINE_BREAKS.includes(char)).join('')
+const HORIZONTAL_SPACE = [...SCREENING_WHITESPACE]
+  .filter((char) => !LINE_BREAKS.includes(char))
+  .join('')
 
 /** Where a reading may differ from the text: an invisible character, or a hyphen that may break a line. */
 // The ASCII hyphen first, where a class reads it as itself rather than a range.
@@ -298,13 +302,16 @@ function read(text: string): Reading {
       continue
     }
     const end = hyphenationEnd(text, index, before)
-    if (end > index) {
+    if (end > index && !UPPERCASE_LETTER.test(codePointAt(text, end))) {
       cursor = end
       continue
     }
     parts.push(text[index])
     starts.push(index)
     before = text[index]
+    // A capital after the break is a compound written with its hyphen
+    // (`Büro-` + line break + `Honorar`): only the break goes.
+    if (end > index) cursor = end
   }
   parts.push(text.slice(cursor))
   for (let i = cursor; i < text.length; i += 1) starts.push(i)
@@ -367,11 +374,16 @@ function termPattern(term: string): string[] {
   return splitWords(foldContent(term))
 }
 
-/** Whether folded `index` begins a cluster that no letter or digit precedes in the text the rules read. */
+/**
+ * Whether folded `index` begins a cluster that no LETTER precedes in the text
+ * the rules read. A letter before it makes it part of another word
+ * (`Ehrenhonorar`); a digit does not (`2024Honorar`, `Pos.3Honorar`): a number
+ * glued to a word is a label, not a compound.
+ */
 function startsAWord(folded: Folded, text: string, index: number): boolean {
   if (index === 0) return true
   const previous = folded.starts[index - 1]
-  return previous !== folded.starts[index] && !wordCharAt(text, previous)
+  return previous !== folded.starts[index] && !LETTER.test(codePointAt(text, previous))
 }
 
 /** Where the words end when they stand at `start` with whitespace between them; -1 when they do not. */
@@ -389,6 +401,26 @@ function matchWordsAt(text: string, start: number, words: readonly string[]): nu
   return cursor
 }
 
+/** What may split a long term in prose (`splitTermEnd`): a space, or one hyphen (folded text keeps U+2010 for U+2011). */
+const TERM_JOINERS = ' -\u2010\u2011'
+
+/** `termMatches` for one word of `SPLIT_TERM_MIN` or more characters, which may be split once. */
+function* longTermMatches(folded: Folded, text: string, word: string): Generator<[number, number]> {
+  const anchor = word.slice(0, TERM_FRAGMENT)
+  let index = folded.text.indexOf(anchor)
+  while (index !== -1) {
+    const end = startsAWord(folded, text, index)
+      ? splitTermEnd(folded.text, index, word, TERM_JOINERS)
+      : -1
+    if (end > index) {
+      yield [index, end]
+      index = folded.text.indexOf(anchor, end)
+    } else {
+      index = folded.text.indexOf(anchor, index + 1)
+    }
+  }
+}
+
 /**
  * `[start, end)` of each match of a term's words in folded text, leftmost
  * first and not overlapping. Done without a regex built from office input, so
@@ -401,6 +433,10 @@ function* termMatches(
   words: readonly string[]
 ): Generator<[number, number]> {
   if (words.length === 0) return
+  if (words.length === 1 && words[0].length >= SPLIT_TERM_MIN) {
+    yield* longTermMatches(folded, text, words[0])
+    return
+  }
   let index = folded.text.indexOf(words[0])
   while (index !== -1) {
     const end = startsAWord(folded, text, index) ? matchWordsAt(folded.text, index, words) : -1
@@ -497,6 +533,9 @@ const SVNR_MARKS = '-./'
  * cell), one `-` or `.`: where a card may be printed.
  */
 const CARD_RUN = /\p{Nd}(?:(?:[ \xa0\u1680\u2000-\u200a\u202f\u205f\u3000]+|[-.])?\p{Nd})*/gu
+/** The same, where ONE line break may also join two groups: a card wrapped at a line end. */
+const WRAPPED_CARD_RUN =
+  /\p{Nd}(?:(?:[ \xa0\u1680\u2000-\u200a\u202f\u205f\u3000]+|[-.]|[ \xa0\u1680\u2000-\u200a\u202f\u205f\u3000]*(?:\r\n|[\n\v\f\r\x85\u2028\u2029])[ \xa0\u1680\u2000-\u200a\u202f\u205f\u3000]*)?\p{Nd})*/gu
 const DIGIT_GROUP = /\p{Nd}+/gu
 /** Layouts a card is printed in besides 4-4-4-4 and one unbroken number. */
 const CARD_SPLITS = ['4,6,5', '4,6,4']
@@ -522,28 +561,40 @@ function ibanChar(text: string, index: number, digitsOnly: boolean): Digit | nul
   return ASCII_LETTER.test(char) ? { value: char.toUpperCase(), width: 1 } : null
 }
 
-/**
- * The IBAN printed at `start`: its compact form and where it ends. The country
- * fixes the length, so the parse reads exactly that many characters and stops;
- * a separator may stand after the country code and before each group of four.
- */
 /** Whether a digit stands at `index` right against what came before, without even an invisible character. */
 function digitTouches(text: string, index: number, soft: ReadonlySet<number>): boolean {
   return digitAt(text, index) !== null && !soft.has(index)
 }
 
-function ibanAt(
+interface IbanMatch {
+  compact: string
+  end: number
+}
+
+/**
+ * The IBAN printed at `start`: its compact form and where it ends. The country
+ * fixes the length, so the parse reads exactly that many characters and stops;
+ * a separator may stand after the country code and before each group of four,
+ * or of two.
+ */
+function ibanAt(text: string, start: number, soft: ReadonlySet<number>): IbanMatch | null {
+  return ibanInGroups(text, start, soft, 4) ?? ibanInGroups(text, start, soft, 2)
+}
+
+/** `ibanAt` for an IBAN printed in groups of `width` (four, or two), or unbroken. */
+function ibanInGroups(
   text: string,
   start: number,
-  soft: ReadonlySet<number>
-): { compact: string; end: number } | null {
+  soft: ReadonlySet<number>,
+  width: number
+): IbanMatch | null {
   const country = text.slice(start, start + 2).toUpperCase()
   const length = IBAN_LENGTHS.get(country)
   if (length === undefined) return null
   let compact = country
   let index = start + 2
   for (let position = 2; position < length; position += 1) {
-    if (position === 2 || position % 4 === 0) index = skipSeparator(text, index, '-.')
+    if (position === 2 || position % width === 0) index = skipSeparator(text, index, '-.')
     const char = ibanChar(text, index, position < 4)
     if (!char) return null
     compact += char.value
@@ -605,10 +656,23 @@ export function luhnValid(digits: string): boolean {
   return total % 10 === 0
 }
 
+/**
+ * The card networks' issuer ranges, on a number's first four digits (Python's
+ * `_CARD_PREFIXES`): Mir, Mastercard, Diners, Amex, JCB, Visa, Maestro,
+ * Discover, UnionPay. No card begins 2000-2199, the years a table prints in rows.
+ */
+const CARD_PREFIXES: ReadonlyArray<readonly [number, number]> = [
+  [2200, 2204],
+  [2221, 2720],
+  [3000, 3099],
+  [3400, 3999],
+  [4000, 6999],
+]
+
 function validCard(digits: string): boolean {
-  return (
-    digits.length >= 13 && digits.length <= 19 && '23456'.includes(digits[0]) && luhnValid(digits)
-  )
+  if (digits.length < 13 || digits.length > 19 || !luhnValid(digits)) return false
+  const prefix = Number(digits.slice(0, 4))
+  return CARD_PREFIXES.some(([low, high]) => low <= prefix && prefix <= high)
 }
 
 /** Whether groups of these sizes are how a card number is printed: unbroken, 4-4-4-4 (the last group 1-4), 4-6-5 or 4-6-4. */
@@ -669,14 +733,17 @@ function cutRuns(run: string, cuts: readonly number[]): DigitGroup[][] {
  * is judged as a whole, so a table of years gets no sliding window. The last
  * group may be four digits long: it is the security code.
  */
-function* cardsIn(groups: readonly DigitGroup[]): Generator<DigitGroup> {
+function* cardsIn(
+  groups: readonly DigitGroup[],
+  layout: (sizes: readonly number[]) => boolean = cardLayout
+): Generator<DigitGroup> {
   const digitsOf = groups.map((group) => group.digits)
   let first = 0
   while (first < groups.length) {
     for (let last = Math.min(groups.length, first + CARD_MAX_GROUPS); last > first; last -= 1) {
       const digits = digitsOf.slice(first, last).join('')
       const sizes = digitsOf.slice(first, last).map((group) => group.length)
-      if (cardLayout(sizes) && standsAlone(digitsOf, first, last) && validCard(digits)) {
+      if (layout(sizes) && standsAlone(digitsOf, first, last) && validCard(digits)) {
         yield { digits, start: groups[first].start, end: groups[last - 1].end }
         first = last - 1
         break
@@ -736,28 +803,61 @@ function* svnrSpans(text: string, soft: ReadonlySet<number>): Generator<ContentS
   }
 }
 
-/** Cards in each run of digit groups; where an invisible character stood between digits, tried cut there too. */
+/** A card wrapped at a line end counts in one layout only, four groups of four: table rows are not cards. */
+const wrappedCardLayout = (sizes: readonly number[]): boolean => sizes.join(',') === '4,4,4,4'
+
+const hasLineBreak = (text: string): boolean => [...text].some((char) => LINE_BREAKS.includes(char))
+
+const overlapsCard = (card: DigitGroup, others: readonly DigitGroup[]): boolean =>
+  others.some((other) => card.start < other.end && other.start < card.end)
+
+/**
+ * Cards in each run of digit groups, then cards wrapped at one line end. Where
+ * an invisible character stood between digits, a run is tried cut there too. A
+ * wrapped card is found only in the strictest layout (four groups of four) and
+ * only where no card of the first pass stands.
+ */
 function* cardSpans(text: string, soft: ReadonlySet<number>): Generator<ContentSpan> {
+  const found = [...unwrappedCards(text, soft)].sort((a, b) => a.start - b.start)
+  found.push(...[...wrappedCards(text)].filter((card) => !overlapsCard(card, found)))
+  for (const card of found.sort((a, b) => a.start - b.start)) {
+    yield {
+      kind: 'credit_card',
+      start: card.start,
+      end: card.end,
+      sample: `${MASK} ${card.digits.slice(-4)}`,
+    }
+  }
+}
+
+function* unwrappedCards(text: string, soft: ReadonlySet<number>): Generator<DigitGroup> {
   const cuts = [...soft].sort((a, b) => a - b)
   for (const match of text.matchAll(CARD_RUN)) {
     const run = match[0]
     const runEnd = match.index + run.length
-    const inside = cuts.filter((cut) => cut > match.index && cut < runEnd).map((cut) => cut - match.index)
+    const inside = cuts
+      .filter((cut) => cut > match.index && cut < runEnd)
+      .map((cut) => cut - match.index)
     const found = [...cardsIn(digitGroups(run))]
     if (inside.length > 0) {
       const joined = [...found]
       for (const groups of cutRuns(run, inside)) {
-        for (const card of cardsIn(groups)) {
-          if (!joined.some((other) => card.start < other.end && other.start < card.end)) found.push(card)
-        }
+        for (const card of cardsIn(groups)) if (!overlapsCard(card, joined)) found.push(card)
       }
     }
-    for (const card of found.sort((a, b) => a.start - b.start)) {
-      yield {
-        kind: 'credit_card',
-        start: match.index + card.start,
-        end: match.index + card.end,
-        sample: `${MASK} ${card.digits.slice(-4)}`,
+    for (const card of found) {
+      yield { digits: card.digits, start: match.index + card.start, end: match.index + card.end }
+    }
+  }
+}
+
+function* wrappedCards(text: string): Generator<DigitGroup> {
+  for (const match of text.matchAll(WRAPPED_CARD_RUN)) {
+    const run = match[0]
+    if (!hasLineBreak(run)) continue
+    for (const card of cardsIn(digitGroups(run), wrappedCardLayout)) {
+      if (hasLineBreak(run.slice(card.start, card.end))) {
+        yield { digits: card.digits, start: match.index + card.start, end: match.index + card.end }
       }
     }
   }

@@ -17,6 +17,17 @@ const ORIGIN_PATH_MAX_CHARS = 1024
  * characters go for the same reason a filename's do.
  */
 export function sanitizeOriginPath(raw: string | null | undefined): string | null {
+  return normalizeOriginPath(raw)?.slice(0, ORIGIN_PATH_MAX_CHARS) || null
+}
+
+/**
+ * The same path, normalised as {@link sanitizeOriginPath} does it but never cut
+ * short: what the name screening reads (ADR-0086). The stored label is bounded,
+ * and a folder named past its cut was let through by a screening that read the
+ * label. The screening reads every segment the browser screened; only storage
+ * is bounded.
+ */
+export function normalizeOriginPath(raw: string | null | undefined): string | null {
   if (typeof raw !== 'string') return null
   const segments = raw
     .replace(/\\/g, '/')
@@ -25,7 +36,5 @@ export function sanitizeOriginPath(raw: string | null | undefined): string | nul
     .split('/')
     .map((segment) => segment.trim())
     .filter((segment) => segment !== '' && segment !== '.' && segment !== '..')
-  if (segments.length === 0) return null
-  const joined = segments.join('/')
-  return joined.slice(0, ORIGIN_PATH_MAX_CHARS) || null
+  return segments.length === 0 ? null : segments.join('/')
 }

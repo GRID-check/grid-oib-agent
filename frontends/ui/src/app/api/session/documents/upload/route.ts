@@ -22,6 +22,8 @@ export const POST = apiRoute(
     const formData = await parseFormData(request)
     const projectId = formData.get('projectId')
     const file = formData.get('file')
+    // A dropped folder's path, screened by name like the project shelf's (ADR-0086).
+    const originPath = formData.get('originPath')
 
     // The id decides which conversation is created or resolved, which rows the
     // document is filed against, and which retrieval collection the bytes are
@@ -43,6 +45,7 @@ export const POST = apiRoute(
         file,
         screeningRelease: readScreeningRelease(formData.get('screeningRelease')),
         uploadBatchId: readUploadBatchId(formData.get('uploadBatchId')),
+        originPath: typeof originPath === 'string' ? originPath : null,
       },
       request,
     )

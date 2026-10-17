@@ -464,6 +464,7 @@ class UploadOrchestratorImpl {
                 status: trackedStatusOfJobFile(jobFile),
                 progress: jobFile.progress_percent,
                 errorMessage: jobFile.error_message ?? undefined,
+                quarantine: jobFile.quarantine ?? null,
                 serverFileId: jobFile.file_id,
               } as TrackedFile)
             }

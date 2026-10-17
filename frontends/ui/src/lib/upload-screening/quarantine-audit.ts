@@ -24,7 +24,9 @@
  * still exists.
  *
  * The actor is {@link SYSTEM_ACTORS.uploadScreening}; the uploader rides as
- * metadata. Kinds and terms only, never content. The file's name goes only
+ * metadata. Kinds and terms only, never content, and how many reasons the job
+ * left out of its verdict (`reasonsOmitted`), so a partial list never reads as
+ * the whole one. The file's name goes only
  * where every member of its project may read the folder it was filed in, as
  * for every event that names a document (`audit/document-names.ts`).
  */
@@ -74,6 +76,8 @@ export async function auditQuarantineDecision(
         filename: decision.filename.slice(0, 200),
         scope: decision.scope,
         reasons: decision.reasons,
+        // Not zero: `reasons` is a partial list (migration 0148).
+        reasonsOmitted: decision.reasonsOmitted,
         checked: decision.checked,
         uploadedBy: decision.uploadedBy,
         jobId: decision.jobId ?? '',

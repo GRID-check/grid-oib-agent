@@ -307,6 +307,47 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     expect(await repo.findUploadBatch(ORG, JOB_BATCH)).toMatchObject({ expectedCount: 2, sealedAt: expect.any(Date) })
   })
 
+  // The name check's stops arrive after the batch opened: a job's as it meets
+  // them, the server's repeat with the browser's seal (ADR-0086). Each adds to
+  // what is there, term by term, and a sealed batch takes no more.
+  it('adds name-check stops to a batch by term, summed, until it is sealed', async () => {
+    const batch = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a05'
+    await repo.insertUploadBatch({
+      id: batch,
+      organizationId: ORG,
+      createdBy: USER,
+      scope: 'project',
+      projectId,
+      expectedCount: 2,
+      excluded: [{ term: 'Rechnung', count: 2 }],
+    })
+
+    expect(await repo.addUploadBatchExclusions(ORG, batch, 'someone-else', [{ term: 'Vertrag', count: 1 }])).toBe(false)
+    expect(await repo.addUploadBatchExclusions(OTHER_ORG, batch, USER, [{ term: 'Vertrag', count: 1 }])).toBe(false)
+    expect(await repo.addUploadBatchExclusions(ORG, batch, USER, [{ term: 'Vertrag', count: 1 }])).toBe(true)
+    expect(await repo.addUploadBatchExclusions(ORG, batch, USER, [{ term: 'Rechnung', count: 1 }])).toBe(true)
+    expect((await repo.findUploadBatch(ORG, batch))?.excluded).toEqual([
+      { term: 'Rechnung', count: 3 },
+      { term: 'Vertrag', count: 1 },
+    ])
+
+    expect(
+      await repo.sealUploadBatch(
+        ORG,
+        batch,
+        USER,
+        { unchanged: 0, failed: 0, excluded: [{ term: 'Personal', count: 2 }, { term: 'Vertrag', count: 1 }] },
+        new Date()
+      )
+    ).toBe(true)
+    expect((await repo.findUploadBatch(ORG, batch))?.excluded).toEqual([
+      { term: 'Rechnung', count: 3 },
+      { term: 'Vertrag', count: 2 },
+      { term: 'Personal', count: 2 },
+    ])
+    expect(await repo.addUploadBatchExclusions(ORG, batch, USER, [{ term: 'Spät', count: 1 }])).toBe(false)
+  })
+
   it('refuses a completed-but-unsealed batch at the CHECK, whatever the writer', async () => {
     await expect(
       inTenant(ORG, () =>

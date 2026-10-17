@@ -78,6 +78,8 @@ export async function openImportBatch(session: AuthorizedSession, row: MailImpor
     conversationId: null,
     // Unknown until the import ends; the seal announces what was filed.
     expectedCount: 0,
+    // Nothing stopped yet: each mail's name-check stops are added once the
+    // mail is done (`recordNameStops`, from `./filing`).
     excluded: [],
   })
   return { id: found.id, generation: found.generation, documents: 0 }

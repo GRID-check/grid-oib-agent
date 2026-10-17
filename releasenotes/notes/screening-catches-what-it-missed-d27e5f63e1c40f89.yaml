@@ -1,0 +1,22 @@
+---
+fixes:
+  - >
+    The content check now finds a term whose word is split once by a space or
+    hyphen, an IBAN printed in pairs, a card number wrapped onto a second line,
+    and a number split across a page break. A table of years is no longer
+    mistaken for a card number.
+  - >
+    A file named with a split term („Gehalts-Abrechnung“) or with invisible
+    characters is now stopped by the name check too.
+  - >
+    Scanned pages are now checked once the vision model has read them, before
+    anything else uses their text. A file held back for what was found there
+    says that the vision model read those pages.
+  - >
+    When your office's screening rules cannot be applied to an upload, its
+    files are now held unread instead of being read unchecked. Reading them
+    again applies the rules afresh.
+features:
+  - >
+    The notice that files wait in quarantine now names the latest file and what
+    it was held back for, such as an IBAN or a term from your office's list.

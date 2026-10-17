@@ -79,11 +79,15 @@ vi.mock('./FileSourceCard', () => ({
     onDelete,
     onOpen,
     id,
+    errorMessage,
+    quarantine,
   }: {
     title: string
     onDelete?: (id: string) => void
     onOpen?: (id: string) => void
     id: string
+    errorMessage?: string
+    quarantine?: { reasons: { term?: string }[] } | null
   }) => (
     <div data-testid={`file-card-${id}`}>
       {onOpen ? (
@@ -92,6 +96,8 @@ vi.mock('./FileSourceCard', () => ({
         <span>{title}</span>
       )}
       {onDelete && <button onClick={() => onDelete(id)}>Delete</button>}
+      {errorMessage && <span>{errorMessage}</span>}
+      {quarantine?.reasons.map((reason) => <span key={reason.term}>{reason.term}</span>)}
     </div>
   ),
   FileSourceCardSkeleton: () => <div data-testid="file-card-skeleton" />,
@@ -240,6 +246,36 @@ describe('FileSourcesTab', () => {
 
     expect(screen.getByTestId('file-card-file-1')).toHaveTextContent('document.pdf')
     expect(screen.getByTestId('file-card-file-2')).toHaveTextContent('report.txt')
+  })
+
+  // ADR-0113: a held attachment says why from its typed verdict, and its
+  // legacy `quarantined:` message never reaches the card as text.
+  test('shows why a held file is held, never its stored message', () => {
+    const legacy = 'quarantined:{"reasons":[{"kind":"term","term":"Altbegriff","count":1,"pages":[9]}],"checked":"full"}'
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      sessionFiles: [
+        {
+          id: 'file-h',
+          fileName: 'Lohn.pdf',
+          status: 'held',
+          collectionName: 'session-1',
+          errorMessage: legacy,
+          quarantine: { reasons: [{ kind: 'term', term: 'Lohnzettel', count: 1, pages: [2] }], checked: 'full' },
+        },
+      ],
+      isUploading: false,
+      error: null,
+      clearError: mockClearError,
+    } as unknown as ReturnType<typeof useFileUpload>)
+
+    render(<FileSourcesTab />)
+
+    const card = screen.getByTestId('file-card-file-h')
+    expect(card).toHaveTextContent('Lohnzettel')
+    expect(card).not.toHaveTextContent('Altbegriff')
+    expect(card).not.toHaveTextContent('quarantined:')
   })
 
   test('shows file count in header', () => {

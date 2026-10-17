@@ -184,6 +184,9 @@ class TestAQuarantinedFileReachesNoModel:
             "checked": "full",
         }
         assert detail.screening == "quarantined"
+        # The typed verdict (ADR-0113) and the legacy string say the same thing.
+        assert detail.quarantine is not None
+        assert detail.quarantine.model_dump() == _reasons(detail.error_message)
         assert _external_calls(calls) == dict.fromkeys(_external_calls(calls), 0)
 
     def test_a_pdf_with_a_valid_iban(self, tmp_path, calls):
@@ -239,6 +242,7 @@ class TestTheGateIsConditional:
 
         assert detail.status == FileStatus.SUCCESS
         assert detail.screening == "clean"
+        assert detail.quarantine is None
         # The screen measured the PDF; transcription was handed that triage.
         [triage] = calls["ocr"]
         assert isinstance(triage, page_triage.PdfTriage)

@@ -27,16 +27,21 @@ can be switched off.
 
 ## What happens to an upload
 
-1. **Before anything leaves the computer**, the upload dialog shows which files
-   the name terms hold back and why. Those files are never sent. A single file,
-   such as a Bauvertrag in a folder called „Verträge", can be released with one
-   tick; the release is recorded in the audit log. The server checks the names
-   again, so a browser that skips the dialog is refused the same way. Not even
-   the name of a held-back file is sent: Piloti checks which files the folder
-   already holds only for the files that passed, or that you released. The
-   list is read fresh for every upload, so a term saved a moment ago applies
-   to the next one, and read again when you confirm the dialog: a term saved
-   while it was open holds its files back, and their folders are not created.
+1. **Before anything leaves the computer**, the name check (*Namensprüfung*)
+   shows in the upload dialog which files the name terms stop and why: they are
+   **Nicht hochgeladen** (not uploaded) and never sent. A single file, such as
+   a Bauvertrag in a folder called „Verträge", can be uploaded anyway with one
+   tick (**Trotzdem hochladen**); that call is yours, and the audit log records
+   it. The server checks the names again, every folder of a dropped folder's
+   path included, also for a file dropped into a chat, so a browser that skips
+   the dialog is refused the same way; a file it stops is not stored, and the
+   upload says „Nicht hochgeladen" for it just as for the browser's own stops.
+   Not even the name of a file the check stops is sent: Piloti checks which
+   files the folder already holds only for the files that passed, or that you
+   uploaded anyway. The list is read fresh for every upload, so a term saved a
+   moment ago applies to the next one, and read again when you confirm the
+   dialog: a term saved while it was open stops its files, and their folders
+   are not created.
    When anything changes between what the dialog showed and what would be
    sent, nothing is sent; the dialog shows the new preview to confirm. If your
    office's list cannot be loaded, nothing is uploaded and Piloti says so; try
@@ -45,11 +50,18 @@ can be switched off.
 2. **On Piloti's own server, before any language model sees the file**, its text
    is read locally and checked against the content terms and number checks. A
    match ends there: the file is stored, read by no model, and waits in
-   quarantine. If the list cannot be read at that moment, the file is not read
-   at all; it is marked as failed and can be retried.
-3. A file whose text cannot be read locally (a scan, a PDF without a text
-   layer, a photo) is **checked by name only**. The summary says so, so nobody
-   takes „nothing found" for „nothing there".
+   quarantine. If the list cannot be read at that moment, or reaches the
+   server in a form it cannot apply, the file is not read at all; it waits
+   held back and can be read again, which applies the list afresh. A word
+   split once by a space or hyphen („Gehalts abrechnung") still counts, and
+   so does a number broken across a line or a page.
+3. **Scanned pages** of a PDF are checked once the vision model has read
+   them, before their text is summarised or indexed. A match there holds the
+   file back like any other, and the file says that the vision model read
+   those pages.
+4. A file whose text cannot be read at all (a photo, an image) is **checked
+   by name only**. The summary says so, so nobody takes „nothing found" for
+   „nothing there".
 
 What Piloti drops on its own: system files a folder carries along, such as
 `.DS_Store`, `Thumbs.db` and Office lock files (`~$Vertrag.docx`).
@@ -135,7 +147,9 @@ Quarantäne list. Zulassen needs permission to change files in the file's
 folder; without it the preview shows the findings only. The uploader sees
 **Prüfung anfragen** there instead.
 
-Reviewers get an inbox notice when files wait for them. It names no file. The
+Reviewers get an inbox notice when files wait for them. It names the latest
+file and what it was held back for (an IBAN, a term from the list), never the
+matched text; it reaches only people who may review that file. The
 audit log records both the quarantine, as Piloti's own decision, and the
 decision to allow it, with the terms and checks that matched but never the
 matched text.
@@ -168,10 +182,14 @@ summary.
 folder still takes every file filed in it into the Papierkorb, and back out,
 held-back ones included.
 
-**Replacing a quarantined file.** A file cannot be uploaded over one that waits
-in quarantine, not even by its uploader: the held-back version would stay in
-the file's history, where everyone could open it. Delete the quarantined file
-first (or have it allowed), then upload the corrected one.
+**Replacing a quarantined file.** A file cannot be uploaded over one that is
+held back, not even by its uploader: the held-back version would stay in the
+file's history, where everyone could open it. The upload shows the new file as
+**Zurückgehalten** too, not as failed, and says it waits for the file it would
+replace; its uploader can ask for that file's review from there. Delete the
+held-back file first (or have it allowed), then upload the corrected one.
+Someone who may not see the held-back file is told only that the name is taken,
+as for any other document of that name.
 
 **Asking for a review.** The uploader can press **Prüfung anfragen** next to
 the file in the upload summary, or under the findings in the file's preview.
@@ -182,9 +200,10 @@ and opens the quarantine. Nothing is allowed in until one of them decides.
 
 When everything an upload brought in has been read, the uploader gets an inbox
 notice. It opens a summary of that upload: what arrived and where it was filed,
-what each file is (its document type and summary), which files the screening
-kept on the computer and for which terms, what is in quarantine, and what
-failed and why. **Geändert** counts and marks the files that were a new version
+what each file is (its document type and summary), which files the name check
+did not upload and for which terms (by term and count, never by name; an
+e-mail import counts its own the same way), what is held back in quarantine,
+and what failed and why. **Geändert** counts and marks the files that were a new version
 of a document already there; **Geschützt** those filed in a folder with its own
 access list, or below one: the folders the file list marks with a lock. That
 includes a list that lets every member read and limits only who may change the
@@ -199,8 +218,8 @@ laden** reads further back, to the first one. Each person opens
 the file-by-file summary of their own uploads only. If a folder of the project
 is closed to you, you see of each upload only the files that landed in folders
 you can open, exactly as the file list shows them. Files Piloti found
-unchanged, transfers that failed and files the screening kept back belong to no
-folder, so they are not counted for you, and an upload with nothing in your
+unchanged, transfers that failed and files the name check did not upload belong
+to no folder, so they are not counted for you, and an upload with nothing in your
 folders is not listed. A folder in the Papierkorb is hidden from everyone, so
 its files are not counted, but it closes nothing to you as long as you could
 open it: the upload's other counts stay. A folder whose files were deleted for

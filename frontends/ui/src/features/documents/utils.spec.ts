@@ -65,6 +65,12 @@ describe('utils', () => {
       expect(trackedStatusOfJobFile({ status: 'failed', error_message: 'quarantined:{"reasons":[]}' })).toBe('held')
     })
 
+    test('a failure carrying the typed verdict is held, with no message at all (ADR-0113)', () => {
+      expect(
+        trackedStatusOfJobFile({ status: 'failed', error_message: null, quarantine: { reasons: [], checked: 'full' } })
+      ).toBe('held')
+    })
+
     test('any other failure stays failed', () => {
       expect(trackedStatusOfJobFile({ status: 'failed', error_message: 'interrupted: restart' })).toBe('failed')
       expect(trackedStatusOfJobFile({ status: 'failed', error_message: null })).toBe('failed')

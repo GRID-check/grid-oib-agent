@@ -8,7 +8,10 @@
  * upload is skipped and named, never forced in. That includes the office's
  * name screening (ADR-0086): the import never passes `screeningRelease`,
  * because releasing a screened file is a person's decision about that file and
- * a job cannot make it on their behalf.
+ * a job cannot make it on their behalf. What the name check stops is counted
+ * on the import's upload batch by term, as a browser upload's stops are, once
+ * the mail is done (`recordNameStops`, after the cursor moved past it), so a
+ * retried mail does not count them twice.
  *
  * **Retry-safe by construction.** The job may die anywhere in here and run the
  * same mail again. The mail's folder is recorded (`markInflight`) the moment it
@@ -46,7 +49,10 @@ import { assertFileSizeAllowed, assertUploadTypeAllowed, uploadDocument } from '
 import { projectShelf } from '@/lib/documents/shelf'
 import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
 import { createProjectFolder, ensureProjectFolderPaths } from '@/lib/projects/folder-service'
+import type { NameMatch } from '@/lib/upload-screening/name-screen'
 import { ScreenedUploadError } from '@/lib/upload-screening/service'
+import { exclusionsByTerm } from '@/lib/upload-screening/name-stop'
+import { recordJobUploadExclusions } from '@/lib/upload-batches/service'
 import {
   AttachmentTooLargeError,
   AttachmentUnreadableError,
@@ -114,6 +120,20 @@ export interface FiledMail {
   filesFiled: number
   filesSkipped: number
   skipped: MailImportSkippedSample[]
+  /** What the name check stopped, one match list per file; recorded on the batch by `recordNameStops`. */
+  nameStops: NameMatch[][]
+}
+
+/**
+ * Count a filed mail's name-check stops on the import's upload batch, by term
+ * and never by name (ADR-0086). Called once the cursor moved past the mail:
+ * the move happens once per mail however often a retry files it, so the stops
+ * count once. Never throws (`recordJobUploadExclusions`).
+ */
+export async function recordNameStops(context: FilingContext, filed: FiledMail): Promise<void> {
+  if (filed.nameStops.length === 0) return
+  const { organizationId, userId } = context.mailImport
+  await recordJobUploadExclusions(organizationId, context.uploadBatch.id, userId, exclusionsByTerm(filed.nameStops))
 }
 
 /** Build the context a slice files with. */
@@ -130,7 +150,7 @@ export function filingContext(
  */
 export async function fileMail(context: FilingContext, mail: ArchiveMail): Promise<FiledMail> {
   const folder = await mailFolder(context, mail)
-  const result: FiledMail = { folderName: folder.name, filesFiled: 0, filesSkipped: 0, skipped: [] }
+  const result: FiledMail = { folderName: folder.name, filesFiled: 0, filesSkipped: 0, skipped: [], nameStops: [] }
   const filedNames: string[] = []
   // Names this mail has taken so far: the second `scan.pdf` of one mail is
   // `scan (2).pdf`, not a new version of the first.
@@ -147,6 +167,7 @@ export async function fileMail(context: FilingContext, mail: ArchiveMail): Promi
     }
     result.filesSkipped += 1
     result.skipped.push({ mail: folder.name, file: attachment.filename, reason: outcome.reason })
+    if (outcome.nameStop) result.nameStops.push(outcome.nameStop)
   }
 
   const note = mailNote(
@@ -167,6 +188,7 @@ export async function fileMail(context: FilingContext, mail: ArchiveMail): Promi
   if (!filedNote.filed) {
     result.filesSkipped += 1
     result.skipped.push({ mail: folder.name, file: noteName, reason: filedNote.reason })
+    if (filedNote.nameStop) result.nameStops.push(filedNote.nameStop)
   }
   return result
 }
@@ -232,7 +254,9 @@ export async function createFolderWithFreeName(
   throw new Error(`no free folder name for ${name} after ${MAX_NAME_ATTEMPTS} attempts`)
 }
 
-type AttachmentOutcome = { filed: true; filename: string } | { filed: false; reason: MailImportSkipReason }
+type AttachmentOutcome =
+  | { filed: true; filename: string }
+  | { filed: false; reason: MailImportSkipReason; nameStop?: NameMatch[] }
 
 async function fileAttachment(
   context: FilingContext,
@@ -327,6 +351,10 @@ async function fileBytes(
     if (!uploaded.unchanged) context.uploadBatch.documents += 1
   } catch (error) {
     if (error instanceof InsufficientStorageError) throw new MailImportQuotaError()
+    // Stopped by the name check: its matches travel with the mail and are
+    // counted on the batch by term once the mail is done (`recordNameStops`).
+    // The import's own skip list names the file.
+    if (error instanceof ScreenedUploadError) return { filed: false, reason: 'screened', nameStop: error.matches }
     const reason = refusalReason(error)
     if (reason) return { filed: false, reason }
     throw error

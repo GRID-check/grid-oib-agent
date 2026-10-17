@@ -85,6 +85,7 @@ import {
 import { DOCUMENT_LIFECYCLES, type DocumentLifecycle } from '@/lib/documents/lifecycle-types'
 import { DOCUMENT_STATUSES, type DocumentStatus } from '@/lib/documents/document-status'
 import type { IngestFailureCategory } from '@/lib/documents/retry-policy'
+import type { StoredQuarantineVerdict } from '@/lib/upload-screening/quarantine'
 
 // Re-exported so `@/lib/db/schema` stays the one import site every existing
 // caller already uses; the declaration itself lives outside the schema so a
@@ -396,6 +397,18 @@ export const documents = pgTable('documents', {
    */
   screeningOutcome: text('screening_outcome').$type<DocumentScreeningOutcome>(),
   /**
+   * Why the content gate held the row back, as data (migration 0148, ADR-0113):
+   * the ingest job's typed verdict, written with `status = 'quarantined'` by
+   * the reconcile and cleared by the release, the one way out of quarantine.
+   * NULL on every other row (CHECK). The database guarantees an object with a
+   * `reasons` array; what is inside is `verdictSchema`'s
+   * (`lib/upload-screening/quarantine.ts`), and every reader goes through
+   * `quarantineVerdictOf`, which reads `error_message` only for a row the
+   * migration's backfill could not convert. Shown only to whoever may see the
+   * held row: its uploader and its reviewers (`documentVisibleTo`).
+   */
+  quarantine: jsonb('quarantine').$type<StoredQuarantineVerdict | null>(),
+  /**
    * The `content_hash` of the bytes `screening_outcome` judged (migration 0123):
    * written with the verdict from the hash its dispatch recorded, or with a
    * release. A person's upload passes the hold only while this equals
@@ -652,6 +665,19 @@ export const documents = pgTable('documents', {
   statusKnown: check(
     'documents_status_known',
     sql`${table.status} IN (${sql.raw(DOCUMENT_STATUSES.map((status) => `'${status}'`).join(', '))})`
+  ),
+  /**
+   * The held verdict is an object with a `reasons` array (migration 0148), and
+   * only a quarantined row carries one: the release that ends a quarantine
+   * clears it, and the hold trigger keeps every other writer from ending one.
+   */
+  quarantineShape: check(
+    'documents_quarantine_shape_check',
+    sql`${table.quarantine} IS NULL OR (jsonb_typeof(${table.quarantine}) = 'object' AND jsonb_typeof(${table.quarantine}->'reasons') IS NOT DISTINCT FROM 'array')`
+  ),
+  quarantineHeld: check(
+    'documents_quarantine_held_check',
+    sql`${table.quarantine} IS NULL OR ${table.status} = 'quarantined'`
   ),
   /** The retry rule's vocabulary (migration 0134): a category nothing knows would read as unknown. */
   ingestFailureCategoryKnown: check(

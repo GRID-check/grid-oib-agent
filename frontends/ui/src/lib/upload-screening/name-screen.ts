@@ -13,9 +13,16 @@
  * words that merely contain a term — `Berechnung` contains `rechnung` — which
  * the office declares as exceptions: an occurrence of a term that lies inside
  * an occurrence of an exception does not count.
+ *
+ * A name is read the way the content screen reads prose (`./reading`):
+ * invisible characters do not count (`Gehalts\u200Babrechnung` is
+ * `Gehaltsabrechnung`), and a term of eight or more characters still matches
+ * with one space, hyphen, underscore or full stop inside it
+ * (`Gehalts-Abrechnung_Mai.pdf`), as long as each part keeps three.
  */
 
 import type { UploadScreeningPolicy } from './policy'
+import { SPLIT_TERM_MIN, splitTermEnd, TERM_FRAGMENT, withoutIgnorables } from './reading'
 
 export type NameSegmentKind = 'file' | 'folder'
 
@@ -55,6 +62,14 @@ export function foldForScreening(text: string): string {
   return folded
 }
 
+/** What may split a long term in a name: what people put between the words of a file name. */
+const NAME_JOINERS = ' -_.\u2010\u2011'
+
+/** A name as both gates compare it: invisible characters left out, then folded. */
+function foldName(text: string): string {
+  return foldForScreening(withoutIgnorables(text))
+}
+
 function occurrences(haystack: string, needle: string): Array<[number, number]> {
   const spans: Array<[number, number]> = []
   if (!needle) return spans
@@ -67,6 +82,17 @@ function occurrences(haystack: string, needle: string): Array<[number, number]> 
   }
 }
 
+/** `occurrences` of a term, and for a long one also where one joiner splits it (`splitTermEnd`). */
+function termOccurrences(haystack: string, term: string): Array<[number, number]> {
+  if (term.length < SPLIT_TERM_MIN) return occurrences(haystack, term)
+  return occurrences(haystack, term.slice(0, TERM_FRAGMENT)).flatMap(
+    ([at]): Array<[number, number]> => {
+      const end = splitTermEnd(haystack, at, term, NAME_JOINERS)
+      return end > at ? [[at, end]] : []
+    }
+  )
+}
+
 function coveredBy(span: [number, number], covers: Array<[number, number]>): boolean {
   return covers.some(([start, end]) => start <= span[0] && span[1] <= end)
 }
@@ -77,10 +103,10 @@ function matchSegment(
   terms: readonly { raw: string; folded: string }[],
   exceptions: readonly string[]
 ): string | null {
-  const folded = foldForScreening(segment)
-  const excepted = exceptions.flatMap((exception) => occurrences(folded, exception))
+  const folded = foldName(segment)
+  const excepted = exceptions.flatMap((exception) => termOccurrences(folded, exception))
   for (const term of terms) {
-    const hit = occurrences(folded, term.folded).some((span) => !coveredBy(span, excepted))
+    const hit = termOccurrences(folded, term.folded).some((span) => !coveredBy(span, excepted))
     if (hit) return term.raw
   }
   return null
@@ -120,8 +146,8 @@ function segmentsOf(name: ScreenedName): Array<{ segment: string; kind: NameSegm
 /** Screen one file's name and path against the policy. Never throws. */
 export function screenUploadName(policy: UploadScreeningPolicy, name: ScreenedName): NameVerdict {
   if (!policy.enabled || policy.nameTerms.length === 0) return { blocked: false, matches: [] }
-  const terms = policy.nameTerms.map((raw) => ({ raw, folded: foldForScreening(raw) }))
-  const exceptions = policy.nameExceptions.map(foldForScreening)
+  const terms = policy.nameTerms.map((raw) => ({ raw, folded: foldName(raw) }))
+  const exceptions = policy.nameExceptions.map(foldName)
   const matches: NameMatch[] = []
   for (const { segment, kind } of segmentsOf(name)) {
     const term = matchSegment(segment, terms, exceptions)

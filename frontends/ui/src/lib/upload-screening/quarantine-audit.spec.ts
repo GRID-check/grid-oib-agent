@@ -50,6 +50,7 @@ const decision = (
   folderId: 'folder-personal',
   filename: 'Lohnzettel März.pdf',
   reasons: 'term:Lohnzettel,iban',
+  reasonsOmitted: 0,
   checked: 'partial',
   uploadedBy: 'uploader',
   auditedAt: null,
@@ -77,6 +78,7 @@ describe('auditQuarantineDecision', () => {
         filename: 'Lohnzettel März.pdf',
         scope: 'project',
         reasons: 'term:Lohnzettel,iban',
+        reasonsOmitted: 0,
         checked: 'partial',
         uploadedBy: 'uploader',
         jobId: 'job-7',
@@ -94,6 +96,15 @@ describe('auditQuarantineDecision', () => {
       'decision-1',
       expect.any(Date)
     )
+  })
+
+  it('says how many reasons the job left out, so the trail never reads a short list as the whole one', async () => {
+    await auditQuarantineDecision(decision({ reasonsOmitted: 4 }))
+
+    expect(vi.mocked(recordAuditEventOrThrow).mock.calls[0][0].metadata).toMatchObject({
+      reasons: 'term:Lohnzettel,iban',
+      reasonsOmitted: 4,
+    })
   })
 
   it('says a decision off any project shelf is filed in no folder', async () => {

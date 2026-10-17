@@ -40,9 +40,11 @@ export const uploadBatches = {
     },
     excluded: {
       title: 'Not uploaded',
+      // Stopped by the name check: in the browser (the file never left the
+      // computer), by the server, or in the mail import (nothing was stored).
       description:
-        'These files never left your computer. Your office marks these terms in file and folder names as sensitive.',
-      listLabel: 'Files kept back, by term',
+        'The name check did not upload these files, and none of them was stored. Your office marks these terms in file and folder names as sensitive.',
+      listLabel: 'Files not uploaded, by term',
     },
     files: {
       title: 'Files',

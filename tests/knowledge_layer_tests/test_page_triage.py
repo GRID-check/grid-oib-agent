@@ -526,6 +526,38 @@ class TestScannedPdfIngestion:
         }
         assert status.file_details[0].metadata == {"pages_transcribed": 2}
 
+    def test_a_match_in_the_transcript_holds_the_file_before_anything_indexes_it(
+        self, tmp_path, monkeypatch, indexed, no_drawing_vlm
+    ):
+        """The scan has no text layer to screen first; its transcript is screened before it is embedded."""
+        _credential(monkeypatch)
+        live, _calls = _fake_live()
+        monkeypatch.setattr(transcription, "_transcribe_live", live)
+        path = _write(tmp_path, "bescheid.pdf", scan_pdf(pages=2))
+
+        status = _ingest(indexed, path, "bescheid.pdf", {"screening": {"content_terms": ["Außenwand"]}})
+
+        detail = status.file_details[0]
+        assert detail.status.value == "failed"
+        assert detail.screening == "quarantined"
+        assert detail.quarantine is not None
+        assert detail.quarantine.after_transcription is True
+        assert detail.quarantine.checked == "partial"
+        assert [reason.term for reason in detail.quarantine.reasons] == ["Außenwand"]
+        assert indexed.docs() == []
+
+    def test_a_clean_transcript_indexes_as_partly_checked(self, tmp_path, monkeypatch, indexed, no_drawing_vlm):
+        _credential(monkeypatch)
+        live, _calls = _fake_live()
+        monkeypatch.setattr(transcription, "_transcribe_live", live)
+        path = _write(tmp_path, "bescheid.pdf", scan_pdf(pages=2))
+
+        status = _ingest(indexed, path, "bescheid.pdf", {"screening": {"content_terms": ["Gehaltsabrechnung"]}})
+
+        assert status.is_success, status.file_details[0].error_message
+        assert status.file_details[0].screening == "partial"
+        assert status.file_details[0].quarantine is None
+
     def test_pages_past_the_ocr_cap_are_counted(self, tmp_path, monkeypatch, indexed, no_drawing_vlm):
         _credential(monkeypatch)
         live, _calls = _fake_live()
@@ -604,6 +636,24 @@ class TestGarbledPdfIngestion:
         assert "Bauordnung" in contents["1"], "the good page keeps its own text layer"
         assert contents["2"] == TRANSCRIPT
         assert len(calls) == 1
+
+    def test_salvaged_text_of_an_untranscribed_garbled_page_is_screened(self, tmp_path, monkeypatch, indexed):
+        """Glyph ids hid the term from the first screen; once stripped it reads, and is screened before indexing."""
+        _credential(monkeypatch, api_key="")
+
+        def salvaging(pdf_path, text_pages, page_texts, **kwargs):
+            text_pages[-1] = {**text_pages[-1], "text": "Gehaltsabrechnung März 2026"}
+            return transcription.PageRoutes(garbled_kept=[text_pages[-1]["page_number"]])
+
+        monkeypatch.setattr(transcription, "route_pdf_pages", salvaging)
+        path = _write(tmp_path, "cad.pdf", _pdf([text_page(), cid_page()]))
+
+        status = _ingest(indexed, path, "cad.pdf", {"screening": {"content_terms": ["Gehaltsabrechnung"]}})
+
+        detail = status.file_details[0]
+        assert detail.screening == "quarantined"
+        assert detail.quarantine is not None and not detail.quarantine.after_transcription
+        assert indexed.docs() == []
 
     def test_without_a_key_the_garbage_is_dropped_and_counted(self, tmp_path, monkeypatch, indexed):
         _credential(monkeypatch, api_key="")

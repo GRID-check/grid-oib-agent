@@ -38,8 +38,9 @@ import { memberReader } from '@/lib/documents/document-reader'
 import { shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
-import { parseQuarantine, type QuarantineVerdict } from '@/lib/upload-screening/quarantine'
+import { quarantineVerdictOf, type QuarantineVerdict } from '@/lib/upload-screening/quarantine'
 import {
+  addUploadBatchExclusions,
   countBatchDocumentsByStatus,
   findUploadBatch,
   insertUploadBatch,
@@ -120,11 +121,16 @@ export function readUploadBatchId(value: FormDataEntryValue | null): string | nu
   return typeof value === 'string' && UUID_PATTERN.test(value) ? value : null
 }
 
-/** Seal the session's batch once its last request has answered. Idempotent for a sealed batch. */
+/**
+ * Seal the session's batch once its last request has answered. Idempotent for
+ * a sealed batch. `excluded` is what the server's repeat of the name check
+ * refused (a 422 the browser's own check did not foresee), by term and count,
+ * never by name: added to what the browser's check held back when it opened.
+ */
 export async function sealOwnUploadBatch(
   session: AuthorizedSession,
   batchId: string,
-  counts: { unchanged: number; failed: number }
+  counts: { unchanged: number; failed: number; excluded?: UploadBatchExclusion[] }
 ): Promise<void> {
   const batch = await findOwnUploadBatch(session, batchId)
   if (!batch) throw new NotFoundError('Upload not found')
@@ -141,6 +147,25 @@ export async function sealOwnUploadBatch(
   // here rather than waiting for a reader or the sweep.
   const { settleUploadBatches } = await import('./settle')
   await settleUploadBatches(session.organizationId, [batchId])
+}
+
+/**
+ * Record files the name check refused on a job's batch (the mail import), by
+ * term and count, so its summary says why they are missing, as a browser
+ * upload's does. Never throws: the summary is a courtesy, and the import's own
+ * skip list names the file to the person who started it.
+ */
+export async function recordJobUploadExclusions(
+  organizationId: string,
+  batchId: string,
+  createdBy: string,
+  excluded: readonly UploadBatchExclusion[]
+): Promise<void> {
+  try {
+    await addUploadBatchExclusions(organizationId, batchId, createdBy, excluded)
+  } catch (error) {
+    console.warn(`[upload-batches] could not record exclusions on batch ${batchId}; the import still lists them:`, error)
+  }
 }
 
 /** A batch as a server-side job filing into it sees it; see {@link findJobUploadBatch}. */
@@ -272,7 +297,7 @@ function toSummaryDocument(
     status: row.status,
     outcome: outcomeOf(row.status),
     screening: row.screeningOutcome,
-    quarantine: parseQuarantine(row.errorMessage),
+    quarantine: quarantineVerdictOf(row),
     // A quarantine verdict is shown as reasons, not as an error string.
     errorMessage: row.status === 'quarantined' ? null : row.errorMessage,
     summary: row.summary ?? null,

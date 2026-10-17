@@ -16,8 +16,9 @@ category        retryable  what it means
 ==============  =========  ====================================================
 transient       yes        interrupted, timed out, a download, a dispatch or an
                            upstream call failed. The same bytes may read now.
-configuration   yes        the deployment lacks something (a vision model). The
-                           same bytes read once it is configured.
+configuration   yes        the deployment lacks something (a vision model), or
+                           the job's screening policy could not be applied.
+                           The same bytes read once it is configured.
 deterministic   no         the bytes themselves: empty, encrypted, unparseable,
                            too many unreadable pages. The same reader fails the
                            same way; new bytes or a newer reader may not.
@@ -80,6 +81,9 @@ PREFIX_CATEGORIES: Final[dict[str, FailureCategory]] = {
     "document_deleted": TRANSIENT,
     # No vision model for a scan or an image.
     "vlm_not_configured": CONFIGURATION,
+    # The job's screening policy could not be applied (ADR-0086): nothing of
+    # the file was read. The next dispatch sends the policy afresh.
+    "screening_unavailable": CONFIGURATION,
     # Too many pages pdfplumber could not read: the file, not the moment.
     "pdf_pages_unreadable": DETERMINISTIC,
     "quarantined": QUARANTINED,

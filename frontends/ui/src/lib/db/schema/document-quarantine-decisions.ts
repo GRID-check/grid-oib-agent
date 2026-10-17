@@ -1,4 +1,4 @@
-import { check, index, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import { check, index, integer, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import type { DocumentScope } from './documents'
 
@@ -39,6 +39,12 @@ export const documentQuarantineDecisions = pgTable(
     filename: text('filename').notNull(),
     /** Kinds and terms (`term:Lohnzettel,iban`), as the trail records them. */
     reasons: text('reasons').notNull().default(''),
+    /**
+     * How many reasons the job found and left out of its verdict (migration
+     * 0148): more than ten, or too long to store whole. Not zero, `reasons` is
+     * a partial list.
+     */
+    reasonsOmitted: integer('reasons_omitted').notNull().default(0),
     /** `full` or `partial`, or empty when the verdict did not say. */
     checked: text('checked').notNull().default(''),
     uploadedBy: text('uploaded_by').notNull(),
@@ -57,6 +63,10 @@ export const documentQuarantineDecisions = pgTable(
     scopeProject: check(
       'document_quarantine_decisions_scope_project',
       sql`(${table.scope} = 'project') = (${table.projectId} IS NOT NULL)`
+    ),
+    reasonsOmittedCheck: check(
+      'document_quarantine_decisions_reasons_omitted_check',
+      sql`${table.reasonsOmitted} >= 0`
     ),
     filenameLength: check(
       'document_quarantine_decisions_filename_length',

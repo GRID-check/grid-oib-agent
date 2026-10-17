@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    When the content check holds a file back for more reasons than it lists,
+    the audit log now records how many it left out. A shortened list of
+    reasons no longer reads as the complete one.

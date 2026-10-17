@@ -1,12 +1,19 @@
 /**
- * Why a document is in quarantine, read back from its stored error (ADR-0086).
+ * Why a document is in quarantine, as data (ADR-0086, ADR-0113).
  *
- * The content gate in the ingest job ends a matching file with
- * `quarantined:{"reasons":[…],"checked":"full"|"partial"}`, plus `"omitted":N`
- * when the job left N reasons out
- * (`sources/knowledge_layer/src/llamaindex/screening.py`, `quarantine_error`),
- * and status reconciliation stores that string on the row. Detector samples are
- * already masked by the job; nothing here ever sees a full IBAN.
+ * The content gate in the ingest job records its verdict on the file's status
+ * as a typed object, `quarantine`: `{"reasons":[…],"checked":"full"|"partial"}`,
+ * plus `"omitted":N` when the job left N reasons out
+ * (`sources/knowledge_layer/src/llamaindex/screening.py`, `to_model`). Status
+ * reconciliation stores it in `documents.quarantine`, and every reader takes it
+ * through {@link quarantineVerdictOf}. Detector samples are already masked by
+ * the job; nothing here ever sees a full IBAN.
+ *
+ * The job still writes the same verdict as `error_message` `quarantined:{json}`
+ * for one release, and a row from before migration 0148 whose message did not
+ * parse holds only that. {@link quarantineVerdictOf} reads the string only when
+ * the typed verdict is absent; nothing else in the app parses it, which is why
+ * neither the parser nor the prefix is exported.
  *
  * Pure and client-safe: the review list and the upload summary both render it.
  */
@@ -15,7 +22,8 @@ import { z } from 'zod'
 import type { Translator } from '@/i18n/translate'
 import type { NameMatch } from './name-screen'
 
-export const QUARANTINED_PREFIX = 'quarantined:'
+/** What the legacy `error_message` of a held file starts with; read only by {@link quarantineVerdictOf}. */
+const QUARANTINED_PREFIX = 'quarantined:'
 
 /**
  * `details.reason` of the 409 a re-upload onto a quarantined file answers
@@ -51,37 +59,174 @@ const reasonSchema = z.object({
   sample: z.string().optional(),
 })
 
-const verdictSchema = z.object({
+/**
+ * The verdict as this build reads it. Exported for the boundaries that parse a
+ * job's or a response's `quarantine` field; the contract it holds to is
+ * `tests/fixtures/quarantine_verdict_cases.json` (`quarantine-verdict-contract.spec.ts`).
+ */
+export const verdictSchema = z.object({
   reasons: z.array(reasonSchema),
   checked: z.enum(['full', 'partial']).optional(),
   /** How many reasons the job found and did not list (more than ten, or too long to store whole). */
   omitted: z.number().int().positive().optional(),
+  /**
+   * The match was in the vision model's transcript of scanned pages: that model
+   * saw those pages, no later model call saw anything of the file. Absent: false.
+   */
+  after_transcription: z.boolean().optional(),
+})
+
+/**
+ * The verdict as `documents.quarantine` stores it: the same shape with every
+ * `kind` kept as the job wrote it, so a later build that knows a new detector
+ * reads it by name. Derived from {@link verdictSchema}, never written beside it.
+ */
+const storedVerdictSchema = verdictSchema.extend({
+  reasons: z.array(reasonSchema.extend({ kind: z.string().min(1) })),
 })
 
 export type QuarantineReason = z.infer<typeof reasonSchema>
 export type QuarantineVerdict = z.infer<typeof verdictSchema>
+/** What `documents.quarantine` holds (migration 0148). Read it through {@link quarantineVerdictOf}. */
+export type StoredQuarantineVerdict = z.infer<typeof storedVerdictSchema>
 
-/** The verdict stored on a quarantined row, or `null` for any other message (or a malformed one). */
-export function parseQuarantine(errorMessage: string | null | undefined): QuarantineVerdict | null {
-  if (!errorMessage?.startsWith(QUARANTINED_PREFIX)) return null
+/**
+ * Where a verdict can come from: a typed `quarantine` (the job's field, the
+ * row's column, a response's field) and the legacy message. A row and a job
+ * file spell the message differently, so both spellings are taken.
+ */
+export interface QuarantineSource {
+  quarantine?: unknown
+  errorMessage?: string | null
+  error_message?: string | null
+}
+
+/** The legacy message's JSON, or `undefined` for any other message (or one that is not JSON). */
+function legacyVerdictJson(errorMessage: string | null | undefined): unknown {
+  if (!errorMessage?.startsWith(QUARANTINED_PREFIX)) return undefined
   try {
-    const parsed = verdictSchema.safeParse(JSON.parse(errorMessage.slice(QUARANTINED_PREFIX.length)))
-    return parsed.success ? parsed.data : null
+    return JSON.parse(errorMessage.slice(QUARANTINED_PREFIX.length))
   } catch {
-    return null
+    return undefined
   }
 }
 
 /**
+ * The raw verdict a source carries: the typed one whenever it is there, the
+ * legacy message's only when it is not (a job from before the field, a row the
+ * migration could not convert). A typed verdict that does not parse is not
+ * replaced by the message: the field is the answer, and a broken one says so.
+ */
+function rawVerdictOf(source: QuarantineSource): unknown {
+  if (source.quarantine !== undefined && source.quarantine !== null) return source.quarantine
+  return legacyVerdictJson(source.errorMessage ?? source.error_message)
+}
+
+/**
+ * Whether a backend file reports that the gate held it: it carries a typed
+ * verdict, or (a job from before the field) a `quarantined:` message. A report
+ * whose verdict does not parse is still a quarantine; it is shown without
+ * reasons rather than as an ordinary failure that would be retried.
+ */
+export function reportsQuarantine(source: QuarantineSource): boolean {
+  if (source.quarantine !== undefined && source.quarantine !== null) return true
+  return (source.errorMessage ?? source.error_message)?.startsWith(QUARANTINED_PREFIX) ?? false
+}
+
+/** A `quarantine` field as this build reads it, or `null` when it is absent or malformed. */
+export function readQuarantineVerdict(value: unknown): QuarantineVerdict | null {
+  if (value === undefined || value === null) return null
+  const parsed = verdictSchema.safeParse(value)
+  return parsed.success ? parsed.data : null
+}
+
+/**
+ * Why a held document is held, for every reader (ADR-0113): the typed verdict,
+ * or, for a legacy row or job, the one its `quarantined:` message carries.
+ * `null` when neither says anything readable.
+ */
+export function quarantineVerdictOf(source: QuarantineSource): QuarantineVerdict | null {
+  return readQuarantineVerdict(rawVerdictOf(source))
+}
+
+/**
+ * The `files` sentence that explains a file held back by the content check,
+ * for every surface that says one (`QuarantineFindings`, the composer's chip).
+ * It claims no model saw the file only when that is true: a match in a scanned
+ * page's transcript was found after the vision model read the page
+ * (`after_transcription`). A verdict with nothing to list claims nothing.
+ */
+export function heldSentenceKey(
+  verdict: QuarantineVerdict | null | undefined
+): 'ingestFailure.quarantined' | 'ingestFailure.quarantinedAfterTranscription' | 'ingestFailure.quarantinedUnreadable' {
+  if (!verdict || (verdict.reasons.length === 0 && !verdict.omitted)) return 'ingestFailure.quarantinedUnreadable'
+  return verdict.after_transcription ? 'ingestFailure.quarantinedAfterTranscription' : 'ingestFailure.quarantined'
+}
+
+/** The kinds of reason an inbox notice words on its own (`collaboration.inbox.types.*.variants`). */
+export type QuarantineNoticeVariant = 'term' | 'iban' | 'at_svnr' | 'credit_card' | 'transcript'
+
+/**
+ * Which wording a reviewer's notice about a held file reads: `transcript` when
+ * the vision model saw the pages the match was found in (so the notice claims
+ * no unread file), else the kind of the first reason. `null` when the verdict
+ * says nothing a notice can name, and the notice reads its general sentence.
+ */
+export function quarantineNoticeVariant(verdict: QuarantineVerdict | null): QuarantineNoticeVariant | null {
+  if (!verdict) return null
+  if (verdict.after_transcription) return 'transcript'
+  const kind = verdict.reasons[0]?.kind
+  return kind === undefined || kind === 'other' ? null : kind
+}
+
+/**
+ * What a reviewer's inbox notice about a held file carries: its name, which
+ * the reviewer may open in the queue anyway, and its kind of reason. Never a
+ * matched value or a sample.
+ *
+ * `variant` is always written, `null` when the verdict names no kind: a
+ * collapsed row merges payloads key by key (jsonb `||`), so a key left out
+ * would keep the previous file's reason under this file's name.
+ */
+export function quarantineNoticePayload(
+  doc: QuarantineSource & { filename: string }
+): { subject: string; variant: QuarantineNoticeVariant | null } {
+  return { subject: doc.filename, variant: quarantineNoticeVariant(quarantineVerdictOf(doc)) }
+}
+
+/**
+ * The verdict to store in `documents.quarantine`, from what a job reported:
+ * validated, unknown keys dropped, every kind kept. `null` when there is none
+ * or it does not parse.
+ */
+export function storedQuarantineVerdictOf(source: QuarantineSource): StoredQuarantineVerdict | null {
+  const raw = rawVerdictOf(source)
+  if (raw === undefined || raw === null) return null
+  const parsed = storedVerdictSchema.safeParse(raw)
+  return parsed.success ? parsed.data : null
+}
+
+/** How long one audited value may be, inside WorkOS's metadata value limit. */
+export const AUDITED_REASONS_MAX_CHARS = 200
+/** Ends an audited reason list that was cut to {@link AUDITED_REASONS_MAX_CHARS}. */
+export const AUDITED_REASONS_CUT_MARK = ',…'
+
+/**
  * The reasons as the audit trail records them: kinds and terms only
  * (`term:Lohnzettel,iban`), never a detector's masked sample or page text.
- * Cut at 200 characters, inside WorkOS's metadata value limit.
+ * Takes the stored verdict too, so a kind this build does not know is recorded
+ * by its name. Cut at {@link AUDITED_REASONS_MAX_CHARS} characters, and a list
+ * that was cut ends in {@link AUDITED_REASONS_CUT_MARK}, so the trail never
+ * reads a short list as the whole one.
  */
-export function auditedQuarantineReasons(verdict: QuarantineVerdict | null): string {
-  return (verdict?.reasons ?? [])
+export function auditedQuarantineReasons(
+  verdict: { reasons: ReadonlyArray<{ kind: string; term?: string }> } | null
+): string {
+  const listed = (verdict?.reasons ?? [])
     .map((reason) => (reason.kind === 'term' ? `term:${reason.term ?? ''}` : reason.kind))
     .join(',')
-    .slice(0, 200)
+  if (listed.length <= AUDITED_REASONS_MAX_CHARS) return listed
+  return listed.slice(0, AUDITED_REASONS_MAX_CHARS - AUDITED_REASONS_CUT_MARK.length) + AUDITED_REASONS_CUT_MARK
 }
 
 /** One reason without its pages, in the reader's language: `„Lohnzettel“ im Text`. */

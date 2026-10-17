@@ -118,6 +118,8 @@ export const chat = {
     },
     notIndexed: 'Filed, not read. You can open it, but Piloti does not cite it.',
     failed: 'Reading failed. Piloti cannot cite this file.',
+    // Held back by the content check (ADR-0086); never "release".
+    held: 'Held back: the content check keeps this file from Piloti. Piloti cites it only once someone allows it through.',
   },
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */

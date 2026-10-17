@@ -1,0 +1,24 @@
+---
+fixes:
+  - >
+    Uploading a new file over one that is held back for its content no longer
+    shows as a failed upload. The new file is shown as held back too, says
+    that it waits for the file it would replace, and its uploader can ask for
+    that file's review right there.
+  - >
+    A file whose name another document already has is now explained in your
+    language instead of an English server message, and is not offered for a
+    retry that would fail the same way.
+  - >
+    A file that the server's own name check stops is now shown as not uploaded,
+    with the term that stopped it, instead of as a failed upload. The upload
+    summary counts it under "Not uploaded", and so does an e-mail import.
+  - >
+    Folder names of a folder dropped into a chat, and folder names far down a
+    long path, are now checked against your office's list on the server too.
+  - >
+    Hovering a file named in an answer now says when it is held back, and that
+    Piloti cites it only once someone allows it through.
+  - >
+    Files the name check stops are now called "Not uploaded" everywhere.
+    "Held back" means only a file the content check holds in quarantine.

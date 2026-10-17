@@ -40,7 +40,8 @@ vi.mock('./filing', async (importOriginal) => {
     ...actual,
     createFolderWithFreeName: vi.fn(async () => ({ id: 'folder_archive', name: 'Büro 2019' })),
     filingContext: vi.fn((input: object) => ({ ...input, folders: new Map() })),
-    fileMail: vi.fn(async () => ({ folderName: 'm', filesFiled: 2, filesSkipped: 1, skipped: [{ mail: 'm', file: 'x.exe', reason: 'type' }] })),
+    fileMail: vi.fn(async () => ({ folderName: 'm', filesFiled: 2, filesSkipped: 1, skipped: [{ mail: 'm', file: 'x.exe', reason: 'type' }], nameStops: [] })),
+    recordNameStops: vi.fn(async () => {}),
   }
 })
 const batchStore = vi.hoisted(() => new Map<string, { sealed: boolean; documents: number }>())
@@ -83,6 +84,7 @@ import { openUploadBatch, sealJobUploadBatch } from '@/lib/upload-batches/servic
 import {
   createFolderWithFreeName,
   fileMail,
+  recordNameStops,
   filingContext,
   ImportMovedOnError,
   MailImportQuotaError,
@@ -192,6 +194,20 @@ describe('runMailImportSlice', () => {
     expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(true)
     expect(repository.advanceMailImport).toHaveBeenCalledOnce()
     expect(emitInboxItems).not.toHaveBeenCalled()
+    // The other slice counted this mail's name stops; this one does not again.
+    expect(recordNameStops).not.toHaveBeenCalled()
+  })
+
+  it('counts a mail’s name stops once its cursor moved', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+    vi.mocked(readArchivePage).mockResolvedValueOnce(page([mail], null))
+
+    await runMailImportSlice(session, payload, 'org_1')
+
+    expect(recordNameStops).toHaveBeenCalledOnce()
+    expect(vi.mocked(recordNameStops).mock.invocationCallOrder[0]).toBeGreaterThan(
+      vi.mocked(repository.advanceMailImport).mock.invocationCallOrder[0] ?? Infinity
+    )
   })
 
   it('does nothing for an import that already ended', async () => {

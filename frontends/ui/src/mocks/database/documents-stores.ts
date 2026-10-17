@@ -5,7 +5,7 @@
  * Uses existing Zod schemas from documents-schemas.ts for type safety.
  */
 
-import type { ZodType } from 'zod'
+import type { ZodType, ZodTypeDef } from 'zod'
 import {
   CollectionInfoSchema,
   FileInfoSchema,
@@ -22,9 +22,9 @@ import {
 export class MockStore<T> {
   private data = new Map<string, T>()
   private getId: (item: T) => string
-  private schema: ZodType<T>
+  private schema: ZodType<T, ZodTypeDef, unknown>
 
-  constructor(schema: ZodType<T>, getId: (item: T) => string) {
+  constructor(schema: ZodType<T, ZodTypeDef, unknown>, getId: (item: T) => string) {
     this.schema = schema
     this.getId = getId
   }

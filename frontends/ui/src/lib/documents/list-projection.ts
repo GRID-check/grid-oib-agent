@@ -69,6 +69,9 @@ export function toDocumentWireRow(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     errorMessage: row.errorMessage,
+    // Why a held file is held, as data (ADR-0113): the listing's reader rule
+    // already let only its uploader and its reviewers see the row.
+    quarantine: row.quarantine ?? null,
     summary: row.summary ?? null,
     pageCount: row.pageCount ?? null,
     chunkCount: row.chunkCount ?? null,

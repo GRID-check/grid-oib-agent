@@ -68,7 +68,10 @@ describe('UploadSummaryView', () => {
   it('names the excluded terms with their counts and never a file', () => {
     render(<UploadSummaryView summary={MIXED_SUMMARY} />)
     const excluded = screen.getByTestId('upload-summary-excluded')
-    expect(within(excluded).getByText('These files never left your computer.', { exact: false })).toBeInTheDocument()
+    // The name check's word, and true of every stop it counts: the browser's, the
+    // server's and an e-mail import's (ADR-0086). Never „held back“.
+    expect(within(excluded).getByText('The name check did not upload these files', { exact: false })).toBeInTheDocument()
+    expect(excluded).not.toHaveTextContent(/held back|kept back/i)
     const terms = within(excluded).getByRole('list', { name: en.uploadBatches.summary.excluded.listLabel })
     expect(within(terms).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['Rechnung3', 'Lohnzettel1'])
   })

@@ -30,6 +30,7 @@ Chart extraction uses the VLM to:
 import asyncio
 import base64
 import contextlib
+import dataclasses
 import hashlib
 import json
 import logging
@@ -69,6 +70,7 @@ from aiq_agent.knowledge.schema import FileProgress
 from aiq_agent.knowledge.schema import FileStatus
 from aiq_agent.knowledge.schema import IngestionJobStatus
 from aiq_agent.knowledge.schema import JobState
+from aiq_agent.knowledge.schema import QuarantineVerdict
 from aiq_agent.knowledge.schema import RetrievalResult
 from aiq_agent.knowledge.schema import stable_file_id
 
@@ -580,6 +582,12 @@ FASSUNG_TIMEOUT_SECONDS = 45
 # summary reconciliation, which backfills a row for every successful file,
 # never writes one for a document that no longer exists.
 DOCUMENT_DELETED_DURING_INGEST = "document_deleted: the document was deleted while it was being ingested"
+#: The job carries the office's screening policy but it cannot be applied
+#: (``content_screen.screening_config_unusable``): the file is not read at all,
+#: so nothing of it reaches a model unchecked (ADR-0086, fail closed).
+SCREENING_UNAVAILABLE = (
+    "screening_unavailable: the screening policy in this job could not be applied; nothing of the file was read"
+)
 
 
 class _ClaimLost(Exception):  # noqa: N818 - a signal, not an error
@@ -2707,6 +2715,7 @@ def _file_info_from_job(job: IngestionJobStatus, detail: FileProgress) -> FileIn
         uploaded_at=job.submitted_at,
         ingested_at=job.completed_at if status == FileStatus.SUCCESS else None,
         error_message=error,
+        quarantine=detail.quarantine,
         metadata={"job_id": job.job_id},
     )
 
@@ -3104,13 +3113,26 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         # Persist outside the lock (DB I/O) so any replica can serve this status.
         self._persist(job)
 
-    def _record_screening(self, job: IngestionJobStatus, file_index: int, rules: Any, outcome: str) -> None:
-        """Put the upload screen's outcome on the file's status; nothing when the job is not screened."""
+    def _record_screening(
+        self,
+        job: IngestionJobStatus,
+        file_index: int,
+        rules: Any,
+        outcome: str,
+        quarantine: QuarantineVerdict | None = None,
+    ) -> None:
+        """Put the upload screen's outcome on the file's status; nothing when the job is not screened.
+
+        ``quarantine`` is the typed verdict a ``quarantined`` outcome carries
+        (ADR-0113); every other outcome clears it, so a file read again never
+        keeps an earlier run's reasons.
+        """
         if rules is None:
             return
         with self._lock:
             if file_index < len(job.file_details):
                 job.file_details[file_index].screening = outcome
+                job.file_details[file_index].quarantine = quarantine if outcome == "quarantined" else None
 
     def _record_unscreened_rasters(self, job: IngestionJobStatus, file_index: int) -> None:
         """A file the screen called ``clean`` is ``partial`` once embedded rasters go to the VLM.
@@ -3131,11 +3153,22 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         rules: Any,
         pages: list[tuple[int | None, str]],
         checked: str,
+        stream: list[tuple[int, str]] | None = None,
+        *,
+        after_transcription: bool = False,
     ) -> bool:
         """Screen one file's locally extracted ``pages``; True when it was quarantined.
 
-        A quarantined file is FAILED with ``quarantine_error``'s reason and must
-        go no further: nothing of it has reached a model yet, and nothing will.
+        ``stream`` is a PDF's text layer page by page, so a match split across a
+        page break is found too (``screening.screen_pages``).
+
+        A quarantined file is FAILED with its typed verdict on
+        ``FileProgress.quarantine`` (set before the status is persisted) and the
+        same verdict as the legacy ``quarantine_error`` text, and must go no
+        further: nothing of it has reached a model yet, and nothing will. The
+        one exception is ``after_transcription``: the pages screened are the
+        vision model's transcript of scanned pages, so that model has seen them,
+        and the verdict says so; nothing else of the file reaches a model.
         The log line names reason kinds and counts, never a term, a value or
         the file name, which can itself say what the document is.
         """
@@ -3146,20 +3179,46 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         if not any(text.strip() for _page, text in pages):
             self._record_screening(job, file_index, rules, "unchecked")
             return False
-        verdict = screening.screen_pages(pages, rules, checked=checked)
+        verdict = screening.screen_pages(pages, rules, checked=checked, stream=stream or ())
+        if after_transcription:
+            verdict = dataclasses.replace(verdict, after_transcription=True)
         if not verdict.matched:
             self._record_screening(job, file_index, rules, "clean" if checked == "full" else "partial")
             return False
-        self._record_screening(job, file_index, rules, "quarantined")
+        self._record_screening(job, file_index, rules, "quarantined", verdict.to_model())
         self._update_file_status(job, file_index, FileStatus.FAILED, error=screening.quarantine_error(verdict))
         logger.info(
-            "Quarantined file %d of job %s before any model call: %s (checked %s)",
+            "Quarantined file %d of job %s %s: %s (checked %s)",
             file_index + 1,
             job.job_id,
+            "after transcription" if after_transcription else "before any model call",
             screening.log_summary(verdict),
             verdict.checked,
         )
         return True
+
+    def _screen_transcribed(
+        self,
+        job: IngestionJobStatus,
+        file_index: int,
+        rules: Any,
+        text_pages: list[dict[str, Any]],
+        *,
+        transcribed: bool,
+    ) -> bool:
+        """Screen a PDF's pages once ``route_pdf_pages`` changed them; True when it was quarantined.
+
+        The whole document again, so a number split between a changed page and
+        a text-layer page is found too; the text-layer pages were clean, so a
+        match is in or across what changed: a transcript, or the text salvaged
+        from a garbled page once its glyph ids were stripped. ``transcribed``:
+        the vision model read scanned pages before this check could, and the
+        verdict says so (``after_transcription``). Always ``partial``.
+        """
+        body = [(page["page_number"], page.get("text") or "") for page in text_pages]
+        return self._screen_or_quarantine(
+            job, file_index, rules, list(body), "partial", stream=body, after_transcription=transcribed
+        )
 
     def _screen_pdf(
         self,
@@ -3206,9 +3265,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             or (captions_rasters and has_rasters)
             or lost_pages
         )
-        pages = [*sorted(page_texts.items()), *document_pages(companions), *document_pages(tables)]
+        body = sorted(page_texts.items())
+        pages = [*body, *document_pages(companions), *document_pages(tables)]
         checked = "partial" if unscreened else "full"
-        if self._screen_or_quarantine(job, file_index, rules, pages, checked):
+        if self._screen_or_quarantine(job, file_index, rules, pages, checked, stream=body):
             return None
         return {"triage": triage}
 
@@ -4705,7 +4765,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             from knowledge_layer.llamaindex.screening import ScreeningRules
             from knowledge_layer.llamaindex.screening import document_pages
 
+            from aiq_agent.common.content_screen import screening_config_unusable
+
             screening_rules = ScreeningRules.from_config(config.get("screening"))
+            screening_unusable = screening_config_unusable(config.get("screening"))
 
             # Process each file, each under its own replacement lock (see
             # _find_previous_versions), released when the file is done.
@@ -4718,6 +4781,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 if self._deleted_while_indexing(config, collection_name):
                     self._update_file_status(job, i, FileStatus.FAILED, error=DOCUMENT_DELETED_DURING_INGEST)
                     logger.info("Skipped file %d of job %s: its document was deleted before it was read", i + 1, job_id)
+                    continue
+                if screening_unusable:
+                    self._update_file_status(job, i, FileStatus.FAILED, error=SCREENING_UNAVAILABLE)
+                    logger.warning("Held file %d of job %s: its screening policy could not be applied", i + 1, job_id)
                     continue
                 # The original first, and nothing else for it when that fails:
                 # its rendition is no use without the identity it carries.
@@ -4869,7 +4936,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         )
                         if route_kwargs is None:
                             continue
-                        self._thumbnail_after_screen(thumbnail_upload_url, source_path)
                         page_routes = _transcription.route_pdf_pages(
                             source_path,
                             text_pages,
@@ -4884,6 +4950,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             **route_kwargs,
                         )
                         self._record_file_counts(job, i, **page_routes.counts())
+                        # What the vision model read off scanned pages is text
+                        # too, screened before summaries, captions or embeddings
+                        # see it. The model that transcribed it has: the verdict
+                        # says so (`after_transcription`). A garbled page nobody
+                        # transcribed keeps its salvaged text, which reads only
+                        # now that the glyph ids are gone: screened as well.
+                        changed = bool(page_routes.outcome.texts or page_routes.garbled_kept)
+                        if changed and self._screen_transcribed(
+                            job, i, screening_rules, text_pages, transcribed=bool(page_routes.outcome.texts)
+                        ):
+                            continue
+                        self._thumbnail_after_screen(thumbnail_upload_url, source_path)
                         if page_routes.not_transcribed and not text_pages:
                             error = _transcription.SCAN_NEEDS_VLM
                             self._update_file_status(job, i, FileStatus.FAILED, error=error)

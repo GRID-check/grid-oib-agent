@@ -128,6 +128,7 @@ import {
 import { findDocumentForSession, getAccessibleDocument } from './access'
 import { hasPassedScreening, internalRead, SCREENED_ONLY } from './document-reader'
 import { maySeeHeld, shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
+import { quarantineVerdictOf } from '@/lib/upload-screening/quarantine'
 import { recordDocumentAccess } from '@/lib/download-log/service'
 import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
@@ -2988,6 +2989,9 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     contentType: reconciled.contentType,
     collectionName: reconciled.collectionName,
     errorMessage: reconciled.errorMessage,
+    // Why a held file is held, as data (ADR-0113). Only a reader who may see
+    // the held row gets this far (the check above).
+    quarantine: quarantineVerdictOf(reconciled),
     createdAt: reconciled.createdAt,
     updatedAt: reconciled.updatedAt,
     // Read-only document metadata merged from the backend collection listing.

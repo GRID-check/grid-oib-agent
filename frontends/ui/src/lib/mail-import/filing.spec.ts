@@ -42,6 +42,7 @@ vi.mock('@/lib/upload-batches/service', () => ({
     const batch = batchStore.get(id)
     if (batch) batch.sealed = true
   }),
+  recordJobUploadExclusions: vi.fn(async () => {}),
 }))
 
 import { BadRequestError, ConflictError, FileTooLargeError, ForbiddenError, InsufficientStorageError } from '@/lib/api/errors'
@@ -57,6 +58,7 @@ import { ScreenedUploadError } from '@/lib/upload-screening/service'
 import { AttachmentUnreadableError, readArchiveAttachment, type ArchiveMail } from './archive-client'
 import {
   fileMail,
+  recordNameStops,
   filingContext,
   ImportMovedOnError,
   MailImportQuotaError,
@@ -64,7 +66,7 @@ import {
   type FilingContext,
 } from './filing'
 import { markInflight } from './repository'
-import { openUploadBatch, sealJobUploadBatch } from '@/lib/upload-batches/service'
+import { openUploadBatch, recordJobUploadExclusions, sealJobUploadBatch } from '@/lib/upload-batches/service'
 import { importBatchId, type ImportBatch } from './upload-batch'
 
 const session = { userId: 'user_anna', organizationId: 'org_1' } as AuthorizedSession
@@ -289,6 +291,34 @@ describe('fileMail', () => {
       skipped: [{ mail: LEAF, file: 'Vertrag.pdf', reason: 'screened' }],
     })
     expect(uploadedNames()).toEqual([`${LEAF} – Vertrag.pdf`, `${LEAF} – Plan.pdf`, `${LEAF}.md`])
+    // The stop travels with the mail: nothing is counted until the mail is
+    // done, so a retried mail does not count it twice.
+    expect(result.nameStops).toEqual([[{ term: 'Vertrag', segment: `${LEAF} – Vertrag.pdf`, kind: 'file' }]])
+    expect(recordJobUploadExclusions).not.toHaveBeenCalled()
+  })
+
+  it('counts a done mail’s name stops on the batch by term, never by name', async () => {
+    const ctx = await context()
+    await recordNameStops(ctx, {
+      folderName: LEAF,
+      filesFiled: 0,
+      filesSkipped: 2,
+      skipped: [],
+      nameStops: [
+        [{ term: 'Vertrag', segment: `${LEAF} – Vertrag.pdf`, kind: 'file' }],
+        [{ term: 'Vertrag', segment: `${LEAF} – Vertrag (2).pdf`, kind: 'file' }],
+      ],
+    })
+    expect(recordJobUploadExclusions).toHaveBeenCalledWith('org_1', importBatchId('imp_1', 0), 'user_anna', [
+      { term: 'Vertrag', count: 2 },
+    ])
+    expect(JSON.stringify(vi.mocked(recordJobUploadExclusions).mock.calls)).not.toContain('Vertrag.pdf')
+  })
+
+  it('records nothing on the batch for a refusal that is not the name check', async () => {
+    vi.mocked(uploadDocument).mockRejectedValueOnce(new BadRequestError('type'))
+    await fileMail(await context(), mail)
+    expect(recordJobUploadExclusions).not.toHaveBeenCalled()
   })
 
   it('never releases a screened name on the person’s behalf', async () => {

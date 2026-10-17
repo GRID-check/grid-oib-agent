@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useDocumentsStore } from '../store'
 import type { TrackedFile } from '../types'
+import type { QuarantineVerdict } from '@/lib/upload-screening/quarantine'
 import {
   isJoblessIngesting,
   nextStatusBatch,
@@ -16,6 +17,7 @@ interface ListedDocument {
   id: string
   status: string | null
   errorMessage?: string | null
+  quarantine?: QuarantineVerdict | null
 }
 
 /**
@@ -54,7 +56,7 @@ export function useSettleTrackedUploads(
     const { updateTrackedFile } = useDocumentsStore.getState()
     for (const upload of waiting) {
       const row = byId.get(upload.serverFileId ?? '')
-      const patch = row ? trackedPatchFromStatus(row.status, row.errorMessage) : null
+      const patch = row ? trackedPatchFromStatus(row.status, row.errorMessage, row.quarantine) : null
       if (patch) updateTrackedFile(upload.id, patch)
     }
   }, [documents, waiting])
@@ -84,7 +86,7 @@ export function useSettleTrackedUploads(
       // Re-checked against the store: the orchestrator may have settled it meanwhile.
       const current = trackedFiles.find((f) => f.id === upload.id)
       if (!current || !isJoblessIngesting(current)) continue
-      const patch = trackedPatchFromStatus(read.fields.status, read.fields.errorMessage)
+      const patch = trackedPatchFromStatus(read.fields.status, read.fields.errorMessage, read.fields.quarantine)
       if (patch) updateTrackedFile(upload.id, patch)
     }
   }, [fetcher])

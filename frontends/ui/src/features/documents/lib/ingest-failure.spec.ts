@@ -41,6 +41,10 @@ const BACKEND_MESSAGES: Array<[string, IngestFailureKind]> = [
   ],
   ['vlm_not_configured: image ingestion requires AIQ_VLM_API_KEY', 'vision_not_configured'],
   ['document_deleted: the document was deleted while it was being ingested', 'deleted'],
+  [
+    'screening_unavailable: the screening policy in this job could not be applied; nothing of the file was read',
+    'screening_unavailable',
+  ],
   ['No content extracted (file may be password-protected, corrupted, or empty)', 'empty'],
   ['Request timed out after 180s', 'timeout'],
   ['httpx.ReadTimeout: timeout', 'timeout'],

@@ -36,7 +36,10 @@ inside a word, a hyphen where a line was broken. Every rule runs on the text as
 a person reads it (:func:`_read`): :data:`IGNORABLE` characters left out, and a
 hyphen with a letter or digit before it and, after ONE line break, a letter or
 digit, joined (``Gehalts-`` + line break + ``abrechnung`` is ``Gehaltsabrechnung``,
-``05-`` + line break + ``32`` is ``0532``). A dash with a space before it and a
+``05-`` + line break + ``32`` is ``0532``). When the line after the break
+starts with a capital, the word is a compound written with its hyphen
+(``Büro-`` + line break + ``Honorar`` reads ``Büro-Honorar``): only the break
+goes, so ``Honorar`` still starts a word. A dash with a space before it and a
 hyphen before a blank line are left alone. A match is given back as a span of
 the ORIGINAL text, the invisible characters inside it included, so masking
 removes them with the rest.
@@ -61,9 +64,14 @@ the composed one.
 A term matches at a WORD START and may run on: ``Honorar`` matches
 ``Honorarvereinbarung`` and ``Honorare``, because German builds its compounds by
 appending. It does NOT match inside a word (``Ehrenhonorar``): a term whose first
-character is preceded by a letter or digit in the reading is part of a
-different word. A multi-word term matches across any run of whitespace, line
-breaks included. A term's span runs to the end of the word it starts, so masking
+character is preceded by a LETTER in the reading is part of a different word.
+A digit before it does not make a compound: ``2024Honorar`` and ``Pos.3Honorar``
+are a label glued to the word, and match. A multi-word term matches across any
+run of whitespace, line breaks included. A single-word term of eight or more
+characters (folded) still matches with one space or hyphen inside it, where each
+part keeps at least three (``Gehalts abrechnung``, ``Gehalts-Abrechnung``; not
+``Ge-haltsabrechnung``): people split long compounds, and short terms would join
+across words. A term's span runs to the end of the word it starts, so masking
 ``Honorar`` hides ``Honorarvereinbarung`` whole.
 
 Detectors
@@ -76,7 +84,7 @@ and a label may stand right against it (``SV-Nr1237010180``, ``IBAN:AT61…``,
 
 * ``iban``: a registered country code (:data:`IBAN_LENGTHS`, which also fixes
   the length), in either case, two check digits, then the account, in groups of
-  four or unbroken. A separator may stand after the country code and between
+  four, in groups of two, or unbroken. A separator may stand after the country code and between
   groups: a run of whitespace (line breaks too) or one ``-`` or ``.``. Mod 97.
 * ``at_svnr``: four digits, then the birth date DDMMYY, optionally separated
   from it (whitespace, ``-``, ``.`` or ``/``), optionally with the date's own
@@ -84,10 +92,14 @@ and a label may stand right against it (``SV-Nr1237010180``, ``IBAN:AT61…``,
 * ``credit_card``: digit groups joined by spaces, ``-`` or ``.`` (not a tab:
   that is a table cell). Somewhere in such a run, consecutive groups that have a
   card's layout (one unbroken number of 13-19 digits, 4-4-4-4 with a last group
-  of 1-4, 4-6-5 or 4-6-4), start 2-6 and pass Luhn are a card; a position before
+  of 1-4, 4-6-5 or 4-6-4), start in a card network's issuer range
+  (:data:`_CARD_PREFIXES`) and pass Luhn are a card; a position before
   it or an expiry date or security code after it are not part of it. Groups of
   four beside it make it a piece of a longer number printed in fours, which gets
   no sliding window, except that the last group may be the security code.
+  A card wrapped at a line end (one line break between two groups) is found in
+  the strictest layout only, four groups of four, and only where no card of the
+  run itself stands: a table's rows of numbers are not one card.
 * The digits of a recognised IBAN are never also reported as a card or a
   social-security number.
 
@@ -116,6 +128,7 @@ import re
 import unicodedata
 from bisect import bisect_left
 from bisect import bisect_right
+from collections.abc import Callable
 from collections.abc import Iterable
 from collections.abc import Iterator
 from collections.abc import Mapping
@@ -171,6 +184,11 @@ _FOLD_TABLE = str.maketrans({"ς": "σ", "ä": "ae", "ö": "oe", "ü": "ue", "ß
 
 def _is_mark(char: str) -> bool:
     return unicodedata.category(char)[0] == "M"
+
+
+def _is_letter(char: str) -> bool:
+    """A letter: general category ``L*``."""
+    return unicodedata.category(char)[0] == "L"
 
 
 def _is_word_char(char: str) -> bool:
@@ -297,12 +315,16 @@ def _read(text: str) -> _Reading:
             soft.add(len(starts))
             continue
         end = _hyphenation_end(text, index, before)
-        if end > index:
+        if end > index and unicodedata.category(text[end]) != "Lu":
             cursor = end
             continue
         parts.append(text[index])
         starts.append(index)
         before = text[index]
+        if end > index:
+            # A capital after the break is a compound written with its hyphen
+            # (``Büro-`` + line break + ``Honorar``): only the break goes.
+            cursor = end
     parts.append(text[cursor:])
     starts.extend(range(cursor, len(text)))
     return _Reading("".join(parts), starts, frozenset(soft))
@@ -407,6 +429,21 @@ class ScreeningRules:
 DETECTORS_ONLY: ScreeningRules = ScreeningRules(detectors=DETECTORS)
 
 
+def screening_config_unusable(raw: object) -> bool:
+    """Whether a job carries a screening policy that cannot be applied: malformed, or no rule this build knows.
+
+    :meth:`ScreeningRules.from_config` reads both as "not screened", which is
+    right for a chat message's fallback but wrong for an upload: the office
+    asked for its files to be checked, and a file read without the check would
+    reach a model. The ingest job fails such a file instead
+    (``screening_unavailable``), so it is held, not read. Absent or empty is not
+    unusable: that job is simply not screened (the OIB corpus sync).
+    """
+    if raw is None or (isinstance(raw, Mapping) and not raw.get("content_terms") and not raw.get("detectors")):
+        return False
+    return not is_screening_config(raw) or ScreeningRules.from_config(raw) is None
+
+
 def is_screening_config(raw: object) -> bool:
     """Whether ``raw`` has the ``{content_terms?, detectors?}`` shape: a mapping of string lists."""
     if not isinstance(raw, Mapping):
@@ -469,6 +506,10 @@ _SVNR_MARKS = "-./"
 _CARD_SPACE = "".join(char for char in _HORIZONTAL_SPACE if char != "\t")
 #: A maximal run of digit groups joined like that: where a card may be printed.
 _CARD_RUN = re.compile(rf"\d(?:(?:[{_CARD_SPACE}]+|[-.])?\d)*")
+#: The same, where ONE line break may also join two groups: a card wrapped at a line end.
+_WRAPPED_CARD_RUN = re.compile(
+    rf"\d(?:(?:[{_CARD_SPACE}]+|[-.]|[{_CARD_SPACE}]*(?:\r\n|[{_LINE_BREAKS}])[{_CARD_SPACE}]*)?\d)*"
+)
 _DIGIT_GROUP = re.compile(r"\d+")
 #: Layouts a card is printed in besides 4-4-4-4 and one unbroken number.
 _CARD_SPLITS = ((4, 6, 5), (4, 6, 4))
@@ -491,8 +532,13 @@ def _iban_at(text: str, start: int, soft: frozenset[int]) -> tuple[str, int] | N
     characters and stops: what follows (``EUR``, a card number, the next IBAN)
     is never part of it, but a digit right after it makes it a longer number,
     unless an invisible character stood between (``soft``). A separator may
-    stand after the country code and before each group of four.
+    stand after the country code and before each group of four, or of two.
     """
+    return _iban_in_groups(text, start, soft, 4) or _iban_in_groups(text, start, soft, 2)
+
+
+def _iban_in_groups(text: str, start: int, soft: frozenset[int], width: int) -> tuple[str, int] | None:
+    """:func:`_iban_at` for an IBAN printed in groups of ``width`` (four, or two), or unbroken."""
     country = text[start : start + 2].upper()
     length = IBAN_LENGTHS.get(country)
     if length is None:
@@ -500,7 +546,7 @@ def _iban_at(text: str, start: int, soft: frozenset[int]) -> tuple[str, int] | N
     chars = [country]
     index = start + 2
     for position in range(2, length):
-        if position == 2 or position % 4 == 0:
+        if position == 2 or position % width == 0:
             index = _skip_separator(text, index, "-.")
         char = _iban_char(text, index, digits_only=position < 4)
         if char is None:
@@ -592,8 +638,18 @@ def luhn_valid(digits: str) -> bool:
     return total % 10 == 0
 
 
+#: The card networks' issuer ranges, on a number's first four digits: Mir 2200-2204,
+#: Mastercard 2221-2720, Diners 30, Amex 34/37, JCB 35, Diners 36/38/39, Visa 4,
+#: Maestro and Mastercard 5, Maestro, Discover and UnionPay 6. No card begins
+#: 2000-2199, the years a table prints in rows of four.
+_CARD_PREFIXES = ((2200, 2204), (2221, 2720), (3000, 3099), (3400, 3999), (4000, 6999))
+
+
 def valid_card(digits: str) -> bool:
-    return 13 <= len(digits) <= 19 and digits[0] in "23456" and luhn_valid(digits)
+    if not 13 <= len(digits) <= 19 or not luhn_valid(digits):
+        return False
+    prefix = int(digits[:4])
+    return any(low <= prefix <= high for low, high in _CARD_PREFIXES)
 
 
 def _card_layout(sizes: tuple[int, ...]) -> bool:
@@ -612,7 +668,14 @@ def _stands_alone(groups: list[str], first: int, last: int) -> bool:
     return before and after
 
 
-def _cards_in(groups: list[tuple[str, int, int]]) -> Iterator[tuple[str, int, int]]:
+def _wrapped_card_layout(sizes: tuple[int, ...]) -> bool:
+    """A card wrapped at a line end counts in one layout only, four groups of four: table rows are not cards."""
+    return sizes == (4, 4, 4, 4)
+
+
+def _cards_in(
+    groups: list[tuple[str, int, int]], layout: Callable[[tuple[int, ...]], bool] = _card_layout
+) -> Iterator[tuple[str, int, int]]:
     """Each card among a run's digit groups (digits, start, end): its digits and where it starts and ends in the run.
 
     A card is some consecutive groups that have a card's layout and pass its
@@ -629,7 +692,7 @@ def _cards_in(groups: list[tuple[str, int, int]]) -> Iterator[tuple[str, int, in
         for last in range(min(len(groups), first + _CARD_MAX_GROUPS), first, -1):
             digits = "".join(digits_of[first:last])
             sizes = tuple(len(group) for group in digits_of[first:last])
-            if _card_layout(sizes) and _stands_alone(digits_of, first, last) and valid_card(digits):
+            if layout(sizes) and _stands_alone(digits_of, first, last) and valid_card(digits):
                 yield digits, groups[first][1], groups[last - 1][2]
                 first = last - 1
                 break
@@ -697,7 +760,19 @@ def _svnr_spans(text: str, soft: frozenset[int]) -> Iterator[Span]:
 
 
 def _card_spans(text: str, soft: frozenset[int]) -> Iterator[Span]:
-    """Cards in each run of digit groups; where an invisible character stood between digits, tried cut there too."""
+    """Cards in each run of digit groups, then cards wrapped at one line end.
+
+    Where an invisible character stood between digits, a run is tried cut there
+    too. A wrapped card is found only in the strictest layout (four groups of
+    four) and only where no card of the first pass stands.
+    """
+    found = sorted(_unwrapped_cards(text, soft), key=lambda card: card[1])
+    found += [card for card in _wrapped_cards(text) if not _overlaps_card(card, found)]
+    for digits, start, end in sorted(found, key=lambda card: card[1]):
+        yield Span("credit_card", start, end, sample=mask_card(digits))
+
+
+def _unwrapped_cards(text: str, soft: frozenset[int]) -> Iterator[tuple[str, int, int]]:
     cuts = sorted(soft)
     for match in _CARD_RUN.finditer(text):
         run = match.group(0)
@@ -710,13 +785,35 @@ def _card_spans(text: str, soft: frozenset[int]) -> Iterator[Span]:
                 card
                 for groups in _cut_runs(run, inside)
                 for card in _cards_in(groups)
-                if not any(card[1] < end and start < card[2] for _, start, end in joined)
+                if not _overlaps_card(card, joined)
             ]
-        for digits, start, end in sorted(found, key=lambda card: card[1]):
-            yield Span("credit_card", match.start() + start, match.start() + end, sample=mask_card(digits))
+        for digits, start, end in found:
+            yield digits, match.start() + start, match.start() + end
+
+
+def _wrapped_cards(text: str) -> Iterator[tuple[str, int, int]]:
+    for match in _WRAPPED_CARD_RUN.finditer(text):
+        run = match.group(0)
+        if not any(char in _LINE_BREAKS for char in run):
+            continue
+        for digits, start, end in _cards_in(_digit_groups(run), _wrapped_card_layout):
+            if any(char in _LINE_BREAKS for char in run[start:end]):
+                yield digits, match.start() + start, match.start() + end
+
+
+def _overlaps_card(card: tuple[str, int, int], others: list[tuple[str, int, int]]) -> bool:
+    return any(card[1] < end and start < card[2] for _, start, end in others)
 
 
 _DETECTOR_SPANS = {"iban": _iban_spans, "at_svnr": _svnr_spans, "credit_card": _card_spans}
+
+
+#: A single-word term this long (folded) still matches with one space or hyphen inside it…
+_SPLIT_TERM_MIN = 8
+#: …where each part keeps at least this many characters.
+_TERM_FRAGMENT = 3
+#: What may split such a term: a space, or one hyphen (folded text keeps U+2010 for U+2011).
+_TERM_JOINERS = " -\u2010\u2011"
 
 
 def _word_end(text: str, end: int) -> int:
@@ -727,11 +824,16 @@ def _word_end(text: str, end: int) -> int:
 
 
 def _starts_a_word(folded: _Folded, text: str, index: int) -> bool:
-    """Whether folded ``index`` begins a cluster that no letter or digit precedes in the text the rules read."""
+    """Whether folded ``index`` begins a cluster that no LETTER precedes in the text the rules read.
+
+    A letter before it makes it part of another word (``Ehrenhonorar``); a digit
+    does not (``2024Honorar``, ``Pos.3Honorar``): a number glued to a word is a
+    label, not a compound.
+    """
     if index == 0:
         return True
     previous = folded.starts[index - 1]
-    return previous != folded.starts[index] and not _is_word_char(text[previous])
+    return previous != folded.starts[index] and not _is_letter(text[previous])
 
 
 def _words_end(folded: str, start: int, words: tuple[str, ...]) -> int:
@@ -747,9 +849,45 @@ def _words_end(folded: str, start: int, words: tuple[str, ...]) -> int:
     return cursor
 
 
+def _word_end_split(folded: str, start: int, word: str) -> int:
+    """Where ``word`` ends at ``start`` when one space or hyphen may stand inside it; -1 when it does not.
+
+    The separator may split the word only where each part keeps at least
+    :data:`_TERM_FRAGMENT` characters (``Gehalts-abrechnung``, ``Gehalts abrechnung``).
+    """
+    cursor = start
+    split = False
+    for position, char in enumerate(word):
+        if cursor < len(folded) and folded[cursor] == char:
+            cursor += 1
+            continue
+        joined = cursor + 1 < len(folded) and folded[cursor] in _TERM_JOINERS and folded[cursor + 1] == char
+        if split or not joined or not _TERM_FRAGMENT <= position <= len(word) - _TERM_FRAGMENT:
+            return -1
+        split = True
+        cursor += 2
+    return cursor
+
+
+def _long_term_matches(folded: _Folded, text: str, word: str) -> Iterator[tuple[int, int]]:
+    """:func:`_term_matches` for one word of :data:`_SPLIT_TERM_MIN` or more characters, which may be split once."""
+    anchor = word[:_TERM_FRAGMENT]
+    index = folded.text.find(anchor)
+    while index != -1:
+        end = _word_end_split(folded.text, index, word) if _starts_a_word(folded, text, index) else -1
+        if end > index:
+            yield index, end
+            index = folded.text.find(anchor, end)
+        else:
+            index = folded.text.find(anchor, index + 1)
+
+
 def _term_matches(folded: _Folded, text: str, words: tuple[str, ...]) -> Iterator[tuple[int, int]]:
     """``(start, end)`` in the folded text of each match of a term, leftmost first and not overlapping."""
     if not words:
+        return
+    if len(words) == 1 and len(words[0]) >= _SPLIT_TERM_MIN:
+        yield from _long_term_matches(folded, text, words[0])
         return
     index = folded.text.find(words[0])
     while index != -1:

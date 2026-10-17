@@ -14,7 +14,11 @@
 
 import { announceIngestsFinished } from '@/lib/analytics/ingest-events'
 import { onDocumentsSettled } from '@/lib/upload-batches/settle'
-import { QUARANTINED_PREFIX } from '@/lib/upload-screening/quarantine'
+import {
+  reportsQuarantine,
+  storedQuarantineVerdictOf,
+  type StoredQuarantineVerdict,
+} from '@/lib/upload-screening/quarantine'
 import type { DocumentScreeningOutcome } from '@/lib/db/schema/documents'
 import type { DocumentAuthor } from '@/lib/db/schema'
 import { collectionFileRef, type CollectionFileRef } from './collection-file-ref'
@@ -167,6 +171,12 @@ interface TerminalResolution {
    */
   screeningOutcome?: DocumentScreeningOutcome
   /**
+   * Why the gate held it, as the job reported it (ADR-0113): set on a
+   * `quarantined` resolution, the typed verdict `setDocumentReconciledStatus`
+   * stores in `documents.quarantine`. Null when the job's report did not parse.
+   */
+  quarantine?: StoredQuarantineVerdict | null
+  /**
    * Why the file failed and what read it (migration 0134), as the job said:
    * the retry rule's input (`./retry-policy`). Every resolution this module
    * builds carries it, all null when the backend said nothing; optional so a
@@ -227,6 +237,12 @@ interface BackendJobFile {
   error_message?: string | null
   /** The content gate's per-file outcome (ADR-0086), null when the job carried no rules. */
   screening?: string | null
+  /**
+   * Why the gate held the file (`FileProgress.quarantine`, ADR-0113), null on
+   * every other file and absent from a job written before the field. Parsed at
+   * this boundary by `storedQuarantineVerdictOf`, never trusted as typed.
+   */
+  quarantine?: unknown
   /** Why it failed (`ingest_failures.py`), and whether the same bytes may read again; null unless FAILED. */
   failure_category?: string | null
   retryable?: boolean | null
@@ -253,17 +269,32 @@ const failureFacts = (job: BackendJobStatus, file: BackendJobFile | undefined): 
   readerVersion: typeof job.reader_version === 'string' && job.reader_version.length > 0 ? job.reader_version : null,
 })
 
+/** What the backend said about one failed file: its message, and its typed verdict when the gate held it. */
+interface FailureReport {
+  errorMessage: string | null
+  quarantine?: unknown
+}
+
 /**
  * A failure the content gate reported is not a failure: the job stopped on
  * purpose, before any model call, and the row goes to quarantine (ADR-0086).
+ * The job's typed verdict decides and is what the row stores (ADR-0113); a job
+ * from before the field is read by its legacy message, through
+ * `lib/upload-screening/quarantine.ts`, the one module that knows its prefix.
  */
 const failedOrQuarantined = (
-  errorMessage: string | null,
+  report: FailureReport,
   failure: IngestFailureFacts = NO_FAILURE_FACTS
 ): TerminalResolution =>
-  errorMessage?.startsWith(QUARANTINED_PREFIX)
-    ? { status: 'quarantined', errorMessage, screeningOutcome: 'quarantined', failure }
-    : { status: 'failed', errorMessage, failure }
+  reportsQuarantine(report)
+    ? {
+        status: 'quarantined',
+        errorMessage: report.errorMessage,
+        quarantine: storedQuarantineVerdictOf(report),
+        screeningOutcome: 'quarantined',
+        failure,
+      }
+    : { status: 'failed', errorMessage: report.errorMessage, failure }
 
 const SCREENING_OUTCOMES_FROM_JOB = new Set<DocumentScreeningOutcome>(['clean', 'partial', 'unchecked'])
 
@@ -307,7 +338,10 @@ const resolveFromJobStatus = (job: BackendJobStatus | null | undefined): JobReso
     if (failedFile && job.file_details?.length === 1) {
       return {
         kind: 'terminal',
-        resolution: failedOrQuarantined(failedFile.error_message ?? null, failureFacts(job, failedFile)),
+        resolution: failedOrQuarantined(
+          { errorMessage: failedFile.error_message ?? null, quarantine: failedFile.quarantine },
+          failureFacts(job, failedFile)
+        ),
       }
     }
     return { kind: 'terminal', resolution: completedOutcome(job) }
@@ -320,9 +354,17 @@ const resolveFromJobStatus = (job: BackendJobStatus | null | undefined): JobReso
     // The job's message stays the answer when the run died before any file
     // reported (an exception, `interrupted:`).
     // The category comes from the same file as the reason, so the two agree.
-    const reportingFile = job.file_details?.find((f) => f.error_message)
+    // A file the gate held reports on both fields; one that only carries the
+    // typed verdict is still the reporting file.
+    const reportingFile = job.file_details?.find((f) => f.error_message || f.quarantine)
     const errorMessage = reportingFile?.error_message ?? job.error_message ?? null
-    return { kind: 'terminal', resolution: failedOrQuarantined(errorMessage, failureFacts(job, reportingFile)) }
+    return {
+      kind: 'terminal',
+      resolution: failedOrQuarantined(
+        { errorMessage, quarantine: reportingFile?.quarantine },
+        failureFacts(job, reportingFile)
+      ),
+    }
   }
   const ahead = job.metadata?.queue_ahead
   return { kind: 'in_progress', queueAhead: typeof ahead === 'number' && ahead >= 0 ? ahead : null }
@@ -332,6 +374,8 @@ const resolveFromJobStatus = (job: BackendJobStatus | null | undefined): JobReso
 interface BackendFileEntry {
   status?: string
   error_message?: string | null
+  /** `FileInfo.quarantine`: the typed verdict of a held file (ADR-0113). Raw; parsed where it is read. */
+  quarantine?: unknown
   summary?: string | null
   chunk_count?: number
   page_count?: number
@@ -364,6 +408,7 @@ interface RawBackendFile extends RawFassungFields {
   file_name?: string
   status?: string
   error_message?: string | null
+  quarantine?: unknown
   summary?: string | null
   chunk_count?: number
   // Tags are a top-level FileInfo field (not inside the internal metadata jsonb).
@@ -394,6 +439,7 @@ const loadCollectionFiles = async (collectionName: string): Promise<CollectionFi
     byName.set(file.file_name, {
       status: file.status,
       error_message: file.error_message,
+      quarantine: file.quarantine,
       summary: file.summary,
       chunk_count: file.chunk_count,
       page_count: file.metadata?.page_count,
@@ -529,7 +575,9 @@ const resolveFromCollection = (
   // The file list carries no failure category: what the row says about why is
   // cleared rather than left from an earlier outcome.
   if (file.status === 'success') return { status: 'completed', errorMessage: null, failure: NO_FAILURE_FACTS }
-  if (file.status === 'failed' && attributableFailure(jobId)) return failedOrQuarantined(file.error_message ?? null)
+  if (file.status === 'failed' && attributableFailure(jobId)) {
+    return failedOrQuarantined({ errorMessage: file.error_message ?? null, quarantine: file.quarantine })
+  }
   return null
 }
 
@@ -927,6 +975,12 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
     // And why it failed, as written (migration 0134), on a row that carries
     // the columns: the listing decides `retryable` from the row it returns.
     const failure = resolution && 'failure' in resolution ? resolution.failure : undefined
+    // And why the gate held it (migration 0148), on a row that carries the
+    // column: only a quarantined row has a verdict, so any other status clears it.
+    const held =
+      resolution && 'quarantine' in row
+        ? { quarantine: resolution.status === 'quarantined' ? (resolution.quarantine ?? null) : null }
+        : {}
     const explained =
       failure && 'ingestFailureCategory' in row
         ? {
@@ -942,6 +996,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
           errorMessage: resolution.errorMessage,
           ...verdict,
           ...judged,
+          ...held,
           ...explained,
         }
       : row

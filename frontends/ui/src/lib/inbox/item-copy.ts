@@ -88,13 +88,17 @@ export function inboxItemCopy(item: InboxItemView, t: Translator, dictionary: un
   // chat) reads the sentence written without one, where its type has it. A
   // type whose excerpt IS the news (a new Fassung's „what changed") writes its
   // body only for the row without one, as `bodyNoExcerpt`: a sentence above
-  // the excerpt saying „open it to see what changed" repeated it.
+  // the excerpt saying „open it to see what changed" repeated it. A counted
+  // row of several reads `bodyMany` where its type has one.
   const bodyLeaf = pickKey(
     dictionary,
     presentation.i18nKey,
     withVariant(item.variant, [
       ...(item.subject === null ? ['bodyNoSubject'] : []),
       ...(item.excerpt === null ? ['bodyNoExcerpt'] : []),
+      // A collapsed row of several (`count > 1`) whose subject is only the
+      // newest of them says so, where its type has the words.
+      ...(item.count > 1 ? ['bodyMany'] : []),
       'body',
     ]),
   )

@@ -51,7 +51,7 @@ export const organization = {
     },
     quarantine: {
       title: 'Quarantine',
-      subtitle: 'Files the content check held back. No model has read them. Whoever may review them allows or deletes them here.',
+      subtitle: 'Files the content check held back. While they wait here, Piloti shows them to no model. Whoever may review them allows or deletes them here.',
     },
     downloads: {
       title: 'Download log',
@@ -641,7 +641,7 @@ export const organization = {
   screening: {
     title: 'Screening list',
     description:
-      'Piloti checks every upload against these lists, and chat messages against the content terms and numbers. No model reads what matches.',
+      'Piloti checks every upload against these lists, and chat messages against the content terms and numbers. What matches goes to no model after that, until someone allows it.',
     enabled: 'Screen uploads and chat',
     enabledHint: 'When off, Piloti checks nothing. Your lists stay saved.',
     suggestedTitle: 'Piloti’s suggestion applies',

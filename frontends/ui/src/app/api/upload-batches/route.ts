@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { openUploadBatch, UPLOAD_BATCH_MAX_FILES, UPLOAD_BATCH_SCOPES } from '@/lib/upload-batches/service'
+import { uploadBatchExclusionsSchema } from './exclusions-schema'
 
 const bodySchema = z
   .object({
@@ -18,10 +19,7 @@ const bodySchema = z
     projectId: z.string().uuid().nullable().default(null),
     conversationId: z.string().min(1).max(200).nullable().default(null),
     expectedCount: z.number().int().min(0).max(UPLOAD_BATCH_MAX_FILES),
-    excluded: z
-      .array(z.object({ term: z.string().trim().min(1).max(80), count: z.number().int().min(1).max(UPLOAD_BATCH_MAX_FILES) }))
-      .max(200)
-      .default([]),
+    excluded: uploadBatchExclusionsSchema,
   })
   .strict()
 

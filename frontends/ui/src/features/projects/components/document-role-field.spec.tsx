@@ -133,6 +133,35 @@ describe('DocumentRoleField upload', () => {
     expect(JSON.parse(String(sealed?.[1].body))).toEqual({ unchanged: 1, failed: 1 })
   })
 
+  it('counts a file the server’s name check stops as not uploaded, by term, never as failed', async () => {
+    const fetchSpy = vi.fn(async (url: string, _init?: RequestInit) =>
+      url === '/api/documents/upload'
+        ? {
+            ok: false,
+            status: 422,
+            json: async () => ({
+              error: 'This file is excluded by the organization’s upload screening',
+              code: 'UPLOAD_SCREENED',
+              details: { matches: [{ term: 'Personal', segment: 'Personalakt', kind: 'folder' }] },
+            }),
+          }
+        : { ok: true, status: 201, json: async () => ({}) }
+    )
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const { container } = render(<DocumentRoleField projectId="proj-1" role="lageplan" />)
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['plan'], 'Lageplan.pdf', { type: 'application/pdf' })] } })
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    const calls = fetchSpy.mock.calls as unknown as Array<[string, RequestInit]>
+    const sealed = calls.find(([url]) => /^\/api\/upload-batches\/[^/]+\/seal$/.test(url))
+    expect(JSON.parse(String(sealed?.[1].body))).toEqual({ unchanged: 0, failed: 0, excluded: [{ term: 'Personal', count: 1 }] })
+    const said = String(vi.mocked(toast.error).mock.calls.at(-1)?.[0])
+    expect(said).toContain('Lageplan.pdf')
+    expect(said).not.toMatch(/konnte nicht hochgeladen werden|excluded by the organization/)
+  })
+
   it('opens no batch when the screen holds back every file', async () => {
     const fetchSpy = vi.fn(async () => ({ ok: true, status: 201, json: async () => ({}) }))
     vi.stubGlobal('fetch', fetchSpy)

@@ -11,6 +11,9 @@
  *
  * The quarantine queue and the Files preview say it through this, so a reviewer
  * reads the same findings where they decide and where they look.
+ *
+ * It takes the verdict, read by the caller through `quarantineVerdictOf`
+ * (ADR-0113), never a stored message: no surface hands it text to parse.
  */
 
 import type { FC } from 'react'
@@ -22,18 +25,16 @@ import {
   describeQuarantineReason,
   explainQuarantineReason,
   findingsOf,
+  heldSentenceKey,
   MORE_PAGES_MARK,
-  parseQuarantine,
   quarantineReasonHead,
   type QuarantineFinding,
   type QuarantineVerdict,
 } from '@/lib/upload-screening/quarantine'
 
 export interface QuarantineFindingsProps {
-  /** The stored verdict, `quarantined:{…}`. Anything else renders the sentence alone. */
-  errorMessage?: string | null
-  /** The verdict already read (the quarantine queue's rows carry it parsed). Wins over `errorMessage`. */
-  verdict?: QuarantineVerdict | null
+  /** Why it is held (`quarantineVerdictOf`). Null renders the sentence alone. */
+  verdict: QuarantineVerdict | null
   /**
    * Open the document at a finding. Given, each page is a button; left unset
    * (a surface that cannot show the document), the pages are stated as text.
@@ -51,8 +52,7 @@ const sameFinding = (a: QuarantineFinding | null | undefined, b: QuarantineFindi
   !!a && a.page === b.page && a.highlight === b.highlight
 
 export const QuarantineFindings: FC<QuarantineFindingsProps> = ({
-  errorMessage,
-  verdict: givenVerdict,
+  verdict,
   onShowFinding,
   shownFinding,
   withoutSentence = false,
@@ -60,7 +60,6 @@ export const QuarantineFindings: FC<QuarantineFindingsProps> = ({
   testId = 'quarantine-findings',
 }) => {
   const t = useTranslations('files')
-  const verdict = givenVerdict !== undefined ? givenVerdict : parseQuarantine(errorMessage)
   const reasons = verdict?.reasons ?? []
   // How the check came to each reason is said as text after the last reason of
   // its kind (the job lists a kind's reasons together), never only in a tooltip:
@@ -127,8 +126,8 @@ export const QuarantineFindings: FC<QuarantineFindingsProps> = ({
         <p className="text-muted-foreground text-xs leading-snug">{t('screening.partial')}</p>
       )}
       {!withoutSentence && (
-        <p className="text-muted-foreground text-xs leading-snug">
-          {t(reasons.length > 0 || verdict?.omitted ? 'ingestFailure.quarantined' : 'ingestFailure.quarantinedUnreadable')}
+        <p className="text-muted-foreground text-xs leading-snug" data-testid={`${testId}-sentence`}>
+          {t(heldSentenceKey(verdict))}
         </p>
       )}
     </div>

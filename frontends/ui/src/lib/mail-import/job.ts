@@ -56,6 +56,8 @@ import {
   ImportMovedOnError,
   MailImportQuotaError,
   SliceBudgetSpentError,
+  recordNameStops,
+  type FiledMail,
   type FilingContext,
 } from './filing'
 import { archiveFolderName } from './naming'
@@ -282,6 +284,7 @@ async function fileItem(context: FilingContext, item: ArchiveItem): Promise<bool
   const current = context.mailImport
   const advance = { to: item.position + 1, mailsFiled: 0, filesFiled: 0, itemsSkipped: 0, filesSkipped: 0 }
   let samples: MailImportSkippedSample[] = []
+  let filedMail: FiledMail | null = null
   if (item.kind === 'other') {
     // Counted, not sampled: a calendar walked first would fill every sample.
     advance.itemsSkipped = 1
@@ -292,6 +295,7 @@ async function fileItem(context: FilingContext, item: ArchiveItem): Promise<bool
     const filed = await fileMail(context, item)
     Object.assign(advance, { mailsFiled: 1, filesFiled: filed.filesFiled, filesSkipped: filed.filesSkipped })
     samples = filed.skipped
+    filedMail = filed
   }
   const skippedSamples = [...current.skippedSamples, ...samples].slice(0, SKIPPED_SAMPLES_KEPT)
   const moved = await repository.advanceMailImport(current.organizationId, current.id, item.position, {
@@ -299,6 +303,9 @@ async function fileItem(context: FilingContext, item: ArchiveItem): Promise<bool
     skippedSamples,
   })
   if (!moved) return false
+  // Once the cursor moved, which happens once per mail however often a retry
+  // files it: so a name-check stop counts once on the batch.
+  if (filedMail) await recordNameStops(context, filedMail)
   context.mailImport = {
     ...current,
     nextPosition: advance.to,

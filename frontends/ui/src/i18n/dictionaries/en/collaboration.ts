@@ -467,15 +467,50 @@ export const collaboration = {
         bodyNoSubject: 'Open the summary to see what arrived.',
       },
       // ADR-0086: the content check held files back.
+      // {subject} is the newest held file; the variant says what it was held
+      // for (never the value found). `transcript`: a vision model read the
+      // scanned pages it was found in, so no "no model" claim there.
       documentQuarantined: {
         titleOne: '1 file is waiting in quarantine',
         titleMany: '{count} files are waiting in quarantine',
         titleNone: 'Files in quarantine',
-        body: 'No model has read them. Review them: allow or delete.',
+        body: '“{subject}”: no model has read it. Review it: allow or delete.',
+        bodyMany: 'Latest: “{subject}”. Review them in quarantine: allow or delete.',
+        bodyNoSubject: 'No model has read them. Review them: allow or delete.',
+        variants: {
+          term: {
+            body: '“{subject}” contains a term from your office’s list of sensitive data. No model has read it. Allow or delete?',
+            bodyMany: 'Latest: “{subject}”, with a term from the list of sensitive data. Review them: allow or delete.',
+          },
+          iban: {
+            body: '“{subject}” contains an IBAN. No model has read it. Allow or delete?',
+            bodyMany: 'Latest: “{subject}”, with an IBAN. Review them: allow or delete.',
+          },
+          at_svnr: {
+            body: '“{subject}” contains a social security number. No model has read it. Allow or delete?',
+            bodyMany: 'Latest: “{subject}”, with a social security number. Review them: allow or delete.',
+          },
+          credit_card: {
+            body: '“{subject}” contains a card number. No model has read it. Allow or delete?',
+            bodyMany: 'Latest: “{subject}”, with a card number. Review them: allow or delete.',
+          },
+          transcript: {
+            body: '“{subject}”: found in the text of scanned pages a vision model read; no other model saw them. Allow or delete?',
+            bodyMany: 'Latest: “{subject}”, found in the text of scanned pages. Review them: allow or delete.',
+          },
+        },
       },
       documentReleaseRequested: {
         title: '{actor} asks you to review “{subject}”',
         body: 'The file is in quarantine. Look at it, then allow or delete it.',
+        // What the file was held for, as for documentQuarantined.
+        variants: {
+          term: { body: 'It contains a term from the list of sensitive data. Look at it, then allow or delete it.' },
+          iban: { body: 'It contains an IBAN. Look at it, then allow or delete it.' },
+          at_svnr: { body: 'It contains a social security number. Look at it, then allow or delete it.' },
+          credit_card: { body: 'It contains a card number. Look at it, then allow or delete it.' },
+          transcript: { body: 'Found in the text of scanned pages a vision model read. Look at it, then allow or delete it.' },
+        },
       },
       // The row lands on the run itself (its block in the thread, else the
       // task), where the result and the reason are.

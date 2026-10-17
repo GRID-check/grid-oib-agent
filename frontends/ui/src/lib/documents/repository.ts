@@ -45,7 +45,11 @@ import {
   type ResourceVisibility,
 } from '@/lib/db/schema'
 import type { DocumentScope, DocumentScreeningOutcome } from '@/lib/db/schema/documents'
-import { auditedQuarantineReasons, parseQuarantine } from '@/lib/upload-screening/quarantine'
+import {
+  auditedQuarantineReasons,
+  storedQuarantineVerdictOf,
+  type StoredQuarantineVerdict,
+} from '@/lib/upload-screening/quarantine'
 import { documentVisibleTo, heldAtRest, internalRead, SCREENED_ONLY, type DocumentReader } from './visibility'
 import { verdictPasses } from './document-reader'
 import { CURRENT_INGEST_READER_VERSION, type IngestFailureCategory, type IngestFailureFacts } from './retry-policy'
@@ -150,6 +154,13 @@ export interface DocumentListRow {
   ingestFailureCategory?: IngestFailureCategory | null
   ingestRetryable?: boolean | null
   ingestReaderVersion?: string | null
+  /**
+   * Why the content gate held it (migration 0148), as stored. Turned into the
+   * reader's verdict by `toListedDocuments` (`quarantineVerdictOf`) and only
+   * then served, to whoever the listing's reader rule let see the held row.
+   * Optional for the same reason as the three above.
+   */
+  quarantine?: StoredQuarantineVerdict | null
 }
 
 /**
@@ -246,6 +257,7 @@ export const documentListColumns = {
   createdAt: documents.createdAt,
   updatedAt: documents.updatedAt,
   errorMessage: documents.errorMessage,
+  quarantine: documents.quarantine,
   metadata: documents.metadata,
   ingestFailureCategory: documents.ingestFailureCategory,
   ingestRetryable: documents.ingestRetryable,
@@ -1980,7 +1992,12 @@ async function recordVersionVerdict(
  * A quarantine is the content gate's decision (ADR-0086), and the same
  * transaction records it in `document_quarantine_decisions`, keyed on the
  * dispatch, for the audit trail: a moved row and its decision exist together
- * or not at all, and one job is one decision.
+ * or not at all, and one job is one decision. Its verdict is written to
+ * `documents.quarantine` with the status (migration 0148, ADR-0113), and every
+ * other status writes NULL there: only a quarantined row carries one (CHECK).
+ * `quarantine` is the job's typed verdict; a resolution without it (a job from
+ * before the field) is read through `storedQuarantineVerdictOf`, the one
+ * reader of the legacy message.
  *
  * `failure` is what the job said about the file (migration 0134): its failure
  * category, whether the same bytes may read again, and the reader that read
@@ -1995,11 +2012,14 @@ export async function setDocumentReconciledStatus(
     status: DocumentStatus
     errorMessage: string | null
     screeningOutcome?: DocumentScreeningOutcome
+    /** The job's typed verdict (ADR-0113); read only for a `quarantined` status. */
+    quarantine?: StoredQuarantineVerdict | null
     failure?: IngestFailureFacts
   },
   from: ReconciledFrom,
 ): Promise<boolean> {
   const { failure } = resolution
+  const verdict = resolution.status === 'quarantined' ? storedQuarantineVerdictOf(resolution) : null
   const db = getDb()
   return withTenant({ organizationId }, () =>
     db.transaction(async (tx) => {
@@ -2008,6 +2028,7 @@ export async function setDocumentReconciledStatus(
         .set({
           status: resolution.status,
           errorMessage: resolution.errorMessage,
+          quarantine: verdict,
           // Only when the job said something (ADR-0086): an unscreened job must
           // not erase a reviewer's `released`.
           ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
@@ -2055,7 +2076,6 @@ export async function setDocumentReconciledStatus(
         })
       }
       if (resolution.status === 'quarantined') {
-        const verdict = parseQuarantine(resolution.errorMessage)
         await tx
           .insert(documentQuarantineDecisions)
           .values({
@@ -2067,6 +2087,7 @@ export async function setDocumentReconciledStatus(
             folderId: moved.folderId,
             filename: moved.filename.slice(0, 500),
             reasons: auditedQuarantineReasons(verdict),
+            reasonsOmitted: verdict?.omitted ?? 0,
             checked: verdict?.checked ?? '',
             uploadedBy: moved.createdBy,
           })
@@ -2098,6 +2119,9 @@ export async function markScreeningReleased(
         .set({
           status: 'uploaded',
           errorMessage: null,
+          // Only a quarantined row carries a verdict (migration 0148's CHECK),
+          // and the release is how a row stops being one.
+          quarantine: null,
           // The held verdict (`quarantined`, or a reading that failed) is the
           // reviewer's to lift, and they lifted it (migration 0134).
           ingestFailureCategory: null,

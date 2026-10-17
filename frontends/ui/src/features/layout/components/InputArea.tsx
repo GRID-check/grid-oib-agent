@@ -64,6 +64,7 @@ import { OtherProjectsNotice } from '@/features/chat/components/OtherProjectsNot
 import { useRestrictingOtherProjects } from '@/features/chat/hooks/use-restricting-other-projects'
 import { useChatScreening } from '@/features/chat/hooks/use-chat-screening'
 import type { MaskedText } from '@/lib/upload-screening/content-screen'
+import { heldSentenceKey, quarantineVerdictOf } from '@/lib/upload-screening/quarantine'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
 import { EffortDial } from '@/features/chat/components/effort-dial'
@@ -335,14 +336,22 @@ const FileChip: FC<{
   const isStored = file.status === 'stored'
   const isSuccess = file.status === 'success'
   const thumbnail = usePhotoThumbnail(file.file)
-  const ingestFailure = useIngestFailureText(
-    (isFailed && failedWhileReading(file)) || isHeld ? file.errorMessage : null
-  )
+  // A file refused because the document it replaces is held carries a
+  // sentence, not a verdict (ADR-0086): it is said as it is.
+  // A file the content check held says why from its verdict, with the same
+  // sentence the findings use (`heldSentenceKey`), never from its message.
+  const tFiles = useTranslations('files')
+  const heldSentence = isHeld
+    ? file.replacesHeld
+      ? file.errorMessage
+      : tFiles(heldSentenceKey(quarantineVerdictOf(file)))
+    : null
+  const ingestFailure = useIngestFailureText(isFailed && failedWhileReading(file) ? file.errorMessage : null)
   // Uploading and reading are both pending, but only one of them is an upload.
   const statusTitle = isPending
     ? t(file.status === 'ingesting' ? 'fileSourceCard.statusIngesting' : 'inputArea.fileUploadingStatus')
     : isHeld
-      ? (ingestFailure?.sentence ?? t('fileSourceCard.statusHeld'))
+      ? (heldSentence || t('fileSourceCard.statusHeld'))
       : isStored
         ? t('fileSourceCard.statusStored')
         : isFailed

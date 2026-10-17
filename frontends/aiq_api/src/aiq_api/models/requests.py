@@ -40,8 +40,8 @@ class DeleteFilesRequest(BaseModel):
 class ScreeningPolicy(BaseModel):
     """What an ingest job screens the document's locally extracted text for, before any model sees it.
 
-    A match fails the file with an ``error_message`` starting ``quarantined:``
-    (``knowledge_layer.llamaindex.screening``). Terms match case-, umlaut- and
+    A match fails the file and records why on ``FileProgress.quarantine``, the
+    typed verdict (``knowledge_layer.llamaindex.screening``, ADR-0113). Terms match case-, umlaut- and
     whitespace-insensitively at a word start, in the text as a person reads it
     (invisible characters left out, a hyphen at a line break joined); the
     detectors count checksum-valid matches only, a card only in a printed layout.
@@ -181,8 +181,8 @@ class IngestRequest(BaseModel):
         None,
         description=(
             "The organization's upload screening. The job checks the text it extracts locally "
-            "against it before its first model call, and fails a matching file with an "
-            "`error_message` starting `quarantined:`. Absent, null or empty: not screened "
+            "against it before its first model call, and fails a matching file with its reasons "
+            "on `quarantine` (the typed verdict). Absent, null or empty: not screened "
             "(the OIB base-corpus sync sends none)."
         ),
     )

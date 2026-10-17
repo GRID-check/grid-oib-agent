@@ -236,6 +236,7 @@ export const useDocumentsStore = create<DocumentsStore>()(
                 status: trackedStatusOfJobFile(jobFile),
                 progress: jobFile.progress_percent,
                 errorMessage: jobFile.error_message,
+                quarantine: jobFile.quarantine ?? null,
                 serverFileId: jobFile.file_id,
               }
             })
@@ -316,6 +317,7 @@ export const useDocumentsStore = create<DocumentsStore>()(
                   status: trackedStatusOfJobFile(file),
                   progress: file.status === 'success' ? 100 : 0,
                   errorMessage: file.error_message,
+                  quarantine: file.quarantine ?? null,
                   serverFileId: file.file_id,
                   collectionName, // Use parameter, not file.collection_name, for consistent filtering
                   // Preserve jobId and uploadedAt from existing tracked file if available.

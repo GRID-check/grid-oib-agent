@@ -391,9 +391,17 @@ export const files = {
     deleted: 'The file was deleted while Piloti was reading it.',
     quarantined:
       'This file contains something your office marks as sensitive. Piloti showed it to no model. An office or project admin reviews it and decides whether it stays or is deleted.',
+    // Found in the text a vision model read off scanned pages (`after_transcription`):
+    // that model saw those pages, no other did.
+    quarantinedAfterTranscription:
+      'This file contains something your office marks as sensitive, found in the text of scanned pages. A vision model read those pages so they could be checked; no other model saw them. An office or project admin reviews it and decides whether it stays or is deleted.',
     // The reason is not stored or cannot be read: claim nothing the line above does not show.
     quarantinedUnreadable:
-      'The content check held this file back. Its reason is not stored or cannot be read. Piloti showed it to no model. An office or project admin reviews it and decides whether it stays or is deleted.',
+      'The content check held this file back. Its reason is not stored or cannot be read. While it is held back, Piloti shows it to no model. An office or project admin reviews it and decides whether it stays or is deleted.',
+    // The office's screening rules could not be applied: the file was not read at
+    // all and waits like a held one (ADR-0086).
+    screening_unavailable:
+      "The check for sensitive data couldn't run, so Piloti didn't read this file or show it to any model. Read it again, or an office or project admin decides whether it stays.",
     unknown: "Piloti couldn't read this document, so search can't find it.",
     details: 'Details',
   },
@@ -424,7 +432,8 @@ export const files = {
       '{count, plural, one {One more reason is not listed.} other {# more reasons are not listed.}}',
     nameInFile: 'File name contains “{term}”',
     nameInFolder: 'Folder “{segment}” contains “{term}”',
-    partial: 'Some pages had no text layer and were not checked.',
+    // Scanned pages are checked once read (ADR-0086, 2026-10-17): "not checked" was no longer true, "first" is.
+    partial: 'Not everything could be checked first: a vision model sees scanned pages, images and drawings before the check.',
     unchecked: 'The content could not be read without a model and was checked by name only.',
     // A content-check finding, the way a chat source is shown: the page, and on
     // it, marked, what the office listed as sensitive.
@@ -828,11 +837,11 @@ export const files = {
     collisions: '{count} files share a name with another file in this upload',
     collisionsExplain:
       'A project holds one document per filename, so these are not uploaded. Rename them and drop them again.',
-    // Held back by the office's name screening (ADR-0086): the files do not
-    // leave this computer unless someone releases one of them.
-    excluded: '{count, plural, one {# file stays on your computer} other {# files stay on your computer}}',
+    // Not uploaded by the name check (ADR-0086): the files do not leave this
+    // computer unless someone uploads one anyway. "Held back" is the content check's.
+    excluded: '{count, plural, one {# file not uploaded} other {# files not uploaded}}',
     excludedExplain:
-      'Your office marks these terms as sensitive, so these files are not uploaded. If one of them belongs in Piloti after all, tick it.',
+      'Your office marks these terms as sensitive, so these files are not uploaded: they do not leave your computer. If one of them belongs in Piloti after all, tick it.',
     releaseFile: 'Upload anyway',
     // Files that come in as a new revision of a document already here: by the
     // same name (ADR-0054) or by a name series under another name (ADR-0099).
@@ -866,7 +875,7 @@ export const files = {
       collision: 'Conflict',
       duplicate: 'Already here',
       skipped: 'Skipped',
-      excluded: 'Excluded',
+      excluded: 'Not uploaded',
     },
     confirm: '{count, plural, one {Upload # file} other {Upload # files}}',
     // The same, when some of them come in as a new revision: the button moves with the boxes.
@@ -967,7 +976,7 @@ export const files = {
       type: 'file type not accepted',
       size: 'too large',
       unreadable: 'damaged in the archive',
-      screened: 'held back by the office’s name screening',
+      screened: 'not uploaded by the name check',
       access: 'folder is read-only',
       name_taken: 'name already used in the project',
     },
@@ -987,8 +996,8 @@ export const files = {
     uploadNetwork: 'No connection while uploading. Please try again.',
     uploadStalled: 'The connection stopped sending, so the upload was stopped.',
     uploadTimeout: 'The upload took too long.',
-    // Held back by the office's name screening (ADR-0086) on a path with no
-    // upload dialog, such as a chat attachment.
+    // Not uploaded by the name check (ADR-0086): on a path with no upload
+    // dialog, such as a chat attachment, or by the server's repeat of it.
     screenedOut: '{count} file(s) not uploaded because your office marks them as sensitive: {files}',
     screenedOutFile: '“{name}” ({reason})',
     // The office's list could not be read: without it nothing is sent, not
@@ -1010,8 +1019,15 @@ export const files = {
     someUploadsFailed:
       '{failed} of {total} documents could not be uploaded. First reason: {reason}',
     uploadingSkipped: 'Uploading {uploading} {fileLabel}, skipped {skipped} ({summary})',
+    // The file this upload would replace is held back by the content check
+    // (ADR-0086). The state is "held back", the place "quarantine".
     quarantinedReplace:
-      '“{name}” would replace a file waiting in quarantine. Delete that file or have it allowed through, then upload the new one.',
+      '“{name}” would replace a file that is held back and waits in quarantine for review. Once someone allows it through or deletes it, you can upload the new one.',
+    // Another document holds the name. No place and no reason on purpose: it may
+    // be one this person may not see.
+    nameTaken: 'Another document already has the name “{name}”. Rename the file and upload it again.',
+    // Somebody filed or deleted the same file while this one was uploading.
+    uploadChangedMeanwhile: 'Something changed here while the file was uploading. Please try again.',
     cannotRetryServerFile: 'Cannot retry server-loaded files. Please upload the file again.',
     imageVlmUnavailable:
       'Images cannot be uploaded here: this deployment has no image recognition set up.',

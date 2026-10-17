@@ -66,6 +66,7 @@ export async function listSessionDocuments(
         createdAt: documents.createdAt,
         updatedAt: documents.updatedAt,
         errorMessage: documents.errorMessage,
+        quarantine: documents.quarantine,
         metadata: documents.metadata,
       })
       .from(documents)

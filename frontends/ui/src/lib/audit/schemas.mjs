@@ -405,8 +405,11 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   // The content gate's own decision to hold a document back (ADR-0086): rule
   // based, before any model reads it. Its actor is `system:upload_screening`,
   // not a person, and `uploadedBy` names whose upload it was. The reasons are
-  // kinds and terms (`term:Lohnzettel,iban`), never a matched sample or text;
-  // `checked` is `full` or `partial` (some pages had no text layer). `jobId`
+  // kinds and terms (`term:Lohnzettel,iban`), never a matched sample or text,
+  // ending `,…` when cut at 200 characters; `reasonsOmitted` counts the reasons
+  // the job found and left out of its verdict, so a list is partial whenever
+  // it is not zero (migration 0148); `checked` is `full` or `partial` (some
+  // pages had no text layer). `jobId`
   // is the dispatch that decided: one job, one decision, one event. Sent at
   // least once from `document_quarantine_decisions`, under an idempotency key,
   // with the time of the decision rather than of the send. Like every action
@@ -419,6 +422,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       filename: 'string',
       scope: 'string',
       reasons: 'string',
+      reasonsOmitted: 'number',
       checked: 'string',
       uploadedBy: 'string',
       jobId: 'string',

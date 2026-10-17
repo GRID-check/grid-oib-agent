@@ -19,6 +19,7 @@
 
 import { z } from 'zod'
 import { surfaceStateOf, type SurfaceState } from '@/lib/documents/surface-state'
+import { verdictSchema } from '@/lib/upload-screening/quarantine'
 import type { FileInfo, ListedFileStatus } from './documents-schemas'
 
 const SessionDocumentRowSchema = z.object({
@@ -29,6 +30,8 @@ const SessionDocumentRowSchema = z.object({
   collectionName: z.string(),
   createdAt: z.string().nullable().optional(),
   errorMessage: z.string().nullable().optional(),
+  /** Why a held attachment is held (ADR-0113). A verdict that does not parse reads as none, never as a failed list. */
+  quarantine: verdictSchema.nullable().catch(null).optional(),
   chunkCount: z.number().nullable().optional(),
 })
 
@@ -80,6 +83,7 @@ export function sessionDocumentToFileInfo(row: SessionDocumentRow): FileInfo {
     chunk_count: row.chunkCount ?? 0,
     uploaded_at: row.createdAt ?? null,
     error_message: row.errorMessage ?? null,
+    quarantine: row.quarantine ?? null,
     metadata: {},
   }
 }

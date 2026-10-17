@@ -16,9 +16,9 @@ import { useElapsedSeconds, useTransferRate } from '../hooks/use-transfer-rate'
 import { FileExtChip } from './file-ext-chip'
 import { IngestionStatusWord, ingestionMarkOfPhase } from './ingestion-atoms'
 import { IngestFailureNotice } from './ingest-failure-notice'
-import { QuarantineFindings } from './quarantine-findings'
+import { HeldUploadReason } from './held-upload-reason'
 import { RequestReviewButton } from './request-review-button'
-import { parseQuarantine } from '@/lib/upload-screening/quarantine'
+import { quarantineVerdictOf } from '@/lib/upload-screening/quarantine'
 import { failedWhileReading } from '../lib/ingest-failure'
 import { Button } from '@/components/ui/button'
 import { AnimatePresence, iconSwapTransition, motion, motionBase, useMotionToken } from '@/components/motion'
@@ -535,6 +535,11 @@ function UploadRow({
   // Held back by the content check (ADR-0086). Never retried: the server
   // refuses a re-upload onto it, and nothing went wrong to repeat.
   const isHeldBack = phase === 'held'
+  // The held document the uploader may ask the reviewers about: this row's own,
+  // or the one it would replace when this person uploaded that one too.
+  const reviewableId =
+    file.serverFileId ?? (file.replacesHeld?.ownUpload ? file.replacesHeld.documentId : null) ?? null
+  const heldVerdict = isHeldBack ? quarantineVerdictOf(file) : null
   const unchanged = file.unchanged === true && phase === 'ready'
   const canDismiss = (phase === 'canceled' || isFailed || isHeldBack) && onDismiss !== undefined
   const canRetry = isFailed && mayRetryUpload(file)
@@ -701,21 +706,24 @@ function UploadRow({
               {/* Why it was held, as the Files preview and the upload summary
                   say it. No page buttons: the tray cannot show the document.
                   The sentence that explains holding back stands in only when
-                  there are no reasons to list. */}
+                  there are no reasons to list. A row refused because the file
+                  it replaces is held says that in its own sentence. */}
               {isHeldBack && (
-                <QuarantineFindings
-                  errorMessage={file.errorMessage}
-                  withoutSentence={(parseQuarantine(file.errorMessage)?.reasons.length ?? 0) > 0}
+                <HeldUploadReason
+                  verdict={heldVerdict}
+                  replacesHeld={file.replacesHeld}
+                  message={file.errorMessage}
+                  withoutSentence={(heldVerdict?.reasons.length ?? 0) > 0}
                   testId="upload-row-held"
                 />
               )}
               {/* The one thing the uploader can do about a held file, where
-                  they first learn of it. The tray only carries this session's
-                  own uploads, and the server accepts the request from the
-                  uploader alone, so it is always theirs to send. */}
-              {isHeldBack && file.serverFileId && (
+                  they first learn of it: this session's own upload, or the
+                  held file this one would replace when they uploaded it too.
+                  The server accepts the request from the uploader alone. */}
+              {isHeldBack && reviewableId && (
                 <RequestReviewButton
-                  documentId={file.serverFileId}
+                  documentId={reviewableId}
                   name={file.fileName}
                   className="mt-2 h-7 px-2 text-xs"
                   testId="upload-row-request-review"

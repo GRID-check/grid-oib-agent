@@ -32,6 +32,7 @@ import { useChatStore } from '@/features/chat/store'
 import { useLayoutStore } from '../store'
 import { useAppConfig } from '@/shared/context'
 import { useTranslations } from '@/i18n'
+import { quarantineVerdictOf } from '@/lib/upload-screening/quarantine'
 
 interface FileSourcesTabProps {
   /** Callback when a file is deleted */
@@ -391,8 +392,16 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
             fileSize={file.fileSize}
             uploadedAt={file.uploadedAt}
             status={mapToDisplayStatus(file.status)}
-            errorMessage={file.errorMessage ?? undefined}
+            // A held file says why through its verdict; its message is never
+            // shown, so the legacy `quarantined:` text cannot reach the card.
+            // A row held because it would replace a held file has no verdict:
+            // its message is this app's own sentence (`quarantinedReplace`).
+            errorMessage={
+              file.status === 'held' && !file.replacesHeld ? undefined : (file.errorMessage ?? undefined)
+            }
+            quarantine={file.status === 'held' ? quarantineVerdictOf(file) : null}
             failedWhileReading={failedWhileReading(file)}
+            replacesHeld={file.replacesHeld}
             expirationIntervalHours={fileUploadConfig.fileExpirationCheckIntervalHours}
             // A project document is deleted in the project's Files, where the
             // delete runs the legal-hold check and erases every version. This

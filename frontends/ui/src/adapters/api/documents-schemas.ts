@@ -6,6 +6,15 @@
  */
 
 import { z } from 'zod'
+import { verdictSchema } from '@/lib/upload-screening/quarantine'
+
+/**
+ * Why the content check held a file (ADR-0113): the backend's typed verdict,
+ * parsed here by the one schema the BFF reads it with. One that does not parse
+ * reads as none rather than failing the whole response; the file's legacy
+ * `error_message` still says it was held (`reportsQuarantine`).
+ */
+const QuarantineFieldSchema = verdictSchema.nullable().catch(null).optional()
 
 // ============================================================================
 // Enums
@@ -60,6 +69,7 @@ export const FileInfoSchema = z.object({
   ingested_at: z.string().nullable().optional(),
   expiration_date: z.string().nullable().optional(),
   error_message: z.string().nullable().optional(),
+  quarantine: QuarantineFieldSchema,
   metadata: z.record(z.unknown()),
 })
 
@@ -86,6 +96,7 @@ export const FileProgressSchema = z.object({
   status: DocumentFileStatusSchema,
   progress_percent: z.number(),
   error_message: z.string().nullable().optional(),
+  quarantine: QuarantineFieldSchema,
   chunks_created: z.number().optional(),
 })
 

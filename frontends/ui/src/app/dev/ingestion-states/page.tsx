@@ -14,7 +14,9 @@
  *   2. The file card, where the badge floats on the thumbnail's frost.
  *   3. The Files list, one row per state.
  *   4. The upload tray, one row per phase, the three failures apart:
- *      a retryable upload, a read that failed, and one a retry cannot fix.
+ *      a retryable upload, a read that failed, and a taken name a retry
+ *      cannot fix; and a file held because the one it replaces is held.
+ *   5. The chat's file peek, for a held file beside a citable one.
  *
  * Backend-free: fixtures only, and a fetch shim that 404s thumbnails so every
  * card draws the sketch placeholder. `src/app/dev/layout.tsx` 404s the route
@@ -28,7 +30,8 @@ import { FileListView } from '@/features/documents/components/file-list-view'
 import { UploadTray } from '@/features/documents/components/upload-tray'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 import type { TrackedFile } from '@/features/documents/types'
-import { useLocale } from '@/i18n'
+import { FileReferencePeek } from '@/features/chat/components/FileReferencePeek'
+import { useLocale, useTranslations } from '@/i18n'
 
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const w = window as unknown as { __ingestionStatesShim?: boolean }
@@ -125,8 +128,15 @@ const TRAY_LIVE: TrackedFile[] = [
   tracked({ id: 'st', fileName: 'Lageplan_Bestand.dwg', fileSize: 1.1 * MB, status: 'stored', serverFileId: 'd-st' }),
 ]
 
-/** The rows that ask something of the reader: held, the three failures apart, and a cancelled one. */
-const TRAY_SETTLED: TrackedFile[] = [
+type FilesTranslator = ReturnType<typeof useTranslations>
+
+/**
+ * The rows that ask something of the reader: held (by its own verdict, and
+ * because the file it replaces is held, the 409 a re-upload meets), the three
+ * failures apart, and a cancelled one. Said from the dictionary, as the upload
+ * hook says them.
+ */
+const traySettled = (t: FilesTranslator): TrackedFile[] => [
   tracked({
     id: 'h',
     fileName: 'Honorarvereinbarung_Wohnbau-Nord.pdf',
@@ -135,6 +145,17 @@ const TRAY_SETTLED: TrackedFile[] = [
     serverFileId: 'd-h',
     errorMessage: HELD_VERDICT,
   }),
+  // The 409 onto a held file its uploader may see: held with it, not failed,
+  // its own sentence and the request for a review of the held file.
+  tracked({
+    id: 'h-replace',
+    fileName: 'Honorarvereinbarung_Wohnbau-Nord_v2.pdf',
+    fileSize: 0.4 * MB,
+    status: 'held',
+    retryable: false,
+    replacesHeld: { documentId: 'd-h', ownUpload: true },
+    errorMessage: t('errors.quarantinedReplace', { name: 'Honorarvereinbarung_Wohnbau-Nord_v2.pdf' }),
+  }),
   // Never reached the server: a retry sends it again.
   tracked({
     id: 'f-up',
@@ -142,7 +163,7 @@ const TRAY_SETTLED: TrackedFile[] = [
     fileSize: 112 * MB,
     status: 'failed',
     bytesUploaded: 40 * MB,
-    errorMessage: 'File exceeds the 100 MB upload limit',
+    errorMessage: t('errors.uploadNetwork'),
   }),
   // Accepted and could not be read: the reason in the reader's words, „Details" for the raw text.
   tracked({
@@ -153,15 +174,15 @@ const TRAY_SETTLED: TrackedFile[] = [
     serverFileId: 'd-f-read',
     errorMessage: 'office_rendition_required: conversion timed out',
   }),
-  // Refused for a reason a retry meets again: no retry, only the sentence.
+  // A taken name, a refusal a retry meets again: no retry, only the sentence.
+  // A held file the uploader may not see reads exactly like this.
   tracked({
     id: 'f-final',
-    fileName: 'Honorarvereinbarung_Wohnbau-Nord_v2.pdf',
+    fileName: 'Baubeschreibung.pdf',
     fileSize: 0.4 * MB,
     status: 'failed',
     retryable: false,
-    errorMessage:
-      '“Honorarvereinbarung_Wohnbau-Nord_v2.pdf” would replace a file waiting in quarantine. Delete that file or have it allowed through, then upload the new one.',
+    errorMessage: t('errors.nameTaken', { name: 'Baubeschreibung.pdf' }),
   }),
   tracked({ id: 'c', fileName: 'Statik_Positionsplan_alt.pdf', fileSize: 2.9 * MB, status: 'canceled' }),
 ]
@@ -180,8 +201,15 @@ function Stage({ title, note, children }: { title: string; note: string; childre
 
 const noop = () => {}
 
+/** The chat's file peek: a held file says it is held back, a citable one says nothing of the kind. */
+const PEEKS: { note: string; file: FileItem }[] = [
+  { note: 'quarantined', file: DOCUMENTS[4] },
+  { note: 'completed', file: DOCUMENTS[3] },
+]
+
 export default function IngestionStatesDevPage(): JSX.Element {
   const { locale } = useLocale()
+  const t = useTranslations('files')
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-10 px-4 py-8 md:px-8" data-testid="ingestion-states">
       <div>
@@ -252,10 +280,26 @@ export default function IngestionStatesDevPage(): JSX.Element {
 
       <Stage
         title="5 · Upload tray, settled with something to do"
-        note="Held (amber, no retry), then three failures: an upload that can be sent again, a read that failed, one a retry cannot fix (no retry). Then a cancelled file, which is a decision and never red."
+        note="Held (amber, no retry), then a file held because the one it would replace is held (its own sentence, a request for review), then three failures: an upload that can be sent again, a read that failed, a taken name a retry cannot fix (no retry). Then a cancelled file, which is a decision and never red."
       >
         <div className="overflow-hidden rounded-lg border">
-          <UploadTray files={TRAY_SETTLED} onRetry={noop} onDismiss={noop} />
+          <UploadTray files={traySettled(t)} onRetry={noop} onDismiss={noop} />
+        </div>
+      </Stage>
+
+      <Stage
+        title="6 · Chat file peek"
+        note="What the reader sees hovering a file named in an answer: a held file says it is held back and cited only once someone allows it through; a citable one says nothing of the kind."
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          {PEEKS.map(({ note, file }) => (
+            <div key={note} className="space-y-1" data-testid={`peek-${note}`}>
+              <p className="font-mono text-[11px] text-muted-foreground">{note}</p>
+              <div className="w-72 max-w-full rounded-lg border bg-popover p-3 shadow-sm">
+                <FileReferencePeek stored={{ file, corpus: 'projekt' }} onOpen={noop} />
+              </div>
+            </div>
+          ))}
         </div>
       </Stage>
     </main>

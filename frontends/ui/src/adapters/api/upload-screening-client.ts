@@ -11,13 +11,13 @@
  *
  * The queue's server type lives in `lib/upload-screening/review.ts`, which is
  * server-only, so its wire shape is declared here. The verdict is NOT
- * re-declared: it is read back through `parseQuarantine`, the one schema the
- * server used to build it, so the two cannot drift.
+ * re-declared: it is read with `verdictSchema`, the one schema the server used
+ * to build it, so the two cannot drift.
  */
 
 import { z } from 'zod'
 import { uploadScreeningPolicySchema, type UploadScreeningPolicy } from '@/lib/upload-screening/policy'
-import { parseQuarantine, QUARANTINED_PREFIX, type QuarantineVerdict } from '@/lib/upload-screening/quarantine'
+import { verdictSchema } from '@/lib/upload-screening/quarantine'
 import { ApiRequestError } from './api-error'
 
 const UploadScreeningResponseSchema = z.object({
@@ -32,11 +32,7 @@ const SavedUploadScreeningSchema = z.object({
 })
 
 /** A verdict the server could not explain, or one this client cannot read, is `null`, never a guess. */
-const verdictSchema = z
-  .unknown()
-  .transform((value): QuarantineVerdict | null =>
-    value === null || value === undefined ? null : parseQuarantine(`${QUARANTINED_PREFIX}${JSON.stringify(value)}`)
-  )
+const QuarantineFieldSchema = verdictSchema.nullable().catch(null)
 
 const QuarantineQueueItemSchema = z.object({
   id: z.string(),
@@ -48,7 +44,7 @@ const QuarantineQueueItemSchema = z.object({
   conversationId: z.string().nullable(),
   uploadedBy: z.string(),
   quarantinedAt: z.string(),
-  verdict: verdictSchema,
+  verdict: QuarantineFieldSchema,
 })
 
 const QuarantineQueueSchema = z.object({ items: z.array(QuarantineQueueItemSchema) })

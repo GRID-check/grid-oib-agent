@@ -206,4 +206,31 @@ describe('FileReferenceLink', () => {
     expect(screen.getByText(/Piloti zitiert sie nicht/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Neben der Antwort öffnen/ })).toBeInTheDocument()
   })
+
+  // A held file (ADR-0086) used to say nothing at all: no failure, no „not
+  // read", so the reader could not tell why asking about it found nothing.
+  it('says a held file is held back and cited only once someone allows it, with the held glyph', async () => {
+    const user = userEvent.setup()
+    renderReference({
+      href: fileReferenceHref('pd8280-2.pdf'),
+      resolve: () => stored({ file: file({ status: 'quarantined', summary: null }) }),
+    })
+    await user.tab()
+    const line = await screen.findByTestId('file-reference-held')
+    expect(line).toHaveTextContent(/Zurückgehalten/)
+    expect(line).toHaveTextContent(/erst, wenn jemand sie zulässt/)
+    expect(line).not.toHaveTextContent(/freigeb/i)
+    expect(line.querySelector('[data-mark="held"]')).not.toBeNull()
+    // It is neither a failure nor a file at rest, and it only opens.
+    expect(screen.queryByText(/Lesen fehlgeschlagen|Piloti zitiert sie nicht/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Neben der Antwort öffnen/ })).toBeInTheDocument()
+  })
+
+  it('says nothing about holding back for a citable file', async () => {
+    const user = userEvent.setup()
+    renderReference({ href: fileReferenceHref('pd8280-2.pdf') })
+    await user.tab()
+    await screen.findByTestId('file-reference-peek')
+    expect(screen.queryByTestId('file-reference-held')).not.toBeInTheDocument()
+  })
 })

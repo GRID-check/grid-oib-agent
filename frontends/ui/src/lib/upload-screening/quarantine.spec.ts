@@ -7,18 +7,83 @@ import {
   explainQuarantineReason,
   findingsOf,
   firstFinding,
-  parseQuarantine,
+  heldSentenceKey,
+  quarantineNoticePayload,
   quarantineReasonHead,
+  quarantineVerdictOf,
+  reportsQuarantine,
+  storedQuarantineVerdictOf,
+  auditedQuarantineReasons,
+  AUDITED_REASONS_CUT_MARK,
+  AUDITED_REASONS_MAX_CHARS,
 } from './quarantine'
 import { classifyIngestFailure } from '@/features/documents/lib/ingest-failure'
 
 const t = createTranslator(de, 'files')
 
+/** A row from before migration 0148 that its backfill could not convert: only the message says why. */
+const parseQuarantine = (errorMessage: string | null) => quarantineVerdictOf({ errorMessage })
+
 const stored =
   'quarantined:{"reasons":[{"kind":"term","term":"Lohnzettel","count":2,"pages":[1,3]},' +
   '{"kind":"iban","count":1,"pages":[2],"sample":"AT61 •••• •••• •••• 1234"}],"checked":"partial"}'
 
-describe('parseQuarantine', () => {
+describe('the typed verdict (ADR-0113)', () => {
+  const typed = {
+    reasons: [{ kind: 'term', term: 'Honorarvereinbarung', count: 1, pages: [5] }],
+    checked: 'full',
+  }
+
+  it('is what a row or a job file says, whatever its message says', () => {
+    expect(quarantineVerdictOf({ quarantine: typed, errorMessage: stored })?.reasons[0].term).toBe('Honorarvereinbarung')
+    expect(quarantineVerdictOf({ quarantine: typed, error_message: null })?.checked).toBe('full')
+  })
+
+  it('reads the legacy message only when the typed verdict is absent', () => {
+    expect(quarantineVerdictOf({ quarantine: null, errorMessage: stored })?.reasons[0].term).toBe('Lohnzettel')
+    expect(quarantineVerdictOf({ error_message: stored })?.reasons).toHaveLength(2)
+  })
+
+  it('is not replaced by the message when it is broken: the field is the answer', () => {
+    expect(quarantineVerdictOf({ quarantine: { reasons: 'none' }, errorMessage: stored })).toBeNull()
+  })
+
+  it('says a file was held by its verdict, or by a legacy message, and by nothing else', () => {
+    expect(reportsQuarantine({ quarantine: typed })).toBe(true)
+    expect(reportsQuarantine({ quarantine: { reasons: 'none' } })).toBe(true) // held, reasons unreadable
+    expect(reportsQuarantine({ error_message: 'quarantined:{broken' })).toBe(true)
+    expect(reportsQuarantine({ errorMessage: 'interrupted: worker restarted' })).toBe(false)
+    expect(reportsQuarantine({ quarantine: null, errorMessage: null })).toBe(false)
+  })
+
+  it('is stored with every kind as the job wrote it, and read with the kinds this build knows', () => {
+    const job = { reasons: [{ kind: 'passport', count: 1, pages: [4], extra: 'dropped' }], checked: 'full' }
+    expect(storedQuarantineVerdictOf({ quarantine: job })).toEqual({
+      reasons: [{ kind: 'passport', count: 1, pages: [4] }],
+      checked: 'full',
+    })
+    expect(quarantineVerdictOf({ quarantine: storedQuarantineVerdictOf({ quarantine: job }) })?.reasons[0].kind).toBe(
+      'other'
+    )
+    expect(storedQuarantineVerdictOf({ errorMessage: 'quarantined:{not json' })).toBeNull()
+  })
+
+  it('records a kind this build does not know by its name in the audit trail', () => {
+    expect(auditedQuarantineReasons(storedQuarantineVerdictOf({ quarantine: { reasons: [{ kind: 'passport' }] } }))).toBe(
+      'passport'
+    )
+  })
+
+  it('says when the audited reasons were cut', () => {
+    const many = { reasons: Array.from({ length: 10 }, (_, n) => ({ kind: 'term' as const, term: `${n}`.padEnd(40, 'x') })) }
+    const audited = auditedQuarantineReasons(many)
+    expect(audited).toHaveLength(AUDITED_REASONS_MAX_CHARS)
+    expect(audited.endsWith(AUDITED_REASONS_CUT_MARK)).toBe(true)
+    expect(auditedQuarantineReasons({ reasons: [{ kind: 'iban' }] })).toBe('iban')
+  })
+})
+
+describe('the legacy message', () => {
   it('reads the verdict the ingest job stores', () => {
     expect(parseQuarantine(stored)).toEqual({
       reasons: [
@@ -145,5 +210,42 @@ describe('where a finding is', () => {
     expect(firstFinding(parseQuarantine(stored))).toEqual({ page: 1, highlight: 'Lohnzettel' })
     expect(firstFinding(parseQuarantine('quarantined:{"reasons":[{"kind":"term","term":"Lohn"}]}'))).toBeNull()
     expect(firstFinding(null)).toBeNull()
+  })
+})
+
+describe('heldSentenceKey', () => {
+  const reason = { kind: 'term' as const, term: 'Lohnzettel', count: 1, pages: [1] }
+
+  it('claims no model saw the file only when no model did', () => {
+    expect(heldSentenceKey({ reasons: [reason] })).toBe('ingestFailure.quarantined')
+    expect(heldSentenceKey({ reasons: [reason], checked: 'partial', after_transcription: true })).toBe(
+      'ingestFailure.quarantinedAfterTranscription'
+    )
+  })
+
+  it('claims nothing about the content when there is nothing to list', () => {
+    expect(heldSentenceKey(null)).toBe('ingestFailure.quarantinedUnreadable')
+    expect(heldSentenceKey({ reasons: [] })).toBe('ingestFailure.quarantinedUnreadable')
+    expect(heldSentenceKey({ reasons: [], omitted: 2 })).toBe('ingestFailure.quarantined')
+  })
+})
+
+describe('quarantineNoticePayload', () => {
+  it('names the file and its kind of reason, never the value', () => {
+    const payload = quarantineNoticePayload({
+      filename: 'Lohnzettel.pdf',
+      quarantine: { reasons: [{ kind: 'iban', count: 1, sample: 'AT61 •••• •••• •••• 3201' }] },
+    })
+    expect(payload).toEqual({ subject: 'Lohnzettel.pdf', variant: 'iban' })
+  })
+
+  it('writes the variant even when the verdict names none, so a collapsed row keeps no earlier file’s reason', () => {
+    expect(quarantineNoticePayload({ filename: 'Altbestand.docx', quarantine: null })).toEqual({
+      subject: 'Altbestand.docx',
+      variant: null,
+    })
+    expect(
+      quarantineNoticePayload({ filename: 'Neu.pdf', quarantine: { reasons: [{ kind: 'passport', count: 1 }] } })
+    ).toEqual({ subject: 'Neu.pdf', variant: null })
   })
 })

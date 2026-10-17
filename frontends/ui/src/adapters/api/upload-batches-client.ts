@@ -8,24 +8,20 @@
  *
  * The server types (`UploadSummary`, `UploadHistoryEntry`) live in
  * `lib/upload-batches/service.ts`, which is server-only, so the wire shapes are
- * declared here. The quarantine verdict is NOT re-declared: it is read back
- * through `parseQuarantine`, the schema the server built it with, so the two
- * cannot drift.
+ * declared here. The quarantine verdict is NOT re-declared: it is read with
+ * `verdictSchema`, the schema the server built it with, so the two cannot
+ * drift.
  */
 
 import { z } from 'zod'
-import { parseQuarantine, QUARANTINED_PREFIX, type QuarantineVerdict } from '@/lib/upload-screening/quarantine'
+import { verdictSchema } from '@/lib/upload-screening/quarantine'
 import { ApiRequestError } from './api-error'
 
 export const UPLOAD_OUTCOMES = ['ready', 'reading', 'quarantined', 'failed', 'stored'] as const
 export type UploadOutcome = (typeof UPLOAD_OUTCOMES)[number]
 
 /** A verdict this client cannot read is `null`, never a guess. */
-const verdictSchema = z
-  .unknown()
-  .transform((value): QuarantineVerdict | null =>
-    value === null || value === undefined ? null : parseQuarantine(`${QUARANTINED_PREFIX}${JSON.stringify(value)}`)
-  )
+const QuarantineFieldSchema = verdictSchema.nullable().catch(null)
 
 const UploadSummaryDocumentSchema = z.object({
   id: z.string(),
@@ -35,7 +31,7 @@ const UploadSummaryDocumentSchema = z.object({
   status: z.string(),
   outcome: z.enum(UPLOAD_OUTCOMES),
   screening: z.enum(['clean', 'partial', 'unchecked', 'quarantined', 'released']).nullable(),
-  quarantine: verdictSchema,
+  quarantine: QuarantineFieldSchema,
   errorMessage: z.string().nullable(),
   summary: z.string().nullable(),
   tags: z.array(z.string()),

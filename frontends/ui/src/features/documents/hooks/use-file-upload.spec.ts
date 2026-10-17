@@ -978,8 +978,9 @@ describe('useFileUpload — durable document uploads', () => {
     expect(en.files.errors.uploadTimeout).not.toMatch(/^Upload failed/)
   })
 
-  test('a file refused because it would replace a quarantined one is not offered again (ADR-0086)', async () => {
-    const { result } = renderUpload()
+  test('a file refused because the document it would replace is held is held with it, not failed (ADR-0086)', async () => {
+    const onError = vi.fn()
+    const { result } = renderUpload({ onError })
 
     let pending!: Promise<void>
     await act(async () => {
@@ -992,16 +993,26 @@ describe('useFileUpload — durable document uploads', () => {
         JSON.stringify({
           error: '"plan-0.pdf" is waiting in quarantine.',
           code: 'CONFLICT',
-          details: { reason: 'quarantined' },
+          details: { reason: 'quarantined', documentId: 'doc-held', ownUpload: true },
         })
       )
       await pending
     })
 
-    // The row says why in the reader's language, and is marked as one a retry cannot fix.
+    // Held, in the reader's language, with the held document to ask about, and
+    // never as that document (`serverFileId`): removing the row must not delete it.
     const message = en.files.errors.quarantinedReplace.replace('{name}', 'plan-0.pdf')
-    expect(trackedById('mock-uuid')).toMatchObject({ status: 'failed', errorMessage: message, retryable: false })
+    expect(trackedById('mock-uuid')).toMatchObject({
+      status: 'held',
+      errorMessage: message,
+      retryable: false,
+      replacesHeld: { documentId: 'doc-held', ownUpload: true },
+    })
+    expect(trackedById('mock-uuid')).not.toHaveProperty('serverFileId')
+    expect(message).toMatch(/held back/)
     expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(message)
+    // Not a failure: nothing tells the caller one happened.
+    expect(onError).not.toHaveBeenCalled()
 
     // „Alle wiederholen“ calls retryFile for it: it sends nothing and keeps the row.
     vi.mocked(mockDocumentsStoreState.removeTrackedFile).mockClear()
@@ -1011,6 +1022,81 @@ describe('useFileUpload — durable document uploads', () => {
     })
     expect(mockDocumentsStoreState.removeTrackedFile).not.toHaveBeenCalled()
     expect(xhr.requests).toHaveLength(1)
+  })
+
+  test('a taken name is said in the reader’s language, never the server’s English, and not retried', async () => {
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests[0].respond(
+        409,
+        JSON.stringify({
+          error: 'A document named "plan-0.pdf" already exists here. Rename the file to upload it.',
+          code: 'CONFLICT',
+          details: { reason: 'name_taken' },
+        })
+      )
+      await pending
+    })
+
+    const message = en.files.errors.nameTaken.replace('{name}', 'plan-0.pdf')
+    expect(trackedById('mock-uuid')).toMatchObject({ status: 'failed', errorMessage: message, retryable: false })
+    expect(String(trackedById('mock-uuid')?.errorMessage)).not.toMatch(/already exists here/)
+    expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(message)
+  })
+
+  // A held file the uploader may not see answers exactly as a taken name does
+  // (ADR-0086): the row cannot tell the two apart, so neither can the reader.
+  test('a hidden held file and an ordinary taken name read the same', async () => {
+    const answers = [
+      'A document named "plan-0.pdf" already exists here. Rename the file to upload it.',
+      'A document named "plan-0.pdf" already exists elsewhere in this project. Rename the file, or upload it where that document is filed.',
+    ]
+    const said: unknown[] = []
+    for (const error of answers) {
+      mockDocumentsStoreState.trackedFiles = []
+      uuidState.count = 0
+      const { result } = renderUpload()
+      let pending!: Promise<void>
+      await act(async () => {
+        pending = result.current.uploadFiles(makeFiles(1))
+        await Promise.resolve()
+      })
+      await act(async () => {
+        xhr.last().respond(409, JSON.stringify({ error, code: 'CONFLICT', details: { reason: 'name_taken' } }))
+        await pending
+      })
+      const { status, errorMessage, retryable, replacesHeld } = trackedById('mock-uuid') ?? {}
+      said.push({ status, errorMessage, retryable, replacesHeld })
+    }
+    expect(said[0]).toEqual(said[1])
+    expect(said[0]).toEqual({
+      status: 'failed',
+      errorMessage: en.files.errors.nameTaken.replace('{name}', 'plan-0.pdf'),
+      retryable: false,
+      replacesHeld: undefined,
+    })
+  })
+
+  test('a refusal with a reason this build does not know is not echoed in the server’s English', async () => {
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests[0].respond(409, JSON.stringify({ error: 'Some internal English', details: { reason: 'something_new' } }))
+      await pending
+    })
+
+    expect(trackedById('mock-uuid')).toMatchObject({ status: 'failed', errorMessage: en.files.errors.uploadFailed })
   })
 
   test('any other conflict stays retryable', async () => {
@@ -1267,6 +1353,26 @@ describe('useFileUpload — chat attachments', () => {
     expect(body.get('file')).toBeInstanceOf(File)
   })
 
+  // The browser screened the dropped folder's names; the server's repeat must
+  // read the same segments, so the path goes along (ADR-0086).
+  test('sends a dropped folder’s path along, so the server screens what the browser screened', async () => {
+    const { result } = renderChat()
+    const file = makeFile()
+    Object.defineProperty(file, 'webkitRelativePath', { value: 'Baustelle/Fotos/plan.pdf' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([file])
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, JSON.stringify({ documentId: 'doc-1', jobId: 'job-1', status: 'pending' }))
+      await pending
+    })
+
+    expect((xhr.last().body as FormData).get('originPath')).toBe('Baustelle/Fotos/plan.pdf')
+  })
+
   test('never touches the proxy: no collection lookup, no collection create', async () => {
     const { result } = renderChat()
 
@@ -1443,6 +1549,73 @@ describe('useFileUpload — upload batches', () => {
     const [sealUrl, sealInit] = fetchMock.mock.calls[1] as [string, RequestInit]
     expect(sealUrl).toBe(`/api/upload-batches/${String(opened.id)}/seal`)
     expect(JSON.parse(String(sealInit.body))).toEqual({ unchanged: 1, failed: 0 })
+  })
+
+  test('seals a file held because the document it replaces is held as neither failed nor arrived', async () => {
+    const { result } = renderHook(() => useFileUpload({ collectionName: 'proj-collection', projectId: 'proj-1' }))
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([pdf('EG.pdf'), pdf('OG.pdf')])
+      for (let i = 0; i < 6; i += 1) await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests[0]?.respond(200, JSON.stringify({ documentId: 'doc-1', jobId: 'job-1', status: 'pending' }))
+      xhr.requests[1]?.respond(
+        409,
+        JSON.stringify({ error: 'waiting in quarantine', code: 'CONFLICT', details: { reason: 'quarantined', documentId: 'doc-held', ownUpload: false } })
+      )
+      await pending
+    })
+
+    const [, sealInit] = fetchMock.mock.calls[1] as [string, RequestInit]
+    expect(JSON.parse(String(sealInit.body))).toEqual({ unchanged: 0, failed: 0 })
+  })
+
+  /*
+   * The server repeats the name check (ADR-0086). A file it stops is „Nicht
+   * hochgeladen“, as a stop of the browser's own check is: no failed row, the
+   * name-check sentence on the batch's line, no retry, and counted on the
+   * batch by term and count, never by name.
+   */
+  test('a file the server’s name check stops is not uploaded, not failed, and counted by term', async () => {
+    const { result } = renderHook(() => useFileUpload({ collectionName: 'proj-collection', projectId: 'proj-1' }))
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([pdf('EG.pdf'), pdf('scan_0042.pdf')])
+      for (let i = 0; i < 6; i += 1) await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests[0]?.respond(200, JSON.stringify({ documentId: 'doc-1', jobId: 'job-1', status: 'pending' }))
+      xhr.requests[1]?.respond(
+        422,
+        JSON.stringify({
+          error: 'This file is excluded by the organization’s upload screening',
+          code: 'UPLOAD_SCREENED',
+          details: { matches: [{ term: 'Personal', segment: 'Personalakten', kind: 'folder' }] },
+        })
+      )
+      await pending
+    })
+
+    // Not retried, and no row says it failed.
+    expect(xhr.requests).toHaveLength(2)
+    expect(mockDocumentsStoreState.dismissTrackedFiles).toHaveBeenCalledWith(['mock-uuid-1'])
+    expect(
+      mockDocumentsStoreState.trackedFiles.filter((file) => (file as { status?: string }).status === 'failed')
+    ).toEqual([])
+    // The name-check sentence, naming the file to its own uploader, in their language.
+    const said = vi.mocked(mockDocumentsStoreState.setError).mock.calls.at(-1)?.[0]
+    expect(said).toContain('scan_0042.pdf')
+    expect(said).toContain('not uploaded')
+    expect(said).not.toContain('excluded by the organization')
+
+    const [sealUrl, sealInit] = fetchMock.mock.calls[1] as [string, RequestInit]
+    expect(sealUrl).toMatch(/\/seal$/)
+    const sealed = JSON.parse(String(sealInit.body)) as Record<string, unknown>
+    expect(sealed).toEqual({ unchanged: 0, failed: 0, excluded: [{ term: 'Personal', count: 1 }] })
+    expect(String(sealInit.body)).not.toContain('scan_0042')
   })
 
   test('uploads without a batch when it cannot be opened', async () => {

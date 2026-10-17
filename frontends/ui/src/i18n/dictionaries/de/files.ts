@@ -374,16 +374,24 @@ export const files: typeof en.files = {
     deleted: 'Die Datei wurde gelöscht, während Piloti sie las.',
     quarantined:
       'Diese Datei enthält etwas, das Ihr Büro als sensibel eingestuft hat. Piloti hat sie keinem Modell gezeigt. Die Büro- oder Projektadministration prüft sie und entscheidet, ob sie bleibt oder gelöscht wird.',
+    // Gefunden im Text, den das Bildmodell aus gescannten Seiten gelesen hat
+    // (`after_transcription`): dieses Modell hat die Seiten gesehen, kein anderes.
+    quarantinedAfterTranscription:
+      'Diese Datei enthält etwas, das Ihr Büro als sensibel eingestuft hat, gefunden im Text gescannter Seiten. Diese Seiten hat ein Bildmodell gelesen, damit sie geprüft werden konnten; kein anderes Modell hat sie gesehen. Die Büro- oder Projektadministration prüft sie und entscheidet, ob sie bleibt oder gelöscht wird.',
     // Der Grund ist nicht gespeichert oder nicht lesbar: nichts behaupten, was
     // die Zeile darüber nicht belegt.
     quarantinedUnreadable:
-      'Die Inhaltsprüfung hat diese Datei zurückgehalten. Der Grund ist nicht gespeichert oder nicht lesbar. Piloti hat sie keinem Modell gezeigt. Die Büro- oder Projektadministration prüft sie und entscheidet, ob sie bleibt oder gelöscht wird.',
+      'Die Inhaltsprüfung hat diese Datei zurückgehalten. Der Grund ist nicht gespeichert oder nicht lesbar. Solange sie zurückgehalten ist, zeigt Piloti sie keinem Modell. Die Büro- oder Projektadministration prüft sie und entscheidet, ob sie bleibt oder gelöscht wird.',
+    // Die Prüfregeln des Büros ließen sich nicht anwenden: die Datei wurde gar
+    // nicht gelesen und wartet wie eine zurückgehaltene (ADR-0086).
+    screening_unavailable:
+      'Die Prüfung auf sensible Daten ließ sich nicht durchführen, daher hat Piloti diese Datei nicht gelesen und keinem Modell gezeigt. Erneut lesen, oder die Büro- oder Projektadministration entscheidet, ob sie bleibt.',
     unknown: 'Piloti konnte dieses Dokument nicht lesen, daher findet die Suche es nicht.',
     details: 'Details',
   },
   screening: {
-    // Warum eine Datei zurückgehalten wurde – vom Inhaltsfilter (im Text) oder
-    // vom Namensfilter (im Datei- oder Ordnernamen), ADR-0086.
+    // Warum eine Datei zurückgehalten (Inhaltsprüfung, im Text) oder nicht
+    // hochgeladen wurde (Namensprüfung, im Datei- oder Ordnernamen), ADR-0086.
     reasonTerm: '„{term}“ im Text',
     reasonIban: 'IBAN {sample}',
     reasonSvnr: 'Sozialversicherungsnummer {sample}',
@@ -410,7 +418,9 @@ export const files: typeof en.files = {
       '{count, plural, one {Ein weiterer Grund wird nicht aufgeführt.} other {# weitere Gründe werden nicht aufgeführt.}}',
     nameInFile: 'Dateiname enthält „{term}“',
     nameInFolder: 'Ordner „{segment}“ enthält „{term}“',
-    partial: 'Einige Seiten hatten keine Textebene und wurden nicht geprüft.',
+    // Gescannte Seiten werden seit ADR-0086 (2026-10-17) nach dem Lesen geprüft:
+    // „nicht geprüft“ stimmte nicht mehr, „vorab“ schon.
+    partial: 'Nicht alles ließ sich vorab prüfen: Gescannte Seiten, Bilder und Zeichnungen sieht zuerst ein Bildmodell.',
     unchecked: 'Der Inhalt ließ sich ohne Modell nicht lesen und wurde nur am Namen geprüft.',
     // Eine Fundstelle der Inhaltsprüfung, wie eine Quelle im Chat: die Seite,
     // und darauf markiert, was das Büro als sensibel eingetragen hat.
@@ -804,11 +814,12 @@ export const files: typeof en.files = {
     collisions: '{count} Dateien teilen sich einen Namen mit einer anderen Datei in diesem Upload',
     collisionsExplain:
       'Ein Projekt hält pro Dateiname ein Dokument, deshalb werden diese nicht hochgeladen. Benennen Sie sie um und legen Sie sie erneut ab.',
-    // Vom Namensfilter des Büros zurückgehalten (ADR-0086): Die Dateien
-    // verlassen den Rechner nicht, außer jemand gibt eine einzeln frei.
-    excluded: '{count, plural, one {# Datei bleibt auf Ihrem Rechner} other {# Dateien bleiben auf Ihrem Rechner}}',
+    // Von der Namensprüfung nicht hochgeladen (ADR-0086): Die Dateien verlassen
+    // den Rechner nicht, außer jemand lädt eine einzeln trotzdem hoch.
+    // „Zurückgehalten“ gehört der Inhaltsprüfung.
+    excluded: '{count, plural, one {# Datei nicht hochgeladen} other {# Dateien nicht hochgeladen}}',
     excludedExplain:
-      'Ihr Büro hat diese Begriffe als sensibel eingestuft, deshalb werden die Dateien nicht hochgeladen. Gehört eine davon doch nach Piloti, haken Sie sie an.',
+      'Ihr Büro hat diese Begriffe als sensibel eingestuft, deshalb werden die Dateien nicht hochgeladen: Sie verlassen Ihren Rechner nicht. Gehört eine davon doch nach Piloti, haken Sie sie an.',
     releaseFile: 'Trotzdem hochladen',
     // Dateien, die als neue Fassung eines vorhandenen Dokuments hereinkommen: mit
     // gleichem Namen (ADR-0054) oder über eine Namensreihe unter anderem Namen
@@ -843,7 +854,7 @@ export const files: typeof en.files = {
       collision: 'Konflikt',
       duplicate: 'Schon vorhanden',
       skipped: 'Übersprungen',
-      excluded: 'Ausgeschlossen',
+      excluded: 'Nicht hochgeladen',
     },
     confirm: '{count, plural, one {# Datei hochladen} other {# Dateien hochladen}}',
     confirmWithFassungen: '{count, plural, one {# Datei hochladen} other {# Dateien hochladen}}, {fassungen} davon als neue Fassung',
@@ -935,7 +946,7 @@ export const files: typeof en.files = {
       type: 'Dateityp nicht zugelassen',
       size: 'zu groß',
       unreadable: 'im Outlook-Archiv beschädigt',
-      screened: 'vom Namensfilter des Büros zurückgehalten',
+      screened: 'von der Namensprüfung nicht hochgeladen',
       access: 'Ordner nur lesbar',
       name_taken: 'Name im Projekt schon vergeben',
     },
@@ -955,8 +966,8 @@ export const files: typeof en.files = {
     uploadNetwork: 'Keine Verbindung beim Hochladen. Bitte erneut versuchen.',
     uploadStalled: 'Die Verbindung hat nichts mehr übertragen, das Hochladen wurde abgebrochen.',
     uploadTimeout: 'Das Hochladen hat zu lange gedauert.',
-    // Vom Namensfilter des Büros zurückgehalten (ADR-0086), auf einem Weg ohne
-    // Upload-Dialog, etwa im Chat.
+    // Von der Namensprüfung nicht hochgeladen (ADR-0086): auf einem Weg ohne
+    // Upload-Dialog, etwa im Chat, oder als Nachprüfung des Servers.
     screenedOut: '{count} Datei(en) nicht hochgeladen, weil Ihr Büro sie als sensibel einstuft: {files}',
     screenedOutFile: '„{name}“ ({reason})',
     // Die Liste des Büros ist nicht lesbar: ohne sie wird nichts gesendet,
@@ -979,8 +990,15 @@ export const files: typeof en.files = {
       '{failed} von {total} Dokumenten konnten nicht hochgeladen werden. Erster Grund: {reason}',
     uploadingSkipped:
       'Es werden {uploading} {fileLabel} hochgeladen, {skipped} übersprungen ({summary})',
+    // Die Datei, die dieser Upload ersetzen würde, ist zurückgehalten
+    // (Inhaltsprüfung, ADR-0086). Zustand „zurückgehalten“, Ort „Quarantäne“.
     quarantinedReplace:
-      '„{name}“ ersetzt eine Datei, die in der Quarantäne wartet. Löschen Sie diese Datei oder lassen Sie sie zu, dann laden Sie die neue hoch.',
+      '„{name}“ würde eine Datei ersetzen, die zurückgehalten ist und in der Quarantäne auf ihre Prüfung wartet. Sobald jemand sie zulässt oder löscht, können Sie die neue hochladen.',
+    // Den Namen trägt schon ein anderes Dokument. Absichtlich ohne Ort und ohne
+    // Grund: Es kann eines sein, das diese Person nicht sehen darf.
+    nameTaken: 'Den Namen „{name}“ trägt schon ein anderes Dokument. Benennen Sie die Datei um und laden Sie sie erneut hoch.',
+    // Während des Hochladens hat jemand dieselbe Datei abgelegt oder gelöscht.
+    uploadChangedMeanwhile: 'Während des Hochladens hat sich hier etwas geändert. Versuchen Sie es erneut.',
     cannotRetryServerFile:
       'Vom Server geladene Dateien können nicht erneut versucht werden. Bitte laden Sie die Datei erneut hoch.',
     imageVlmUnavailable:
