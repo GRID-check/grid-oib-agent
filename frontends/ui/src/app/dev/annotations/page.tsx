@@ -30,6 +30,9 @@
  *   …&review=1&mark=ann-1                    the review, open at Anmerkung 1
  *   …&review=1&piloti=1                      the review, while Piloti proposes
  *   …&review=1, then `p` and a box           ask Piloti about the box (any route)
+ *   …&review=1, „Protokoll exportieren"      the export menu: the Fassung choice only under
+ *                                            „Auch erledigte", since „Nur offene" carries the
+ *                                            mark still open from Fassung 2 either way
  *
  * Not linked from anywhere and 404s outside development (`../layout.tsx`).
  */

@@ -1,3 +1,4 @@
+import type { MarkTally } from '@/lib/annotations/types'
 import type { DocumentAuthor } from '@/lib/db/schema'
 import type { FassungFacts } from '@/lib/documents/fassung'
 import type { PhotoCapture } from '@/lib/documents/photo-capture'
@@ -145,6 +146,12 @@ export interface FileItem {
    * which is what every listing served before the field meant.
    */
   retryable?: boolean
+  /**
+   * The document's live Anmerkungen as the listing counted them for this
+   * reader: open and proposed on every Fassung, and how many are open with the
+   * reader as Zuständige. Null or absent: none, or a listing that did not count.
+   */
+  marks?: MarkTally | null
 }
 
 export interface FileAssignee {

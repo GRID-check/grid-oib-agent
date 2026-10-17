@@ -314,6 +314,50 @@ describe.skipIf(!url)('Anmerkungen against live Postgres', () => {
     await expect(insert(ids.document, [mark()], { organizationId: OTHER_ORG })).rejects.toThrow()
   })
 
+  it('tallies the live marks of a listing page in one query, what is the reader’s, and nothing of a held upload', async () => {
+    const { memberReader, REVIEWER_READER } = await import('@/lib/documents/visibility')
+    const UPLOADER = `${USER}_uploader`
+    const clean = await document(ids.project, 'Tally_Schnitt.pdf')
+    const held = first(
+      await inOrg(ORG, () =>
+        db.execute<{ id: string }>(sql`
+          insert into documents (organization_id, project_id, scope, filename, storage_key, collection_name, created_by,
+                                 status, screening_outcome)
+          values (${ORG}, ${ids.project}::uuid, 'project', 'Tally_gehalten.pdf', ${`k/${STAMP}/held`},
+                  ${`proj_ann_${ids.project}`}, ${UPLOADER}, 'quarantined', 'quarantined') returning id`)
+      )
+    )
+    await insert(clean, [mark(), mark({ assigneeUserId: USER })])
+    await insert(clean, [mark({ assigneeUserId: USER })], { authorKind: 'piloti' })
+    const closed = await insert(clean, [mark({ assigneeUserId: USER }), mark()])
+    for (const [row, status] of [
+      [closed[0], 'resolved'],
+      [closed[1], 'dismissed'],
+    ] as const) {
+      await inOrg(ORG, () =>
+        repo.updateDocumentAnnotation(ORG, clean, row.id, 'open', {
+          transition: { status, closedBy: USER, closedAt: new Date() },
+        })
+      )
+    }
+    await insert(held, [mark({ assigneeUserId: USER })], { createdBy: UPLOADER })
+
+    const tally = (reader: Parameters<typeof repo.tallyLiveMarks>[2], organizationId = ORG) =>
+      inOrg(organizationId, () => repo.tallyLiveMarks(organizationId, [clean, held, ids.second], reader, USER))
+
+    // Two open and one proposal are live; only the open one assigned to USER is theirs (the proposal naming them is not yet).
+    const member = await tally(memberReader(USER))
+    expect(member.get(clean)).toEqual({ live: 3, forYou: 1 })
+    expect(member.has(held)).toBe(false)
+    expect(member.get(ids.second)?.live).toBeGreaterThan(0)
+    // The uploader and the reviewers see the held upload's marks, as they see the upload.
+    expect((await tally(memberReader(UPLOADER))).get(held)).toEqual({ live: 1, forYou: 1 })
+    expect((await tally(REVIEWER_READER)).get(held)).toEqual({ live: 1, forYou: 1 })
+    expect(await inOrg(OTHER_ORG, () => repo.tallyLiveMarks(OTHER_ORG, [clean, held], memberReader(USER), USER))).toEqual(
+      new Map()
+    )
+  })
+
   describe('waking Piloti (migration 0139)', () => {
     const count = async (query: ReturnType<typeof sql>) =>
       Number(Array.from(await inOrg(ORG, () => db.execute<{ n: number }>(query)))[0]?.n)

@@ -139,6 +139,7 @@ vi.mock('@/lib/jobs-queue/repository', () => ({
 
 // Which documents a Fassung link names, resolved for the reader, is `fassung-facts.spec.ts`'s subject.
 vi.mock('./fassung-facts', () => ({ loadFassungFacts: vi.fn(async () => new Map()) }))
+vi.mock('@/lib/annotations/repository', () => ({ tallyLiveMarks: vi.fn(async () => new Map()) }))
 vi.mock('./reconcile-status', async (importOriginal) => ({
   // Reading the job id off a row is pure; the reconciler itself is mocked.
   extractIngestJobId: (await importOriginal<typeof import('./reconcile-status')>()).extractIngestJobId,

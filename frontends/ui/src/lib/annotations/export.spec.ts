@@ -145,6 +145,16 @@ const ANNOTATIONS: AnnotationView[] = [
   }),
   mark({ number: 3, onCurrentFassung: false, fassungNumber: 2, body: 'Auf der alten Fassung.' }),
   mark({
+    number: 8,
+    onCurrentFassung: false,
+    fassungNumber: 2,
+    status: 'resolved',
+    body: 'Auf der alten Fassung erledigt.',
+    closedBy: 'user_bernd',
+    closedByName: 'Bernd Huber',
+    closedAt: '2026-09-01T12:00:00.000Z',
+  }),
+  mark({
     number: 5,
     authorKind: 'piloti',
     kind: 'question',
@@ -178,15 +188,19 @@ const markdownOf = (options: Partial<AnnotationExportOptions> = {}) => {
 }
 
 describe('selectMarks', () => {
-  it('orders by number and keeps the open marks of the current Fassung, without proposals', () => {
+  it('orders by number and keeps every open mark, those still open from an earlier Fassung too, without proposals', () => {
+    // Index C arrived before the Jour fixe: Nr. 3, set on Fassung 2, is still open and is still on the agenda.
     const { marks, proposals } = selectMarks(ANNOTATIONS, OPTIONS)
-    expect(numbers(marks)).toEqual([1, 4, 5])
+    expect(numbers(marks)).toEqual([1, 3, 4, 5])
     expect(proposals).toEqual([])
+    expect(numbers(selectMarks(ANNOTATIONS, { ...OPTIONS, fassung: 'all' }).marks)).toEqual([1, 3, 4, 5])
   })
 
-  it('takes closed marks in with scope=all, and earlier Fassungen with fassung=all', () => {
-    expect(numbers(selectMarks(ANNOTATIONS, { ...OPTIONS, scope: 'all' }).marks)).toEqual([1, 2, 4, 5])
-    expect(numbers(selectMarks(ANNOTATIONS, { ...OPTIONS, fassung: 'all' }).marks)).toEqual([1, 3, 4, 5])
+  it('takes closed marks in with scope=all, and those closed on earlier Fassungen only with fassung=all', () => {
+    expect(numbers(selectMarks(ANNOTATIONS, { ...OPTIONS, scope: 'all' }).marks)).toEqual([1, 2, 3, 4, 5])
+    expect(numbers(selectMarks(ANNOTATIONS, { ...OPTIONS, scope: 'all', fassung: 'all' }).marks)).toEqual([
+      1, 2, 3, 4, 5, 8,
+    ])
   })
 
   it('sets apart what Piloti proposed and nobody took over, only when asked, and by scope', () => {
@@ -206,7 +220,10 @@ describe('the Protokoll', () => {
     expect(md).toContain('Dokument: Grundriss EG.pdf')
     expect(md).toContain('Fassung: Fassung 3 von 5 · Stand vom 14.08.2026')
     expect(md).toContain('Projekt: Wohnhaus Lindengasse')
-    expect(md).toContain('Umfang: Offene Anmerkungen · aktuelle Fassung')
+    // Nr. 3 came along from Fassung 2, so the open marks are those of every Fassung, and the entry says which.
+    expect(md).toContain('Umfang: Offene Anmerkungen · alle Fassungen')
+    expect(md).toContain('### Nr. 3 · Seite 1 · Hinweis · offen')
+    expect(md).toContain('*auf Fassung 2 gesetzt*')
     // 12:30 UTC is 14:30 in the office.
     expect(md).toContain('Exportiert am: 13.10.2026, 14:30')
     expect(md).toContain('Exportiert von: Anna Berger')
@@ -239,7 +256,25 @@ describe('the Protokoll', () => {
     expect(heading).toBeGreaterThan(md.indexOf('Nr. 5 ·'))
     expect(md.indexOf('### Nr. 6 · Seite 1 · Hinweis · Vorschlag')).toBeGreaterThan(heading)
     expect(md).toContain('*Vorschlag von Piloti · für Anna Berger · 07.10.2026*')
-    expect(md).toContain('Umfang: Offene Anmerkungen · aktuelle Fassung · mit Vorschlägen von Piloti')
+    expect(md).toContain('Umfang: Offene Anmerkungen · alle Fassungen · mit Vorschlägen von Piloti')
+  })
+
+  it('names the Fassungen it covers as they are: the current one alone only while nothing earlier came along', () => {
+    const currentOnly = ANNOTATIONS.filter((annotation) => annotation.onCurrentFassung)
+    const cover = (annotations: AnnotationView[], options: Partial<AnnotationExportOptions>) => {
+      const all = { ...OPTIONS, ...options }
+      const scope = buildProtocol(HEADER, selectMarks(annotations, all), all, t, 'de').facts.find(
+        (fact) => fact.label === 'Umfang'
+      )
+      return scope?.value
+    }
+    expect(cover(currentOnly, {})).toBe('Offene Anmerkungen · aktuelle Fassung')
+    expect(cover(ANNOTATIONS, { scope: 'all' })).toBe(
+      'Alle Anmerkungen, auch erledigte und verworfene · aktuelle Fassung, dazu Offenes aus früheren Fassungen'
+    )
+    expect(cover(ANNOTATIONS, { scope: 'all', fassung: 'all' })).toBe(
+      'Alle Anmerkungen, auch erledigte und verworfene · alle Fassungen'
+    )
   })
 
   it('says who closed a closed mark, and on which Fassung an earlier mark was set', () => {
@@ -321,7 +356,7 @@ describe('exportAnnotationProtocol', () => {
           scope: 'open',
           fassung: 'current',
           includeProposals: false,
-          markCount: 3,
+          markCount: 4,
           proposalCount: 0,
         },
       })

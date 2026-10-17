@@ -57,6 +57,23 @@ Every read ANDs `documentVisibleTo(reader)`, and the repository functions are
 registered in `lib/documents/document-visibility.spec.ts`. A held upload's
 marks are as invisible as the upload.
 
+**What a listing says about them.** Every listing row (`toListedDocuments`,
+`lib/documents/shelf-listing.ts`, so a project's Dateien, the Archiv and the
+by-name reads alike) carries `marks: { live, forYou }`: how many of the
+document's marks are live (`isLive`: open, and Piloti's proposals nobody
+decided on, on every Fassung) and how many of those are open with the reader as
+Zuständige, or `null` when none is live. `tallyLiveMarks`
+(`lib/annotations/repository.ts`) counts a whole page in ONE grouped query,
+bounded by the page's ids, that joins `documents` behind the listing's own
+`documentVisibleTo(reader)`. A proposal that names the reader is not theirs
+yet: only the person who takes it over makes it so. The count comes with the
+listing and is as fresh as its last read; it is not live. Dateien draws it as
+`OpenMarksChip` (`features/documents/components/open-marks-chip.tsx`), the
+kit's `Chip`, in a card's footer and beside the name in the list, labelled
+„3 offene Anmerkungen, 1 für Sie“. A press opens the review: the page's own URL
+with `doc` and `review=1` (`reviewHrefAt(…, { withDocument: true })`), which
+the shelf's `?doc=` sync and the pane already answer.
+
 ## The service and its API
 
 `frontends/ui/src/lib/annotations/`:
@@ -174,6 +191,18 @@ reader's thumb, which opens the review with the point tool armed (`tool=point`,
 hover card („In der Prüfansicht öffnen", `inline-mark-peek.tsx`, a hovering
 pointer only: a tap on a pin opens the review as before). The pane header shows
 who is in the document with the review's own `Presence`, without following.
+
+**Before a Freigabe.** The approve confirm in the rail
+(`document-review-controls.tsx`, under „Freigabe und Fassungen“) names the
+live marks the pane's review holds, before the signature: „4 offene
+Anmerkungen – trotzdem freigeben?“, with „In der Prüfansicht öffnen“ beside it
+(`openMarks`, handed down from `file-preview-pane.tsx` through
+`DocumentFassungen`). It informs and never blocks: approving with open points
+is the reviewer's call, approving without knowing about them is the mistake.
+Only where the pane has a review (a PDF that is not held). A count the review
+has not read yet says „Offene Anmerkungen werden noch gelesen …“, and one it
+could not read says so and links to the review (`OpenMarksAtApproval`): an
+unknown count never reads as none. A known zero says nothing.
 
 ## Live
 
@@ -663,7 +692,22 @@ client or a consultant. „Protokoll exportieren" in the Prüfansicht's header
 `GET /api/documents/[id]/annotations/export?format=pdf|docx|md&scope=open|all&fassung=current|all&includeProposals=1`
 (`frontends/ui/src/lib/annotations/export.ts`; the query and the link in
 `export-request.ts`, shared by the route and the menu). The defaults are a PDF
-of the open marks on the current Fassung.
+of the open marks.
+
+**The Fassung narrows the record, never the work** (`selectMarks`). A mark
+still open is in every Protokoll whichever Fassung it was set on, and its entry
+names that Fassung: Index C arriving the day before the Jour fixe does not
+answer the marks on Index B, and a default that dropped them would drop exactly
+the points the meeting is for. `fassung=current` leaves out what was CLOSED on
+earlier Fassungen; `fassung=all` takes that in too. So the menu offers the
+Fassung only under „Auch erledigte“: with „Nur offene“ it would change
+nothing. This was chosen over defaulting the menu to „Alle Fassungen“ whenever
+an earlier Fassung has a live mark because it holds on every path (the bare
+link, a copied link, any other client of the route) rather than only in the
+menu, and it does not pull an earlier Fassung's closed marks into a Protokoll
+nobody asked them for. The cover says what is in it: „aktuelle Fassung“ only
+while nothing from an earlier one came along, else „alle Fassungen“ (open
+only) or „aktuelle Fassung, dazu Offenes aus früheren Fassungen“.
 
 **Who may have it.** Whoever may list the marks: the service reads the document
 with `getAccessibleDocument(…, 'read')` and the marks through `listAnnotations`,

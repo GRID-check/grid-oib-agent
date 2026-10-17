@@ -1,0 +1,17 @@
+---
+features:
+  - >
+    Dateien now shows which documents still have open Anmerkungen: a small
+    count on the card and beside the name in the list, with how many of them
+    are yours, such as „3 offene Anmerkungen, 1 für Sie“. Pressing it opens the
+    document in the Prüfansicht.
+  - >
+    Freigeben now names the Anmerkungen still open on the document before you
+    sign, such as „4 offene Anmerkungen – trotzdem freigeben?“, with a link to
+    the Prüfansicht. It does not stop the Freigabe.
+fixes:
+  - >
+    After a new Fassung arrives, the Protokoll still lists every Anmerkung that
+    is open on an earlier Fassung, and each entry says which Fassung it was
+    set on. Before, the default Protokoll left them out, so a Jour fixe run
+    from it missed exactly those points.

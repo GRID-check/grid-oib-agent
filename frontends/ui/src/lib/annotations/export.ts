@@ -57,7 +57,7 @@ import { labelled, paragraph, type DocBlock, type DocRun } from '@/lib/answer-ex
 import { getLocale, getTranslations } from '@/i18n/server'
 import type { Translator } from '@/i18n/translate'
 import { listAnnotations } from './service'
-import { isOverdue, type AnnotationView } from './types'
+import { isLive, isOverdue, type AnnotationView } from './types'
 import type { AnnotationExportOptions } from './export-request'
 
 /** The office's day and clock. A server in UTC would date a late-evening export to the next morning. */
@@ -110,15 +110,24 @@ const unreviewed = (annotation: AnnotationView): boolean =>
 
 const byNumber = (a: AnnotationView, b: AnnotationView): number => a.number - b.number
 
-/** Which marks the export carries, and in which section. Pure. */
+/**
+ * Which marks the export carries, and in which section. Pure.
+ *
+ * The Fassung narrows the RECORD, never the work: a mark still open from an
+ * earlier Fassung is in every Protokoll, whatever `fassung` says, and its
+ * entry names the Fassung it was set on. A new Index arriving the day before
+ * the Jour fixe does not answer the marks on the one before it, so a default
+ * export that dropped them would drop exactly the points the meeting is for.
+ * `fassung=current` leaves out what was CLOSED on earlier Fassungen.
+ */
 export function selectMarks(
   annotations: readonly AnnotationView[],
   options: Pick<AnnotationExportOptions, 'scope' | 'fassung' | 'includeProposals'>
 ): ProtocolSelection {
   const wanted = annotations.filter(
     (annotation) =>
-      (options.fassung === 'all' || annotation.onCurrentFassung) &&
-      (options.scope === 'all' || annotation.status === 'open' || annotation.status === 'proposed')
+      (options.fassung === 'all' || annotation.onCurrentFassung || isLive(annotation)) &&
+      (options.scope === 'all' || isLive(annotation))
   )
   return {
     marks: wanted.filter((annotation) => !unreviewed(annotation)).sort(byNumber),
@@ -243,15 +252,42 @@ function entryBlocks(annotation: AnnotationView, t: Translator, f: Formatters): 
   ]
 }
 
-function scopeLine(options: AnnotationExportOptions, t: Translator): string {
+/** Whether the selection carries a mark set on an earlier Fassung. */
+const carriesEarlier = (selection: ProtocolSelection): boolean =>
+  [...selection.marks, ...selection.proposals].some((annotation) => !annotation.onCurrentFassung)
+
+/**
+ * Which Fassungen the Protokoll covers, as it IS: „aktuelle Fassung" only
+ * while nothing from an earlier one is in it. Open marks come from every
+ * Fassung, so an open-only Protokoll that carries an earlier one covers all
+ * of them; one that keeps the record of the current Fassung says the open ones
+ * of earlier Fassungen came along.
+ */
+function fassungPart(options: AnnotationExportOptions, selection: ProtocolSelection, t: Translator): string {
+  if (options.fassung === 'all') return t('review.export.document.fassungen.all')
+  if (!carriesEarlier(selection)) return t('review.export.document.fassungen.current')
+  return t(
+    options.scope === 'open'
+      ? 'review.export.document.fassungen.all'
+      : 'review.export.document.fassungen.currentWithOpenFromEarlier'
+  )
+}
+
+function scopeLine(options: AnnotationExportOptions, selection: ProtocolSelection, t: Translator): string {
   return [
     t(`review.export.document.scopes.${options.scope}`),
-    t(`review.export.document.fassungen.${options.fassung}`),
+    fassungPart(options, selection, t),
     ...(options.includeProposals ? [t('review.export.document.withProposals')] : []),
   ].join(' · ')
 }
 
-function headerFacts(header: ProtocolHeader, options: AnnotationExportOptions, t: Translator, f: Formatters): CoverFact[] {
+function headerFacts(
+  header: ProtocolHeader,
+  selection: ProtocolSelection,
+  options: AnnotationExportOptions,
+  t: Translator,
+  f: Formatters
+): CoverFact[] {
   const fassung = header.fassung
   return [
     { label: t('review.export.document.document'), value: header.documentName },
@@ -268,7 +304,7 @@ function headerFacts(header: ProtocolHeader, options: AnnotationExportOptions, t
         ]
       : []),
     ...(header.projectName ? [{ label: t('review.export.document.project'), value: header.projectName }] : []),
-    { label: t('review.export.document.scope'), value: scopeLine(options, t) },
+    { label: t('review.export.document.scope'), value: scopeLine(options, selection, t) },
     { label: t('review.export.document.exportedAt'), value: f.dateTime(header.exportedAt) },
     { label: t('review.export.document.exportedBy'), value: header.exportedBy },
   ]
@@ -299,7 +335,7 @@ export function buildProtocol(
       : []
   return {
     title: t('review.export.document.title', { name: stem }),
-    facts: headerFacts(header, options, t, f),
+    facts: headerFacts(header, selection, options, t, f),
     body: [{ kind: 'heading', level: 2, text: t('review.export.document.marks') }, ...marks, ...proposals],
   }
 }

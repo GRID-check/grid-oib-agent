@@ -21,6 +21,9 @@
  *  4. `In Prüfung` with the decisions, and the reviewer's comment box
  *     opened — the state the screenshot exists for, because „Änderungen
  *     anfordern" without words is the flow that must not be possible.
+ *  4b. `In Prüfung` with „Freigeben" pressed on a document that still has
+ *     open Anmerkungen: the confirm names them („4 offene Anmerkungen –
+ *     trotzdem freigeben?") and links to the review, and still releases.
  *  5. The same state with „Piloti überarbeiten lassen" pressed instead: the
  *     same box, the same comment requirement, plus the line saying what the
  *     third control does beyond sending the version back. It is here as its own
@@ -284,6 +287,9 @@ function ArchiveFixture(): JSX.Element {
  */
 const opened = new Set<string>()
 
+/** Four marks still open on the pages; the link would open the review, here it says so. */
+const OPEN_MARKS = { status: 'counted', count: 4, onOpen: () => window.alert('Prüfansicht öffnen') } as const
+
 /**
  * What each block presses, and the DOM it presses until.
  *
@@ -307,6 +313,11 @@ const DRIVEN_BLOCKS: readonly (readonly [block: string, steps: readonly DriveSte
   [
     'in-review',
     [{ click: 'document-lifecycle-request_changes', settled: 'document-review-comment' }],
+  ],
+  // „Freigeben" pressed on a document with open Anmerkungen: the confirm names them before the signature.
+  [
+    'approve-open-marks',
+    [{ click: 'document-lifecycle-approve', settled: 'document-review-approve-open-marks' }],
   ],
   // „Piloti überarbeiten lassen" sits behind the ⋯ beside „Änderungen anfordern".
   [
@@ -460,6 +471,27 @@ function DocumentLifecycleFixtures(): JSX.Element {
             viewer={REVIEWER_VIEWER}
             names={NAMES}
             client={IN_REVIEW}
+          />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-muted-foreground text-sm font-medium">
+          Freigeben — mit offenen Anmerkungen
+        </h2>
+        <p className="text-muted-foreground max-w-prose text-xs">
+          Vor der Unterschrift steht, was auf den Seiten noch offen ist, mit dem Weg in die
+          Prüfansicht. Es hält die Freigabe nicht auf: Ob ein offener Punkt ihr im Weg steht,
+          entscheidet, wer freigibt.
+        </p>
+        <div className="rounded-xl border p-4" data-preview-block="approve-open-marks">
+          <DocumentFassungen
+            file={devFile('doc_5', 'Einreichplan_Grundriss_EG.pdf', 'user')}
+            canManage
+            viewer={REVIEWER_VIEWER}
+            names={NAMES}
+            client={IN_REVIEW}
+            openMarks={OPEN_MARKS}
           />
         </div>
       </section>

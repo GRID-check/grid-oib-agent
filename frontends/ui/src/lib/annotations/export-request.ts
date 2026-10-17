@@ -17,13 +17,18 @@ export type AnnotationExportFormat = (typeof ANNOTATION_EXPORT_FORMATS)[number]
 export const ANNOTATION_EXPORT_SCOPES = ['open', 'all'] as const
 export type AnnotationExportScope = (typeof ANNOTATION_EXPORT_SCOPES)[number]
 
-/** `current`: marks set on the Fassung the document shows now. `all`: earlier Fassungen' marks too. */
+/**
+ * `current`: marks set on the Fassung the document shows now, and every mark
+ * still open from an earlier one. `all`: the closed marks of earlier Fassungen
+ * too. Open work is never narrowed by Fassung (`selectMarks`).
+ */
 export const ANNOTATION_EXPORT_FASSUNGEN = ['current', 'all'] as const
 export type AnnotationExportFassung = (typeof ANNOTATION_EXPORT_FASSUNGEN)[number]
 
 /**
- * The query. Every field has a default, so a bare link exports the open marks
- * of the current Fassung as a PDF, which is what a Jour fixe needs.
+ * The query. Every field has a default, so a bare link exports every open
+ * mark as a PDF, those still open from earlier Fassungen included, which is
+ * what a Jour fixe needs.
  * `includeProposals=1` adds Piloti's proposals nobody took over, under a
  * heading of their own; they never mix with the office's marks.
  */

@@ -88,6 +88,7 @@ vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
 // provide. Same reason `requireResourceAccess` is mocked.
 vi.mock('@/lib/assignments/service', () => ({ listAssignmentsWithoutAccessCheck: vi.fn() }))
 vi.mock('@/lib/assignments/repository', () => ({ deleteAssignmentsForResource: vi.fn() }))
+vi.mock('@/lib/annotations/repository', () => ({ tallyLiveMarks: vi.fn(async () => new Map()) }))
 vi.mock('@/lib/collaboration/cleanup', () => ({ purgeResourceCollaboration: vi.fn() }))
 vi.mock('@/lib/projects/repository', () => ({ findProjectInOrg: vi.fn() }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))

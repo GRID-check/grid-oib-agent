@@ -99,7 +99,7 @@ import {
 } from '../lib/fassung-timeline'
 import { requestFassungLink } from '../lib/fassung-request'
 import { DocumentArchiveAction } from './document-archive-action'
-import { DocumentReviewControls } from './document-review-controls'
+import { DocumentReviewControls, type DocumentReviewControlsProps } from './document-review-controls'
 import { DocumentVersionDiff } from './document-version-diff'
 import { DocumentVersionStateBadge } from './document-version-badge'
 import { useFassungCompare, type SourceLoader } from './fassung-compare'
@@ -129,6 +129,8 @@ export interface DocumentFassungenProps {
   onOpenDocument?: (fileId: string) => void
   /** The document's editorial state changed here, so the listing behind the pane can move its badge. */
   onLifecycleChanged?: (summary: DocumentLifecycleSummary) => void
+  /** The document's live Anmerkungen and the way into them, for the approve confirm (`DocumentReviewControls`). */
+  openMarks?: DocumentReviewControlsProps['openMarks']
   className?: string
 }
 
@@ -170,6 +172,7 @@ export function DocumentFassungen({
   onFassungChanged,
   onOpenDocument,
   onLifecycleChanged,
+  openMarks,
   className,
 }: DocumentFassungenProps): JSX.Element | null {
   const t = useTranslations('files')
@@ -645,6 +648,7 @@ export function DocumentFassungen({
                 reviewers={reviewers}
                 fassungNumber={standing.number ?? undefined}
                 publishBare
+                openMarks={openMarks}
                 // The signature line of the approve confirm: the viewer's own
                 // name where the surface knows one, else the moment alone.
                 actingName={viewer.userId ? (assigneeNames.get(viewer.userId) ?? listedNames.get(viewer.userId) ?? null) : null}

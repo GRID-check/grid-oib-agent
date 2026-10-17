@@ -92,6 +92,7 @@ Files render as cards in a responsive grid. Each card shows:
 - the file name and, when ingestion generated one, a one-line **AI description**
 - a tinted **extension chip** (PDF, DOCX, …), the file size and a relative upload time
 - an **ingestion status badge** only while the document is not yet citable (Processing / Failed / held back) — failed cards show the failure reason inline. A citable document carries no badge on its card; the list view's status column names every state, „Zitierbar“ included
+- what is **still open on its pages**, when anything is: a small speech bubble with the number of open Anmerkungen (Piloti's proposals nobody has decided on included, from every Fassung), and a person with the number of those that are yours („3 offene Anmerkungen, 1 für Sie“). Pressing it opens the document in the Prüfansicht. The list view shows the same beside the name
 
 The last tile of the grid is a dashed **upload card** listing the actually accepted file types and the size limit; drag-and-drop anywhere on the workspace also works. A file dropped on another project page, such as Settings or Members, opens Files and is uploaded there; the chat, the research page and the intake keep their own drop targets.
 
@@ -460,6 +461,13 @@ the header; **Piloti überarbeiten lassen** and **Ablehnen** are behind the ⋯
 beside them. The section opens itself when something is asked of you: a decision
 is yours to take, Piloti has a suggestion to answer, or the file is an older
 Fassung. Once you close it, it stays closed.
+
+When Anmerkungen are still open on the document, **Freigeben** says so before
+you sign: „4 offene Anmerkungen – trotzdem freigeben?“, with **In der
+Prüfansicht öffnen** beside it. If the Anmerkungen are still loading, or
+could not be read, it says that instead, so silence always means nothing is
+open. It does not stop you: whether an open point stands in the way of a
+release is yours to decide.
 
 ### The timeline
 

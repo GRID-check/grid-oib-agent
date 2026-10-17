@@ -4,8 +4,9 @@
  *
  * No authorization here; the service owns that. Every read is keyed by a
  * document the service already loaded through its reader
- * (`getAccessibleDocument`), which is what `documents/document-visibility.spec.ts`
- * holds each function here to.
+ * (`getAccessibleDocument`), or joins `documents` behind the reader's
+ * `documentVisibleTo` ({@link tallyLiveMarks}), which is what
+ * `documents/document-visibility.spec.ts` holds each function here to.
  */
 
 import 'server-only'
@@ -15,18 +16,22 @@ import type { DbTransaction } from '@/lib/db/executor'
 import {
   documentAnnotationReplies,
   documentAnnotations,
+  documents,
   documentVersions,
   type DocumentAnnotationReplyRow,
   type DocumentAnnotationRow,
 } from '@/lib/db/schema'
 import { withTenant } from '@/lib/db/tenant-context'
+import { documentVisibleTo, type DocumentReader } from '@/lib/documents/visibility'
 import {
+  LIVE_ANNOTATION_STATUSES,
   MAX_ANNOTATIONS_PER_DOCUMENT,
   MAX_REPLIES_PER_ANNOTATION,
   type AnnotationAuthor,
   type AnnotationKind,
   type AnnotationShape,
   type AnnotationStatus,
+  type MarkTally,
 } from './types'
 
 /** A row with the number of the Fassung it was set on, and its thread. */
@@ -99,6 +104,49 @@ export async function listDocumentAnnotations(
       .limit(MAX_ANNOTATIONS_PER_DOCUMENT)
   )
   return withThreads(organizationId, rows)
+}
+
+/**
+ * The live Anmerkungen of each of these documents, counted in ONE grouped
+ * query for a listing page: how many are open or proposed, and how many of
+ * those are open with `readerUserId` as Zuständige. Every Fassung counts: a
+ * mark set on an earlier one is still work until somebody closes it.
+ *
+ * The documents are joined and narrowed by the reader the listing was read
+ * with (`documentVisibleTo`), so a held upload's marks are not counted for
+ * anyone the upload is held from. A document without a live mark is absent.
+ */
+export async function tallyLiveMarks(
+  organizationId: string,
+  documentIds: readonly string[],
+  reader: DocumentReader,
+  readerUserId: string
+): Promise<Map<string, MarkTally>> {
+  if (documentIds.length === 0) return new Map()
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({
+        documentId: documentAnnotations.documentId,
+        live: sql<number | string>`count(*)`,
+        forYou: sql<number | string>`count(*) filter (where ${documentAnnotations.status} = 'open' and ${documentAnnotations.assigneeUserId} = ${readerUserId})`,
+      })
+      .from(documentAnnotations)
+      .innerJoin(documents, eq(documents.id, documentAnnotations.documentId))
+      .where(
+        and(
+          eq(documentAnnotations.organizationId, organizationId),
+          eq(documents.organizationId, organizationId),
+          inArray(documentAnnotations.documentId, [...documentIds]),
+          inArray(documentAnnotations.status, [...LIVE_ANNOTATION_STATUSES]),
+          documentVisibleTo(reader)
+        )
+      )
+      .groupBy(documentAnnotations.documentId)
+      .limit(documentIds.length)
+  )
+  // `count(*)` is a bigint, which the driver hands over as a string.
+  return new Map(rows.map((row) => [row.documentId, { live: Number(row.live), forYou: Number(row.forYou) }]))
 }
 
 /** One Anmerkung of one document with its thread, or null. */

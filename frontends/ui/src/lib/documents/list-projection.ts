@@ -84,6 +84,7 @@ export function toDocumentWireRow(
     retryable: row.retryable ?? true,
     assignees: row.assignees,
     sourceDeletedAt: row.sourceDeletedAt ?? null,
+    marks: row.marks ?? null,
   }
 }
 

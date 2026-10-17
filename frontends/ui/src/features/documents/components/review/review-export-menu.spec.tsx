@@ -64,6 +64,14 @@ describe('ReviewExportMenu', () => {
     )
   })
 
+  it('offers the Fassung only for the record: open marks come from every Fassung whatever it says', async () => {
+    const user = await open({ hasFassungen: true })
+    expect(await screen.findByRole('menuitemradio', { name: 'Open only' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitemradio', { name: 'All revisions' })).toBeNull()
+    await user.click(screen.getByRole('menuitemradio', { name: 'Resolved ones too' }))
+    expect(await screen.findByRole('menuitemradio', { name: 'All revisions' })).toBeInTheDocument()
+  })
+
   it('offers no Fassung or proposal choice where the document has neither', async () => {
     await open()
     expect(await screen.findByRole('menuitemradio', { name: 'Open only' })).toBeInTheDocument()

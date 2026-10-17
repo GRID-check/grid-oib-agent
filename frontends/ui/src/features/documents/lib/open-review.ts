@@ -112,12 +112,18 @@ export function setReviewParams(
 }
 
 /**
- * The chat's own URL with the review link on it: `review` and `mark`, and
- * every other param and the hash kept, so the thread on screen stays the
- * thread on screen. No `doc` (see the module comment).
+ * The page's own URL with the review link on it: `review` and `mark`, and
+ * every other param and the hash kept, so what is on screen stays on screen.
+ * The chat's link carries no `doc` (see the module comment); a shelf's
+ * listing (Dateien, the Archiv) names the document with `withDocument`, and
+ * its `?doc=` sync opens it with the review.
  */
-export function reviewHrefAt(location: ReviewLocation, target: ReviewTarget): string {
-  const params = setReviewParams(new URLSearchParams(location.search), target, { withDocument: false })
+export function reviewHrefAt(
+  location: ReviewLocation,
+  target: ReviewTarget,
+  { withDocument = false }: { withDocument?: boolean } = {}
+): string {
+  const params = setReviewParams(new URLSearchParams(location.search), target, { withDocument })
   return `${location.pathname}?${params.toString()}${location.hash}`
 }
 

@@ -46,6 +46,7 @@ vi.mock('@/lib/projects/repository', () => ({
 vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:8000' }))
 // Which documents a Fassung link names, resolved for the reader, is `fassung-facts.spec.ts`'s subject.
 vi.mock('./fassung-facts', () => ({ loadFassungFacts: vi.fn(async () => new Map()) }))
+vi.mock('@/lib/annotations/repository', () => ({ tallyLiveMarks: vi.fn(async () => new Map()) }))
 vi.mock('./reconcile-status', () => ({
   reconcileDocumentStatuses: vi.fn(async (rows: unknown[]) => rows),
   describeBackendIngestState: vi.fn(),

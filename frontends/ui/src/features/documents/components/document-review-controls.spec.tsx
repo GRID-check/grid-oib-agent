@@ -185,6 +185,84 @@ describe('DocumentReviewControls — approving signs its stand', () => {
     expect(screen.queryByTestId('document-review-approve-confirm')).not.toBeInTheDocument()
   })
 
+  it('names the open Anmerkungen before the signature and links to them, without holding the release back', async () => {
+    const onAct = vi.fn()
+    const onOpen = vi.fn()
+    render(
+      <DocumentReviewControls
+        version={inReview()}
+        lifecycle="active"
+        viewer={editor}
+        onAct={onAct}
+        openMarks={{ status: 'counted', count: 4, onOpen }}
+      />,
+    )
+
+    await userEvent.click(screen.getByTestId('document-lifecycle-approve'))
+    expect(screen.getByTestId('document-review-approve-open-marks')).toHaveTextContent(
+      '4 open annotations – approve anyway?',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Open in the review' }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+
+    // Informed, not blocked: the signature releases as it always did.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'I approve this revision' }))
+    await userEvent.click(screen.getByTestId('document-review-approve-send'))
+    expect(onAct).toHaveBeenCalledWith('approve')
+  })
+
+  it('says nothing about Anmerkungen when none is open', async () => {
+    render(
+      <DocumentReviewControls
+        version={inReview()}
+        lifecycle="active"
+        viewer={editor}
+        onAct={vi.fn()}
+        openMarks={{ status: 'counted', count: 0, onOpen: vi.fn() }}
+      />,
+    )
+    await userEvent.click(screen.getByTestId('document-lifecycle-approve'))
+    expect(screen.queryByTestId('document-review-approve-open-marks')).toBeNull()
+  })
+
+  it('says the open Anmerkungen are still being read, rather than nothing, and still lets the release through', async () => {
+    const onAct = vi.fn()
+    render(
+      <DocumentReviewControls
+        version={inReview()}
+        lifecycle="active"
+        viewer={editor}
+        onAct={onAct}
+        openMarks={{ status: 'loading' }}
+      />,
+    )
+    await userEvent.click(screen.getByTestId('document-lifecycle-approve'))
+    expect(screen.getByTestId('document-review-approve-open-marks')).toHaveTextContent('Still reading the open annotations')
+    expect(screen.queryByTestId('document-review-approve-open-marks-link')).toBeNull()
+    await userEvent.click(screen.getByRole('checkbox', { name: 'I approve this revision' }))
+    await userEvent.click(screen.getByTestId('document-review-approve-send'))
+    expect(onAct).toHaveBeenCalledWith('approve')
+  })
+
+  it('says it could not read the open Anmerkungen, and links to the review to look', async () => {
+    const onOpen = vi.fn()
+    render(
+      <DocumentReviewControls
+        version={inReview()}
+        lifecycle="active"
+        viewer={editor}
+        onAct={vi.fn()}
+        openMarks={{ status: 'unavailable', onOpen }}
+      />,
+    )
+    await userEvent.click(screen.getByTestId('document-lifecycle-approve'))
+    expect(screen.getByTestId('document-review-approve-open-marks')).toHaveTextContent(
+      'Could not read whether any annotations are open.',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Open in the review' }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
   it('states the moment without inventing a name', async () => {
     // The surface does not always know the viewer's display name; the line
     // then carries the date alone — never a raw user id.

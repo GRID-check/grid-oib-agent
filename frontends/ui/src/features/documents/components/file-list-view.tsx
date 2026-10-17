@@ -21,6 +21,7 @@ import { FilingSuggestionSlot, useFilingHighlighted } from './filing-suggestion'
 import { HIGHLIGHT_OUTLINE_INSET } from '@/components/ui/highlight'
 import { Skeleton } from '@/components/ui/skeleton'
 import { FileName } from './file-name'
+import { OpenMarksChip } from './open-marks-chip'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 /**
@@ -418,6 +419,8 @@ const FileListRowItem = memo(function FileListRowItem({
             <span className="flex min-w-0 items-baseline gap-1.5 text-xs font-medium leading-[1.4] text-foreground">
               <FileName text={documentDisplayName(file)} />
               <FassungCount file={file} />
+              {/* What is still open on its pages; a press opens the review, not the row. */}
+              <OpenMarksChip file={file} name={documentDisplayName(file)} className="self-center" />
               {/* Where Piloti would file it: the same chip as on the card,
                   right after the name, so the row keeps its one height. */}
               <FilingSuggestionSlot documentId={file.id} className="max-w-[45%] shrink-0 self-center" />

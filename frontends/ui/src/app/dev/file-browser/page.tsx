@@ -47,6 +47,11 @@
  * "Processing", because a PDF preview is produced at upload time and the rest of
  * ingestion runs after it.
  *
+ * The default browser also shows what is still open on a document: the
+ * Anmerkungen chip in a card's footer and beside the name in the list
+ * („4 offene Anmerkungen, 2 für Sie"), on `Einreichplan_Grundriss_EG_Index-C.pdf`
+ * at the root and `Statik_Positionsplan.pdf` in Statik.
+ *
  * `?variant=fassungen` renders documents with Fassungen (ADR-0099): the count
  * beside the name, the one badge on an older Fassung, in cards and in the list,
  * with older Fassungen hidden and shown. See `fassungen-fixture.tsx`.
@@ -121,6 +126,13 @@ const FILES: FileItem[] = [
   makeFile('p5', 'Statik_Positionsplan.pdf', 'Positionsplan der Tragstruktur mit Lastannahmen.', {
     fileSize: 2_900_000,
     folderId: 'f-statik',
+    marks: { live: 1, forYou: 0 },
+  }),
+  // What is still open on its pages, beside the size: four live Anmerkungen
+  // (every Fassung), two of them for the reader. A press opens the review.
+  makeFile('p10', 'Einreichplan_Grundriss_EG_Index-C.pdf', 'Einreichplan Grundriss Erdgeschoss, Index C.', {
+    fileSize: 1_900_000,
+    marks: { live: 4, forYou: 2 },
   }),
   makeFile('p6', 'Energieausweis.pdf', 'Energieausweis mit Heizwärmebedarf und Effizienzklasse.', {
     status: 'processing',

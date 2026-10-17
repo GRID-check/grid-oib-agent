@@ -29,6 +29,7 @@ import { HIGHLIGHT_OUTLINE } from '@/components/ui/highlight'
 import { Check } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { FileName } from './file-name'
+import { OpenMarksChip } from './open-marks-chip'
 
 /** Provenance tint per corpus, from the shared `--source-*` token family. */
 const SOURCE_TINT: Record<'projekt' | 'buero', CSSProperties> = {
@@ -520,8 +521,15 @@ export const FileCard = memo(function FileCard({
               phone's card keeps 10px of padding (the title's too) and a tighter
               gap: the age used to run into the edge the title keeps clear. */}
           <span className="flex shrink-0 items-center gap-1.5 phone:gap-1">
-            <span className="tabular-nums">{formatBytes(file.fileSize, locale)}</span>
-            <span className="flex items-center gap-1.5 phone:gap-1 group-has-[[data-slot=filing-chip]]/foot:@max-[14rem]/foot:hidden">
+            {/* What is still open on its pages, and the way into them: the
+                review opens from here without opening the card first. */}
+            <OpenMarksChip file={file} name={name} />
+            {/* With the chip in, a narrow tile drops the size too: the
+                filing chip's minimum, the marks and the size do not fit 156px. */}
+            <span className="tabular-nums group-has-[[data-slot=open-marks]]/foot:@max-[14rem]/foot:hidden">
+              {formatBytes(file.fileSize, locale)}
+            </span>
+            <span className="flex items-center gap-1.5 phone:gap-1 group-has-[[data-slot=filing-chip]]/foot:@max-[14rem]/foot:hidden group-has-[[data-slot=open-marks]]/foot:@max-[14rem]/foot:hidden">
               <span aria-hidden className="text-muted-foreground/40">
                 ·
               </span>
