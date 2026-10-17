@@ -20,6 +20,7 @@ bun run dev        # http://localhost:4321
 | `PUBLIC_SITE_URL` | `https://piloti.at` | Canonical site URL for OG/sitemap metadata (public). Baked at build. Prod default is deliberate: dev canonicalizing to prod is harmless — dev should not be indexed anyway. |
 | `PUBLIC_POSTHOG_HOST` / `PUBLIC_POSTHOG_PROJECT_TOKEN` | _(unset)_ | PostHog web analytics (page views, referrer and UTM, web vitals, heatmaps; no replay, no person profiles). Read at **runtime** by the `/web-analytics.js` route that every page loads; with either unset the route answers an empty script and the browser contacts nobody. Injected from `grid-oib:posthogHost` / `posthogProjectToken` by the Kubernetes deployment. The privacy policy in `src/i18n/ui.ts` describes exactly what this sends: change them together. |
 | `HOST` / `PORT`   | `0.0.0.0` / `4321`   | Node adapter listen address (runtime)              |
+| `CONTACT_FORM_SECRET`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_EMAIL_TOKEN`, `CONTACT_FORWARD_TO`, `CONTACT_FROM` | unset | The contact form (`src/lib/contact.ts`), read at **runtime**. Unset, the form answers 503 and shows `kontakt@piloti.at`; the site still builds and renders. What each needs: [`docs/deployment/environment-variables.md`](../../docs/deployment/environment-variables.md#landing-site-web-tier-kubernetespulumi-injected). | <!-- pragma: allowlist secret -->
 
 Only `PUBLIC_SITE_URL` is read at **build time** (it ends up in the prerendered
 HTML); the Docker build accepts it as a build arg (see `Dockerfile`).
@@ -155,12 +156,17 @@ docker run -p 4321:4321 -e PUBLIC_APP_URL=https://app.dev.piloti.at grid-oib-web
 ```
 
 The container runs `node runtime/server.mjs` (`npm start`), not the adapter's
-`dist/server/entry.mjs`. It is the same handler behind one step that sets
-Cache-Control on static files: `/_astro/*` immutable for a year, `/fonts/*` and
-`/art/*` fresh for a week plus a day of stale-while-revalidate, HTML left at the
-adapter's `max-age=0` so every view revalidates. Why this is not done in Envoy
-is at the top of `runtime/server.mjs`. Compression is not the server's job:
-Envoy Gateway compresses at the edge
+`dist/server/entry.mjs`. It is the same handler behind two steps. The first
+sets Cache-Control on static files: `/_astro/*` immutable for a year, `/fonts/*`
+and `/art/*` fresh for a week plus a day of stale-while-revalidate, HTML left at
+the adapter's `max-age=0` so every view revalidates. Why this is not done in
+Envoy is at the top of `runtime/server.mjs`. The second
+(`runtime/forwarded-proto.mjs`) marks each request with the scheme from Envoy's
+`X-Forwarded-Proto`. Envoy terminates TLS and talks plain HTTP to the pod, so
+without it Astro builds every request as `http://` and its origin check
+(`security.checkOrigin`) refuses every form POST whose `Origin` is `https://`
+with `403 Cross-site POST form submissions are forbidden`. Compression is not
+the server's job: Envoy Gateway compresses at the edge
 ([`docs/deployment/kubernetes.md`](../../docs/deployment/kubernetes.md) §7).
 
 Files under `public/fonts` and `public/art` are not content-hashed. Replace a font

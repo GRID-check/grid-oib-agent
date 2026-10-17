@@ -9,7 +9,9 @@ import {
   numberedFilename,
   outlookFolderName,
   outlookFolderPath,
+  senderLabel,
 } from './naming'
+import { validateFolderName } from '@/lib/projects/folders'
 
 describe('mail names', () => {
   it('stamps a mail in Vienna time, with dots so the name is a path segment', () => {
@@ -24,16 +26,48 @@ describe('mail names', () => {
     expect(mailFolderName('2026-09-30T08:15:00Z', { name: 'Anna Berger', address: 'anna@buero.at' })).toBe(
       '2026-09-30 10.15 – Anna Berger',
     )
-    expect(mailFolderName('2026-09-30T08:15:00Z', { name: '', address: 'anna@buero.at' })).toBe(
-      '2026-09-30 10.15 – anna@buero.at',
-    )
     expect(mailFolderName(null, null)).toBe('ohne Datum – Unbekannt')
+  })
+
+  it('reads the day in Vienna, where 00:30 on the 1st is the 1st, through daylight saving time', () => {
+    expect(mailTimestamp('2026-09-30T22:30:00Z')).toBe('2026-10-01 00.30')
+    expect(mailTimestamp('2026-12-31T23:05:00Z')).toBe('2027-01-01 00.05')
+    expect(mailTimestamp('2026-07-15T11:00:00Z')).toBe('2026-07-15 13.00')
+  })
+
+  it('names the sender by the local part when there is no display name, never by the domain', () => {
+    expect(senderLabel({ name: '', address: 'anna.berger@buero.at' })).toBe('anna.berger')
+    expect(senderLabel({ name: '  ', address: 'anna@buero.at' })).toBe('anna')
+    expect(senderLabel({ name: '..', address: '...@buero.at' })).toBe('Unbekannt')
+    expect(mailFolderName('2026-09-30T08:15:00Z', { name: '', address: 'anna@buero.at' })).toBe(
+      '2026-09-30 10.15 – anna',
+    )
   })
 
   it('keeps a sender name with a slash from becoming a nested folder', () => {
     expect(mailFolderName('2026-09-30T08:15:00Z', { name: 'Bau/Amt Wien', address: '' })).toBe(
       '2026-09-30 10.15 – Bau-Amt Wien',
     )
+    const name = mailFolderName('2026-09-30T08:15:00Z', { name: 'Büro / Plan\\ung\u0000 GmbH. ', address: 'x@y.at' })
+    expect(validateFolderName(name)).toEqual({ ok: true, name })
+  })
+
+  it('drops bidi overrides and zero-width characters from a sender name', () => {
+    expect(senderLabel({ name: '\u202Eevil\u200B Büro', address: 'x@y.at' })).toBe('evil Büro')
+  })
+
+  it('writes decomposed umlauts composed, so two mails from one sender read alike', () => {
+    expect(senderLabel({ name: 'Jürgen'.normalize('NFD'), address: 'j@y.at' })).toBe('Jürgen'.normalize('NFC'))
+  })
+
+  it('cuts a long sender between graphemes and leaves room for " (n)"', () => {
+    const name = mailFolderName('2026-09-30T08:15:00Z', {
+      name: `${'x'.repeat(78)}👨\u200D👩\u200D👧 Architekten`,
+      address: 'x@y.at',
+    })
+    expect(name.endsWith('…')).toBe(true)
+    expect(name).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/)
+    expect(validateFolderName(numbered(name, 99)).ok).toBe(true)
   })
 
   it('keeps a numbered folder name within the 120-character limit', () => {

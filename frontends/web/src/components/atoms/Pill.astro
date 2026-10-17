@@ -1,12 +1,14 @@
 ---
+/** A link, or with `type` and no `href` a button (the contact form's submit). */
 interface Props {
-  href: string
+  href?: string
+  type?: 'submit' | 'button'
   variant?: 'solid' | 'light' | 'outline' | 'outline-dark'
   size?: 'sm' | 'md' | 'lg' | 'nav'
   external?: boolean
   class?: string
 }
-const { href, variant = 'solid', size = 'md', external = false, class: className = '' } = Astro.props
+const { href, type, variant = 'solid', size = 'md', external = false, class: className = '' } = Astro.props
 
 // A longer, softer curve and a hair of lift: the difference between a control
 // that reacts and one that responds.
@@ -34,10 +36,21 @@ const variants = {
 }
 ---
 
-<a
-  href={href}
-  class={`${base} ${sizes[size]} ${variants[variant]} ${className}`}
-  {...external ? { target: '_blank', rel: 'noopener noreferrer' } : {}}
->
-  <slot />
-</a>
+{
+  href === undefined ? (
+    <button
+      type={type ?? 'button'}
+      class={`${base} ${sizes[size]} ${variants[variant]} cursor-pointer ${className}`}
+    >
+      <slot />
+    </button>
+  ) : (
+    <a
+      href={href}
+      class={`${base} ${sizes[size]} ${variants[variant]} ${className}`}
+      {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+    >
+      <slot />
+    </a>
+  )
+}

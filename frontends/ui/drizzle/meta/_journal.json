@@ -1037,6 +1037,13 @@
       "when": 1792454400033,
       "tag": "0147_push_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1792454400034,
+      "tag": "0148_inbound_mail",
+      "breakpoints": true
     }
   ]
 }

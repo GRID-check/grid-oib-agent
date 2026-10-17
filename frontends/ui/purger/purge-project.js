@@ -251,13 +251,20 @@ async function purgeProject(tx, entry, deps) {
   //    Sequential rather than concurrent on purpose: the prefix sweep is a
   //    list-then-delete loop, and running several against one storage tier only
   //    trades a rarely-hot latency for contention on the thing being erased.
-  //    An Outlook archive half-sent into the project's mail import (ADR-0085)
-  //    names its bucket on its own row: a project with no document yet would
-  //    otherwise never reach that bucket, and its upload would never be aborted.
+  //
+  //    Two kinds of staging live under this same project prefix, each in the
+  //    bucket its own row recorded: the mail inbox's attachments not yet filed
+  //    (ADR-0075), and an Outlook archive half-sent into the mail import
+  //    (ADR-0085). A project with no document yet names neither bucket on a
+  //    document row, so those rows are asked too, or the staging would outlive
+  //    the project and an archive upload would never be aborted.
   const recorded = /** @type {{ storage_bucket: string }[]} */ (
     await tx`
       SELECT DISTINCT storage_bucket FROM documents
        WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL
+      UNION
+      SELECT DISTINCT staging_bucket FROM inbound_mail_messages
+       WHERE project_id = ${projectId} AND staging_bucket IS NOT NULL
       UNION
       SELECT staging_bucket AS storage_bucket FROM mail_imports
        WHERE project_id = ${projectId}`
@@ -330,7 +337,8 @@ async function purgeProject(tx, entry, deps) {
 
   // 4. grid_app rows: the collaboration rows FIRST, then conversations
   //    (messages and conversation_reads cascade), then the project row
-  //    (documents / folders / project-scoped memory cascade).
+  //    (documents / folders / project-scoped memory / the mail inbox's
+  //    addresses and delivery records cascade).
   //
   //    The collaboration tables address their target as a polymorphic
   //    `(resource_type, resource_id)` pair with no foreign key (ADR-0032), so
@@ -377,6 +385,11 @@ async function purgeProject(tx, entry, deps) {
   await tx`DELETE FROM mention_requests WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
   await tx`DELETE FROM resource_shares WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
   await tx`DELETE FROM resource_assignments WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
+  //    Items whose target is the PROJECT itself — a background run's outcome,
+  //    a mail filed from the project inbox (ADR-0075). Same polymorphic pair,
+  //    same missing cascade, and the payload quotes what the project held (a
+  //    run's title, a mail's subject), so it goes with the project.
+  await tx`DELETE FROM inbox_items WHERE resource_type = 'project' AND resource_id = ${projectId}`
   //    The project's background jobs (ADR-0079). `bff_job_queue` points at the
   //    project only through its payload (no foreign key), and a payload holds the
   //    project's work: a research report, file names, storage keys, the

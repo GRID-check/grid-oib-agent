@@ -153,4 +153,32 @@ describe('SectionCard', () => {
 
     expect(screen.getByRole('button', { name: 'Add' })).toBeDefined()
   })
+
+  test('the title is a heading only when a level is given', () => {
+    const { rerender } = render(<SectionCard title="Project email address" />)
+    expect(screen.queryByRole('heading')).toBeNull()
+
+    rerender(<SectionCard title="Project email address" headingLevel={2} />)
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Project email address' })
+    ).toBeDefined()
+  })
+
+  test('draws the footer after the body, and hides it while loading or failed', () => {
+    const footer = <a href="https://piloti.at/">Help</a>
+    const { rerender } = render(
+      <SectionCard title="Base knowledge" footer={footer}>
+        <p>42 documents</p>
+      </SectionCard>,
+    )
+    const body = screen.getByText('42 documents')
+    const link = screen.getByRole('link', { name: 'Help' })
+    expect(body.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    rerender(<SectionCard title="Base knowledge" footer={footer} loading />)
+    expect(screen.queryByRole('link', { name: 'Help' })).toBeNull()
+
+    rerender(<SectionCard title="Base knowledge" footer={footer} error />)
+    expect(screen.queryByRole('link', { name: 'Help' })).toBeNull()
+  })
 })

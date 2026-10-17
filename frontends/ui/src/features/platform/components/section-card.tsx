@@ -29,6 +29,7 @@ import {
   CardAction,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
@@ -45,6 +46,12 @@ export interface SectionCardProps {
    * whatever is left (description, action) or disappears.
    */
   title?: string
+  /**
+   * Makes the title a heading of this level. A project Settings block passes 2,
+   * as `SettingsPanel` does: the section frame owns the page's `h1`. Left out,
+   * the title is plain text, as on the admin consoles.
+   */
+  headingLevel?: 2
   description?: string
   /** Header-right controls (filters, a primary action). Hidden while loading. */
   action?: ReactNode
@@ -69,6 +76,11 @@ export interface SectionCardProps {
   emptyDescription?: string
   /** Optional call to action under the empty state (e.g. "Add the first one"). */
   emptyAction?: ReactNode
+  /**
+   * Controls under the body: a help link, a secondary action. Hidden with the
+   * header action while loading or failed, for the same reason.
+   */
+  footer?: ReactNode
   /** Forwarded to the Card so tests and the screenshot harness can target it. */
   testId?: string
   children?: ReactNode
@@ -76,6 +88,7 @@ export interface SectionCardProps {
 
 export function SectionCard({
   title,
+  headingLevel,
   description,
   action,
   error = false,
@@ -89,6 +102,7 @@ export function SectionCard({
   emptyTitle,
   emptyDescription,
   emptyAction,
+  footer,
   testId,
   children,
 }: SectionCardProps): JSX.Element {
@@ -156,7 +170,11 @@ export function SectionCard({
       {hasHeader ? (
         <CardHeader>
           {title || busy ? (
-            <CardTitle className="flex min-w-0 items-center gap-2">
+            <CardTitle
+              className="flex min-w-0 items-center gap-2"
+              role={headingLevel ? 'heading' : undefined}
+              aria-level={headingLevel}
+            >
               {title ? <span className="min-w-0 truncate">{title}</span> : null}
               {busy ? (
                 <Spinner
@@ -181,6 +199,9 @@ export function SectionCard({
       >
         {body()}
       </CardContent>
+      {footer && !loading && !error ? (
+        <CardFooter className="flex-wrap justify-between gap-3">{footer}</CardFooter>
+      ) : null}
     </Card>
   )
 }

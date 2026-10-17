@@ -1,6 +1,8 @@
 /**
  * Production entry for the public site: the Astro node adapter's own handler,
- * behind one step that sets Cache-Control on static files (`cache-control.mjs`).
+ * behind two steps: Cache-Control on static files (`cache-control.mjs`), and
+ * the scheme Envoy accepted, so Astro's origin check sees https
+ * (`forwarded-proto.mjs`).
  *
  * Why a wrapper and not an adapter option: `@astrojs/node` has no hook for the
  * headers of files it serves from `dist/client` (`staticHeaders` covers
@@ -18,6 +20,7 @@ import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cacheControlFor } from './cache-control.mjs'
+import { markForwardedScheme } from './forwarded-proto.mjs'
 
 // The standalone entry starts its own server on import unless told not to.
 // Static imports are hoisted, so the flag has to be set before a dynamic one.
@@ -54,6 +57,7 @@ function setCacheControl(req, res) {
 
 const server = http.createServer((req, res) => {
   setCacheControl(req, res)
+  markForwardedScheme(req)
   handler(req, res)
 })
 server.listen(PORT, HOST, () => {

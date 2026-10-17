@@ -88,6 +88,9 @@
   --color-paper-dim: #fafaf8;
   --color-hairline: #dcdfd8;
   --color-ok: #0f7a3d;
+  /* The contact form's field errors and failed-send notice: text, never a fill.
+     Brick rather than signal red, so a mistake reads as a note in the margin. */
+  --color-error: #9e2f1c;
   /* Provenance signals — the one place this brand allows colour, taken from the
      product's own tokens (frontends/ui/src/styles/tokens.css) so a mock of the
      app is not a drawing of the app in different paint. */

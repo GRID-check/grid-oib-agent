@@ -76,7 +76,7 @@ import { loadFassungFacts } from './fassung-facts'
 import { documentShelf, projectShelf } from './shelf'
 import { publishShelfChanged } from './shelf-live'
 import type { DocumentLevelQuery } from './list-query'
-import { uploadToShelf, type UploadDocumentResult } from './shelf-upload'
+import { uploadToShelf, type UploadAuditChannel, type UploadDocumentResult } from './shelf-upload'
 import { resolveDocumentFolderPath } from './folder-path'
 import {
   collectionFileRef,
@@ -912,6 +912,8 @@ export interface UploadDocumentInput {
   fassungOf?: string | null
   /** See `ShelfUploadInput.priority`: `bulk` for a machine filing on a person's behalf. */
   priority?: IngestPriority
+  /** See `ShelfUploadInput.audit`: the intake channel of an upload no person made at a screen. */
+  audit?: UploadAuditChannel
 }
 
 export type { UploadDocumentResult }

@@ -24,8 +24,9 @@
 
 import 'server-only'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { lookupSubjectMembership, resolveSubjectMembership } from '@/lib/authz/project-membership'
-import { permissionsForOrgRole } from '@/lib/authz/permissions'
+import type { AuthzLookupOptions } from '@/lib/authz/errors'
+import { tenantRolePermissions } from '@/lib/authz/org-role-permissions'
+import { resolveSubjectMembership, type lookupSubjectMembership } from '@/lib/authz/project-membership'
 import { enabledFlagsForOrganization } from '@/lib/workos/feature-flags'
 import { resolvePerson } from './person'
 
@@ -38,6 +39,12 @@ export interface PinnedRequester {
 /**
  * The session the requester would have if they were signed in right now, or
  * `null` when they are no longer a member of the organization.
+ *
+ * Permissions: what WorkOS says each of the requester's roles holds, unioned
+ * with the catalog (`tenantRolePermissions`), the same answer `hasPermission`
+ * gives a signed-in session. Reading the catalog alone denied every custom
+ * role, and reading the primary role alone denied what a second role grants.
+ * Only an ACTIVE membership counts (`lookupSubjectMembership`).
  *
  * Feature flags are resolved per organization (the JWT claim a live session
  * carries is per user+org, and the org-level answer is what the fleet-wide
@@ -57,35 +64,44 @@ export async function resolvePinnedRequesterSession(
   requester: PinnedRequester,
 ): Promise<AuthorizedSession | null> {
   const membership = await resolveSubjectMembership(requester.organizationId, requester.userId)
-  return sessionFor(requester, membership)
+  return sessionFor(requester, membership, {})
 }
 
 /**
- * {@link resolvePinnedRequesterSession}, except that a membership lookup WorkOS
- * did not answer throws instead of reading as "not a member". `null` here means
+ * {@link resolvePinnedRequesterSession}, except that a membership or role
+ * lookup WorkOS did not answer throws instead of reading as "not a member" or
+ * as the catalog's permissions alone. `null` here means
  * WorkOS said so. For a caller that acts on "they left" in a way it cannot take
  * back: the push job removes every device of a person who left, and one failed
- * lookup must not erase them all (ADR-0112). The throw lets the queue retry.
+ * lookup must not erase them all (ADR-0112), and the project mail inbox must
+ * not bounce a colleague's mail as if they had left. The throw, a
+ * `TransientAuthzError`, lets the queue retry and the webhook answer 503.
  */
 export async function resolvePinnedRequesterSessionStrict(
   requester: PinnedRequester,
 ): Promise<AuthorizedSession | null> {
-  const membership = await lookupSubjectMembership(requester.organizationId, requester.userId)
-  return sessionFor(requester, membership)
+  const strict = { onError: 'throw' } as const
+  const membership = await resolveSubjectMembership(requester.organizationId, requester.userId, strict)
+  return sessionFor(requester, membership, strict)
 }
 
 async function sessionFor(
   requester: PinnedRequester,
   membership: Awaited<ReturnType<typeof lookupSubjectMembership>>,
+  options: AuthzLookupOptions,
 ): Promise<AuthorizedSession | null> {
   // No membership, or a membership without a role, is a person who holds
   // nothing here today; the caller refuses rather than guesses a role.
   if (!membership || !membership.role) return null
 
-  const [featureFlags, person] = await Promise.all([
+  const roles = membership.roles.length > 0 ? membership.roles : [membership.role]
+  const [featureFlags, person, ...perRole] = await Promise.all([
     enabledFlagsForOrganization(requester.organizationId),
     resolvePerson(requester.organizationId, requester.userId),
+    ...roles.map((role) => tenantRolePermissions(requester.organizationId, role, options)),
   ])
+  // Every role's, as a signed-in session's claim carries them all.
+  const permissions = new Set(perRole.flatMap((held) => [...held]))
 
   return {
     userId: requester.userId,
@@ -96,7 +112,7 @@ async function sessionFor(
     organizationId: requester.organizationId,
     organizationMembershipId: membership.organizationMembershipId,
     role: membership.role,
-    permissions: [...permissionsForOrgRole(membership.role)],
+    permissions: [...permissions],
     featureFlags,
   }
 }

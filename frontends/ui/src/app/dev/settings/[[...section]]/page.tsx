@@ -13,7 +13,8 @@
  *   /dev/settings/references Similar projects
  *
  * `?as=viewer` renders what a project viewer gets: no project menu, a read-only
- * memory, no reindex, and no Members or Usage section or tile at all.
+ * memory, no reindex and no mail address, and no Members or Usage section or
+ * tile at all.
  *
  * Not linked from anywhere; `src/app/dev/layout.tsx` 404s it outside development.
  */
@@ -214,6 +215,13 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
           ],
         })
       }
+      if (read && url === `/api/projects/${PROJECT_ID}/inbound-address`) {
+        return Response.json({
+          enabled: true,
+          address: 'wohnbau-mariahilf.k3m7q2xw4pab@piloti.at',
+          canRotate: true,
+        })
+      }
       // Summary auto-generate / profile patches — no-op for the preview.
       if (/\/(generate-summary|profile\/patches)$/.test(url)) return Response.json({})
       return real(input, init)
@@ -313,7 +321,7 @@ export default function SettingsDevPage({
             <DocumentsSettings
               projectId={PROJECT_ID}
               currentUserId={FIXTURE_USER_ID}
-              canReindex={admin}
+              canWriteDocuments={admin}
               showKnowledgeLink
             />
           )}

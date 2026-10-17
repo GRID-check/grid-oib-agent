@@ -147,6 +147,18 @@ config:
 
   #   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:cloudflareApiToken "<Zone:DNS:Edit + Zone:Dynamic URL Redirects:Edit, scoped to that zone>" --secret
 
+  #     With inboundMailDomain set, the token keeps both and adds Zone:Zone Settings:Edit,
+
+  #     Zone:Email Routing Rules:Edit, Zone:Zone:Read and Account:Workers Scripts:Edit,
+
+  #     with the account under the token's Account Resources (docs/deployment/kubernetes.md §3c).
+
+  #     With contactAddress set, it needs the same zone permissions, Account:Email Routing
+
+  #     Addresses:Edit and Email Sending read on the zone (the Email preview guard) (§3d);
+
+  #     with both, it holds both lists.
+
   #   pulumi config set        grid-oib:dnsEnabled  true
 
   #

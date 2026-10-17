@@ -1,0 +1,32 @@
+---
+features:
+  - >
+    The piloti.at website has a contact form, at the end of the landing page
+    and on /kontakt/, that reaches the founders directly by email. Nothing is
+    stored on the site, and it works without JavaScript.
+  - >
+    Piloti now has one contact address, kontakt@piloti.at, in place of the
+    founders' personal addresses on the imprint, the privacy policy and every
+    "write to us" link.
+operators:
+  - >
+    The contact form needs CONTACT_FORM_SECRET, CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_EMAIL_TOKEN and CONTACT_FORWARD_TO on the web service, and
+    piloti.at onboarded for Email Sending, with Email preview off and one
+    DMARC record left. The site names
+    kontakt@piloti.at from its first deploy, so set contactAddress in the same
+    promotion and verify the mailboxes right after.
+  - >
+    The deploy refuses piloti.at while its Email preview is on, so the stack's
+    Cloudflare token also needs Email Sending read on the zone.
+  - >
+    Before switching the form on, check that the gateway sees each visitor's
+    own address. The form's limit counts messages per address, so behind a
+    load balancer that rewrites source addresses one sender would lock the
+    form for everyone for ten minutes. The edge's contact limit refuses
+    nothing while rate limiting is in shadow mode.
+  - >
+    kontakt@piloti.at shares Email Routing on piloti.at with the project mail
+    inbox, and its rule is matched before the inbox's catch-all. On Workers
+    Paid, the form's Email Sending token can mail anyone as any piloti.at
+    address, so keep it as tightly as the stack's own Cloudflare token.

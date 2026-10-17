@@ -17,6 +17,8 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 | App | `aiq-agent` StatefulSet (no PVC; +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `skill-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
 | DNS | Cloudflare A records for exactly the Gateway's HTTPS listener hosts, plus optionally the zone-level `www` / `_dmarc` / apex-redirect records — only when `dnsEnabled` (off by default; records are otherwise maintained by hand) |
+| Mail | Project mail inbox at Cloudflare: Email Routing on the inbox's zone apex (by default the app zone, shared with the contact address), its catch-all, and the Email Worker that refuses addresses that are not project-shaped and streams the rest to the BFF — only when `inboundMailDomain` is set (off by default) |
+| Contact | The contact address at Cloudflare: Email Routing on the app zone's apex, one literal forward rule and its verified destination addresses, plus the web tier's `web-contact` Secret — only when `contactAddress` is set (off by default) |
 
 ## Prerequisites
 
@@ -141,6 +143,16 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `dnsZoneBaseline` | `false` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex). **At most one stack** — two stacks writing the same record is not an API error, the later `up` silently wins |
 | `dnsDmarc` | — | Value of the `_dmarc` TXT record, when the baseline is owned here |
 | `dnsApexRedirectTo` | — | Absolute URL the apex and `www` redirect to (302) while no stack serves the apex. Unset it once one does — `loadConfig` refuses both at once |
+| **Project mail inbox (Cloudflare Email Routing)** — operator guide: [`docs/deployment/kubernetes.md` §3c](../../docs/deployment/kubernetes.md) | | |
+| `inboundMailDomain` | — | Domain of the project addresses, normally the app zone's apex (`piloti.at`, the same as `dnsZoneName`). Setting it turns the feature on: Email Routing, the catch-all and the Worker at Cloudflare, `GRID_INBOUND_MAIL_DOMAIN` on the frontend. Email Routing adds and locks the apex MX and SPF records and the DKIM TXT at `cf2024-1._domainkey.<domain>`; it leaves the apex A record, `www` and `_dmarc` alone. Unsetting it deletes the Worker but leaves Email Routing on (`retainOnDelete`) and the catch-all pointing at the deleted Worker: set the catch-all to Drop in the dashboard first (operator guide §3c, "Turning it off"). **Must be the apex of `inboundMailZoneId`**, not a subdomain: Cloudflare's catch-all exists only for a zone's apex (refused at load time for a subdomain of `dnsZoneName`, at preview for any other mismatch). On the app zone it needs `dnsEnabled` and `dnsZoneBaseline`, and shares the zone's one Email Routing enablement with `contactAddress` (`installMailZones`). A company address on the same apex needs a literal routing rule of its own, which Cloudflare matches before the catch-all: `contactAddress` creates `kontakt@`'s, every other one is made in the dashboard; without one the Worker refuses it as unknown. Refused at preview if the apex has MX records pointing anywhere but `*.mx.cloudflare.net`: the catch-all would capture that mail. Setting it does not switch the inbox on for anyone: each organization also needs the `project-mail-inbox` WorkOS flag. At most one stack per inbound zone |
+| `inboundMailZoneId` | `dnsZoneId` when `inboundMailDomain` equals `dnsZoneName` | Cloudflare zone whose apex is `inboundMailDomain`. Set it only for a domain on a zone of its own (the earlier setup, still supported) |
+| 🔒 `inboundMailToken` | — | Shared secret the Worker presents to `/api/internal/inbound-mail`; reaches the frontend as `GRID_INBOUND_MAIL_TOKEN`. Required with the domain. `openssl rand -hex 32` |
+| 🔒 `cloudflareApiToken` (widened) | — | With the inbox on it keeps `DNS:Edit` (also what the MX guard reads the apex MX with) and, on the baseline stack, `Dynamic URL Redirects:Edit` (the `www` redirect), and adds, on the inbox's zone (normally the app zone), `Zone Settings:Edit`, `Email Routing Rules:Edit` and `Zone:Read`, plus Account `Workers Scripts:Edit` with the account listed under the token's Account Resources (a token scoped to the zone alone lacks it). With `contactAddress` also set, it holds both lists: the contact address adds Account `Email Routing Addresses:Edit` and Email Sending read on the zone (the Email preview guard; Cloudflare's permission list does not name it yet) |
+| **Contact address and form (Cloudflare Email Routing and Email Sending)** — operator guide: [`docs/deployment/kubernetes.md` §3d](../../docs/deployment/kubernetes.md), decision ADR-0113 | | |
+| `contactAddress` | — | The company address, e.g. `kontakt@piloti.at`. Setting it turns the feature on: Email Routing on the app zone's apex (shared with the inbox when it is on the same apex), one literal rule forwarding the address to `contactForwardTo`, a destination address per target, and the contact form's six variables on the web pods. Must be on the `dnsZoneName` apex; needs `dnsEnabled` and `dnsZoneBaseline`. Refused at preview if the apex has MX records pointing anywhere but `*.mx.cloudflare.net`, or if `_dmarc.<apex>` holds more than one DMARC record (Email Sending onboarding adds one beside `dnsDmarc`'s), or while the apex is onboarded for Email Sending with Email preview on (`assertNoSendingPreview`; not onboarded yet passes). The stack's `cloudflareApiToken` then needs, on the app zone, `DNS:Edit`, `Zone Settings:Edit`, `Email Routing Rules:Edit`, `Zone:Read` and Email Sending read (for the preview guard), and Account `Email Routing Addresses:Edit` (operator guide §3d, step 1). Unsetting it deletes the rule and the destination addresses but leaves Email Routing on (`retainOnDelete`); the site still names the address (operator guide §3d, "Turning it off") |
+| `contactForwardTo` | — | Comma-separated mailboxes outside the apex that receive the address and the form. Required with `contactAddress`. Each gets a Cloudflare verification mail, and nothing is forwarded to it until its owner clicks the link |
+| 🔒 `contactEmailToken` | — | The web pods' own Cloudflare token, Account `Email Sending:Edit` and nothing else; reaches them as `CLOUDFLARE_EMAIL_TOKEN` through the `web-contact` Secret. Required with `contactAddress`. On Workers Paid it can send to any recipient (operator guide §3c, "Plan") |
+| 🔒 `contactFormSecret` | — | HMAC key for the form's signed timestamp, `CONTACT_FORM_SECRET` through the same Secret. Required with `contactAddress`. `openssl rand -hex 32` |
 | **Edge rate limiting (ADR-0040 L1)** | | |
 | `rateLimitEnabled` | `true` | Deploy the global rate limit service + its counter store and attach the per-route rules. Off = the app-layer limiters are the only ones |
 | `rateLimitShadowMode` | `true` | Evaluate every rule and emit its telemetry, but never refuse. **Ships on**: pick real numbers from the would-have-blocked counts, then flip it off |
@@ -148,8 +160,10 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `rateLimitApp` | `600`/min | Catch-all budget per client IP on the app host (deliberately loose — stops runaway clients, does not shape traffic) |
 | `rateLimitAppAuth` | `20`/min | `/api/auth/*` — the credential-stuffing surface |
 | `rateLimitAppWsUpgrade` | `30`/min | `/websocket` upgrades; mirrors `GRID_WS_UPGRADE_RATE_LIMIT` |
+| `rateLimitAppInboundMail` | `600`/min | `/api/internal/inbound-mail`, its own bucket and exempt from `rateLimitApp`: every mail arrives from Cloudflare's shared egress addresses. The BFF's per-address and per-organization limits are the real ones |
 | `rateLimitS3` | `300`/min | Presigned preview/download URLs (one preview fans out into many GETs) |
 | `rateLimitWeb` | `120`/min | Landing site + blog |
+| `rateLimitWebContact` | `10`/min | Contact-form submissions (POST to `/api/kontakt`, `/kontakt/`, `/en/kontakt/`), one bucket for the three, on top of `rateLimitWeb`. Refuses nothing while `rateLimitShadowMode` is on; until then the form's own per-pod limit (5 per 10 minutes per client) is the one enforced |
 | `rateLimitStoreMaxmemory` | `256mb` | Counter-store dataset cap (floor 256mb — Dragonfly's per-thread boot minimum) |
 | `rateLimitStoreMemoryLimit` | `384Mi` | Counter-store pod memory limit; must exceed maxmemory |
 | `protectDataResources` | `true` | Pulumi `protect` on the CNPG Cluster + SeaweedFS/Chroma StatefulSets: refuses any delete/replace, so a stray rename or `pulumi destroy` fails loudly instead of destroying data. `false` on scratch stacks; lift one resource with `pulumi state unprotect <urn>` |
@@ -310,7 +324,9 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 ## Validation (no target cluster required)
 
 ```bash
-npm run typecheck   # tsc: every typed manifest, incl. Gateway/Envoy CRD specs
+npm run typecheck   # tsc: every typed manifest, incl. Gateway/Envoy CRD specs,
+                    # and the Email Worker against @cloudflare/workers-types
+                    # (tsconfig.worker.json)
 npm run validate    # pulumi preview → schema-check every CustomResource in the
                     # plan against the real upstream CRD schemas (CNPG + KEDA)
 npm run policy      # pulumi preview --policy-pack ./policy → CrossGuard
@@ -355,6 +371,11 @@ index.ts                 wiring + stack outputs
 src/config.ts            typed config (every knob + secret)
 src/platform/            provider, namespace, cert-manager, gateway (Envoy),
                          dns (Cloudflare records for the Gateway's hosts),
+                         inbound-mail (Email Routing + the Email Worker,
+                         inbound-mail-worker.js, uploaded verbatim),
+                         contact-mail (the contact address's forward rule),
+                         email-routing (installMailZones: each zone's routing,
+                         its apex MX and DMARC guards, once for both),
                          metrics-server, scheduling (PDB/spread), rollout
                          (update strategy, drain, secret checksum)
 policy/                  CrossGuard policy pack (own package.json + bun.lock)

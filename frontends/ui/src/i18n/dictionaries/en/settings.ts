@@ -127,5 +127,31 @@ export const settings = {
       knowledgeDescription: 'What the project’s knowledge base contains, chunk by chunk.',
       knowledgeLink: 'Open knowledge base',
     },
+    /** The project's own mail address: attachments sent to it are filed into the project. */
+    inboundMail: {
+      title: 'Project email address',
+      description:
+        'Send files as attachments to this address. Piloti files them in this project under E-Mail-Eingang, each email in a folder of its own.',
+      addressLabel: 'Project email address',
+      rulesLabel: 'What applies',
+      rules: {
+        members: 'Project members who can edit documents can send to it.',
+        verified:
+          'The sender’s domain must sign its mail with DKIM. Other mail is rejected.',
+        addressing: 'Put the address in To or Cc. Mail that has it only in Bcc is rejected.',
+        size: 'Attachments up to about 18 MB in total, and at most 100 files per email.',
+        attachmentsOnly:
+          'Only attachments are filed: not images pasted into the text, not links to cloud files. The text of the email is not stored.',
+      },
+      helpLink: 'How it works, and why mail bounces',
+      rotate: 'Generate new address',
+      confirmTitle: 'Generate a new address?',
+      confirmDescription:
+        'The current address stops working immediately, and mail sent to it is rejected. Share the new address with everyone who sends files to this project.',
+      confirmAction: 'Generate new address',
+      rotated: 'New address generated',
+      rotateFailed: 'The new address could not be generated. The current one still works.',
+      loadFailed: 'The project’s email address could not be loaded.',
+    },
   },
 }

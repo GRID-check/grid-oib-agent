@@ -295,6 +295,8 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `GRID_ADMIN_TOKEN` | No | `change-me-in-production` | Bearer token for admin-protected endpoints. Change in production. |
+| `GRID_INBOUND_MAIL_DOMAIN` | No | (unset — project mail inbox off) | Domain of the project mail inbox addresses (`<slug>.<token>@<domain>`). It is the deployment's half of the switch: unset or empty, `GET /api/projects/[id]/inbound-address` answers `enabled: false`, no address is minted, the UI shows nothing, and the webhook answers 503 (retried, never bounced). Set, each organization still needs the `project-mail-inbox` WorkOS flag (an entitlement: never on where nobody signs in). Must be a Cloudflare zone's **apex**, not a subdomain like `eingang.<baseDomain>`: Email Routing's catch-all exists only for a zone's apex. The recommended value is the app zone's apex, e.g. `piloti.at` (addresses like `wohnbau-hietzing.k3m7q2xw4pab@piloti.at`); a separate zone of its own also works (`docs/deployment/kubernetes.md` §3c, ADR-0075). On Kubernetes set via `grid-oib:inboundMailDomain`, which also creates the Cloudflare side; the frontend receives it only then. Frontend service only. |
+| `GRID_INBOUND_MAIL_TOKEN` | No | (unset — webhook disabled) | Token for `POST /api/internal/inbound-mail`, the webhook the Cloudflare Email Worker streams each inbound mail to. Sent in the `x-grid-internal-token` header, like the other internal routes, but checked against this secret only: it lives outside the cluster, in the Worker's secret binding, so a leak opens this one route and not the service token's. Fail-closed: unset or empty is 503, and a mismatch (the Worker's binding and this value disagree, e.g. mid-rotation) is 403. Neither carries the `x-inbound-verdict: reject` header, so the Worker throws and the sending server retries until the two agree; only that header ever bounces a mail. On Kubernetes set via `grid-oib:inboundMailToken` (required once `inboundMailDomain` is set), and Pulumi binds the same value into the Worker. Frontend service only. |
 | `GRID_CORPUS_EXPORT_TOKEN` | No | (unset — export disabled) | Token for `GET /api/internal/oib-corpus`, which streams the OIB base corpus as one `.tar.gz` (the PDFs the sync ingests, flat under their basenames). Its only consumer was the answer-suite CI workflow, which has been removed; `task be:eval:answer-suite` ingests `data/oib` from disk instead, and the export stays until someone decides to delete it. Sent in the `x-grid-internal-token` header, like the other internal routes, but checked against this secret only: it lived outside the cluster, in a repository secret, so a leak opens this one route and not the service token's memory writes. Fail-closed: unset or empty is 503. The backend export it proxies (`/v1/admin/oib/corpus.tar.gz`) also refuses without `GRID_ADMIN_TOKEN`, unlike the other admin routes. On Kubernetes set via `grid-oib:gridCorpusExportToken`. Frontend service only. |
 | `GRID_AUDIT_LOGS_ENABLED` | No | `false` | Gates WorkOS-native audit-trail emission (`recordAuditEvent` in `frontends/ui/src/lib/audit/service.ts`). Unset or anything but `true` suppresses every emit silently; `'true'` enables. Frontend service; on Kubernetes it is set from the Pulumi stack key `grid-oib:auditLogsEnabled` (see `deploy/pulumi/README.md`), not by hand. The audit viewer portal link is unaffected. |
 
@@ -633,11 +635,20 @@ Tune the per-project FGA authorization path (`lib/authz/projects.ts`), the WorkO
 
 ## Landing Site (web tier, Kubernetes/Pulumi-injected)
 
-The Astro landing service (`frontends/web`) carries no secrets; its
-deployment knobs are where sign-in hands off and whether PostHog web analytics
-loads (ADR-0100). One image serves every stack —
-the app host is resolved at request time, never baked into the prerendered
-HTML (a baked host is how prod once linked at the dev app).
+The Astro landing service (`frontends/web`) holds no app secrets. Its
+deployment knobs are where sign-in hands off, whether PostHog web analytics
+loads (ADR-0100), and the contact form's six variables. One image serves every
+stack — the app host is resolved at request time, never baked into the
+prerendered HTML (a baked host is how prod once linked at the dev app).
+
+On Kubernetes, Pulumi sets the six contact variables only when
+`grid-oib:contactAddress` is set (`deploy/pulumi/src/app/web.ts`):
+`CONTACT_FROM` from that key, `CONTACT_FORWARD_TO` from `contactForwardTo`,
+`CLOUDFLARE_ACCOUNT_ID` from the app zone's account, `CLIENT_IP_TRUSTED_HOPS`
+from `xffNumTrustedHops`, and the two secrets from `contactEmailToken` and
+`contactFormSecret` through the web tier's own Secret `web-contact`, never
+`grid-secrets`. Setup: `docs/deployment/kubernetes.md`
+§3d.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -645,3 +656,9 @@ HTML (a baked host is how prod once linked at the dev app).
 | `PUBLIC_SITE_URL` | No | `https://piloti.at` | Canonical site URL for OG/sitemap metadata, baked at build time (`astro.config.mjs`). Prod default on purpose: dev canonicalizing to prod is harmless — dev should not be indexed anyway. |
 | `PUBLIC_POSTHOG_HOST` | No | _(unset)_ | PostHog ingestion host (e.g. `https://eu.i.posthog.com`) for the landing site's web analytics. Read at request time by `/web-analytics.js`, never baked into the prerendered pages. Unset (or unset token): the script is empty and the browser contacts nobody. On Kubernetes, `grid-oib:posthogHost`. Web service. |
 | `PUBLIC_POSTHOG_PROJECT_TOKEN` | No | _(unset)_ | Public project token (`phc_…`), plain config. Same runtime read and fail-open behaviour as `PUBLIC_POSTHOG_HOST`. On Kubernetes, `grid-oib:posthogProjectToken`. Web service. |
+| `CONTACT_FORM_SECRET` | For the contact form | (unset — form answers 503) | **Secret.** HMAC key for the contact form's signed timestamp (`src/lib/contact.ts`): the form is refused under 3 s or over 24 h after it was handed out, or with a bad signature. Also keys the in-memory rate-limit map, so it never holds a raw IP. Any random string of 32+ bytes (`openssl rand -base64 32`); rotating it only invalidates forms open at that moment. Read at request time. Unset, or any of the three below unset, and `POST /api/kontakt` and `/kontakt/` answer 503 and show `kontakt@piloti.at` instead; the site still renders. |
+| `CLOUDFLARE_ACCOUNT_ID` | For the contact form | (unset — form answers 503) | Cloudflare account that sends the form's mail: `POST https://api.cloudflare.com/client/v4/accounts/{id}/email/sending/send`. The account's `piloti.at` zone must be onboarded for Email Sending (Cloudflare DNS required). |
+| `CLOUDFLARE_EMAIL_TOKEN` | For the contact form | (unset — form answers 503) | **Secret.** Cloudflare API token with permission to send email for that account (Bearer). Scope it to Email Sending only; it is not the Pulumi or DNS token. On Workers Free it reaches only verified destination addresses; on Workers Paid it can send to anyone, as any address on the onboarded domain, so the code's `CONTACT_FORWARD_TO` is then the only limit (`docs/deployment/kubernetes.md` §3c, "Plan"). |
+| `CONTACT_FORWARD_TO` | For the contact form | (unset — form answers 503) | Comma-separated recipients of the form's mail: the founders' mailboxes. Each must be a **verified destination address** in the Cloudflare account (Email Routing), which is what keeps the send free on every plan; an unverified one needs Workers Paid, and is then sent to and counted against the plan's quota. Invalid entries are dropped; none left counts as unset. |
+| `CONTACT_FROM` | No | `kontakt@piloti.at` | Sender of the form's mail (shown as "Piloti Kontaktformular"). Must be on a domain onboarded for Email Sending. The submitter's address goes into `reply_to`, so a founder's reply goes straight to them. |
+| `CLIENT_IP_TRUSTED_HOPS` | No | `0` | How many trusted proxies sit in front of the gateway, the same number as the gateway's `clientIPDetection` (`grid-oib:xffNumTrustedHops`). The contact form's per-IP limit (`src/lib/contact.ts`, `clientIp`) takes the client from `X-Forwarded-For` the way Envoy does, so both count the same visitor. Set by Pulumi with the contact env; anything but a whole number ≥ 0 is 0. |

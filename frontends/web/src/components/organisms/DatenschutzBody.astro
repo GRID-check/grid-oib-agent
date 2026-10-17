@@ -17,18 +17,12 @@ const t = ui[locale].legal
       <h2>{t.datenschutz.controllerHeading}</h2>
       <p>
         {id.members.join(', ')} ({t.impressum.legalForm}), {id.seat[locale]}<br />
-        {t.emailLabel}:{' '}
-        {id.emails.map((e, i) => (
-          <>
-            {i > 0 && ', '}
-            <a href={`mailto:${e}`}>{e}</a>
-          </>
-        ))}
+        {t.emailLabel}: <a href={`mailto:${id.email}`}>{id.email}</a>
       </p>
       {
         t.datenschutz.sections.map((s) => (
           <>
-            <h2>{s.heading}</h2>
+            <h2 id={'id' in s ? s.id : undefined}>{s.heading}</h2>
             <p set:html={s.html} />
           </>
         ))

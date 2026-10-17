@@ -55,6 +55,7 @@ import {
   projectHasCustomOrBinnedFolders,
 } from './folder-access-repository'
 import { heldFolderLevels } from './folder-roles'
+import type { AuthzLookupOptions } from './errors'
 import {
   ANY_MEMBER,
   atLeast,
@@ -110,11 +111,12 @@ export async function seesEveryFolder(session: AuthorizedSession): Promise<boole
 async function folderLevelsIn(
   organizationId: string,
   organizationMembershipId: string | null,
-  projectId: string
+  projectId: string,
+  options: AuthzLookupOptions = {}
 ): Promise<FolderClearance['levels']> {
   if (!organizationMembershipId) return {}
   if (!(await projectHasCustomFolders(organizationId, projectId))) return {}
-  return heldFolderLevels(organizationId, organizationMembershipId, projectId)
+  return heldFolderLevels(organizationId, organizationMembershipId, projectId, options)
 }
 
 /**
@@ -127,13 +129,25 @@ async function folderLevelsIn(
  * the folders open to everyone, and no folder with its own list. Closing a
  * project opens it to the office, not its restricted folders. Hence the project
  * in the signature: a clearance is always a clearance in some project.
+ *
+ * `{ onError: 'throw' }` raises `TransientAuthzError` for a WorkOS lookup that
+ * did not complete, instead of clearing nothing (see `./errors`).
  */
-export async function clearanceOf(session: AuthorizedSession, projectId: string): Promise<FolderClearance> {
+export async function clearanceOf(
+  session: AuthorizedSession,
+  projectId: string,
+  options: AuthzLookupOptions = {}
+): Promise<FolderClearance> {
   if (await seesEveryFolder(session)) return EVERY_FOLDER
-  const outsider = await readsOnlyBecauseClosed(session.organizationId, projectId, session.organizationMembershipId)
+  const outsider = await readsOnlyBecauseClosed(
+    session.organizationId,
+    projectId,
+    session.organizationMembershipId,
+    options
+  )
   if (outsider) return ANY_MEMBER
   return {
-    levels: await folderLevelsIn(session.organizationId, session.organizationMembershipId, projectId),
+    levels: await folderLevelsIn(session.organizationId, session.organizationMembershipId, projectId, options),
     seesEverything: false,
   }
 }
@@ -147,18 +161,22 @@ export async function clearanceOf(session: AuthorizedSession, projectId: string)
 async function readsOnlyBecauseClosed(
   organizationId: string,
   projectId: string,
-  organizationMembershipId: string | null
+  organizationMembershipId: string | null,
+  options: AuthzLookupOptions = {}
 ): Promise<boolean> {
   const project = await findProjectTenancy(projectId)
   if (!isProjectClosed(project)) return false
   if (!organizationMembershipId) return true
-  const member = await checkResourcePermission({
-    organizationMembershipId,
-    organizationId,
-    permissionSlug: 'project:view',
-    resourceExternalId: projectId,
-    resourceTypeSlug: 'project',
-  })
+  const member = await checkResourcePermission(
+    {
+      organizationMembershipId,
+      organizationId,
+      permissionSlug: 'project:view',
+      resourceExternalId: projectId,
+      resourceTypeSlug: 'project',
+    },
+    { onError: options.onError }
+  )
   return !member
 }
 
@@ -280,17 +298,24 @@ export async function projectMayWriteDocuments(session: AuthorizedSession, proje
  * without it: the ceiling), then each folder: one the session may not read is
  * not found, one it may only read is refused with a typed 403
  * (`details.reason` {@link FOLDER_READ_ONLY_REASON}).
+ *
+ * `{ onError: 'throw' }` raises `TransientAuthzError` for a WorkOS lookup that
+ * did not complete, where the default reads it as "no access": for an
+ * unattended caller, a blip must be a retry, not a refusal.
  */
 export async function requireFolderWrite(
   session: AuthorizedSession,
   projectId: string,
-  folderIds: readonly (string | null)[]
+  folderIds: readonly (string | null)[],
+  options: AuthzLookupOptions = {}
 ): Promise<void> {
-  await requireProjectAccess(session, projectId, DOCUMENT_WRITE_PERMISSIONS)
+  await requireProjectAccess(session, projectId, DOCUMENT_WRITE_PERMISSIONS, { onError: options.onError })
   const touched = [...new Set(folderIds)].filter((folderId): folderId is string => folderId !== null)
   if (touched.length === 0) return
   const folders = await loadCustomFolderTree(session.organizationId, projectId)
-  const access = folders ? computeFolderAccess(folders, await clearanceOf(session, projectId), '') : OPEN_ACCESS('')
+  const access = folders
+    ? computeFolderAccess(folders, await clearanceOf(session, projectId, options), '')
+    : OPEN_ACCESS('')
   for (const folderId of touched) {
     if (!access.isVisible(folderId)) throw new NotFoundError('Folder not found')
   }

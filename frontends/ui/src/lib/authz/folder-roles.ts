@@ -25,6 +25,7 @@ import { getCached, setCached } from '@/lib/cache'
 import { getWorkOS } from '@/lib/workos/client'
 import { timedWorkOSCall } from '@/lib/workos/instrumentation'
 import { authzCacheTtlMs } from './resource-check'
+import { TransientAuthzError, type AuthzLookupOptions } from './errors'
 import { FOLDER_PERMISSIONS } from './permissions'
 import type { FolderGrantLevel } from './folder-access-rule'
 
@@ -97,11 +98,14 @@ async function folderIdsWith(
  * `GRID_AUTHZ_CACHE_TTL_MS` like every other FGA answer, under the project's
  * current generation, which every change of a list in the project replaces.
  * Fails closed: a lookup that did not complete holds nothing, and is not cached.
+ * With `{ onError: 'throw' }` it raises {@link TransientAuthzError} instead, for
+ * an unattended caller that retries (the project mail inbox).
  */
 export async function heldFolderLevels(
   organizationId: string,
   organizationMembershipId: string,
-  projectId: string
+  projectId: string,
+  options: AuthzLookupOptions = {}
 ): Promise<Record<string, FolderGrantLevel>> {
   const load = async (): Promise<Record<string, FolderGrantLevel>> => {
     const [readable, writable] = await Promise.all([
@@ -123,6 +127,7 @@ export async function heldFolderLevels(
       load
     )
   } catch (error) {
+    if (options.onError === 'throw') throw new TransientAuthzError('folder-roles', { cause: error })
     console.warn(`[authz] folder roles of ${organizationMembershipId} in project ${projectId} could not be read:`, error)
     return {}
   }

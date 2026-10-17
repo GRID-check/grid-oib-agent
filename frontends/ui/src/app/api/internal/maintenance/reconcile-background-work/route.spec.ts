@@ -13,6 +13,8 @@ const recoverStuckFilings = vi.fn()
 vi.mock('@/lib/tasks/filing-sweep', () => ({ recoverStuckFilings: () => recoverStuckFilings() }))
 const sweepStaleMailImports = vi.fn()
 vi.mock('@/lib/mail-import/job', () => ({ sweepStaleMailImports: () => sweepStaleMailImports() }))
+const sweepInboundMail = vi.fn()
+vi.mock('@/lib/inbound-mail/job', () => ({ sweepInboundMail: () => sweepInboundMail() }))
 
 import { POST } from './route'
 
@@ -29,6 +31,7 @@ const post = (token?: string) =>
 const DOCUMENTS = { checked: 2, requeued: 1, failed: 1, gone: 0, errors: 0 }
 const FILINGS = { checked: 1, filed: 0, failed: 1, waiting: 0, errors: 0 }
 const MAIL_IMPORTS = { checked: 1, aborted: 0, requeued: 1, failed: 0, waiting: 0, errors: 0 }
+const INBOUND_MAIL = { requeued: 1, waiting: 2, failed: 0, stagingExpired: 0, deleted: 3, errors: 0 }
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -41,11 +44,17 @@ describe('POST /api/internal/maintenance/reconcile-background-work', () => {
     recoverStuckProcessing.mockResolvedValueOnce(DOCUMENTS)
     recoverStuckFilings.mockResolvedValueOnce(FILINGS)
     sweepStaleMailImports.mockResolvedValueOnce(MAIL_IMPORTS)
+    sweepInboundMail.mockResolvedValueOnce(INBOUND_MAIL)
 
     const response = await post(TOKEN)
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ documents: DOCUMENTS, filings: FILINGS, mailImports: MAIL_IMPORTS })
+    expect(await response.json()).toEqual({
+      documents: DOCUMENTS,
+      filings: FILINGS,
+      mailImports: MAIL_IMPORTS,
+      inboundMail: INBOUND_MAIL,
+    })
   })
 
   it('still runs the other parts when one throws, then answers with the failure', async () => {
@@ -54,11 +63,13 @@ describe('POST /api/internal/maintenance/reconcile-background-work', () => {
     recoverStuckProcessing.mockRejectedValueOnce(new Error('database gone'))
     recoverStuckFilings.mockResolvedValueOnce(FILINGS)
     sweepStaleMailImports.mockResolvedValueOnce(MAIL_IMPORTS)
+    sweepInboundMail.mockResolvedValueOnce(INBOUND_MAIL)
 
     const response = await post(TOKEN)
 
     expect(recoverStuckFilings).toHaveBeenCalledTimes(1)
     expect(sweepStaleMailImports).toHaveBeenCalledTimes(1)
+    expect(sweepInboundMail).toHaveBeenCalledTimes(1)
     expect(response.status).toBeGreaterThanOrEqual(500)
   })
 
@@ -69,5 +80,6 @@ describe('POST /api/internal/maintenance/reconcile-background-work', () => {
     expect((await post()).status).toBe(403)
     expect(recoverStuckProcessing).not.toHaveBeenCalled()
     expect(recoverStuckFilings).not.toHaveBeenCalled()
+    expect(sweepInboundMail).not.toHaveBeenCalled()
   })
 })

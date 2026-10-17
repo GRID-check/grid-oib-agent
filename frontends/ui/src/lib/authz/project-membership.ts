@@ -21,6 +21,8 @@ import 'server-only'
 import { getCached } from '@/lib/cache'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { getWorkOS } from '@/lib/workos/client'
+import { rolesOfMembership } from '@/lib/auth/membership-roles'
+import { TransientAuthzError, type AuthzLookupOptions } from './errors'
 import { orgRoleHoldsPermission } from './org-role-permissions'
 import { ORG_PERMISSIONS, type ProjectPermission } from './permissions'
 import { findProjectTenancy } from '@/lib/projects/repository'
@@ -34,6 +36,11 @@ interface SubjectMembership {
   organizationMembershipId: string
   /** WorkOS role slug for this membership (e.g. `admin`, `member`). */
   role: string | null
+  /**
+   * Every role the membership holds (WorkOS "multiple roles"), the primary one
+   * included; `[role]` without them. A session's permissions are the union.
+   */
+  roles: string[]
 }
 
 /**
@@ -54,12 +61,16 @@ export async function lookupSubjectMembership(
   userId: string
 ): Promise<SubjectMembership | null> {
   return getCached(
-    `membership-role:${organizationId}:${userId}`,
+    // Not `membership-role:`, which cached the shape without `roles`.
+    `subject-membership:${organizationId}:${userId}`,
     MEMBERSHIP_TTL_MS,
     async () => {
       const memberships = await getWorkOS().userManagement.listOrganizationMemberships({
         userId,
         organizationId,
+        // A deactivated (SCIM-deprovisioned) or pending membership holds no
+        // role an access decision may use: AuthKit would not sign it in either.
+        statuses: ['active'],
         limit: 1,
       })
       const membership = memberships.data[0]
@@ -67,6 +78,7 @@ export async function lookupSubjectMembership(
       return {
         organizationMembershipId: membership.id,
         role: membership.role?.slug ?? null,
+        roles: rolesOfMembership(membership),
       } satisfies SubjectMembership
     },
     { negativeTtlMs: MEMBERSHIP_NEGATIVE_TTL_MS }
@@ -81,14 +93,22 @@ export async function lookupSubjectMembership(
  * The failure is caught outside `getCached`, so it is never stored. Caught
  * inside the loader, a single failed lookup was stored as "not a member", and
  * the colleague vanished from every picker for the negative TTL.
+ *
+ * An unattended caller that can retry passes `{ onError: 'throw' }` and gets a
+ * {@link TransientAuthzError} instead, so a WorkOS blip is never read as a
+ * definite "no".
  */
 export async function resolveSubjectMembership(
   organizationId: string,
-  userId: string
+  userId: string,
+  options: AuthzLookupOptions = {}
 ): Promise<SubjectMembership | null> {
   try {
     return await lookupSubjectMembership(organizationId, userId)
   } catch (error) {
+    if (options.onError === 'throw') {
+      throw new TransientAuthzError('membership', { cause: error })
+    }
     // Fail closed, and uncached: an unanswered lookup is not a membership.
     console.warn(`[project-membership] lookup failed for ${userId}:`, error)
     return null

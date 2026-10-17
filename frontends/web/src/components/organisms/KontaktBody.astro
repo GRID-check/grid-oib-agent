@@ -1,0 +1,29 @@
+---
+/**
+ * `/kontakt/`: the contact form on a page of its own, rendered per request.
+ * It is where the form lands for a browser without script (see ContactForm),
+ * so it says only what the form needs: the heading, one line, the form.
+ */
+import PageHead from '../molecules/PageHead.astro'
+import ContactForm from '../molecules/ContactForm.astro'
+import { PLATES } from '../craft/plates'
+import { ui, type Locale } from '../../i18n/ui'
+import { getLocalizedPath } from '../../i18n/utils'
+import type { ContactPageState } from '../../lib/contact-page'
+
+interface Props {
+  locale: Locale
+  form: ContactPageState['form']
+}
+const { locale, form } = Astro.props
+const t = ui[locale].contact
+---
+
+<section class="frame pb-20 pt-28 sm:pb-28 md:pt-36">
+  <PageHead title={t.pageHeading} locale={locale} plate={PLATES.VIII}>
+    <p class="m-0">{t.pageLede}</p>
+  </PageHead>
+  <div class="mt-10">
+    <ContactForm locale={locale} page={getLocalizedPath('/kontakt/', locale)} {...form} />
+  </div>
+</section>

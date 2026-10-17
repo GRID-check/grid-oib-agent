@@ -172,6 +172,7 @@ describe('onDocumentsSettled', () => {
     vi.mocked(resolveSubjectMembership).mockImplementation(async (_org, userId) => ({
       organizationMembershipId: `om-${userId}`,
       role: userId === 'admin' ? 'admin' : 'member',
+      roles: [userId === 'admin' ? 'admin' : 'member'],
     }))
     vi.mocked(orgRoleHoldsPermission).mockImplementation(async (role) => role === 'admin')
     vi.mocked(userHoldsProjectPermission).mockImplementation(async (_s, _p, userId) => userId === 'lead')
@@ -203,6 +204,7 @@ describe('onDocumentsSettled', () => {
     vi.mocked(resolveSubjectMembership).mockImplementation(async (_org, userId) => ({
       organizationMembershipId: `om-${userId}`,
       role: 'member',
+      roles: ['member'],
     }))
     vi.mocked(orgRoleHoldsPermission).mockResolvedValue(false)
     vi.mocked(userHoldsProjectPermission).mockResolvedValue(true)

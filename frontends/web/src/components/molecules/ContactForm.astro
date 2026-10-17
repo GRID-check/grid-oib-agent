@@ -1,0 +1,191 @@
+---
+/**
+ * The contact form: name, email, office, message, sent to the founders'
+ * mailboxes (`lib/contact.ts`). Nothing is stored on the site.
+ *
+ * Without script it is a plain POST to `/kontakt/`, a server-rendered page
+ * that checks, sends and redirects (303) to itself with `?gesendet`, or
+ * renders the form again with what was entered and what went wrong. With
+ * script (`scripts/contact-form.ts`) it fetches its signed timestamp from
+ * `/api/kontakt`, posts there, and says the outcome in place.
+ *
+ * On the landing page it is prerendered, so `token` is empty until the script
+ * fills it; `/kontakt/` renders a fresh one. A failed send always shows the
+ * address, so the message has a way out.
+ */
+import Pill from '../atoms/Pill.astro'
+import { CONTACT_EMAIL, mailtoHref } from '../../consts'
+import { ui, type Locale } from '../../i18n/ui'
+import { useTranslatedPath } from '../../i18n/utils'
+import { LIMITS, type FieldError, type FieldName, type Values } from '../../lib/contact.ts'
+import { splitEmail, type ContactStatus } from '../../lib/contact-status.ts'
+
+interface Props {
+  locale: Locale
+  /** The path the form sits on, sent along so the mail says where it came from. */
+  page: string
+  token?: string
+  values?: Partial<Values>
+  fields?: Partial<Record<FieldName, FieldError>>
+  status?: ContactStatus
+}
+const { locale, page, token = '', values = {}, fields = {}, status } = Astro.props
+const t = ui[locale].contact
+const cta = ui[locale].cta
+const translatePath = useTranslatedPath(locale)
+const privacy = t.privacy.split('{link}')
+const statusText = status ? splitEmail(t.status[status]) : undefined
+const alternative = splitEmail(t.alternative)
+const pilotMail = mailtoHref(cta.subjectPilot, cta.bodyPilot)
+
+const errorText = (name: FieldName) => {
+  const kind = fields[name]
+  return kind ? t.errors[kind].replace('{max}', String(LIMITS[name])) : ''
+}
+const described = (name: FieldName, extra = '') =>
+  [extra, `kontakt-${name}-error`].filter(Boolean).join(' ')
+
+const inputClass =
+  'mt-2 block w-full min-w-0 rounded-lg border border-ink/25 bg-paper px-3.5 py-3 text-base text-ink transition-colors hover:border-ink/40 focus:border-accent-600 aria-[invalid=true]:border-error'
+const labelClass = 'block text-sm font-semibold text-ink'
+const errorClass = 'm-0 mt-1.5 text-sm text-error'
+
+const messages = {
+  endpoint: '/api/kontakt',
+  email: CONTACT_EMAIL,
+  sending: t.sending,
+  submit: t.submit,
+  errors: t.errors,
+  status: t.status,
+}
+---
+
+<form
+  method="post"
+  action={translatePath('/kontakt/')}
+  aria-label={t.label}
+  data-contact={JSON.stringify(messages)}
+  class="grid max-w-xl gap-5 sm:grid-cols-2"
+>
+  <input type="hidden" name="token" value={token} />
+  <input type="hidden" name="locale" value={locale} />
+  <input type="hidden" name="page" value={page} />
+
+  <!-- The honeypot: off screen and out of the tab order, so a person never
+       fills it, while a bot that fills every field does. -->
+  <div aria-hidden="true" class="absolute -left-[9999px] h-px w-px overflow-hidden">
+    <label>
+      {t.honeypot}
+      <input type="text" name="website" tabindex="-1" autocomplete="off" />
+    </label>
+  </div>
+
+  <div>
+    <label for="kontakt-name" class={labelClass}>{t.name}</label>
+    <input
+      id="kontakt-name"
+      name="name"
+      type="text"
+      required
+      maxlength={LIMITS.name}
+      autocomplete="name"
+      value={values.name}
+      aria-invalid={fields.name ? 'true' : undefined}
+      aria-describedby={described('name')}
+      class={inputClass}
+    />
+    <p id="kontakt-name-error" class={errorClass} hidden={!fields.name}>{errorText('name')}</p>
+  </div>
+
+  <div>
+    <label for="kontakt-email" class={labelClass}>{t.email}</label>
+    <input
+      id="kontakt-email"
+      name="email"
+      type="email"
+      required
+      maxlength={LIMITS.email}
+      autocomplete="email"
+      spellcheck="false"
+      value={values.email}
+      aria-invalid={fields.email ? 'true' : undefined}
+      aria-describedby={described('email')}
+      class={inputClass}
+    />
+    <p id="kontakt-email-error" class={errorClass} hidden={!fields.email}>{errorText('email')}</p>
+  </div>
+
+  <div class="sm:col-span-2">
+    <label for="kontakt-office" class={labelClass}>
+      {t.office} <span class="font-normal text-ink-mute">({t.optional})</span>
+    </label>
+    <input
+      id="kontakt-office"
+      name="office"
+      type="text"
+      maxlength={LIMITS.office}
+      autocomplete="organization"
+      value={values.office}
+      aria-invalid={fields.office ? 'true' : undefined}
+      aria-describedby={described('office')}
+      class={inputClass}
+    />
+    <p id="kontakt-office-error" class={errorClass} hidden={!fields.office}>{errorText('office')}</p>
+  </div>
+
+  <div class="sm:col-span-2">
+    <label for="kontakt-message" class={labelClass}>{t.message}</label>
+    <p id="kontakt-message-hint" class="m-0 mt-1 text-sm leading-relaxed text-ink-mute">{t.messageHint}</p>
+    <textarea
+      id="kontakt-message"
+      name="message"
+      required
+      rows="6"
+      maxlength={LIMITS.message}
+      aria-invalid={fields.message ? 'true' : undefined}
+      aria-describedby={described('message', 'kontakt-message-hint')}
+      class={`${inputClass} resize-y leading-relaxed`}>{values.message}</textarea
+    >
+    <p id="kontakt-message-error" class={errorClass} hidden={!fields.message}>{errorText('message')}</p>
+  </div>
+
+  <div class="sm:col-span-2">
+    <Pill type="submit" variant="solid" size="lg" class="max-sm:w-full">{t.submit}</Pill>
+
+    <!-- One live region for every outcome. The script moves focus here, or to
+         the first field that needs attention. -->
+    <p
+      data-status={status}
+      role="status"
+      aria-live="polite"
+      tabindex="-1"
+      class="m-0 mt-5 max-w-xl text-base leading-relaxed text-error outline-none empty:hidden data-[status=sent]:font-semibold data-[status=sent]:text-ink"
+    >{
+      statusText && (
+        <>
+          {statusText[0]}
+          {statusText.length > 1 && (
+            <>
+              <a class="font-semibold underline underline-offset-2" href={mailtoHref()}>{CONTACT_EMAIL}</a>
+              {statusText[1]}
+            </>
+          )}
+        </>
+      )
+    }</p>
+
+    <p class="m-0 mt-5 max-w-xl text-sm leading-relaxed text-ink-mute">
+      {privacy[0]}<a class="underline underline-offset-2" href={`${translatePath('/datenschutz/')}#kontakt`}
+        >{t.privacyLink}</a
+      >{privacy[1]}
+    </p>
+    <p class="m-0 mt-2 max-w-xl text-sm leading-relaxed text-ink-mute">
+      {alternative[0]}<a class="font-medium text-ink underline underline-offset-2" href={pilotMail}>{CONTACT_EMAIL}</a
+      >{alternative[1]}
+    </p>
+  </div>
+</form>
+
+<script>
+  import '../../scripts/contact-form'
+</script>

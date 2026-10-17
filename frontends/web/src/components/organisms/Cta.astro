@@ -1,15 +1,16 @@
 ---
-import Pill from '../atoms/Pill.astro'
+import ContactForm from '../molecules/ContactForm.astro'
 import PagePrint from '../craft/PagePrint.astro'
 import { PLATES } from '../craft/plates'
-import { mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
+import { useTranslatedPath } from '../../i18n/utils'
 
 interface Props {
   locale?: Locale
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
+const home = useTranslatedPath(locale)('/')
 ---
 
 <section
@@ -49,16 +50,10 @@ const t = ui[locale]
       }
     </ol>
 
-    <div
-      data-reveal
-      class="mt-9 flex w-full max-w-3xl flex-col gap-3 sm:mt-11 sm:flex-row sm:gap-3.5"
-    >
-      <Pill href={mailtoHref(t.cta.subjectPilot, t.cta.bodyPilot)} variant="solid" size="lg" class="max-sm:w-full">
-        {t.cta.primary}
-      </Pill>
-      <Pill href={mailtoHref(t.cta.subjectCall, t.cta.bodyCall)} variant="outline-dark" size="lg" class="max-sm:w-full">
-        {t.cta.secondary}
-      </Pill>
+    <!-- The first step, taken here: the form sends the question, and the
+         address under it takes one with documents attached. -->
+    <div class="mt-10 sm:mt-12">
+      <ContactForm locale={locale} page={`${home}#kontakt`} />
     </div>
   </div>
 
