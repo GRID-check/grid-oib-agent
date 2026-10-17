@@ -163,7 +163,7 @@ all three (the Frontend, Backend and packages jobs), so a PR cannot merge withou
 out of `verify` because each needs something a per-commit gate should not pay
 for — PostgreSQL server binaries, and four minutes of IfcOpenShell.
 
-## Two rules that span services
+## Rules that span services
 
 **One coarse `SourceKind` drives all rendering** (`baurecht | buero | projekt |
 web`), defined in `src/aiq_agent/common/source_kinds.py`, mirrored in
@@ -180,10 +180,19 @@ unread? Then it is correlated.
 [`docs/architecture/adding-a-shareable-resource-type.md`](docs/architecture/adding-a-shareable-resource-type.md)
 holds the register.
 
-**A workspace primitive is one HTTP API with a typed client** (ADR-0055). The
-UI, the agent's tools, tasks and any later integration are equal clients of it;
-no service function is reached from a second path, and no contract is written
-twice. [`docs/adr/0055-api-first-workspace-primitives.md`](docs/adr/0055-api-first-workspace-primitives.md).
+**API first: Piloti has no private API** (ADR-0113, widening ADR-0055). We are
+building toward Genesys Cloud's shape, where the product's own UI uses the
+public API for everything. Every capability you add or rewrite is an HTTP
+operation before it is a screen or a tool, even with the UI as its only client
+today: zod contract, then the route with its `authz`, then the typed client,
+then the UI, the agent tool or the task, all equal clients of it. One service
+function, one path to it, one contract; the agent acts as a person through the
+signed envelope and the same route rules. Resource paths named in the domain's
+words, one permission catalog, one error body, additive contract changes,
+events instead of polling. The test before you start: could the agent or an
+outside system do this tomorrow with only an HTTP client and a person's rights?
+The order of work and the review checklist:
+[`docs/contributing/api-first.md`](docs/contributing/api-first.md).
 
 ## Scope
 

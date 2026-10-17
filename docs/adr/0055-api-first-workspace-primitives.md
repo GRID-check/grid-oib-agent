@@ -132,6 +132,8 @@ review reads.
 
 ## More Information
 
+- **Widened by [ADR-0113](0113-piloti-has-no-private-api.md)**: the rule now
+  binds every capability added or rewritten, not only one with two consumers.
 - The first primitive built this way: [ADR-0054](0054-document-versions-and-the-publish-door.md).
 - The client: `frontends/ui/src/lib/documents/lifecycle-client.ts`.
 - The design of record, §7:
