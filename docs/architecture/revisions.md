@@ -175,7 +175,14 @@ is written when the summary model is off (then without a change line) and when n
 summary could be made (the new file's row comes later, from the listing's
 reconciliation backfill, and the link counts from then). An older file the
 collection no longer holds, or a link that would close a loop, falls back to the
-ordinary suggestion.
+ordinary suggestion. A file the screening holds (ADR-0086) is
+never read that far; the dispatch keeps the choice on the BFF row
+(`documents.metadata.filingChoice`, `lib/documents/filing-choice.ts`) and the
+reviewer's release sends it again, for the same bytes only. The choice is kept as
+the older document's id, and the release checks it again
+(`resolveReleasedRevisionOf`: active, past screening, same shelf and collection)
+and sends the older file's name as it is then; a choice that no longer resolves
+is dropped, since the release can come days later.
 
 **After reading.** `PUT /api/documents/[id]/revision` takes `{ older, linked }`.
 `setRevisionLink` loads both documents with write access and refuses a held
@@ -352,6 +359,33 @@ name, each labelled as what it is.
   several, or on another document): `openMarks`, `marksRevision` and the
   `variant` that picks the words (`openMarksFacts`). Each is carried on in the
   Prüfansicht ([`document-annotations.md`](document-annotations.md#a-mark-goes-on-with-a-new-fassung)).
+- **Who, for a quiet upload.** The upload batch that brought the newer
+  document can narrow that to the mark participants alone
+  (`upload_batches.revision_notice = 'marks_only'`, migration 0185):
+  `announceSettledVersions` looks up the batch each settled document carries
+  (`findMarksOnlyBatchIds`) and passes `audience: 'marks_only'`, which drops the
+  assignees and uploaders before the access cut. The next Fassung of an
+  E-Mail-Verlauf is news to nobody else, but a mark it leaves behind must not be
+  orphaned silently. With no open mark nobody is told, and the Fassung is still
+  claimed, so a later re-read does not announce it to everyone. A batch opened
+  by the browser or an agent is always `all`: only a server-side caller sets
+  the column. The `upload` transition's own announcement (`lifecycle.ts`)
+  carries no audience; for a person's upload it says nothing, because the new
+  bytes are held until screened, and the settle hook is the one that tells.
+  Piloti's notice of a cross-name Fassung is not people being told and does
+  not read the column. The document check (ADR-0130) reads its own,
+  `runs_document_check`: off, no document of the batch is checked, so a
+  conversation's next Fassung buys no model call, while a mail's attachments
+  keep the check a filed drawing is worth.
+
+  | Upload batch | `upload.completed` | Filing reviews | Intake reading | `document.new_revision` | Document check |
+  |---|---|---|---|---|---|
+  | A person's upload (default) | yes | yes | yes | `all` | yes, where the office has it on |
+  | `announces_completion` off | no | | | | |
+  | `reviews_filing` off | | no | | | |
+  | `starts_intake` off | | | no | | |
+  | `revision_notice = 'marks_only'` | | | | mark participants only | |
+  | `runs_document_check` off | | | | | no |
 - **What.** The first line of the change summary, at most 200 characters, and
   only when the summary was written against the older document of THIS
   notification (its basis). A summary against the earlier upload under the

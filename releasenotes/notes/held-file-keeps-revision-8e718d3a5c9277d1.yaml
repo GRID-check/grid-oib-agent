@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    A file you filed as the new version of another, and that the content
+    check held for review, is now linked to that older version once a reviewer
+    releases it, instead of arriving on its own.
+    If the older version has been archived or removed by then, the released
+    file arrives on its own; if it was renamed, the link still finds it.

@@ -252,6 +252,21 @@ describe("the program constructs in the split topology", () => {
     expect(STACK.geocoderUrl).toBeDefined();
   });
 
+  it("leaves the malware scanner off by default, and the frontend without its URL (ADR-0133)", () => {
+    // Prepared, not switched on: a stack opts in with `malwareScanEnabled`.
+    // Off, `npm run preview` shows no change, and the BFF fails every scan
+    // closed (`not-configured`).
+    expect(named("kubernetes:apps/v1:Deployment")).not.toContain("clamav");
+    expect(named("kubernetes:core/v1:ConfigMap")).not.toContain("clamav-config");
+    expect(named("kubernetes:networking.k8s.io/v1:NetworkPolicy")).not.toContain("clamav-bff-only");
+    for (const name of ["frontend", "bff-jobs"]) {
+      const deployment = RESOURCES.find((r) => r.type === "kubernetes:apps/v1:Deployment" && r.name === name);
+      const env = deployment?.inputs.spec?.template?.spec.containers[0].env ?? [];
+      expect(env.length, name).toBeGreaterThan(0);
+      expect(env.map((e) => e.name), name).not.toContain("GRID_MALWARE_SCAN_URL");
+    }
+  });
+
   /** A workload's pod template, read with the fields the sizing cases need. */
   type SizedPod = {
     metadata: { labels: Record<string, string> };

@@ -1,15 +1,17 @@
 /**
  * @vitest-environment node
  */
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/auth/require-auth', () => ({
   requireAuthorizedSession: vi.fn(),
 }))
 vi.mock('server-only', () => ({}))
 
-import { errorResponse } from './handler'
+import { errorResponse, internalApiRoute, SIGNED_INTERNAL_PREFIX } from './handler'
+import { readBoundedBody } from './bounded-body'
 import { NotFoundError, UpstreamError } from './errors'
+import { signedRequest, TEST_KEY_ID, TEST_SIGNING_SECRET, type SignedRequestOptions } from '@/test-utils/signed-request'
 
 describe('errorResponse', () => {
   it('turns a postgres invalid-uuid failure into a 404, not a 500 (#572)', () => {
@@ -163,5 +165,113 @@ describe('errorResponse', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+})
+
+/**
+ * The signed-route contract end to end, through the factory: a route under
+ * `/api/internal/signed/` whose requests are signed by the maintained library
+ * (the oracle), and whose handler reads the body held to what the signature
+ * vouches for. This is the shape the inbound-mail webhook takes.
+ */
+describe('internalApiRoute with a signature', () => {
+  const NOW = new Date('2026-10-22T12:00:00Z')
+  const URL_SIGNED = `https://app.piloti.test${SIGNED_INTERNAL_PREFIX}probe`
+  const BODY = 'From: statik@example.test\r\n\r\nPlan anbei'
+  const ENVELOPE = { 'x-envelope-to': 'p.abc@piloti.test' }
+
+  const POST = internalApiRoute(
+    'Signed probe',
+    async ({ request, signature }) => {
+      const body = await readBoundedBody(request, {
+        expectedLength: signature.contentLength,
+        maxBytes: 1024,
+        contentDigest: signature.contentDigest,
+      })
+      return { keyId: signature.keyId, bytes: body.byteLength }
+    },
+    {
+      auth: { signature: { keysEnv: 'GRID_INBOUND_MAIL_SIGNING_KEYS', components: ['x-envelope-to'] } },
+      tenancy: { fromPayload: 'the probe touches no tenant data' },
+    },
+  )
+
+  const sign = (overrides: Partial<SignedRequestOptions> = {}) =>
+    signedRequest({ url: URL_SIGNED, body: BODY, created: NOW, headers: ENVELOPE, ...overrides })
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: NOW, toFake: ['Date'] })
+    vi.stubEnv('GRID_INBOUND_MAIL_SIGNING_KEYS', JSON.stringify({ [TEST_KEY_ID]: TEST_SIGNING_SECRET }))
+    vi.stubEnv('WORKOS_REDIRECT_URI', '')
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  it('runs the handler for a request the library signed, with the signature in its context', async () => {
+    const response = await POST(await sign())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ keyId: TEST_KEY_ID, bytes: Buffer.byteLength(BODY) })
+  })
+
+  it.each([
+    ['an expired signature', { created: new Date(NOW.getTime() - 600_000) }, 'expired'],
+    ['a keyid the key map does not hold', { keyId: 'unknown-2026-01' }, 'unknown-key'],
+    ['a signature by another secret', { secret: Buffer.alloc(32, 1).toString('base64') }, 'bad-signature'],
+  ] as const)('answers %s with 401 and never runs the handler', async (_, overrides, reason) => {
+    const handler = vi.fn()
+    const route = internalApiRoute('Signed probe', handler, {
+      auth: { signature: { keysEnv: 'GRID_INBOUND_MAIL_SIGNING_KEYS' } },
+      tenancy: { fromPayload: 'none' },
+    })
+
+    const response = await route(await sign(overrides))
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ code: 'UNAUTHORIZED', details: { reason } })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('answers a body that does not match the signed digest with 401 bad-digest', async () => {
+    const tampered = BODY.replace('Plan', 'Plon')
+    const response = await POST(await sign({ sentBody: tampered }))
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ details: { reason: 'bad-digest' } })
+  })
+
+  it('answers a body shorter than the signed length with 503 body-truncated, for the sender to retry', async () => {
+    const response = await POST(await sign({ sentBody: BODY.slice(0, 12) }))
+
+    expect(response.status).toBe(503)
+    expect(await response.json()).toMatchObject({ details: { reason: 'body-truncated' } })
+  })
+
+  it('refuses to serve a signed route declared outside the signed prefix', async () => {
+    const response = await POST(await sign({ url: 'https://app.piloti.test/api/internal/probe' }))
+
+    expect(response.status).toBe(500)
+  })
+
+  it('answers 503 when the key map is not configured', async () => {
+    vi.stubEnv('GRID_INBOUND_MAIL_SIGNING_KEYS', '')
+    expect((await POST(await sign())).status).toBe(503)
+  })
+
+  it('leaves token-guarded routes as they were: no token, 403', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'a-real-token')
+    const handler = vi.fn()
+    const route = internalApiRoute('Token probe', handler, { tenancy: { fromPayload: 'none' } })
+
+    const response = await route(await sign())
+
+    expect(response.status).toBe(403)
+    expect(handler).not.toHaveBeenCalled()
   })
 })

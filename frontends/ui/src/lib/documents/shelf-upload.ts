@@ -57,6 +57,7 @@ import type { IngestPriority } from './service'
 import { requireShelfWrite } from './shelf-authz'
 import { shelfCollectionName } from './shelf-collection'
 import type { DispatchDocumentResult } from './service'
+import type { DocumentTypeTag } from './tag-vocabulary'
 
 /** What an upload names besides the file, on either shelf. */
 export interface ShelfUploadInput {
@@ -90,6 +91,27 @@ export interface ShelfUploadInput {
    * behalf, the mail import (ADR-0085), says `bulk` so it yields to them.
    */
   priority?: IngestPriority
+  /**
+   * What the file is, when the one filing it said so: a document-type tag of
+   * the controlled vocabulary (`./tag-vocabulary`). Sent to the ingest job as
+   * `document_type`, which stores it as the PERSON's type tag, so neither that
+   * read nor a later one lets the classifier replace it; a person's later edit
+   * in the tag editor still does. Absent leaves the type to the classifier,
+   * as for every upload before this field existed.
+   *
+   * Not the tag editor's `PATCH` after the fact: that needs the metadata row
+   * the ingest job writes, and anything set before the job ran would be
+   * overwritten by its own classification.
+   *
+   * Travels with THIS dispatch, and is stored once that read writes the
+   * document's metadata row; from then on it holds across every later read.
+   * A file the screening holds (ADR-0086) is never stored by that read, so the
+   * dispatch also records the choice on the BFF row and the reviewer's release
+   * sends it again (`./filing-choice`). The same bytes already filed
+   * (`unchanged`) dispatch nothing and never store it.
+   * `docs/technical-reference/document-ingestion.md`.
+   */
+  documentType?: DocumentTypeTag
 }
 
 export interface UploadDocumentResult {
@@ -193,6 +215,8 @@ interface PlaceUploadInput {
   uploadBatchId: string | null
   /** The file name of the older document this is filed as the next Fassung of, checked; null for none. */
   revisionOf: string | null
+  /** The older document's id that name was checked for; null with it. */
+  revisionOfId: string | null
   /** Why the reader's Fassung choice was dropped, when it was. */
   revisionOfIgnored: RevisionOfIgnoredReason | null
   /** Whether the session may write into a folder of this shelf (a superseded document's). */
@@ -441,6 +465,8 @@ async function prepareUpload(
     storageBucket,
     uploadBatchId,
     revisionOf: revision.revisionOf,
+    // The id the name was checked for: what a release of a held upload re-resolves.
+    revisionOfId: revision.revisionOf ? (input.revisionOf ?? null) : null,
     revisionOfIgnored: revision.ignored,
     mayWriteFolder: gate.mayWriteFolder,
     screeningOverridden: nameGate.overridden,
@@ -550,6 +576,8 @@ export async function uploadToShelf(
     folderPath,
     priority: input.priority,
     revisionOf: upload.revisionOf,
+    revisionOfId: upload.revisionOfId,
+    documentType: input.documentType,
   })
 
   await uploadAuditEvent(session, shelf, request, {
@@ -559,7 +587,7 @@ export async function uploadToShelf(
     collectionName,
     folderId: upload.folderId,
     replaced: placed.replaced,
-    revisionOf: input.revisionOf && upload.revisionOf ? input.revisionOf : null,
+    revisionOf: upload.revisionOfId,
     revisionOfIgnored: upload.revisionOfIgnored,
   })
   await auditScreeningOverride(

@@ -300,3 +300,18 @@ but a test office.
 - [`docs/architecture/revisions.md`](../architecture/revisions.md#piloti-notices-a-new-fassung)
 - [`docs/architecture/document-annotations.md`](../architecture/document-annotations.md)
 - ADR-0086, ADR-0087, ADR-0089, ADR-0104, ADR-0105, ADR-0106, ADR-0108, ADR-0121, ADR-0122
+
+## Amendment (2026-10-22): an upload batch can turn the check off
+
+A fourth bound on the spend, for uploads a server-side caller files on a
+person's decision: an upload batch with `runs_document_check` off (migration
+0185, `upload_batches`) has none of its settled documents checked. The next
+Fassung of a project's E-Mail-Verlauf is filed by such a batch; it is a
+conversation, not a drawing to compare, and checking it would buy a model call
+per filed mail. The attachments of a filed mail keep the check: a drawing that
+arrived by mail is as worth checking as one a person uploaded. A batch the
+browser or an agent opens always runs it (the route's body has no field for
+the column), and a document whose batch is not found is checked as a person's
+upload. Read in `announceSettledVersions` (`lib/documents/revision-notify.ts`)
+beside the batch's `revision_notice`; table in
+[`revisions.md`](../architecture/revisions.md#notifications).

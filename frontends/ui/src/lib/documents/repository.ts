@@ -19,6 +19,7 @@ import { OFFICE_SHELF, documentShelf, projectShelf, shelfDocumentWhere, shelfFol
 import { publishShelfChanged } from './shelf-live'
 import { documentAliasKey, documentNameKey, documentNameVariants } from './name-match'
 import { FILENAME_LOOKUP_MAX_NAMES } from './filename-lookup'
+import { FILING_CHOICE_METADATA_KEY } from './filing-choice'
 import {
   CURSOR_TIMESTAMP_FORMAT,
   type DocumentLevelCursor,
@@ -1614,12 +1615,19 @@ const notQuarantined = ne(documents.status, 'quarantined')
  * Beside the job id, the digest of the bytes this job reads
  * (`ingestContentHash`): the verdict it brings back is about those bytes, and
  * the reconcile writes it to `screened_hash` from here (migration 0123), not
- * from whatever the row holds when the verdict lands.
+ * from whatever the row holds when the verdict lands. And the filing choice
+ * the dispatch carried, which is about those same bytes.
  */
 export async function setDocumentIngestJob(
   documentId: string,
   organizationId: string,
   ingestJobId: string,
+  /**
+   * What the person filing these bytes chose (`filingChoiceRecord`), kept so a
+   * reviewer's release of a held file still carries it (`./filing-choice`).
+   * Null records none, and a dispatch without one drops the last.
+   */
+  filingChoice: Record<string, string> | null = null,
 ): Promise<boolean> {
   const db = getDb()
   const moved = await withTenant({ organizationId }, () =>
@@ -1627,7 +1635,7 @@ export async function setDocumentIngestJob(
       .update(documents)
       .set({
         status: 'pending',
-        metadata: sql`jsonb_build_object('ingestJobId', ${ingestJobId}::text, 'ingestContentHash', ${documents.contentHash})`,
+        metadata: sql`jsonb_strip_nulls(jsonb_build_object('ingestJobId', ${ingestJobId}::text, 'ingestContentHash', ${documents.contentHash}, ${FILING_CHOICE_METADATA_KEY}::text, ${filingChoice === null ? null : JSON.stringify(filingChoice)}::jsonb))`,
         // A new attempt: the previous one's failure no longer describes the
         // row, and the job's own verdict replaces it when it ends (migration
         // 0134). The reader version stays until then: it is the last reader

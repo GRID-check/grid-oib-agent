@@ -94,6 +94,24 @@ describe('AuthKit v4 proxy', () => {
     expect(matcher.test('/app/ingest/x')).toBe(true)
   })
 
+  // A proxied body is buffered and, above `proxyClientMaxBodySize`, cut short
+  // without an error (docs/contributing/gotchas.md). Signed routes take a raw
+  // body from outside the cluster, so the proxy must never see them.
+  test('leaves the signed internal routes outside the proxy, and only them', async () => {
+    const { config } = await import('./proxy')
+    const { SIGNED_INTERNAL_PREFIX } = await import('@/lib/api/handler')
+    const matcher = new RegExp(`^${config.matcher[0]}$`)
+
+    for (const path of [`${SIGNED_INTERNAL_PREFIX}inbound-mail`, `${SIGNED_INTERNAL_PREFIX}any/nested/route`]) {
+      expect(matcher.test(path), path).toBe(false)
+    }
+    // The token-guarded internal routes keep the proxy, and so does a sibling
+    // that merely starts with the same word.
+    for (const path of ['/api/internal/memory', '/api/internal/signedx/inbound-mail', '/api/internal/signed', '/app/api/internal/signed/x']) {
+      expect(matcher.test(path), path).toBe(true)
+    }
+  })
+
   test('delegates requests to the authkitMiddleware', async () => {
     const { default: proxy } = await import('./proxy')
     const request = { url: 'http://localhost:3000/api/v1/collections' } as never

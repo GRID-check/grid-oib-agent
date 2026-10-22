@@ -17,7 +17,7 @@ vi.mock('@/lib/upload-screening/quarantine-audit', () => ({
   sweepOwedQuarantines: vi.fn().mockResolvedValue(0),
 }))
 
-import type { UploadBatch } from '@/lib/db/schema'
+import { DEFAULT_UPLOAD_BATCH_EFFECTS, type UploadBatch } from '@/lib/db/schema'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { pruneSpentQuarantines, sweepOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
 import { makeDocument } from '@/test-utils/db-fixtures'
@@ -41,6 +41,7 @@ const batch = (id: string, ageMs: number, sealed: boolean): UploadBatch => ({
   sealedAt: sealed ? new Date(NOW.getTime() - ageMs + 1000) : null,
   completedAt: null,
   createdAt: new Date(NOW.getTime() - ageMs),
+  ...DEFAULT_UPLOAD_BATCH_EFFECTS,
 })
 
 beforeEach(() => {

@@ -17,14 +17,12 @@ import httpx
 import pytest
 from fastapi import APIRouter
 from fastapi import FastAPI
-from fastapi import HTTPException
 from httpx import ASGITransport
 from httpx import AsyncClient
 
 from aiq_agent.knowledge.factory import clear_active_ingestor
 from aiq_agent.knowledge.factory import set_active_ingestor
 from aiq_api.routes.ingest import DeferredObjectDownload
-from aiq_api.routes.ingest import _assert_public_host_resolution
 from aiq_api.routes.ingest import add_ingest_routes
 
 _SIGNED_REF = "http://seaweedfs.test/bucket/doc/plan.pdf?X-Amz-Signature=secret-original"
@@ -79,6 +77,14 @@ async def _post_json(app, body: dict) -> httpx.Response:
 
 async def _post(app, file_ref: str, collection: str = "proj_test123"):
     return await _post_json(app, {"file_ref": file_ref, "collection": collection})
+
+
+def _refused_for(response: httpx.Response, field: str) -> str:
+    """Assert the body was refused at validation for ``field`` (an ``ObjectStoreUrl``); its message."""
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert error["loc"] == ["body", field]
+    return error["msg"]
 
 
 def _download(content: bytes, content_type: str) -> MagicMock:
@@ -174,8 +180,7 @@ async def test_ingest_rejects_foreign_host(app, mock_ingestor):
     anything is submitted. The job would fetch it without asking again, so this
     gate is the only one the URL meets."""
     response = await _post(app, "http://metadata.internal/latest/meta-data")
-    assert response.status_code == 400
-    assert "object store" in response.json()["detail"]
+    assert "object store" in _refused_for(response, "file_ref")
     mock_ingestor.submit_job.assert_not_called()
 
 
@@ -184,7 +189,7 @@ async def test_ingest_rejects_non_http_scheme(app, mock_ingestor):
     """Only http(s) URLs are fetchable at all; anything else (file:, gopher:)
     is rejected before a job could even attempt it."""
     response = await _post(app, "file:///etc/passwd")
-    assert response.status_code == 400
+    _refused_for(response, "file_ref")
     mock_ingestor.submit_job.assert_not_called()
 
 
@@ -200,7 +205,7 @@ async def test_ingest_host_match_is_case_insensitive(app, mock_ingestor, no_netw
 async def test_ingest_rejects_non_object_store_thumbnail_url(app, mock_ingestor, no_network):
     """The thumbnail upload URL feeds httpx.put — an arbitrary-URL PUT is the
     same SSRF primitive as an arbitrary GET, so it passes the same two gates
-    as file_ref BEFORE anything is stored. The check is fail-closed (a 400),
+    as file_ref BEFORE anything is stored. The check is fail-closed (a 422),
     not swallowed by the fail-open thumbnail path: a request naming a foreign
     upload target is malformed, and letting it into the job config would only
     move the unvalidated PUT into the detached ingest thread."""
@@ -213,9 +218,7 @@ async def test_ingest_rejects_non_object_store_thumbnail_url(app, mock_ingestor,
         },
     )
     no_network["put"].assert_not_called()
-    assert response.status_code == 400
-    assert "thumbnail_upload_url" in response.json()["detail"]
-    assert "object store" in response.json()["detail"]
+    assert "object store" in _refused_for(response, "thumbnail_upload_url")
     mock_ingestor.submit_job.assert_not_called()
 
 
@@ -245,23 +248,17 @@ async def test_ingest_accepts_thumbnail_on_object_store_resolving_private(app, m
     no_network["put"].assert_not_called()
 
 
-def test_public_resolution_rejects_foreign_private_host():
-    """A genuinely foreign host answering with a private address is the
-    DNS-rebinding shape this guard exists for — it must keep refusing with
-    400 even though the route's allowlist would already have stopped it.
-    (Unit pin of the guard's contract for any future caller.)"""
-    with pytest.raises(HTTPException) as excinfo:
-        _assert_public_host_resolution("http://rebind.attacker.test/latest/meta-data")
-    assert excinfo.value.status_code == 400
-    assert "non-public IP address" in excinfo.value.detail
-
-
-def test_public_resolution_allows_allowlisted_private_host(monkeypatch):
-    """Allowlisted hosts are trusted by strict name match against operator
-    configuration, not by where DNS points — the public-resolution demand
-    must not apply to them (the in-network store resolves private)."""
-    monkeypatch.setenv("SEAWEED_PUBLIC_ENDPOINT", "http://seaweedfs.test")
-    _assert_public_host_resolution("http://seaweedfs.test:8333/bucket/key")
+@pytest.mark.asyncio
+async def test_ingest_stores_the_thumbnail_slot_on_the_configured_origin(app, mock_ingestor, no_network):
+    """The job uploads to what the config holds: the store's own origin, the
+    slot's path and presigned query only, whatever spelling the caller used."""
+    spelled = "HTTP://SEAWEEDFS.TEST:80/bucket/doc/thumb.jpg?X-Amz-Signature=abc"
+    response = await _post_json(app, {"file_ref": _SIGNED_REF, "collection": "proj_t", "thumbnail_upload_url": spelled})
+    assert response.status_code == 202
+    assert (
+        mock_ingestor.submit_job.call_args[1]["config"]["thumbnail_upload_url"]
+        == "http://seaweedfs.test/bucket/doc/thumb.jpg?X-Amz-Signature=abc"
+    )
 
 
 @pytest.mark.asyncio
@@ -388,6 +385,32 @@ async def test_ingest_refuses_a_priority_it_does_not_know(app, mock_ingestor, no
 # --- DeferredObjectDownload: what the job runs ---
 
 
+@pytest.fixture(autouse=True)
+def object_store(monkeypatch):
+    """The store every download here names; a download is requested only there."""
+    monkeypatch.setenv("SEAWEED_ENDPOINT", "http://seaweedfs.test")
+    monkeypatch.setenv("SEAWEED_PUBLIC_ENDPOINT", "http://seaweedfs.test")
+
+
+def test_deferred_download_requests_the_configured_origin_whatever_the_spelling():
+    """Same origin in another spelling: the GET goes to the store as configured,
+    with only the object's path and presigned query from the URL handed in."""
+    spelled = "HTTP://SeaweedFS.Test:80/bucket/doc/plan.pdf?X-Amz-Signature=secret-original"
+    with patch("httpx.Client.get", return_value=_download(b"%PDF-1.4", "application/pdf")) as get:
+        path = DeferredObjectDownload(spelled)()
+    os.unlink(path)
+    assert get.call_args[0][0] == _SIGNED_REF
+
+
+def test_deferred_download_refuses_a_url_off_the_store_before_any_request():
+    """A forged queue row or a direct caller cannot point the GET anywhere else."""
+    from aiq_api.object_store_url import ObjectStoreUrlError
+
+    with patch("httpx.Client.get") as get, pytest.raises(ObjectStoreUrlError):
+        DeferredObjectDownload("http://169.254.169.254/latest/meta-data")()
+    get.assert_not_called()
+
+
 def test_deferred_download_writes_a_temp_file_and_hides_its_url():
     """One GET without redirects, the bytes in a new temp file the caller owns;
     the URL appears in no repr."""
@@ -511,11 +534,10 @@ def _office_body(**extra) -> dict:
 @pytest.mark.asyncio
 async def test_ingest_rejects_non_object_store_preview_ref(app, mock_ingestor):
     """preview_ref is downloaded by the job, so a URL off the object store is
-    the same SSRF primitive as a foreign file_ref: 400, before anything is
+    the same SSRF primitive as a foreign file_ref: 422, before anything is
     submitted."""
     response = await _post_json(app, _office_body(preview_ref="http://169.254.169.254/latest/meta-data"))
-    assert response.status_code == 400
-    assert "preview_ref" in response.json()["detail"]
+    _refused_for(response, "preview_ref")
     mock_ingestor.submit_job.assert_not_called()
 
 
@@ -551,10 +573,9 @@ async def test_a_spreadsheet_preview_is_left_to_the_job_which_draws_it_after_the
 @pytest.mark.asyncio
 async def test_ingest_rejects_non_object_store_extraction_ref(app, mock_ingestor):
     """extraction_ref is downloaded by the job, so it is gated like file_ref
-    here: 400 before anything is submitted."""
+    here: 422 before anything is submitted."""
     response = await _post_json(app, _office_body(extraction_ref="http://169.254.169.254/latest/meta-data"))
-    assert response.status_code == 400
-    assert "extraction_ref" in response.json()["detail"]
+    _refused_for(response, "extraction_ref")
     mock_ingestor.submit_job.assert_not_called()
 
 
@@ -701,7 +722,8 @@ async def test_without_a_document_id_every_dispatch_submits(app, keyed_ingestor,
     assert "dispatch_key" not in keyed_ingestor.submitted[0][1]
 
 
-def test_the_dispatch_key_is_a_digest_of_document_object_path_and_collection():
+def test_the_dispatch_key_is_a_digest_of_document_object_path_and_collection(monkeypatch):
+    monkeypatch.setenv("SEAWEED_ENDPOINT", "http://seaweedfs.test")
     from aiq_api.models.requests import IngestRequest
     from aiq_api.routes.ingest import _dispatch_key
 
@@ -721,7 +743,7 @@ def test_the_dispatch_key_is_a_digest_of_document_object_path_and_collection():
 @pytest.mark.asyncio
 async def test_urls_are_gated_before_the_live_job_lookup(app, mock_ingestor):
     response = await _post_json(app, _doc_body(thumbnail_upload_url="http://metadata.internal/latest/meta-data"))
-    assert response.status_code == 400
+    _refused_for(response, "thumbnail_upload_url")
     mock_ingestor.find_live_job.assert_not_called()
 
 

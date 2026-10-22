@@ -39,8 +39,12 @@ export interface ToolCallRecord {
   door: 'mcp' | 'piloti' | 'a2a' | 'platform'
   /** The MCP server's mode; null on the A2A door. */
   mode: 'search' | 'tools' | null
-  /** `confirm`: put to the person in their own chat; `declined`: they did not confirm (`agent-api/confirmation.ts`). */
-  decision: 'run' | 'propose' | 'refused' | 'confirm' | 'declined'
+  /**
+   * `confirm`: put to the person in their own chat; `declined`: they did not
+   * confirm; `person_required`: not run, the client cannot ask the person
+   * (`agent-api/confirmation.ts`).
+   */
+  decision: 'run' | 'propose' | 'refused' | 'confirm' | 'declined' | 'person_required'
   /** `elicitation` when the person confirmed this call in their own chat; otherwise absent. */
   decisionSource?: 'elicitation' | null
   status: number

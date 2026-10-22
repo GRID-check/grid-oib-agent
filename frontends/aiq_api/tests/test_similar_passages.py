@@ -16,7 +16,6 @@ import json
 import math
 import os
 import random
-import socket
 import uuid
 
 import pytest
@@ -30,8 +29,6 @@ from aiq_agent.knowledge.factory import set_active_retriever
 from aiq_api.routes.similar_passages import add_similar_passages_routes
 
 DIM = 8
-#: The real resolver, taken before the conftest stubs every name to a private IP for the SSRF guard.
-_GETADDRINFO = socket.getaddrinfo
 SECRET = "s3cr3t"
 
 
@@ -97,7 +94,6 @@ def stack(monkeypatch):
     monkeypatch.setenv("AIQ_QDRANT_URL", url)
     monkeypatch.setenv("REQUIRE_AUTH", "true")
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", SECRET)
-    monkeypatch.setattr(socket, "getaddrinfo", _GETADDRINFO)
     store_module.reset_store()
     retriever = LlamaIndexRetriever({"embed_model": "test-model", "embed_base_url": "https://test"})
     retriever._initialized = True

@@ -150,6 +150,8 @@ Body: {
   file_name: str | None, folder_path: str | None, thumbnail_upload_url: str | None,
   # the older file this upload replaces, when a person filed it as a new Fassung (ADR-0099)
   revision_of: str | None,
+  # the document type a person chose when filing it, one of DOCUMENT_TYPE_TAGS (422 otherwise)
+  document_type: str | None,
   # office renditions (ADR-0070, ADR-0071): presigned GETs of _render.pdf
   preview_ref: str | None, extraction_ref: str | None,
   # provenance, all four together or none (ADR-0054)
@@ -164,7 +166,7 @@ once more, so every second spent before the job id is returned is a false
 and a retry landing on another replica while the first attempt was still
 downloading.
 
-1. Validates `file_ref` and `collection` are present, and passes `file_ref`, `extraction_ref`, `preview_ref` and `thumbnail_upload_url` through the object-store SSRF gates. It is the only gate those URLs meet: the job fetches them later without asking again
+1. Validates the body: `file_ref`, `extraction_ref`, `preview_ref` and `thumbnail_upload_url` are each an `ObjectStoreUrl` (`aiq_api.object_store_url`), so a URL whose origin is not the configured object store is refused with 422 before the handler runs; `collection` must be present (400); a `document_type` outside `DOCUMENT_TYPE_TAGS` is a 422. The durable queue's worker checks the URLs once more when it reads the row back; nothing else does. Every request to one of them, the download (`DeferredObjectDownload`) and the thumbnail upload, goes to the URL rebuilt on the configured endpoint's origin (`object_store_request_url`): only the object's path and its presigned query come from the caller, never the host it names
 2. With a `document_id`, looks for a live job under the dispatch key (sha256 of `document_id` and the object path of `file_ref`), under a per-key lock on this replica, and answers with that job's id when one exists
 3. Otherwise submits to the active ingestor: `ingestor.submit_job([DeferredObjectDownload(file_ref)], collection, config={cleanup_files: True, original_filenames: [...], ...})`. `original_filenames` is `file_name` when the BFF stated one and the URL basename otherwise; it becomes each chunk's `file_name` metadata. A rendition goes in as `extraction_paths: [DeferredObjectDownload(extraction_ref, suffix=".pdf")]`, positional like `original_filenames`, so the chunks are read from the PDF and still carry the original's name (`Bericht.docx`). `DeferredObjectDownload`'s `repr` is `<deferred object download>`: no presigned URL is logged or visible in the job config
 4. Returns `{ job_id, status: 'pending', document_id }` (202) and fetches nothing itself. An office original with `preview_ref` and no `extraction_ref` (a spreadsheet) gets the rendition as the job's second deferred download (`preview_paths`), drawn into its thumbnail only after the screen passes (ADR-0086)
@@ -319,11 +321,48 @@ Three things change for an uploaded image.
 A project document's Dokumentart is its type tag (`DOCUMENT_TYPE_TAGS` in
 `aiq_agent/knowledge/document_classification.py`, mirrored in
 `lib/documents/tag-vocabulary.ts`), not `doc_class`, which classifies the base
-corpus; a letter or minutes is `Sonstiges`. An upload carries no type
-(`ShelfUploadInput` has no field for it), so a person or a job can set it only
-once the metadata row exists, through `PATCH /api/documents/[id]/tags`; from
-then on `tags_set_by = 'person'` keeps ingest and the backfill from replacing
-it.
+corpus; a letter or minutes is `Sonstiges`.
+
+**A type chosen at filing.** Whoever files a file can say what it is:
+`ShelfUploadInput.documentType` (a `DocumentTypeTag`), which the dispatch sends
+as `document_type` on `POST /v1/ingest`, through the office-rendition job
+payload too. The route refuses a value outside `DOCUMENT_TYPE_TAGS` (422) and
+copies it into the job config. The job then treats it as a field a person set,
+beside `_read_human_set_fields`:
+
+| Step | What happens |
+|---|---|
+| after classification (`_chosen_document_type`, `_with_document_type`) | the chosen type replaces every type tag the classifier or the photo rule read, and leads; the discipline tags stay, up to `MAX_TAGS`. The permit check and the Fassung reading see this list |
+| after the summary row is written (`_keep_chosen_document_type`) | the list is stored with `set_document_tags_by_person`, so `tags_set_by = 'person'`. When the row already holds a person's tags (a re-upload, or tags carried from another spelling), those are the base and only their type is replaced |
+| every later read („Erneut lesen", a reindex) | no dispatch carries the choice again, and none needs to: `register` keeps a person's tags, so the classifier never overwrites the type. A person's later edit in the tag editor replaces it like any tag |
+
+The marker is the store's one person flag, so it also keeps the row's topics, as
+a person's edit in the tag editor does. The same bytes already filed
+(`unchanged`) never store the choice: nothing is dispatched.
+
+**A held file keeps it.** A file the screening holds (ADR-0086) stops at the
+verdict, before anything is stored, so its reading never stores the choice. The
+dispatch therefore records what it carried on the BFF row, beside the job id and
+the digest of the bytes that job reads: `documents.metadata.filingChoice`
+(`{documentType?, revisionOfId?}`, `setDocumentIngestJob`). The Fassung is the
+older document's id, never its name. The reviewer's release
+(`releaseQuarantinedDocument`) reads the choice back from the row it loaded and
+sends it again, but only while that digest is the row's (`storedFilingChoice`,
+`lib/documents/filing-choice.ts`); the id is first resolved again
+(`resolveReleasedRevisionOf`: active, past screening, same shelf and
+collection), `revision_of` carries the older file's name as it is then, and a
+choice that no longer resolves is dropped. Every later dispatch
+rewrites the metadata, and one that carries no choice (a re-index, a placement
+move) drops it: were a re-index to send the type again, it would overwrite a
+person's later edit in the tag editor, since the job treats it as the newest
+choice. A file stranded at `processing` on the rendition path still carries its
+choice in the queued job's payload, not on the row.
+
+`PATCH /api/documents/[id]/tags` (`document-tags-update`) cannot do this job:
+it needs the metadata row, which only the ingest job writes, and a type set
+before that job ran would be overwritten by its own classification.
+`ingest-document-type-contract.spec.ts` pins the key and the vocabulary across
+the BFF and the backend.
 
 ### A re-upload replaces the previous version once it has indexed
 

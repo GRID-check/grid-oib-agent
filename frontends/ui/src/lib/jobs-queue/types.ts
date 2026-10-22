@@ -295,12 +295,21 @@ export const officeRenditionPayloadSchema = documentWorkPayloadSchema.extend({
     .optional(),
   /** The older file this upload was filed as the new Fassung of (ADR-0099); absent for every other. */
   revisionOf: z.string().nullable().optional(),
+  /** The older document's id beside `revisionOf`, recorded for a reviewer's release (`filing-choice`). */
+  revisionOfId: z.string().uuid().nullable().optional(),
   /**
    * The key a job queued before the rename carries (migration 0165 era). The queue
    * outlives a deploy, so a claimed job may still hold it; the consumer reads
    * `revisionOf ?? fassungOf`, and nothing writes this key again. Remove after one release.
    */
   fassungOf: z.string().nullable().optional(),
+  /**
+   * The document type the filing chose (`ShelfUploadInput.documentType`); absent for every other.
+   * A string here, read through the vocabulary by the consumer (`runOfficeRenditionJob`): a value
+   * a job queued before a vocabulary change still holds reads as no choice, so the classifier types
+   * the file, rather than failing the job's parse or sending a type `POST /v1/ingest` refuses.
+   */
+  documentType: z.string().nullable().optional(),
 })
 export type OfficeRenditionPayload = z.infer<typeof officeRenditionPayloadSchema>
 

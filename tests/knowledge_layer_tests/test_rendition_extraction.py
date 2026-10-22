@@ -454,6 +454,13 @@ def _object_store_get(content: bytes, content_type: str, *, gate: threading.Even
 class TestDeferredOriginal:
     """What ``POST /v1/ingest`` hands the job: the original as a download, not a path."""
 
+    @pytest.fixture(autouse=True)
+    def _object_store_configured(self, monkeypatch):
+        """The download requests only the configured store (``object_store_request_url``),
+        so the store ``_SIGNED_ORIGINAL`` names is configured, as the BFF presigns against it."""
+        monkeypatch.setenv("SEAWEED_ENDPOINT", "http://seaweed")
+        monkeypatch.delenv("SEAWEED_PUBLIC_ENDPOINT", raising=False)
+
     def test_the_job_downloads_the_original_ingests_it_and_deletes_it(
         self, tmp_path, monkeypatch, ingestor, summary_db, pdf_pipeline, caplog
     ):

@@ -19,6 +19,10 @@
  * check, and from which Fassung („4 offene Anmerkungen aus Fassung 2 prüfen"):
  * each is listed and not drawn on the new sheet until someone carries it on
  * („Auf aktuelle Fassung übernehmen", `lib/annotations/carry.ts`).
+ * An upload batch can narrow that to the mark participants alone
+ * (`revision_notice = 'marks_only'`, migration 0185): the next Fassung of an
+ * E-Mail-Verlauf is news to nobody but the people with an open mark on the
+ * one before, who must still hear that it left their mark behind.
  * Assignment is not access, so the list is then cut to those who may open BOTH
  * documents: project membership and the folder each is filed in, or
  * organization membership for the Büroablage. The row names the older document
@@ -61,7 +65,8 @@ import { documentCheckMaxBatch } from '@/lib/document-check/check'
 import { queueDocumentCheck } from '@/lib/document-check/queue'
 import { listDocumentAnnotations, type AnnotationRecord } from '@/lib/annotations/repository'
 import { listAssignmentsForResources } from '@/lib/assignments/repository'
-import type { Document } from '@/lib/db/schema'
+import { DEFAULT_UPLOAD_BATCH_EFFECTS, type Document, type UploadBatchRevisionNotice } from '@/lib/db/schema'
+import { findBatchSettleEffects, type BatchSettleEffects } from '@/lib/upload-batches/repository'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { recipientsHoldingGroup } from '@/lib/inbox/repository'
 import { emitInboxItems } from '@/lib/inbox/service'
@@ -100,6 +105,12 @@ export interface NewRevisionAnnouncement {
   previousUploaderIds?: readonly (string | null | undefined)[]
   /** The change summary Piloti wrote, when there is one; only its first line is sent. */
   changeSummary?: string | null
+  /**
+   * Who is told: `all` (the default) or `marks_only`, the people working on an
+   * open mark the new Fassung leaves behind and nobody else. Set from the
+   * upload batch that brought the newer document (migration 0185).
+   */
+  audience?: UploadBatchRevisionNotice
 }
 
 /**
@@ -147,7 +158,8 @@ export function revisionRowNames(follow: NamedDocument, newer: NamedDocument | n
 /**
  * The people a new Fassung is announced to, before anyone's access is asked:
  * the older document's assignees and uploaders, once each, minus the actor.
- * Pure, so the rule is testable without a database.
+ * `marks_only` drops the assignees and uploaders. Pure, so the rule is
+ * testable without a database.
  */
 export function revisionRecipients(input: {
   assigneeIds: readonly string[]
@@ -155,8 +167,11 @@ export function revisionRecipients(input: {
   /** The people working on the open marks the new Fassung leaves behind. */
   participantIds?: readonly string[]
   actorUserId: string | null
+  /** `marks_only` keeps the mark participants alone. */
+  audience?: UploadBatchRevisionNotice
 }): string[] {
-  const everyone = [...input.assigneeIds, ...input.uploaderIds, ...(input.participantIds ?? [])]
+  const followers = input.audience === 'marks_only' ? [] : [...input.assigneeIds, ...input.uploaderIds]
+  const everyone = [...followers, ...(input.participantIds ?? [])]
   return [...new Set(everyone.filter((id): id is string => Boolean(id) && id !== input.actorUserId))]
 }
 
@@ -243,8 +258,9 @@ async function writeRevisionItems(
 ): Promise<number> {
   const { organizationId } = announcement
   const sameDocument = newer.id === follow.id
+  const marksOnly = announcement.audience === 'marks_only'
   const [assignments, marks] = await Promise.all([
-    listAssignmentsForResources(organizationId, 'document', [follow.id]),
+    marksOnly ? [] : listAssignmentsForResources(organizationId, 'document', [follow.id]),
     marksLeftBehind(organizationId, follow, sameDocument ? (announcement.versionId ?? newer.publishedVersionId) : null),
   ])
   const candidates = revisionRecipients({
@@ -252,6 +268,7 @@ async function writeRevisionItems(
     uploaderIds: [follow.createdBy, ...(announcement.previousUploaderIds ?? [])],
     participantIds: marks.flatMap((mark) => markParticipants(mark)),
     actorUserId: announcement.actorUserId,
+    audience: announcement.audience,
   })
   if (candidates.length === 0) return 0
 
@@ -318,7 +335,11 @@ function changeAgainstName(change: RevisionLinkNames['change'], olderName: strin
 }
 
 /** The same-name half: a published version that is not the document's first. */
-async function announceSettledVersion(organizationId: string, document: Document): Promise<void> {
+async function announceSettledVersion(
+  organizationId: string,
+  document: Document,
+  audience: UploadBatchRevisionNotice,
+): Promise<void> {
   const version = await findPublishedVersion(document.id, organizationId)
   if (!version || version.versionNumber < 2) return
   const previous = await findPreviousVersion(document.id, organizationId, version.versionNumber)
@@ -329,6 +350,7 @@ async function announceSettledVersion(organizationId: string, document: Document
     olderId: document.id,
     versionId: version.id,
     previousUploaderIds: [previous?.createdBy],
+    audience,
   })
 }
 
@@ -340,7 +362,11 @@ async function announceSettledVersion(organizationId: string, document: Document
  * Names resolve to screened documents of the SAME collection; who may open
  * which is cut by {@link notifyNewRevision}.
  */
-async function announceSettledLinks(organizationId: string, document: Document): Promise<void> {
+async function announceSettledLinks(
+  organizationId: string,
+  document: Document,
+  audience: UploadBatchRevisionNotice,
+): Promise<void> {
   const ref = collectionFileRef(document)
   const names = ref ? await readRevisionLinkNames(ref) : null
   if (!names || names.supersedes.length === 0) return
@@ -353,6 +379,7 @@ async function announceSettledLinks(organizationId: string, document: Document):
       newerId: document.id,
       olderId: older.id,
       changeSummary: changeAgainstName(names.change, older.filename),
+      audience,
     })
   }
 }
@@ -387,6 +414,13 @@ async function queueSettledDocumentCheck(organizationId: string, document: Docum
  * neither does a Fassung announced before: a re-read settles the document
  * again, and {@link notifyNewRevision} announces each Fassung once.
  *
+ * Who is told, and whether Piloti checks it, is the batch's (migration 0185):
+ * a document whose batch says `revision_notice = 'marks_only'` reaches the
+ * people on its open marks alone, and one whose batch has
+ * `runs_document_check` off is not checked (the next Fassung of an
+ * E-Mail-Verlauf is no drawing to check). A document carries the batch of its
+ * newest upload, which is the upload whose Fassung settles here.
+ *
  * Bounded by {@link SETTLE_LOOKUP_LIMIT}. The collection listings are read
  * fresh once per collection, because the cached one may predate the link.
  */
@@ -398,11 +432,27 @@ export async function announceSettledVersions(organizationId: string, documentId
   }
   const collections = new Set(settled.filter((document) => collectionFileRef(document)).map((d) => d.collectionName))
   await Promise.all([...collections].map((collection) => refreshCollectionFiles(collection).catch(() => undefined)))
+  const effectsOf = await settleEffectsOf(organizationId, settled)
   // A bulk import is not checked file by file: that is not what a colleague does.
   const checkBatch = settled.length <= documentCheckMaxBatch()
   for (const document of settled) {
-    await announceSettledVersion(organizationId, document)
-    await announceSettledLinks(organizationId, document)
-    if (checkBatch) await queueSettledDocumentCheck(organizationId, document)
+    const effects = effectsOf(document)
+    await announceSettledVersion(organizationId, document, effects.revisionNotice)
+    await announceSettledLinks(organizationId, document, effects.revisionNotice)
+    if (checkBatch && effects.runsDocumentCheck) await queueSettledDocumentCheck(organizationId, document)
   }
+}
+
+/**
+ * The batch effects each document settles under, a person's upload's where it
+ * carries no batch or its batch is not found; no batch is asked when no
+ * document carries one.
+ */
+async function settleEffectsOf(
+  organizationId: string,
+  documents: readonly Document[]
+): Promise<(document: Document) => BatchSettleEffects> {
+  const batchIds = new Set(documents.flatMap((document) => (document.uploadBatchId ? [document.uploadBatchId] : [])))
+  const byBatch = batchIds.size === 0 ? new Map<string, BatchSettleEffects>() : await findBatchSettleEffects(organizationId, [...batchIds])
+  return (document) => (document.uploadBatchId && byBatch.get(document.uploadBatchId)) || DEFAULT_UPLOAD_BATCH_EFFECTS
 }

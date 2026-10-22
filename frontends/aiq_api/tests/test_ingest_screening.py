@@ -81,6 +81,11 @@ class TestScreeningPolicy:
 
 
 class TestJobConfig:
+    @pytest.fixture(autouse=True)
+    def _object_store(self, monkeypatch):
+        # `_FILE_REF` is an ObjectStoreUrl only against a configured store.
+        monkeypatch.setenv("SEAWEED_ENDPOINT", "http://seaweedfs.test")
+
     def test_a_policy_is_copied_as_plain_data(self):
         config = _job_config(_request(screening=_POLICY), "org-1", None)
         assert config["screening"] == _POLICY

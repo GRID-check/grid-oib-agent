@@ -92,7 +92,7 @@ is how old the answers about the person may be:
 
 | Client | A read | A write |
 |---|---|---|
-| External agent | Runs | The client asks its user, driven by the tool annotations. On a 2026-07-28 request from a client that declares form elicitation, the door asks the person itself before a destructive write (below) |
+| External agent | Runs | The client asks its user, driven by the tool annotations. On a 2026-07-28 request from a client that declares form elicitation, the door asks the person itself before a destructive write (below). An operation marked `requiresPersonConfirmation` runs only on that yes, and is refused with a link for every client that cannot give it (below) |
 | Piloti in-product, in a conversation that is the person's alone | Runs if what it names lies in a project the person may chat in, after what it may carry is recorded on the conversation (below) | Becomes an `operation` proposal. The person accepts it (it runs as them) or dismisses it (ADR-0105) |
 | Piloti in-product, in a shared conversation | Runs only a document's content or a project's facts (`AUDIENCE_READS`), of the conversation's own project or one every reader may open, never of a restricted folder, recorded first; every other read is refused with a sentence the model relays | As above, refused when it names a project outside the audience's reach |
 
@@ -128,6 +128,38 @@ only what would have run without the question: visibility, the read gate, the
 sensitive-operation rule and the route's own `authz` all apply to the second
 round as to any call. Why a client's answer counts as the person's yes:
 [ADR-0122, amendment "the person confirms in their own chat"](../adr/0122-everything-a-person-can-do-an-agent-can-do.md#amendment-the-person-confirms-in-their-own-chat).
+
+#### A decision only the person makes
+
+Some decisions the product promises only a person makes: a mail from outside is
+filed into a project by a person, never by a model that read it. An operation
+that carries such a decision is marked `requiresPersonConfirmation` in its
+catalog entry, and for an outside agent it runs only on the person's yes:
+
+| The request | A marked call |
+|---|---|
+| 2026-07-28, form elicitation declared, a signing key | Put to the person as above, destructive or not; runs on their yes |
+| Anything else: a 2025-era request, no form elicitation (a URL-only client included), no signing key, a second round that dropped the capability | Refused, never run (`refusalWithoutThePerson` in `confirmation.ts`) |
+
+The refusal is a tool error the agent relays: "*operation* runs only on the
+person's own yes, and this client cannot ask them for it … Give the person this
+link", with `structuredContent` `{ decision: 'person_required', operation,
+changed: false, url }`. `url` is the deployment's pinned origin plus
+`requiresPersonConfirmation.decideAt(input)`, the app page where the person
+decides it themselves (the mail's page for one mail); without a pinned origin
+it is null, as every door link is ([Links into the app](#links-into-the-app)).
+The call is recorded as `decision: person_required`, status 403, in PostHog and
+on the Langfuse trace, apart from the `refused` of a call the caller may not
+make. A malformed call is not refused here: today's validator answers it, so
+the agent fixes its input before the person is sent anywhere. Piloti is unaffected: its write is a
+proposal, and accepting the card is the yes.
+
+The mark sets `destructiveHint`, so a client that asks its user from the
+annotations asks for it too. Mark writes only: Piloti runs a read without a
+card, so a marked read would reach no person on Piloti's side
+(`confirmation.spec.ts` checks the catalog). Only the MCP door runs catalog
+writes for an outside agent; the A2A door calls the ask routes alone. Why:
+[ADR-0122, amendment "a decision only the person makes"](../adr/0122-everything-a-person-can-do-an-agent-can-do.md#amendment-a-decision-only-the-person-makes).
 
 Not built: picking a project by elicitation. Nothing in the catalog takes a
 project by name, the agent reads ids from `project-list` (`nameContains`), and
@@ -780,6 +812,7 @@ proposal stores the same original input.
 | `readOnly: true` | A POST that only searches or computes. Read the route's service first: a row, a file, a grant or a credential is a write. Add the operation to `read-only-writes.spec.ts` with one line saying why it writes nothing | `method === 'GET'` |
 | `destructive: true` | A person confirms it in a dialog: delete, revoke, allow, purge | `method === 'DELETE'` |
 | `idempotent: true` | Calling twice leaves the same state (a PUT-like PATCH) | GET, PUT, DELETE |
+| `requiresPersonConfirmation: { decideAt }` | The call carries a decision the product promises only a person makes, so an outside agent's client that cannot ask the person is refused ([A decision only the person makes](#a-decision-only-the-person-makes)). `decideAt(input)` names the app page where the person decides it. Writes only; say it in the description too | absent |
 
 A hard delete with no restore is still catalogued, `destructive: true`, and says
 in the description that it cannot be undone. The client asks the person.

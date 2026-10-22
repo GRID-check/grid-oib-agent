@@ -8,3 +8,6 @@ fixes:
     The list of a project's Outlook imports now pages instead of stopping at
     the twenty newest, so an older import that is still running can always be
     found and cancelled.
+  - >
+    A part of an Outlook archive that arrives cut short on its way to Piloti
+    is now sent again by the browser, rather than stopping the import.

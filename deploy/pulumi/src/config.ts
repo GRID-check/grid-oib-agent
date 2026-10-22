@@ -586,6 +586,23 @@ export interface GridConfig {
   };
 
   /**
+   * The malware scanner (ADR-0133, `app/clamav.ts`): clamd with freshclam,
+   * scanning what strangers send before anyone may file or download it. The
+   * frontend and the bff-jobs pool get `GRID_MALWARE_SCAN_URL` exactly when
+   * this is on; off, every scan fails closed with `not-configured`, and nothing
+   * that needs a clean scan is ever filed.
+   */
+  malwareScan: {
+    /**
+     * OFF by default: prepared, switched on per stack (`malwareScanEnabled`).
+     * The pod asks for 2 GiB and fetches signatures from database.clamav.net.
+     */
+    enabled: boolean;
+    /** `clamav/clamav` with its signatures baked in, pinned by digest (refused otherwise). */
+    image: string;
+  };
+
+  /**
    * The one-shot Job that moves the retired Chroma store into Qdrant
    * (`app/chroma-migration-job.ts`, the Qdrant runbook's "Migrating from
    * Chroma on Kubernetes"). Remove with the Job once every stack has run it.
@@ -1645,6 +1662,41 @@ function refuseRetiredVectorKeys(cfg: pulumi.Config): void {
       `${set.length === 1 ? "it" : "them"} with \`pulumi config rm\`. To move the old Chroma data, see ` +
       '`chromaMigration` (docs/deployment/qdrant-runbook.md, "Migrating from Chroma on Kubernetes").',
   );
+}
+
+/**
+ * The malware scanner (ADR-0133). Two refusals, each of which would otherwise
+ * plan clean:
+ *
+ * - An image without a digest. The image carries the engine and the parser of
+ *   every hostile file it opens; a tag that moves under an unchanged plan is a
+ *   scanner nobody reviewed, and `ci/pinned_images.py` hands trivy only pins.
+ * - `malwareScanUrl`. There is no such knob: the BFF's URL is always this
+ *   stack's own Service. A stack that sets it, `fake://` above all, expects a
+ *   scanner it would not get; the fake is for a developer's machine only.
+ */
+function malwareScanConfig(cfg: pulumi.Config): GridConfig["malwareScan"] {
+  const url = cfg.get("malwareScanUrl");
+  if (url !== undefined) {
+    throw new Error(
+      `grid-oib:malwareScanUrl (${url.startsWith("fake:") ? "the development fake" : "set"}) is refused: a ` +
+        "stack scans with its own in-cluster clamd, and the URL the BFF gets is that Service's. Remove it " +
+        "with `pulumi config rm`, and set grid-oib:malwareScanEnabled to true to deploy the scanner (ADR-0133).",
+    );
+  }
+  const image =
+    cfg.get("malwareScanImage") ??
+    // `clamav/clamav` 1.5.4 (Alpine) with its signatures baked in, so a new pod
+    // serves at once and freshclam only fetches what changed since the build.
+    // Keep it equal to the Compose pin (deploy/compose/docker-compose.yaml).
+    "clamav/clamav:1.5.4@sha256:e19130cdebaeacc71fa46eab3ed6f69941f2f22aa5e08d55e9197f8edf43ce5e";
+  if (!/@sha256:[0-9a-f]{64}$/.test(image)) {
+    throw new Error(
+      `grid-oib:malwareScanImage "${image}" is refused: pin it by digest (<image>@sha256:<64 hex>), so ` +
+        "the scanner changes only when this file does and trivy scans the pin (ci/pinned_images.py).",
+    );
+  }
+  return { enabled: bool(cfg, "malwareScanEnabled", false), image };
 }
 
 /** The one-shot Chroma-to-Qdrant Job (`app/chroma-migration-job.ts`). */
@@ -2812,6 +2864,8 @@ export function loadConfig(): GridConfig {
       storageSize: cfg.get("geocoderStorageSize") ?? "10Gi",
       indexMaxAgeDays: positiveInt(cfg, "geocoderIndexMaxAgeDays", 30),
     },
+
+    malwareScan: malwareScanConfig(cfg),
 
     chromaMigration: chromaMigrationConfig(cfg),
 

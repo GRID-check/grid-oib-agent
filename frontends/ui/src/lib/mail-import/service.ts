@@ -13,6 +13,7 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { BodyOverlongError, readBoundedBody } from '@/lib/api/bounded-body'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { isMailImportEnabled } from '@/lib/authz/feature-flags'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
@@ -145,10 +146,7 @@ export async function putMailImportPart(
   if (Number.isFinite(declared) && declared !== expected) {
     throw new BadRequestError(`Part ${partNumber} must be ${expected} bytes`, { expected, declared })
   }
-  const body = await readAtMost(request, expected, partNumber)
-  if (body.byteLength !== expected) {
-    throw new BadRequestError(`Part ${partNumber} must be ${expected} bytes`, { expected, received: body.byteLength })
-  }
+  const body = await readPart(request, expected, partNumber)
   await putStagedPart(staged(row), uploadIdOf(row), partNumber, body)
   // Touch the row: an upload still receiving parts is not a stale one.
   await repository.updateMailImport(session.organizationId, row.id, ['uploading'], {})
@@ -294,25 +292,22 @@ export function missingParts(sizeBytes: number, parts: readonly UploadedPart[]):
 }
 
 /**
- * The request body, refused the moment it passes `limit` bytes. A chunked
- * request declares no length, and the transport ceiling in front of the route
- * is the upload one (hundreds of megabytes), so reading it whole first would
- * buffer whatever a client sends before the size check could say no.
+ * The part's body, exactly `expected` bytes, through `readBoundedBody`. A
+ * chunked request declares no length, and the transport ceiling in front of
+ * the route is the upload one (hundreds of megabytes), so the read stops the
+ * moment the body passes `expected` instead of buffering whatever a client
+ * sends: this route's 400, as for a declared length that is wrong. A body that
+ * ends short was cut in transit and is `readBoundedBody`'s 503
+ * `body-truncated`, which the browser's `sendPart` retries like any 5xx.
  */
-async function readAtMost(request: Request, limit: number, partNumber: number): Promise<Uint8Array> {
-  const body = new Uint8Array(limit)
-  const reader = request.body?.getReader()
-  if (!reader) return body.subarray(0, 0)
-  let length = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) return body.subarray(0, length)
-    if (length + value.byteLength > limit) {
-      await reader.cancel()
-      throw new BadRequestError(`Part ${partNumber} must be ${limit} bytes`, { expected: limit })
+async function readPart(request: Request, expected: number, partNumber: number): Promise<Uint8Array> {
+  try {
+    return await readBoundedBody(request, { expectedLength: expected, maxBytes: expected })
+  } catch (error) {
+    if (error instanceof BodyOverlongError) {
+      throw new BadRequestError(`Part ${partNumber} must be ${expected} bytes`, { expected })
     }
-    body.set(value, length)
-    length += value.byteLength
+    throw error
   }
 }
 

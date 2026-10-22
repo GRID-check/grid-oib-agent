@@ -446,6 +446,44 @@ Why it is safe:
   expired or foreign state is refused by the SDK before any handler runs, and
   an answer without a state is not an answer.
 
+### Amendment: a decision only the person makes
+
+*2026-10-22, product owner, from the red team of the project mail work (RT-S5).*
+The amendment above trusts a client not to ask: one that declares no
+elicitation runs a destructive write without a question, because it could
+always have done so. That holds for an act the person delegates to their agent.
+It does not hold for a decision the product promises only a person makes, such
+as filing a mail that arrived from outside into a project: an outside agent
+that reads injected text in that mail and lacks elicitation would make the
+decision itself, and the promise would hold only for well-behaved clients.
+
+**An operation may be marked `requiresPersonConfirmation`**
+(`frontends/ui/src/lib/agent-api/operation.ts`). For an outside agent, a
+marked call runs only on the person's yes:
+
+- where the request can carry the question (2026-07-28, form elicitation
+  declared, a signing key), it is asked, as above, whether or not the
+  operation is otherwise destructive;
+- where it cannot (a 2025-era request, a client without form elicitation, no
+  key), the call is **refused and never runs**. The refusal
+  (`structuredContent.decision: 'person_required'`) carries `url`, the app
+  page where the person makes the decision themselves, which the operation
+  names for the call's input (`requiresPersonConfirmation.decideAt`).
+
+Piloti in-product is unchanged: its write is a proposal, and the person's
+acceptance of the card is the yes. The mark sets `destructiveHint`, so a client
+that asks its user from the annotations asks for it too. It is for writes only
+(`confirmation.spec.ts` holds the real catalog to it), because Piloti runs a
+read without a card. Every operation without the mark is answered exactly as
+before.
+
+Considered and not taken: answering with MCP URL-mode elicitation
+(`URLElicitationRequiredError`). That mode sends the person to a page and then
+lets the client retry the same call; here the page is where the person makes
+the decision, so nothing is left for a retry to do, and a retry carrying the
+agent's input would be the agent's decision again. A plain refusal with the
+link, which every client relays, says exactly that.
+
 ### The app is a client of the same routes
 
 "One way of working" is held on the server: a capability has one route, one

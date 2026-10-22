@@ -98,8 +98,9 @@ async def test_a_name_longer_than_a_file_name_is_refused(app, mock_ingestor):
     mock_ingestor.submit_job.assert_not_called()
 
 
-def test_the_request_model_defaults_to_no_choice():
-    assert IngestRequest(file_ref="http://x/y.pdf", collection="c").revision_of is None
+def test_the_request_model_defaults_to_no_choice(monkeypatch):
+    monkeypatch.setenv("SEAWEED_ENDPOINT", "http://seaweedfs.test")
+    assert IngestRequest(file_ref="http://seaweedfs.test/y.pdf", collection="c").revision_of is None
 
 
 @pytest.mark.asyncio

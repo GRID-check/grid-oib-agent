@@ -18,6 +18,8 @@ from pydantic import model_validator
 
 from aiq_agent.profile_names import normalize_profile_token
 
+from ..object_store_url import ObjectStoreUrl
+
 logger = logging.getLogger(__name__)
 
 #: Bounds of an office's screening terms. The ingest job applies the same ones
@@ -155,7 +157,7 @@ class ProjectFactsUpdate(BaseModel):
 class IngestRequest(BaseModel):
     """Request body for URL-based ingestion."""
 
-    file_ref: str = Field(..., description="Presigned URL or file reference to download")
+    file_ref: ObjectStoreUrl = Field(..., description="Presigned GET of the original in the object store")
     collection: str = Field(..., description="Target collection name")
     document_id: str | None = Field(None, description="Optional document tracking ID")
     project_id: str | None = Field(
@@ -213,8 +215,10 @@ class IngestRequest(BaseModel):
             "decides, whatever the priority."
         ),
     )
-    thumbnail_upload_url: str | None = Field(None, description="Presigned URL for uploading a generated thumbnail")
-    preview_ref: str | None = Field(
+    thumbnail_upload_url: ObjectStoreUrl | None = Field(
+        None, description="Presigned PUT in the object store for the generated thumbnail"
+    )
+    preview_ref: ObjectStoreUrl | None = Field(
         None,
         description=(
             "Presigned GET of the document's PDF rendition (`<dir>/_render.pdf`, ADR-0070), sent "
@@ -224,7 +228,7 @@ class IngestRequest(BaseModel):
             "stored in the job config and never logged: a presigned URL is a bearer credential."
         ),
     )
-    extraction_ref: str | None = Field(
+    extraction_ref: ObjectStoreUrl | None = Field(
         None,
         description=(
             "Presigned GET of the document's PDF rendition to EXTRACT from (ADR-0071), sent by the "
@@ -243,6 +247,27 @@ class IngestRequest(BaseModel):
             "(e.g. 'Brandschutz/Fluchtwege'). Omit or null for the project root."
         ),
     )
+    document_type: str | None = Field(
+        None,
+        description=(
+            "The document type a person chose for this file when it was filed: one of the controlled "
+            "document-type tags (`DOCUMENT_TYPE_TAGS`). The ingest job stores it as the person's type "
+            "tag, beside the discipline tags the classifier reads, so neither this read nor a later one "
+            "replaces it; a person's later edit of the tags still does. Anything outside the vocabulary "
+            "is a 422. Omit to let the classifier decide, as for every upload before this field existed."
+        ),
+    )
+
+    @field_validator("document_type")
+    @classmethod
+    def _known_document_type(cls, value: str | None) -> str | None:
+        """Only a tag of the controlled vocabulary: the store keeps whatever it is handed."""
+        from aiq_agent.knowledge.document_classification import DOCUMENT_TYPE_TAGS
+
+        if value is not None and value not in DOCUMENT_TYPE_TAGS:
+            raise ValueError(f"document_type must be one of {', '.join(DOCUMENT_TYPE_TAGS)}")
+        return value
+
     file_name: str | None = Field(
         None,
         description=(

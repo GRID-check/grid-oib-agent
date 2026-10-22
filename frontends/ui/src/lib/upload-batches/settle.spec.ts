@@ -29,7 +29,7 @@ vi.mock('@/lib/project-intake/trigger', () => ({ queueIntakeReadsAfterUpload: vi
 import { auditOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
 import { orgRoleHoldsPermission } from '@/lib/authz/org-role-permissions'
 import { resolveSubjectMembership, userHoldsProjectPermission } from '@/lib/authz/project-membership'
-import type { UploadBatch } from '@/lib/db/schema'
+import { DEFAULT_UPLOAD_BATCH_EFFECTS, type UploadBatch } from '@/lib/db/schema'
 import { announceSettledVersions } from '@/lib/documents/revision-notify'
 import { findDocumentInOrg } from '@/lib/documents/repository'
 import { emitInboxItems } from '@/lib/inbox/service'
@@ -54,6 +54,7 @@ const batch = (overrides: Partial<UploadBatch> = {}): UploadBatch => ({
   sealedAt: new Date('2026-10-01T10:00:00Z'),
   completedAt: new Date('2026-10-01T10:05:00Z'),
   createdAt: new Date('2026-10-01T09:59:00Z'),
+  ...DEFAULT_UPLOAD_BATCH_EFFECTS,
   ...overrides,
 })
 
@@ -118,6 +119,39 @@ describe('settleUploadBatches', () => {
     vi.mocked(completeSettledBatches).mockResolvedValue([batch()])
     await settleUploadBatches('org-1', ['batch-1'])
     expect(reopenCompletedBatches).not.toHaveBeenCalled()
+  })
+})
+
+describe('settleUploadBatches — a batch opened quiet (migration 0185)', () => {
+  it('tells nobody for a batch opened without its completion, and still completes it', async () => {
+    vi.mocked(completeSettledBatches).mockResolvedValue([batch({ announcesCompletion: false })])
+
+    await expect(settleUploadBatches('org-1', ['batch-1'])).resolves.toHaveLength(1)
+
+    expect(emitInboxItems).not.toHaveBeenCalled()
+    expect(reopenCompletedBatches).not.toHaveBeenCalled()
+  })
+
+  it('tells the uploaders of the other batches settled with it', async () => {
+    vi.mocked(completeSettledBatches).mockResolvedValue([
+      batch({ id: 'batch-quiet', announcesCompletion: false }),
+      batch({ id: 'batch-loud' }),
+    ])
+
+    await settleUploadBatches('org-1', ['batch-quiet', 'batch-loud'])
+
+    expect(vi.mocked(emitInboxItems).mock.calls[0][0].map((item) => item.resourceId)).toEqual(['batch-loud'])
+  })
+
+  // Each trigger reads its own switch (`project-intake/trigger.spec.ts`,
+  // `filing/trigger.spec.ts`), so a quiet completion still hands the batch over.
+  it('still hands a batch without its completion to the intake trigger', async () => {
+    const completed = [batch({ announcesCompletion: false, startsIntake: true })]
+    vi.mocked(completeSettledBatches).mockResolvedValue(completed)
+
+    await settleUploadBatches('org-1', ['batch-1'])
+
+    expect(queueIntakeReadsAfterUpload).toHaveBeenCalledWith('org-1', completed)
   })
 })
 

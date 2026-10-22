@@ -208,6 +208,22 @@ describe('putMailImportPart', () => {
     expect(staging.putStagedPart).not.toHaveBeenCalled()
   })
 
+  it('answers a part cut short in transit as a 503 the browser retries, and stores nothing', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(6))
+        controller.close()
+      },
+    })
+    const request = new Request('http://x', { method: 'PUT', body, duplex: 'half' } as RequestInit)
+    await expect(putMailImportPart(session, PROJECT, IMPORT, 3, request)).rejects.toMatchObject({
+      status: 503,
+      details: { reason: 'body-truncated', expected: 10, received: 6 },
+    })
+    expect(staging.putStagedPart).not.toHaveBeenCalled()
+  })
+
   it("refuses a part of somebody else's import as not found", async () => {
     vi.mocked(repository.findMailImport).mockResolvedValueOnce(row({ userId: 'user_other' }))
     const request = new Request('http://x', { method: 'PUT', body: new Uint8Array(10) })

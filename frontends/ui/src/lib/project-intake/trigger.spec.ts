@@ -56,9 +56,9 @@ beforeEach(() => {
 describe('queueIntakeReadsAfterUpload', () => {
   it('queues one reading per project with an open intake, as the first batch’s uploader, at bulk priority', async () => {
     const queued = await queueIntakeReadsAfterUpload('org-1', [
-      { scope: 'project', projectId: P1, createdBy: 'anna' },
-      { scope: 'project', projectId: P1, createdBy: 'ben' },
-      { scope: 'office_shelf', projectId: null, createdBy: 'anna' },
+      { scope: 'project', startsIntake: true, projectId: P1, createdBy: 'anna' },
+      { scope: 'project', startsIntake: true, projectId: P1, createdBy: 'ben' },
+      { scope: 'office_shelf', startsIntake: true, projectId: null, createdBy: 'anna' },
     ])
 
     expect(queued).toEqual([P1])
@@ -76,8 +76,8 @@ describe('queueIntakeReadsAfterUpload', () => {
   it('queues nothing for a project whose intake is finished or that has none', async () => {
     vi.mocked(listOpenIntakeProjectIds).mockResolvedValue([P2])
     const queued = await queueIntakeReadsAfterUpload('org-1', [
-      { scope: 'project', projectId: P1, createdBy: 'anna' },
-      { scope: 'project', projectId: P2, createdBy: 'ben' },
+      { scope: 'project', startsIntake: true, projectId: P1, createdBy: 'anna' },
+      { scope: 'project', startsIntake: true, projectId: P2, createdBy: 'ben' },
     ])
     expect(queued).toEqual([P2])
     expect(enqueueJob).toHaveBeenCalledTimes(1)
@@ -85,17 +85,35 @@ describe('queueIntakeReadsAfterUpload', () => {
 
   it('queues nothing for an uploader who may not write the profile, or who left', async () => {
     vi.mocked(userHoldsProjectPermission).mockResolvedValue(false)
-    expect(await queueIntakeReadsAfterUpload('org-1', [{ scope: 'project', projectId: P1, createdBy: 'anna' }])).toEqual([])
+    expect(await queueIntakeReadsAfterUpload('org-1', [{ scope: 'project', startsIntake: true, projectId: P1, createdBy: 'anna' }])).toEqual([])
     expect(userHoldsProjectPermission).toHaveBeenCalledWith({ organizationId: 'org-1' }, P1, 'anna', 'project:memory:write')
     expect(userHoldsProjectPermission).toHaveBeenCalledWith({ organizationId: 'org-1' }, P1, 'anna', 'project:edit')
 
     vi.mocked(resolvePinnedRequesterSession).mockResolvedValue(null)
-    expect(await queueIntakeReadsAfterUpload('org-1', [{ scope: 'project', projectId: P1, createdBy: 'anna' }])).toEqual([])
+    expect(await queueIntakeReadsAfterUpload('org-1', [{ scope: 'project', startsIntake: true, projectId: P1, createdBy: 'anna' }])).toEqual([])
     expect(enqueueJob).not.toHaveBeenCalled()
   })
 
+  // Migration 0185: a batch opened with `startsIntake` off starts no reading,
+  // and does not take the project's reading from another batch that does.
+  it('starts no reading for a batch opened without one, and lets a later batch of the project start it', async () => {
+    expect(
+      await queueIntakeReadsAfterUpload('org-1', [{ scope: 'project', startsIntake: false, projectId: P1, createdBy: 'anna' }])
+    ).toEqual([])
+    expect(listOpenIntakeProjectIds).not.toHaveBeenCalled()
+
+    const queued = await queueIntakeReadsAfterUpload('org-1', [
+      { scope: 'project', startsIntake: false, projectId: P1, createdBy: 'anna' },
+      { scope: 'project', startsIntake: true, projectId: P1, createdBy: 'ben' },
+    ])
+    expect(queued).toEqual([P1])
+    expect(projectIntakeReadPayloadSchema.parse(vi.mocked(enqueueJob).mock.calls[0][0].payload)).toMatchObject({
+      requester: { userId: 'ben' },
+    })
+  })
+
   it('asks no database when no project batch completed', async () => {
-    expect(await queueIntakeReadsAfterUpload('org-1', [{ scope: 'session', projectId: null, createdBy: 'anna' }])).toEqual([])
+    expect(await queueIntakeReadsAfterUpload('org-1', [{ scope: 'session', startsIntake: true, projectId: null, createdBy: 'anna' }])).toEqual([])
     expect(listOpenIntakeProjectIds).not.toHaveBeenCalled()
   })
 })

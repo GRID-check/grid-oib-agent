@@ -10,7 +10,10 @@
  * - **At the settle** (`settleUploadBatches`): ingestion has read the batch.
  *   `basis: content`, queued `bulk`. It may sharpen or withdraw the first.
  *
- * `GRID_FILING_SUGGESTIONS=off` switches both off for a deployment.
+ * `GRID_FILING_SUGGESTIONS=off` switches both off for a deployment, and a
+ * batch opened with `reviewsFiling` off (migration 0185) for itself: a file a
+ * person placed on purpose, such as a mail they filed, is not re-judged at a
+ * model call per batch.
  *
  * Imports no service, so the seal and the settle do not pull the judgement
  * (and everything behind it) into the upload path.
@@ -29,12 +32,13 @@ export function filingSuggestionsEnabled(env: Record<string, string | undefined>
   return (env.GRID_FILING_SUGGESTIONS ?? '').trim().toLowerCase() !== 'off'
 }
 
-type QueuedBatch = Pick<UploadBatch, 'id' | 'scope' | 'createdBy'>
+type QueuedBatch = Pick<UploadBatch, 'id' | 'scope' | 'createdBy' | 'reviewsFiling'>
 
 /** Queue one review of `batch` as its uploader. Whether one was queued. Never throws. */
 export async function queueFilingReview(organizationId: string, batch: QueuedBatch, basis: FilingBasis): Promise<boolean> {
-  // A chat's attachments have no folders to belong in.
-  if (!filingSuggestionsEnabled() || batch.scope === 'session') return false
+  // A chat's attachments have no folders to belong in, and a batch opened
+  // without reviews was placed by a person who already decided where.
+  if (!filingSuggestionsEnabled() || batch.scope === 'session' || !batch.reviewsFiling) return false
   try {
     const session = await resolvePinnedRequesterSession({ userId: batch.createdBy, email: null, organizationId })
     if (!session) return false

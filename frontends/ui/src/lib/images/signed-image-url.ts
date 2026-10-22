@@ -66,13 +66,17 @@
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
+// The one reading of APP_ENV over NODE_ENV the internal routes use too. Safe
+// to import here: this module's importers (`lib/documents/service.ts` and the
+// image route) are server code already, and neither `optimizable.ts` nor
+// `next.config.ts` imports this module.
+import { isDevEnvironment } from '@/lib/internal-auth'
 
 /** Which object a token authorizes: the upload itself, or its ingest thumbnail. */
 export type DocumentImageVariant = 'original' | 'thumb'
 
 const SIGNATURE_DOMAIN = 'grid:document-image:v2'
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
-const DEV_APP_ENVS = new Set(['development', 'dev', 'local'])
 
 /** Expiry rounding, in seconds. Also the floor on a token's remaining life. */
 export const IMAGE_URL_WINDOW_SECONDS = 300
@@ -83,11 +87,6 @@ export const IMAGE_URL_WINDOW_SECONDS = 300
  * is what bounds how long a browser keeps the picture without asking again.
  */
 export const DOCUMENT_IMAGE_CACHE_CONTROL = `private, max-age=${IMAGE_URL_WINDOW_SECONDS}`
-
-function isDevEnvironment(): boolean {
-  const env = (process.env.APP_ENV ?? process.env.NODE_ENV ?? 'production').toLowerCase()
-  return DEV_APP_ENVS.has(env)
-}
 
 /**
  * The HMAC key, or null when signing must not happen.

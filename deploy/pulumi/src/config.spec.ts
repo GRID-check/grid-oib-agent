@@ -459,3 +459,39 @@ describe("chat tier scale-out (ADR-0080)", () => {
     expect(error?.message).toMatch(/needs grid-oib:conversationBus=true/);
   });
 });
+
+/**
+ * The malware scanner (ADR-0133). Off by default; on, it runs an image that
+ * parses every hostile file strangers send, so the image is a digest, and the
+ * URL the BFF gets is always this stack's own clamd.
+ */
+describe("malwareScan", () => {
+  function cfgWith(values: Record<string, string>) {
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...values });
+    return loadConfig();
+  }
+
+  it("is off by default, on a digest-pinned image", () => {
+    const { malwareScan } = cfgWith({});
+    expect(malwareScan.enabled).toBe(false);
+    expect(malwareScan.image).toMatch(/^clamav\/clamav:1\.\d+\.\d+@sha256:[0-9a-f]{64}$/);
+  });
+
+  it("switches on per stack", () => {
+    expect(cfgWith({ "grid-oib:malwareScanEnabled": "true" }).malwareScan.enabled).toBe(true);
+  });
+
+  it.each(["clamav/clamav:1.5.4", "clamav/clamav:latest", "clamav/clamav@sha256:abc"])(
+    "refuses an image without a full digest: %s",
+    (image) => {
+      expect(loadWith({ "grid-oib:malwareScanImage": image })?.message).toMatch(/malwareScanImage .* pin it by digest/);
+    },
+  );
+
+  it.each(["fake://", "fake:", "tcp://clamd.elsewhere:3310"])(
+    "refuses a scanner URL on any stack, the development fake above all: %s",
+    (url) => {
+      expect(loadWith({ "grid-oib:malwareScanUrl": url })?.message).toMatch(/malwareScanUrl .* is refused/);
+    },
+  );
+});

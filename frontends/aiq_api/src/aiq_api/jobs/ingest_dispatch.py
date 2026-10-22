@@ -16,8 +16,8 @@ own fair pool, which is what every job did before.
 
 The payload carries presigned URLs, bearer credentials to a tenant's objects,
 so it is encrypted like the research queue's (``payload_crypto``,
-``GRID_JOB_PAYLOAD_KEK``), and every URL passes the SSRF gates again when a
-worker reads it back.
+``GRID_JOB_PAYLOAD_KEK``), and every URL passes the object-store gate
+(``aiq_api.object_store_url``) again when a worker reads it back.
 
 A claimed job is held until it is done, and given back, not lost, when its
 worker cannot finish it:
@@ -53,6 +53,7 @@ from aiq_agent.knowledge.schema import FileStatus
 from aiq_agent.knowledge.schema import IngestionJobStatus
 from aiq_agent.knowledge.schema import JobState
 
+from ..object_store_url import object_store_request_url
 from . import lease_policy
 from . import payload_crypto
 
@@ -219,8 +220,6 @@ def _decode_entry(entry: Any) -> Any:
 
 def decode(stored: str) -> PreparedIngestJob:
     """Inverse of ``encode``; raises on anything a worker must not run."""
-    from ..routes.ingest import _assert_fetchable_object_store_url
-
     data = payload_crypto.deserialize(stored)
     config = dict(data["config"])
     for key in _DEFERRED_CONFIG_LISTS:
@@ -228,7 +227,9 @@ def decode(stored: str) -> PreparedIngestJob:
             config[key] = [_decode_entry(e) for e in config[key]]
     for key in _URL_CONFIG_KEYS:
         if config.get(key):
-            _assert_fetchable_object_store_url(config[key], field=key)
+            # Gated again, and rebuilt on the configured store's origin, so the
+            # worker requests the store whatever spelling the row carries.
+            config[key] = object_store_request_url(config[key], field=key)
     return PreparedIngestJob(
         job_id=data["job_id"],
         status=IngestionJobStatus.model_validate(data["status"]),

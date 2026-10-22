@@ -8,7 +8,8 @@
  *   app       → aiq-agent (StatefulSet, the chat role), aiq-api (Deployment +
  *               HPA, the api role), frontend (Deployment + HPA), purger, skill-scheduler, gotenberg (office
  *               → PDF), a migration Job, a WorkOS audit-schema reconcile Job and,
- *               opt-in, the one-shot Chroma-to-Qdrant Job
+ *               opt-in, the one-shot Chroma-to-Qdrant Job and ClamAV (the
+ *               malware scanner, ADR-0133)
  *   edge      → Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS,
  *               for the app, the landing site and the public S3 endpoint
  *
@@ -44,6 +45,7 @@ import { installApi } from "./src/app/api";
 import { installFrontend } from "./src/app/frontend";
 import { installWeb } from "./src/app/web";
 import { installGotenberg } from "./src/app/gotenberg";
+import { installClamAV } from "./src/app/clamav";
 import { installWorkers } from "./src/app/workers";
 import { installAgentWorker } from "./src/app/agent-worker";
 import { installIngestWorker } from "./src/app/ingest-worker";
@@ -194,6 +196,12 @@ const gotenberg = cfg.gotenberg.enabled
 const geocoder = cfg.geocoder.enabled
   ? installGeocoder(cfg, provider, namespace, [ns])
   : undefined;
+// The malware scanner (ADR-0133): clamd and freshclam for what strangers send.
+// Off by default (`malwareScanEnabled`). Fail closed: without it every scan
+// fails and nothing that needs a clean one is filed, so nothing waits on it.
+const clamav = cfg.malwareScan.enabled
+  ? installClamAV(cfg, provider, namespace, [ns])
+  : undefined;
 
 // ── Shared wiring for the app tier ─────────────────────────────────────────
 // Pull Secret for private app images (no-op when none are configured).
@@ -207,6 +215,7 @@ const wiring: AppWiring = {
   seaweedPublicEndpoint: seaweed.publicEndpoint,
   gotenbergUrl: gotenberg?.url,
   geocoderUrl: geocoder?.url,
+  malwareScanUrl: clamav?.url,
   qdrantUrl: qdrant.url,
   dsn: postgres.dsn,
   imagePullSecrets: pullSecret ? [{ name: PULL_SECRET_NAME }] : [],

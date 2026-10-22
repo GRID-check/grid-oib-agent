@@ -12,7 +12,6 @@ from __future__ import annotations
 import math
 import os
 import random
-import socket
 import uuid
 
 import pytest
@@ -27,8 +26,6 @@ from aiq_api.routes.document_search import add_document_search_routes
 from aiq_api.routes.project_facts import add_project_facts_routes
 
 DIM = 8
-#: The real resolver, taken before the conftest stubs every name to a private IP for the SSRF guard.
-_GETADDRINFO = socket.getaddrinfo
 
 
 def _unit(seed: str) -> list[float]:
@@ -66,7 +63,6 @@ def stack(monkeypatch):
     monkeypatch.setitem(schema.ALIASES, schema.Physical.OFFICE, f"route_office_{suffix}")
     monkeypatch.setenv("AIQ_QDRANT_URL", url)
     monkeypatch.delenv("REQUIRE_AUTH", raising=False)
-    monkeypatch.setattr(socket, "getaddrinfo", _GETADDRINFO)
     store_module.reset_store()
     retriever = LlamaIndexRetriever({"embed_model": "test-model", "embed_base_url": "https://test"})
     retriever._initialized = True
