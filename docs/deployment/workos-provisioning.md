@@ -863,7 +863,14 @@ environment; the migration that drops it also deletes the
   A role slug implies exactly the permissions the **catalog** says that role
   holds — a bounded back-compat bridge for sessions minted before a permission
   was provisioned, not the old `org:*` prefix wildcard. `platform:*` is never
-  implied.
+  implied. A session built without a sign-in (a pinned session,
+  `lib/auth/pinned-session.ts`: background jobs, scheduled tasks, the mail
+  import, the push job, the agent door) has no claim to read, so it carries
+  what WorkOS says each of the person's roles holds, the organization's own
+  custom roles included, unioned with the catalog
+  (`tenantRolePermissions`, `lib/authz/org-role-permissions.ts`). When WorkOS
+  cannot be asked, a catalog role falls back to the catalog and a role only
+  WorkOS knows throws, so the job retries instead of acting with nothing.
 - **Platform owner**: `lib/authz/platform.ts` — platform-org membership with
   `org-platform-owner`/`org-platform-support` (cached lookup) or the break-glass
   allowlist.

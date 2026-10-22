@@ -4,14 +4,17 @@
  *
  * A session answers "do I hold this permission?" from its JWT `permissions`
  * claim with no I/O — that is `hasPermission`, and it is the fast path used
- * everywhere. But two paths reason about a THIRD PARTY:
+ * everywhere. But three paths reason about a person whose claims are not in
+ * hand:
  *
  *   - `./project-membership`, deciding whether somebody else may be invited to
- *     a project, and
+ *     a project,
  *   - `./platform`, resolving a platform-org membership held by a session whose
- *     ACTIVE organization is some tenant.
+ *     ACTIVE organization is some tenant, and
+ *   - `@/lib/auth/pinned-session`, building the session of a person who is not
+ *     signed in, for the work that runs as them ({@link tenantRolePermissions}).
  *
- * Neither has that person's claims. Both used to answer by comparing the role
+ * None has that person's claims. Both used to answer by comparing the role
  * SLUG against a hardcoded name (`'admin'`, `'org-platform-owner'`), which is
  * precisely the role-name coupling ADR-0016 and ADR-0038 exist to remove: a
  * custom role holding the right permission was invisible to them.
@@ -163,4 +166,54 @@ export async function organizationRolePermissions(
     console.warn(`[authz] organization role lookup failed for ${roleSlug}:`, error)
   }
   return permissionsForPlatformRole(roleSlug)
+}
+
+/**
+ * Every permission the role `roleSlug` holds in the TENANT organization
+ * `organizationId`: the set a signed-in session's JWT `permissions` claim
+ * would carry for that role. For a session built without a sign-in
+ * (`@/lib/auth/pinned-session`), which has no claim to read.
+ *
+ * The same sources as {@link orgRoleHoldsPermission}, as a set: the
+ * organization's own roles, the environment roles and the catalog, unioned.
+ * The catalog covers what provisioning has not caught up to; WorkOS covers the
+ * custom roles the catalog has never heard of. The slugs are stored as WorkOS
+ * grants them, retired names included: `hasPermission` reads them through
+ * `acceptedPermissionSlugs`, so a custom role still holding `org:archiv:manage`
+ * answers for `org:office_shelf:manage` there.
+ *
+ * **A lookup WorkOS did not answer** falls back to the catalog only where the
+ * catalog knows the role, as {@link orgRoleHoldsPermission} does. For a role
+ * it has never heard of the catalog's answer is "nothing", which a background
+ * job would act on as if the person had lost every permission; so then this
+ * throws, and the caller's queue retries, as it does for a failed flag lookup
+ * (`enabledFlagsForOrganization`). A slug that WorkOS answered for and does
+ * not know, and the catalog does not know either, is the empty set.
+ */
+export async function tenantRolePermissions(
+  organizationId: string,
+  roleSlug: string | null | undefined
+): Promise<ReadonlySet<string>> {
+  if (!roleSlug) return new Set()
+  const catalogued = permissionsForOrgRole(roleSlug)
+  const lookups = await Promise.allSettled([
+    organizationRolePermissionMap(organizationId),
+    environmentRolePermissionMap(),
+  ])
+  const held = new Set(catalogued)
+  let known = false
+  for (const lookup of lookups) {
+    if (lookup.status === 'rejected') continue
+    const granted = lookup.value[roleSlug]
+    if (!granted) continue
+    known = true
+    for (const permission of granted) held.add(permission)
+  }
+  const failure = lookups.find((lookup): lookup is PromiseRejectedResult => lookup.status === 'rejected')
+  if (!failure || known) return held
+  if (catalogued.size > 0) {
+    console.warn(`[authz] role lookup failed for ${roleSlug}; using the catalog's permissions:`, failure.reason)
+    return held
+  }
+  throw failure.reason
 }

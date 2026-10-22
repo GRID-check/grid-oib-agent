@@ -146,7 +146,11 @@ describe('mayWriteDocument', () => {
     vi.mocked(resolveSubjectMembership).mockImplementation(async (_org, userId) =>
       userId === 'user_gone'
         ? null
-        : { organizationMembershipId: `om_${userId}`, role: userId === 'user_curator' ? 'org-kuratorin' : 'member' }
+        : {
+            organizationMembershipId: `om_${userId}`,
+            role: userId === 'user_curator' ? 'org-kuratorin' : 'member',
+            roles: [userId === 'user_curator' ? 'org-kuratorin' : 'member'],
+          }
     )
     vi.mocked(orgRoleHoldsPermission).mockImplementation(
       async (role, permission) => role === 'org-kuratorin' && permission === 'org:office_shelf:manage'

@@ -24,6 +24,7 @@ import {
   orgRoleHoldsPermission,
   organizationRoleHoldsPermission,
   organizationRolePermissions,
+  tenantRolePermissions,
 } from './org-role-permissions'
 import { hasPermission, ORG_PERMISSIONS } from './permissions'
 import { setCacheStore, type CacheStore } from '@/lib/cache'
@@ -214,6 +215,77 @@ describe('organization-scoped roles', () => {
     await organizationRolePermissions('org_a', 'r')
     await organizationRolePermissions('org_b', 'r')
     expect(listOrganizationRoles).toHaveBeenCalledTimes(2)
+  })
+})
+
+/**
+ * The whole set a tenant role holds, for a session built without a sign-in
+ * (`auth/pinned-session.ts`). The same union as orgRoleHoldsPermission, so a
+ * background job run as a person may do what that person may do signed in.
+ */
+describe('tenantRolePermissions', () => {
+  const TENANT = 'org_tenant'
+
+  it("holds an organization's own custom role, which the catalog cannot know", async () => {
+    listOrganizationRoles.mockResolvedValue({
+      data: [{ slug: 'org-geschaeftsfuehrung', permissions: ['org:projects:administer'] }],
+    })
+    const held = await tenantRolePermissions(TENANT, 'org-geschaeftsfuehrung')
+    expect([...held]).toEqual(['org:projects:administer'])
+    expect(listOrganizationRoles).toHaveBeenCalledWith(TENANT)
+  })
+
+  it('holds a custom environment role', async () => {
+    listEnvironmentRoles.mockResolvedValue({ data: [{ slug: 'acme-owner', permissions: ['org:audit:view'] }] })
+    expect([...(await tenantRolePermissions(TENANT, 'acme-owner'))]).toEqual(['org:audit:view'])
+  })
+
+  it('unions WorkOS with the catalog, so a lagging environment loses nothing', async () => {
+    listEnvironmentRoles.mockResolvedValue({ data: [{ slug: 'member', permissions: ['org:audit:view'] }] })
+    const held = await tenantRolePermissions(TENANT, 'member')
+    expect(held.has('org:audit:view')).toBe(true)
+    expect(held.has('org:projects:create')).toBe(true)
+  })
+
+  it('keeps a retired slug as granted, for hasPermission to accept', async () => {
+    listOrganizationRoles.mockResolvedValue({ data: [{ slug: 'org-kuratorin', permissions: ['org:archiv:manage'] }] })
+    const held = await tenantRolePermissions(TENANT, 'org-kuratorin')
+    const session = { role: 'org-kuratorin', permissions: [...held] }
+    expect(hasPermission(session, ORG_PERMISSIONS.officeShelfManage)).toBe(true)
+  })
+
+  it('is empty for a slug nobody knows, and for no slug, without asking WorkOS for the latter', async () => {
+    expect((await tenantRolePermissions(TENANT, 'never-heard-of-it')).size).toBe(0)
+    vi.clearAllMocks()
+    expect((await tenantRolePermissions(TENANT, null)).size).toBe(0)
+    expect(listEnvironmentRoles).not.toHaveBeenCalled()
+  })
+
+  it("answers a catalog role from the catalog when WorkOS cannot be asked", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    listEnvironmentRoles.mockRejectedValue(new Error('workos down'))
+    listOrganizationRoles.mockRejectedValue(new Error('workos down'))
+    expect([...(await tenantRolePermissions(TENANT, 'member'))]).toEqual(['org:projects:create'])
+    warn.mockRestore()
+  })
+
+  it('answers a custom role from the lookup that did answer', async () => {
+    listEnvironmentRoles.mockRejectedValue(new Error('workos down'))
+    listOrganizationRoles.mockResolvedValue({ data: [{ slug: 'org-site-lead', permissions: ['org:audit:view'] }] })
+    expect([...(await tenantRolePermissions(TENANT, 'org-site-lead'))]).toEqual(['org:audit:view'])
+  })
+
+  it('throws for a role only WorkOS could answer for, rather than read it as holding nothing', async () => {
+    listEnvironmentRoles.mockRejectedValue(new Error('workos down'))
+    await expect(tenantRolePermissions(TENANT, 'acme-owner')).rejects.toThrow('workos down')
+  })
+
+  it('does not cache a failed lookup', async () => {
+    const store = new TestStore()
+    setCacheStore(store)
+    listOrganizationRoles.mockRejectedValue(new Error('workos down'))
+    await expect(tenantRolePermissions(TENANT, 'org-site-lead')).rejects.toThrow('workos down')
+    expect([...store.map.keys()]).toEqual(['authz:env-role-permissions'])
   })
 })
 

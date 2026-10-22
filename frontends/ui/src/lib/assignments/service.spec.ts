@@ -184,7 +184,7 @@ describe('listAssignmentCandidates', () => {
     stubCallerRole('collaborator', null)
     vi.mocked(findDocumentForSession).mockResolvedValue({ id: 'doc_1', scope: 'office_shelf', projectId: null, folderId: null } as Partial<Document> as Document)
     // Every person in the directory is a member; the Büroablage asks each membership, not a role.
-    vi.mocked(resolveSubjectMembership).mockResolvedValue({ organizationMembershipId: 'om_1', role: 'member' })
+    vi.mocked(resolveSubjectMembership).mockResolvedValue({ organizationMembershipId: 'om_1', role: 'member', roles: ['member'] })
 
     const candidates = await listAssignmentCandidates(session, 'document', 'doc_1')
 

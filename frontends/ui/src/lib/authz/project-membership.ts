@@ -21,6 +21,7 @@ import 'server-only'
 import { getCached } from '@/lib/cache'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { getWorkOS } from '@/lib/workos/client'
+import { rolesOfMembership } from '@/lib/auth/membership-roles'
 import { orgRoleHoldsPermission } from './org-role-permissions'
 import { ORG_PERMISSIONS, type ProjectPermission } from './permissions'
 import { findProjectTenancy } from '@/lib/projects/repository'
@@ -39,22 +40,31 @@ const MEMBERSHIP_NEGATIVE_TTL_MS = 30 * 1000
  */
 export const FRESH_MEMBERSHIP_TTL_MS = 60 * 1000
 
-interface SubjectMembership {
+export interface SubjectMembership {
   organizationMembershipId: string
   /** WorkOS role slug for this membership (e.g. `admin`, `member`). */
   role: string | null
+  /**
+   * Every role slug the membership holds: several with WorkOS's "multiple
+   * roles", else `[role]` (`rolesOfMembership`). A pinned session's permissions
+   * are the union of theirs, as a signed-in session's claim carries them all.
+   */
+  roles: readonly string[]
 }
 
 /**
- * A user's membership in an organization, with its role, or `null` when WorkOS
- * ANSWERED that there is none. A lookup that could not be answered throws.
+ * A user's ACTIVE membership in an organization, with its roles, or `null`
+ * when WorkOS ANSWERED that there is none. A lookup that could not be answered
+ * throws.
  *
  * For a caller whose response to "not a member" cannot be undone (the push job
  * removes the person's devices): a WorkOS hiccup must not read as having left.
  * Callers that only need a fail-closed yes/no take {@link resolveSubjectMembership}.
  *
  * Cached under a key distinct from `membership:` (used by session resolution,
- * which stores only the id) so the two never clobber each other's shape.
+ * which stores only the id) so the two never clobber each other's shape. The
+ * key changed from `membership-role:` when `roles` joined the shape, so an
+ * entry a running deployment cached without it is never read as having none.
  * "Not a member" is cached for the short negative TTL; a thrown lookup is not
  * cached at all, so the next request asks again.
  */
@@ -65,8 +75,8 @@ export async function lookupSubjectMembership(
 ): Promise<SubjectMembership | null> {
   const key =
     ttlMs === MEMBERSHIP_TTL_MS
-      ? `membership-role:${organizationId}:${userId}`
-      : `membership-role-${ttlMs}:${organizationId}:${userId}`
+      ? `subject-membership:${organizationId}:${userId}`
+      : `subject-membership-${ttlMs}:${organizationId}:${userId}`
   return getCached(
     key,
     ttlMs,
@@ -74,6 +84,10 @@ export async function lookupSubjectMembership(
       const memberships = await getWorkOS().userManagement.listOrganizationMemberships({
         userId,
         organizationId,
+        // WorkOS lists only active memberships when no status is named; named
+        // here as `membership-roles.ts` and `platform.ts` do, so a deactivated
+        // or pending membership never holds a role should that default move.
+        statuses: ['active'],
         limit: 1,
       })
       const membership = memberships.data[0]
@@ -81,6 +95,7 @@ export async function lookupSubjectMembership(
       return {
         organizationMembershipId: membership.id,
         role: membership.role?.slug ?? null,
+        roles: rolesOfMembership(membership),
       } satisfies SubjectMembership
     },
     { negativeTtlMs: MEMBERSHIP_NEGATIVE_TTL_MS }

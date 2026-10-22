@@ -36,6 +36,7 @@ describe('resolveSubjectMembership', () => {
     await expect(resolveSubjectMembership('org_1', 'u-anna')).resolves.toEqual({
       organizationMembershipId: 'om_anna',
       role: 'member',
+      roles: ['member'],
     })
   })
 
@@ -57,5 +58,55 @@ describe('resolveSubjectMembership', () => {
 
     listOrganizationMemberships.mockResolvedValueOnce({ data: [] })
     await expect(lookupSubjectMembership('org_1', 'u-gone')).resolves.toBeNull()
+  })
+})
+
+describe('lookupSubjectMembership', () => {
+  let store: MapCacheStore
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    store = new MapCacheStore()
+    setCacheStore(store)
+  })
+
+  it('reads every role of the membership, so a pinned session can carry them all', async () => {
+    listOrganizationMemberships.mockResolvedValueOnce({
+      data: [{ id: 'om_anna', role: { slug: 'member' }, roles: [{ slug: 'member' }, { slug: 'org-site-lead' }] }],
+    })
+    await expect(lookupSubjectMembership('org_1', 'u-anna')).resolves.toEqual({
+      organizationMembershipId: 'om_anna',
+      role: 'member',
+      roles: ['member', 'org-site-lead'],
+    })
+  })
+
+  it('asks for an active membership only, not on the strength of a WorkOS default', async () => {
+    listOrganizationMemberships.mockResolvedValueOnce({ data: [MEMBERSHIP] })
+    await lookupSubjectMembership('org_1', 'u-anna')
+    expect(listOrganizationMemberships).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u-anna', organizationId: 'org_1', statuses: ['active'] })
+    )
+  })
+
+  it('caches under a key the shape without roles was never stored under', async () => {
+    // An entry `membership-role:` cached before `roles` existed would read as
+    // a member with no roles; the new key leaves it unread until it expires.
+    await store.set('membership-role:org_1:u-anna', JSON.stringify({ organizationMembershipId: 'om_old', role: 'member' }))
+    listOrganizationMemberships.mockResolvedValueOnce({ data: [MEMBERSHIP] })
+
+    await expect(lookupSubjectMembership('org_1', 'u-anna')).resolves.toMatchObject({ roles: ['member'] })
+    expect([...store.map.keys()]).toContain('subject-membership:org_1:u-anna')
+  })
+
+  it('keeps a fresher membership age under its own key (the agent door)', async () => {
+    listOrganizationMemberships.mockResolvedValue({ data: [MEMBERSHIP] })
+    await lookupSubjectMembership('org_1', 'u-anna')
+    await lookupSubjectMembership('org_1', 'u-anna', 60_000)
+    expect(listOrganizationMemberships).toHaveBeenCalledTimes(2)
+    expect([...store.map.keys()].sort()).toEqual([
+      'subject-membership-60000:org_1:u-anna',
+      'subject-membership:org_1:u-anna',
+    ])
   })
 })

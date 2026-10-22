@@ -11,9 +11,9 @@
  *
  * It is built from the STORED requester only — a WorkOS user id the task row
  * pinned when the person set the work up — and from what WorkOS says about
- * that person NOW: their membership, their role, the organization's flags. A
- * requester who left the organization resolves to nothing, and the caller
- * refuses rather than files. No access token: nothing on the filing path
+ * that person NOW: their membership, their roles and what each role holds, the
+ * organization's flags. A requester who left the organization resolves to
+ * nothing, and the caller refuses rather than files. No access token: nothing on the filing path
  * forwards one, and a session that carried a fabricated one would be a
  * credential this module has no business minting.
  *
@@ -24,8 +24,12 @@
 
 import 'server-only'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { lookupSubjectMembership, resolveSubjectMembership } from '@/lib/authz/project-membership'
-import { permissionsForOrgRole } from '@/lib/authz/permissions'
+import { tenantRolePermissions } from '@/lib/authz/org-role-permissions'
+import {
+  lookupSubjectMembership,
+  resolveSubjectMembership,
+  type SubjectMembership,
+} from '@/lib/authz/project-membership'
 import { enabledFlagsForOrganization } from '@/lib/workos/feature-flags'
 import { resolvePerson } from './person'
 
@@ -38,6 +42,14 @@ export interface PinnedRequester {
 /**
  * The session the requester would have if they were signed in right now, or
  * `null` when they are no longer a member of the organization.
+ *
+ * Permissions are what each of the requester's roles holds, unioned: WorkOS's
+ * answer for the role plus the catalog's (`tenantRolePermissions`), the set a
+ * signed-in session's claim carries. Taken from the catalog alone, for the
+ * primary role alone, a member with a custom WorkOS role held nothing here,
+ * and every job run as them refused as if they had left; a second role's
+ * grants were lost the same way. A role lookup WorkOS did not answer, for a
+ * role the catalog does not know, throws like the flag lookup below.
  *
  * Feature flags are resolved per organization (the JWT claim a live session
  * carries is per user+org, and the org-level answer is what the fleet-wide
@@ -81,15 +93,17 @@ export async function resolvePinnedRequesterSessionStrict(
 
 async function sessionFor(
   requester: PinnedRequester,
-  membership: Awaited<ReturnType<typeof lookupSubjectMembership>>,
+  membership: SubjectMembership | null,
 ): Promise<AuthorizedSession | null> {
   // No membership, or a membership without a role, is a person who holds
   // nothing here today; the caller refuses rather than guesses a role.
   if (!membership || !membership.role) return null
 
-  const [featureFlags, person] = await Promise.all([
+  const roles = [...new Set([membership.role, ...membership.roles])]
+  const [featureFlags, person, ...held] = await Promise.all([
     enabledFlagsForOrganization(requester.organizationId),
     resolvePerson(requester.organizationId, requester.userId),
+    ...roles.map((role) => tenantRolePermissions(requester.organizationId, role)),
   ])
 
   return {
@@ -101,7 +115,10 @@ async function sessionFor(
     organizationId: requester.organizationId,
     organizationMembershipId: membership.organizationMembershipId,
     role: membership.role,
-    permissions: [...permissionsForOrgRole(membership.role)],
+    // Every role, as a signed-in session carries them: a restricted folder is
+    // cleared by any one of them (ADR-0087), and each adds its permissions.
+    roles,
+    permissions: [...new Set(held.flatMap((permissions) => [...permissions]))],
     featureFlags,
   }
 }

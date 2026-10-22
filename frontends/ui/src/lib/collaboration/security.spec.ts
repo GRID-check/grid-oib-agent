@@ -571,6 +571,7 @@ describe('the container precondition fails CLOSED (matrix F38, spec SH-5)', () =
     expect(listOrganizationMemberships).toHaveBeenCalledWith({
       userId: 'user_other_tenant',
       organizationId: session.organizationId,
+      statuses: ['active'],
       limit: 1,
     })
   })

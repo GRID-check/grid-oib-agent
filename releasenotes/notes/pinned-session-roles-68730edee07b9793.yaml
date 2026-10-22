@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    A colleague with a role your office set up for itself in WorkOS, or with
+    more than one role, can now have work done for them while they are away:
+    scheduled tasks, mail import, reindexing, push notifications and agents
+    acting for them get what each of their roles allows, as when they are
+    signed in. Before, such work was refused as if they held no permissions.
