@@ -224,6 +224,28 @@ describe('purgeProject', () => {
     ])
   })
 
+  // A project that only ever received mail (ADR-0134) has no document row to
+  // name its bucket: the staged mail and the kept originals name it on their
+  // own rows, and the bucket read asks them in the same query.
+  it('sweeps the buckets a project\'s mail and kept originals recorded', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+      documentBucketRows: [{ storage_bucket: 'grid-org-org1-mailonly000' }],
+    })
+
+    const deps = makeDeps()
+    await purgeProject(tx, entry, deps)
+
+    const bucketRead = executed.find((step) => step.text.startsWith('SELECT DISTINCT storage_bucket'))
+    expect(bucketRead.text).toContain('SELECT staging_bucket AS storage_bucket FROM inbound_mails WHERE project_id =')
+    expect(bucketRead.text).toContain('SELECT original_bucket AS storage_bucket FROM mail_thread_entries WHERE project_id =')
+    expect(deps.deleteStoragePrefix.mock.calls).toEqual([
+      ['grid-documents', 'org/org1/project/p1/'],
+      ['grid-org-org1-mailonly000', 'org/org1/project/p1/'],
+    ])
+  })
+
   // The shared bucket is unconditional: NULL means shared (migration 0033), so
   // a project whose documents all predate the column records nothing, and the
   // sweep must still reach them.

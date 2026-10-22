@@ -106,6 +106,12 @@ export interface FileShelf {
    * its documents on one page, for the Jour fixe, reached from the header.
    */
   openPoints?: { href: string }
+  /**
+   * The project's E-Mail-Eingang (ADR-0134), for a reader who may decide its
+   * mail: the header entry with its count, the quiet line above the shelf,
+   * and „Per E-Mail senden …“ in the upload menu, which opens the address.
+   */
+  inboundMail?: { href: string; waiting: number | null; more: boolean; openAddress: () => void }
   /** Faces, „Unvergeben", the assignment filter (the collaboration flag). */
   canCollaborate: boolean
   currentUserId?: string

@@ -631,6 +631,27 @@ def set_document_page_count(collection: str, filename: str, page_count: int | No
     return _get_document_metadata_store().set_page_count(collection, filename, page_count)
 
 
+def set_document_mail_thread(collection: str, filename: str, thread: dict[str, Any] | None) -> bool:
+    """Mark a document as a filed E-Mail-Verlauf, with its newest message's date and count; ``None`` clears it.
+
+    The newest message's date is the document's own date, a payload fact (``document_date``), so
+    the change is copied onto the file's points. UPDATE-only, like :func:`set_document_capture`:
+    ``False`` when the document has no metadata row.
+    """
+    changed = _get_document_metadata_store().set_mail_thread(collection, filename, thread or None)
+    if changed:
+        _mirror_facts(collection, [filename])
+    return changed
+
+
+def set_document_mail_origin(collection: str, filename: str, origin: dict[str, Any] | None) -> bool:
+    """Record the message a filed attachment came with (sender, domains, trust, date); ``None`` clears it.
+
+    UPDATE-only, like :func:`set_document_capture`: ``False`` when the document has no metadata row.
+    """
+    return _get_document_metadata_store().set_mail_origin(collection, filename, origin or None)
+
+
 def set_document_superseded_by(collection: str, older: str, newer: str | None) -> bool:
     """Record that a PERSON confirmed ``newer`` replaces ``older`` in this collection; ``None`` lifts it.
 

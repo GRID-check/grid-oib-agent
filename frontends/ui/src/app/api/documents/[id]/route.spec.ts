@@ -18,12 +18,14 @@ vi.mock('@/lib/documents/service', () => ({
   renameDocument: vi.fn(),
 }))
 vi.mock('@/lib/documents/listed-document', () => ({ getListedDocument: vi.fn() }))
+vi.mock('@/lib/mail-thread/mail-origins', () => ({ documentMailOrigins: vi.fn(async () => []) }))
 vi.mock('@/lib/documents/lifecycle', () => ({
   summarizeDocumentVersions: vi.fn().mockResolvedValue(new Map([['doc-1', { versionCount: 3, state: 'published' }]])),
 }))
 
 import { deleteDocument, renameDocument } from '@/lib/documents/service'
 import { getListedDocument } from '@/lib/documents/listed-document'
+import { documentMailOrigins } from '@/lib/mail-thread/mail-origins'
 import { toDocumentWireRow } from '@/lib/documents/list-projection'
 import type { ListedDocument } from '@/lib/documents/shelf-listing'
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
@@ -69,6 +71,31 @@ describe('GET /api/documents/[id]', () => {
       JSON.parse(JSON.stringify({ ...toDocumentWireRow(LISTED, { versionCount: 3, state: 'published' }), projectId: 'proj-1' })),
     )
     expect(getListedDocument).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user-1' }), 'doc-1')
+  })
+
+  it('names the mails that brought its Fassungen, when the reader may read their thread (D36)', async () => {
+    vi.mocked(getListedDocument).mockResolvedValue({ ...LISTED, projectId: 'proj-1' })
+    const origin = {
+      threadId: 'thread-1',
+      entryId: 'entry-1',
+      sentAt: '2026-10-14T07:12:00.000Z',
+      receivedAt: '2026-10-14T07:14:00.000Z',
+      fromName: 'Mag. Anna Huber',
+      signerDomain: 'ma37.wien.gv.at',
+      senderTrust: 'external_verified' as const,
+      documentVersionId: 'ver-2',
+    }
+    vi.mocked(documentMailOrigins).mockResolvedValueOnce([origin])
+
+    const body = await (await read('doc-1')).json()
+
+    expect(body.document.mailOrigins).toEqual([origin])
+    expect(documentMailOrigins).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user-1' }), { id: 'doc-1', projectId: 'proj-1' })
+  })
+
+  it('carries no mailOrigins for a document no mail brought', async () => {
+    vi.mocked(getListedDocument).mockResolvedValue({ ...LISTED, projectId: 'proj-1' })
+    expect((await (await read('doc-1')).json()).document).not.toHaveProperty('mailOrigins')
   })
 
   it('maps a document the reader may not see to a 404', async () => {

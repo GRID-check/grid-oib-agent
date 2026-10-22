@@ -68,6 +68,8 @@ export interface KeyboardShortcutsProps {
   canCollaborate?: boolean
   /** Inbox reachability — gates the `g i` jump (ADR-0042, see NavFlags). */
   canAccessInbox?: boolean
+  /** The office receives project mail (`inbound-mail`, ADR-0134): documents the E-Mail-Eingang's keys. */
+  inboundMail?: boolean
 }
 
 export function KeyboardShortcuts({
@@ -79,6 +81,7 @@ export function KeyboardShortcuts({
   canAccessOfficeShelf = false,
   canCollaborate = false,
   canAccessInbox = false,
+  inboundMail = false,
 }: KeyboardShortcutsProps) {
   const { enabled } = useShortcutsPreference()
   const router = useRouter()
@@ -100,6 +103,7 @@ export function KeyboardShortcuts({
       canAccessOfficeShelf,
       canCollaborate,
       canAccessInbox,
+      inboundMail,
     }),
     [
       canViewOrganization,
@@ -109,6 +113,7 @@ export function KeyboardShortcuts({
       canAccessOfficeShelf,
       canCollaborate,
       canAccessInbox,
+      inboundMail,
     ],
   )
 
@@ -204,6 +209,7 @@ export function KeyboardShortcuts({
         canAccessOfficeShelf={canAccessOfficeShelf}
         canCollaborate={canCollaborate}
         canAccessInbox={canAccessInbox}
+        inboundMail={inboundMail}
       />
       )}
     </>

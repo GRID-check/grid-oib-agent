@@ -1398,7 +1398,8 @@ office's calendar (Europe/Vienna).
 export's `DocBlock`s and handed to the renderers that already exist: `renderDocx`
 (`lib/answer-export/docx.ts`), `BlocksDocument` (`lib/pdf/blocks-to-pdf.tsx`,
 with its cover page), and `blocksToMarkdown` in `export.ts`, the only new
-writer, which escapes what a person typed so it stays text. No dependency was
+writer, which escapes what a person typed so it stays text
+(`lib/text/markdown-escape.ts`, shared with the mail import's note). No dependency was
 added. A PDF whose layout cost passes `MAX_MARKDOWN_PDF_CHARS` is refused (422)
 before react-pdf blocks the event loop; Word and Markdown have no such bound.
 There is no thumbnail of the marked place: the BFF has no page rasterizer, so

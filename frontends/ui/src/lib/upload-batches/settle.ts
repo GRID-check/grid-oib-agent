@@ -1,7 +1,8 @@
 /**
  * What happens when documents come to rest (ADR-0086): their upload completes
  * and its uploader is told, and a quarantined file's quarantine is audited and
- * its reviewers are told.
+ * its reviewers are told. A batch opened quiet (migration 0185) sets off only
+ * the effects it kept; a quarantine is announced whatever the batch says.
  *
  * `onDocumentsSettled` is called by status reconciliation for every row it
  * moved to a terminal status, on a reader's read or the sweep's, and by a
@@ -56,7 +57,8 @@ export async function onDocumentsSettled(organizationId: string, settled: readon
     )
     await settleUploadBatches(organizationId, batchIds)
     // A same-name upload is held until now; the people who followed the
-    // document hear about the new Fassung once it is readable. Detached:
+    // document hear about the new Fassung once it is readable, as far as the
+    // batch that brought it lets them (`revision_notice`, read there). Detached:
     // it asks the directory about each person and logs its own failures.
     //
     // A stopped read announces nothing: it is not in the index, so "the new
@@ -77,14 +79,21 @@ export async function onDocumentsSettled(organizationId: string, settled: readon
  * Complete every given batch that is ready, and tell each uploader once. When
  * the uploader cannot be told, the completion is undone and the error thrown:
  * a completed batch is never settled again, so its item would be lost.
+ *
+ * What a completion sets off is the batch's own (`UploadBatchEffects`,
+ * migration 0185): a batch opened with `announcesCompletion` off tells nobody
+ * here, and the intake and filing triggers read their own switch (the revision
+ * notice and the document check read theirs per document). All five
+ * are on unless a server-side caller opened the batch quiet.
  */
 export async function settleUploadBatches(organizationId: string, batchIds: readonly string[]): Promise<UploadBatch[]> {
   const completedAt = new Date()
   const completed = await completeSettledBatches(organizationId, batchIds, completedAt)
   if (completed.length === 0) return completed
   try {
-    const emissions = await Promise.all(completed.map((batch) => completionEmission(batch)))
-    await emitInboxItems(emissions)
+    const announced = completed.filter((batch) => batch.announcesCompletion)
+    const emissions = await Promise.all(announced.map((batch) => completionEmission(batch)))
+    if (emissions.length > 0) await emitInboxItems(emissions)
   } catch (error) {
     await reopenCompletedBatches(
       organizationId,
@@ -93,6 +102,8 @@ export async function settleUploadBatches(organizationId: string, batchIds: read
     )
     throw error
   }
+  // Each trigger leaves out the batches whose switch is off (`startsIntake`,
+  // `reviewsFiling`), so the rule sits beside the effect it governs.
   await startIntakeReadings(organizationId, completed)
   // What ingestion read may sharpen or withdraw the filing suggestion the seal
   // queued; never throws, so it cannot undo the completion either.
@@ -148,8 +159,9 @@ async function completionEmission(batch: UploadBatch): Promise<InboxEmission> {
  * member of the organization because there is no session to ask
  * (`isQuarantineReviewer`).
  *
- * Bounded by the directory's first page, as the storage alert is, and for the
- * same reason (`lib/storage/alerts.ts`): the reviewers are a small set.
+ * The directory is the whole roster (`autoPagination`), and each member is
+ * asked once. An unreadable directory reads as an empty one, so nobody is
+ * notified; that failure is not cached (`loadOrganizationDirectory`).
  */
 export async function quarantineReviewersOf(organizationId: string, document: Document): Promise<string[]> {
   const directory = await loadOrganizationDirectory(organizationId)

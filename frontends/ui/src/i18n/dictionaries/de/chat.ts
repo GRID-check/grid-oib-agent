@@ -711,6 +711,8 @@ export const chat: typeof en.chat = {
         bim_model: 'Modell {name}',
         upload_batch: 'Upload {name}',
         proposal: 'Vorschlag {name}',
+        inbound_mail: 'E-Mail {name}',
+        mail_thread: 'E-Mail-Verlauf {name}',
       },
       applied: 'Die Aktion wurde ausgeführt.',
       dismissed: 'Verworfen. Die Aktion wurde nicht ausgeführt.',

@@ -135,6 +135,7 @@ evidence or by "not verified because …":
 - Live or LLM validation: <what was called, result | n/a because …>
 - UI evidence: <PR attachment, quoted copy | n/a because …>
 - Docs updated: <files | none needed because …>
+- What we learned: <each fact found while working, re-checked in code, and the file it went to | none, because …>
 - Independent verification: <who or what re-checked which claims>
 - Committed and pushed: <commit hashes, branch>
 ```

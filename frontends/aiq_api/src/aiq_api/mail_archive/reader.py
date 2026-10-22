@@ -16,10 +16,22 @@ wrote it used).
 
 **Not every item is a mail.** Appointments, contacts, tasks and notes are
 counted and named but not read: the import is for correspondence.
+
+**A mail carries what threads it.** The import files archived mail into the
+same E-Mail-Verläufe inbound mail goes to (DECISION D12, D33), so a message
+reads the properties a thread is matched on, the ones an RFC 5322 message
+carries as headers: its Message-ID, In-Reply-To and References
+(``PR_INTERNET_MESSAGE_ID``, ``PR_IN_REPLY_TO_ID``, ``PR_INTERNET_REFERENCES``),
+and Outlook's own conversation, ``PR_CONVERSATION_INDEX``, the bytes an
+inbound mail carries base64-encoded as its ``Thread-Index`` header ([MS-OXOMSG]
+2.2.1.3). All three are handed over as stored: the BFF parses the ids and
+derives the conversation GUID once (``lib/mail-thread/mail-threading.ts``), so
+an archived and an inbound message of one conversation cannot disagree.
 """
 
 from __future__ import annotations
 
+import base64
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -28,8 +40,8 @@ from datetime import datetime
 
 import pypff
 
-from .body_text import BodyText
-from .body_text import body_text
+from ..mail.body_text import BodyText
+from ..mail.body_text import body_text
 
 #: Message classes read as mail. Everything else is counted and skipped.
 MAIL_CLASS_PREFIXES = ("IPM.Note", "IPM.Schedule.Meeting", "IPM.Post", "REPORT.IPM.Note")
@@ -39,6 +51,9 @@ _SYSTEM_TOP_FOLDERS = frozenset({"SPAM Search Folder 2", "Search Root", "Root - 
 
 # MAPI property tags this module reads.
 _PR_MESSAGE_CLASS = 0x001A
+_PR_CONVERSATION_INDEX = 0x0071
+_PR_INTERNET_REFERENCES = 0x1039
+_PR_IN_REPLY_TO_ID = 0x1042
 _PR_INTERNET_MESSAGE_ID = 0x1035
 _PR_SENDER_EMAIL_ADDRESS = 0x0C1F
 _PR_SENDER_SMTP_ADDRESS = 0x5D01
@@ -58,6 +73,7 @@ _ATTACH_OLE = 6
 _ATT_MHTML_REF = 0x4
 _RECIPIENT_TO = 1
 _RECIPIENT_CC = 2
+_RECIPIENT_BCC = 3
 
 # MAPI value types libpff reports for an entry.
 _INTEGER_TYPES = frozenset({0x0002, 0x0003, 0x0014})
@@ -95,9 +111,17 @@ class ArchiveMessage:
     sender: Address | None = None
     to: tuple[Address, ...] = ()
     cc: tuple[Address, ...] = ()
+    #: Present in a sent message only; a received one never shows its Bcc.
+    bcc: tuple[Address, ...] = ()
     sent_at: datetime | None = None
     received_at: datetime | None = None
     message_id: str | None = None
+    #: The In-Reply-To value as stored: the Message-ID this one answers.
+    in_reply_to: str | None = None
+    #: The References value as stored: the Message-IDs of the conversation before it.
+    references: str | None = None
+    #: ``PR_CONVERSATION_INDEX``, base64, as a ``Thread-Index`` header carries it.
+    conversation_index: str | None = None
     body: BodyText | None = None
     attachments: tuple[AttachmentInfo, ...] = ()
 
@@ -256,12 +280,21 @@ def _walk(folder: pypff.folder, path: tuple[str, ...]) -> Iterator[_Folder]:
 
 def _read_message(message: pypff.message, position: int, path: tuple[str, ...]) -> ArchiveMessage:
     props = _properties(
-        message, {_PR_MESSAGE_CLASS, _PR_INTERNET_MESSAGE_ID, _PR_SENDER_EMAIL_ADDRESS, _PR_SENDER_SMTP_ADDRESS}
+        message,
+        {
+            _PR_MESSAGE_CLASS,
+            _PR_INTERNET_MESSAGE_ID,
+            _PR_SENDER_EMAIL_ADDRESS,
+            _PR_SENDER_SMTP_ADDRESS,
+            _PR_CONVERSATION_INDEX,
+            _PR_IN_REPLY_TO_ID,
+            _PR_INTERNET_REFERENCES,
+        },
     )
     message_class = str(props.get(_PR_MESSAGE_CLASS) or "IPM.Note")
     if not message_class.startswith(MAIL_CLASS_PREFIXES):
         return ArchiveMessage(position=position, kind="other", message_class=message_class, folder_path=path)
-    to, cc = _recipients(message)
+    to, cc, bcc = _recipients(message)
     html = _decode_markup(message.html_body)
     return ArchiveMessage(
         position=position,
@@ -272,9 +305,13 @@ def _read_message(message: pypff.message, position: int, path: tuple[str, ...]) 
         sender=_sender(message, props),
         to=to,
         cc=cc,
+        bcc=bcc,
         sent_at=_utc(message.client_submit_time),
         received_at=_utc(message.delivery_time),
         message_id=_text(props.get(_PR_INTERNET_MESSAGE_ID)),
+        in_reply_to=_text(props.get(_PR_IN_REPLY_TO_ID)),
+        references=_text(props.get(_PR_INTERNET_REFERENCES)),
+        conversation_index=_base64(props.get(_PR_CONVERSATION_INDEX)),
         body=body_text(message.plain_text_body, message.html_body, _rtf(message)),
         attachments=tuple(
             _attachment_info(message.get_attachment(i), i, html) for i in range(message.number_of_attachments)
@@ -290,23 +327,21 @@ def _sender(message: pypff.message, props: dict[int, object]) -> Address | None:
     return Address(name=name or address, address=address)
 
 
-def _recipients(message: pypff.message) -> tuple[tuple[Address, ...], tuple[Address, ...]]:
+def _recipients(message: pypff.message) -> tuple[tuple[Address, ...], ...]:
+    """To, Cc and Bcc, each in the order the recipient table keeps them."""
     table = message.recipients
+    lists: dict[int, list[Address]] = {_RECIPIENT_TO: [], _RECIPIENT_CC: [], _RECIPIENT_BCC: []}
     if table is None:
-        return (), ()
+        return (), (), ()
     wanted = {_PR_DISPLAY_NAME, _PR_EMAIL_ADDRESS, _PR_SMTP_ADDRESS, _PR_RECIPIENT_TYPE}
-    to: list[Address] = []
-    cc: list[Address] = []
     for record_set in table.record_sets:
         props = _entries(record_set, wanted)
-        address = _smtp(props.get(_PR_SMTP_ADDRESS), props.get(_PR_EMAIL_ADDRESS))
-        recipient = Address(name=_text(props.get(_PR_DISPLAY_NAME)) or address, address=address)
         kind = props.get(_PR_RECIPIENT_TYPE)
-        if kind == _RECIPIENT_TO:
-            to.append(recipient)
-        elif kind == _RECIPIENT_CC:
-            cc.append(recipient)
-    return tuple(to), tuple(cc)
+        if kind not in lists:
+            continue
+        address = _smtp(props.get(_PR_SMTP_ADDRESS), props.get(_PR_EMAIL_ADDRESS))
+        lists[kind].append(Address(name=_text(props.get(_PR_DISPLAY_NAME)) or address, address=address))
+    return tuple(lists[_RECIPIENT_TO]), tuple(lists[_RECIPIENT_CC]), tuple(lists[_RECIPIENT_BCC])
 
 
 def _attachment_info(attachment: pypff.attachment, index: int, html: str) -> AttachmentInfo:
@@ -383,6 +418,13 @@ def _smtp(*candidates: object) -> str:
         if text and "@" in text:
             return text
     return ""
+
+
+def _base64(value: object) -> str | None:
+    """Binary property bytes as base64, the way a mail header carries them."""
+    if not isinstance(value, bytes) or not value:
+        return None
+    return base64.b64encode(value).decode("ascii")
 
 
 def _text(value: object) -> str | None:

@@ -254,13 +254,23 @@ async function purgeProject(tx, entry, deps) {
   //    An Outlook archive half-sent into the project's mail import (ADR-0085)
   //    names its bucket on its own row: a project with no document yet would
   //    otherwise never reach that bucket, and its upload would never be aborted.
+  //    So does a mail sent to the project (`_inbound-mail/`, staged in the
+  //    bucket its row recorded) and a filed message's kept original
+  //    (`_mail-originals/`, ADR-0134): a project that only ever received mail
+  //    has no document, and its staged mail would outlive the purge.
   const recorded = /** @type {{ storage_bucket: string }[]} */ (
     await tx`
       SELECT DISTINCT storage_bucket FROM documents
        WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL
       UNION
       SELECT staging_bucket AS storage_bucket FROM mail_imports
-       WHERE project_id = ${projectId}`
+       WHERE project_id = ${projectId}
+      UNION
+      SELECT staging_bucket AS storage_bucket FROM inbound_mails
+       WHERE project_id = ${projectId}
+      UNION
+      SELECT original_bucket AS storage_bucket FROM mail_thread_entries
+       WHERE project_id = ${projectId} AND original_bucket IS NOT NULL`
   )
   const targets = new Set([bucket, ...recorded.map((row) => row.storage_bucket)])
   for (const target of targets) {

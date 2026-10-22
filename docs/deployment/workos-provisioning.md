@@ -505,6 +505,25 @@ each flag answers by its **kind** (`FLAG_KINDS` in the registry): a
 who reads what — is OFF. To exercise an entitlement locally, sign in against
 the Staging WorkOS environment.
 
+**Adding a flag.** Add the slug to `FEATURE_FLAGS` and to `FLAG_KINDS`
+(`lib/authz/feature-flags.ts`): `FLAG_KINDS` is a `Record` over every slug, so
+a new one does not compile until it is classified. Create it in both WorkOS
+environments; `task fe:provision:flags` checks that. A caller with a session
+reads the flag from the token. A caller without one (a job's enqueue, an
+internal route, the per-turn stage read) calls `isOrgFeatureEnabled(flag,
+organizationId)` (`lib/workos/feature-flags.ts`); a per-flag `…EnabledForOrg`
+helper earns its place only when the read needs more than the flag
+(`isWebSearchEnabledForOrg` also reads the organization's own toggle). That
+read is cached per organization for 30 s (`CACHE_TTL_MS`), so switching a flag
+off reaches a job or an internal route up to 30 s later, and a session at its
+next token refresh.
+
+**A failed lookup.** `isOrgFeatureEnabled` answers off when WorkOS cannot be
+asked, so during an outage an enqueue gate (`revision-notice/queue.ts`,
+`document-check/queue.ts`) queues nothing and nothing makes it up later. A
+running job reads its flags from the pinned session
+(`enabledFlagsForOrganization`), which throws instead, so the queue retries it.
+
 | Flag slug | Kind | Gates |
 |---|---|---|
 | `runtime-model-config` | entitlement | Runtime AI model configuration (org page card + all 4 API routes) |
@@ -887,7 +906,15 @@ environment; the migration that drops it also deletes the
 - **Custom roles**: add a role to the catalog (or create one in WorkOS with a
   subset of `org:*` / `widgets:*`) and it works immediately — code never checks
   role names except the bounded `admin` back-compat above. The four shipped
-  personas in §2a exercise this path so it cannot rot unnoticed.
+  personas in §2a exercise this path so it cannot rot unnoticed. One exception:
+  work that runs as a person later. A pinned session (`lib/auth/pinned-session.ts`:
+  every `handler()` job, scheduled tasks, the mail import, the push job) takes
+  its permissions from `permissionsForOrgRole`, which knows only the catalog's
+  roles, so a person whose role exists only in WorkOS holds nothing there and
+  their background work is refused. It also reads only the first role
+  (`lookupSubjectMembership`, `limit: 1`), which is harmless while
+  `multipleRolesEnabled` is off. Until the pinned session reads a role's
+  permissions from WorkOS, give such a person a catalog role.
 
 ## Sign-up policy — what is native WorkOS vs. app-side
 

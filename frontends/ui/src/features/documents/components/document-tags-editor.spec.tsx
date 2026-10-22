@@ -78,6 +78,35 @@ describe('DocumentTagsEditor', () => {
     })
   })
 
+  it('shows a token by its label and stores the token when a person types the label', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse)
+
+    render(<DocumentTagsEditor fileId="doc-1" initialTags={['Grundriss']} />)
+
+    // A person types what they read, never the stored token.
+    await user.type(screen.getByRole('textbox', { name: /add tag/i }), 'Correspondence{Enter}')
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Remove tag Correspondence' })).toBeInTheDocument()
+    )
+    expect(screen.queryByText('correspondence')).toBeNull()
+    expect(JSON.parse((tagsCall(fetchMock)![1] as RequestInit).body as string)).toEqual({
+      tags: ['Grundriss', 'correspondence'],
+    })
+  })
+
+  it('narrows the suggestions by the label, not the token', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse)
+
+    render(<DocumentTagsEditor fileId="doc-1" initialTags={[]} />)
+
+    await user.type(screen.getByRole('textbox', { name: /add tag/i }), 'corresp')
+
+    expect(await screen.findByRole('button', { name: 'Correspondence' })).toBeInTheDocument()
+  })
+
   it('does not add free-form values outside the controlled vocabulary', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse)

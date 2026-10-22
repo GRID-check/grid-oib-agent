@@ -349,8 +349,9 @@ tasks:
 
   be:test:postgres:
     desc: >-
-      The claim-queue suites' Postgres branch (production's SQL) against a
-      throwaway cluster. Needs PostgreSQL server binaries.
+      The claim-queue suites' Postgres branch (production's SQL), and the
+      metadata store's mail records on it, against a throwaway cluster. Needs
+      PostgreSQL server binaries.
     cmds:
       # Serial, not -n logical: every test drops and recreates the same tables
       # in the one scratch database.
@@ -360,3 +361,4 @@ tasks:
         tests/knowledge_layer_tests/test_ingest_queue.py
         frontends/aiq_api/tests/test_research_queue_fair.py
         tests/aiq_agent/knowledge/folder_cards
+        tests/aiq_agent/knowledge/test_mail_facts.py

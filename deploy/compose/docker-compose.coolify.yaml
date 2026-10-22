@@ -576,6 +576,15 @@ services:
       - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:?set GRID_ADMIN_TOKEN}
       # Corpus tarball (/api/internal/oib-corpus). No caller since the answer-suite CI workflow was removed. Unset = disabled.
       - GRID_CORPUS_EXPORT_TOKEN=${GRID_CORPUS_EXPORT_TOKEN:-}
+      # Project mail (ADR-0135). Off unless the domain is set (the UI then shows
+      # no address). The Cloudflare Email Worker that posts to
+      # /api/internal/signed/inbound-mail runs only on Cloudflare; Pulumi deploys
+      # it (deploy/pulumi/src/platform/inbound-mail.ts). The key map is what its
+      # RFC 9421 signatures are checked against: unset = the route answers 503.
+      # PAUSED=true answers 503 too, and the sender retries.
+      - GRID_INBOUND_MAIL_DOMAIN=${GRID_INBOUND_MAIL_DOMAIN:-}
+      - GRID_INBOUND_MAIL_SIGNING_KEYS=${GRID_INBOUND_MAIL_SIGNING_KEYS:-}
+      - GRID_INBOUND_MAIL_PAUSED=${GRID_INBOUND_MAIL_PAUSED:-false}
       # WorkOS AuthKit — only consumed when REQUIRE_AUTH=true. Safe to leave the
       # keys empty for an unauthenticated preview.
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID:-}

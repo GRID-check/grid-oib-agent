@@ -3,6 +3,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { BadRequestError } from '@/lib/api/errors'
+import { inboundMailStagingPrefix, mailOriginalStorageKey } from '@/lib/inbound-mail/inbound-mail-vocabulary'
 import {
   MAX_STORED_IMAGES_PER_DOCUMENT,
   buildOfficeShelfStorageKey,
@@ -74,6 +75,65 @@ describe('storageKeySegment', () => {
     // Only the exact names: a file that merely resembles one is left alone.
     expect(storageKeySegment('_render.pdf.docx')).toBe('_render.pdf.docx')
     expect(storageKeySegment('render.pdf')).toBe('render.pdf')
+  })
+
+  /**
+   * The Outlook import stages its archive at `<project>/mail-imports/<import
+   * id>/archive` (`lib/mail-import/staging.ts`). A person's folder of that name
+   * would file documents inside the stage, where a sweep of staged archives by
+   * prefix would take them with it.
+   */
+  it('never files a document under the import’s staging prefix', () => {
+    expect(storageKeySegment('mail-imports')).toBe('_mail-imports')
+    expect(storageKeySegment('Mail-Imports')).toBe('_Mail-Imports')
+    expect(storageKeySegment('mail-imports-2019')).toBe('mail-imports-2019')
+    const importId = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a01'
+    const stage = `org/org-1/project/proj-1/mail-imports/${importId}/`
+    for (const folder of ['mail-imports', `mail-imports/${importId}`, `MAIL-IMPORTS/${importId}`]) {
+      const key = buildStorageKey('org-1', 'proj-1', 'doc-1', 'archive', folder)
+      expect(key.toLowerCase().startsWith('org/org-1/project/proj-1/mail-imports/'), folder).toBe(false)
+      expect(key.startsWith(stage), folder).toBe(false)
+    }
+    expect(buildStorageKey('org-1', 'proj-1', 'doc-1', 'archive', `mail-imports/${importId}`)).toBe(
+      `org/org-1/project/proj-1/_mail-imports/${importId}/doc/doc-1/archive`,
+    )
+  })
+
+  /**
+   * A mail sent to the project waits at `<project>/_inbound-mail/<mail id>/`,
+   * and a filed message's original is kept at `<project>/_mail-originals/<entry
+   * id>.eml` (ADR-0134, `lib/inbound-mail/inbound-mail-vocabulary.ts`). A
+   * person's folder or file of either name would put the office's documents
+   * among a stranger's unreviewed mail, or among evidence no model may read.
+   */
+  it('never files a document under the inbound mail or originals prefixes', () => {
+    const mailId = '1a000000-0000-4000-8000-000000000184'
+    const entryId = 'e1000000-0000-4000-8000-000000000184'
+    const owner = { organizationId: 'org-1', projectId: 'proj-1' }
+    const staged = inboundMailStagingPrefix(owner, mailId)
+    const original = mailOriginalStorageKey(owner, entryId)
+    expect(staged).toBe(`org/org-1/project/proj-1/_inbound-mail/${mailId}/`)
+    expect(original).toBe(`org/org-1/project/proj-1/_mail-originals/${entryId}.eml`)
+
+    expect(storageKeySegment('_inbound-mail')).toBe('__inbound-mail')
+    expect(storageKeySegment('_Inbound-Mail')).toBe('__Inbound-Mail')
+    expect(storageKeySegment('_mail-originals')).toBe('__mail-originals')
+    expect(storageKeySegment('_MAIL-ORIGINALS')).toBe('__MAIL-ORIGINALS')
+    // Only the exact names.
+    expect(storageKeySegment('inbound-mail')).toBe('inbound-mail')
+    expect(storageKeySegment('_inbound-mail-2026')).toBe('_inbound-mail-2026')
+
+    for (const folder of ['_inbound-mail', `_inbound-mail/${mailId}`, `_INBOUND-MAIL/${mailId}`]) {
+      const key = buildStorageKey('org-1', 'proj-1', 'doc-1', 'raw.eml', folder)
+      expect(key.toLowerCase().startsWith('org/org-1/project/proj-1/_inbound-mail/'), folder).toBe(false)
+    }
+    for (const folder of ['_mail-originals', '_Mail-Originals']) {
+      const key = buildStorageKey('org-1', 'proj-1', 'doc-1', `${entryId}.eml`, folder)
+      expect(key.toLowerCase().startsWith('org/org-1/project/proj-1/_mail-originals/'), folder).toBe(false)
+    }
+    expect(buildStorageKey('org-1', 'proj-1', 'doc-1', 'raw.eml', `_inbound-mail/${mailId}`)).toBe(
+      `org/org-1/project/proj-1/__inbound-mail/${mailId}/doc/doc-1/raw.eml`,
+    )
   })
 
   it('keeps an uploaded file off its own derived keys', () => {

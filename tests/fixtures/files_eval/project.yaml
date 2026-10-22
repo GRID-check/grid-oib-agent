@@ -16,6 +16,16 @@
 #   - The Brandschutzkonzept has 14 pages and six chapters; its Aufzug page (9) never says „Fluchtweg“.
 #   - Three Geschäftszahlen of the MA 37: one in the base Bescheid, two in the new letter.
 #   - EP-01 exists as Index A and Index B; B is the current one. The letter is the newest upload.
+#   - The E-Mail-Verlauf about the Stellplätze (`mail/`, rendered by the BFF's renderer and chunked
+#     by the real Markdown chunker, ADR-0134): five messages, one per section. The Behörde's own,
+#     signed mail (12.05.2026, ma37.wien.gv.at) asks for the Fahrradabstellraum proof by 29.05.2026
+#     and invites to the Bauverhandlung on the Planwechsel, 16.06.2026; a forged mail (14.05.2026,
+#     ma37-wien.at, „Domain nicht bestätigt“) claims the Ausgleichsabgabe is waived; „ein Stellplatz
+#     im Hof“ is written only as a quote inside the Behörde's mail; the Stellplatzberechnung came
+#     with Ing. Gruber's signed mail of 04.05.2026.
+#
+# `markdown` names a file's bytes instead of `pages`; `mail_facts` names what the BFF sends beside
+# a filed mail (`mail_thread` for the Verlauf, `mail_origin` for an attachment, by name).
 
 extends: ../intake_eval/project.yaml
 
@@ -115,7 +125,7 @@ files:
   - name: Schreiben_MA37_Baubeginn.pdf
     folder: Korrespondenz/Behörde
     added_at: "2026-06-10"
-    tags: [Schriftverkehr]
+    tags: [correspondence]
     pages:
       - |
         MAGISTRAT DER STADT WIEN
@@ -131,3 +141,27 @@ files:
         zur Zahl MA 37/567812-2026-1 und auf das Vorverfahren zur Zahl MA 37/123456-2026.
 
         Für den Abteilungsleiter: Ing. Huber
+
+  - name: Verlauf_MA37_Stellplaetze.md
+    folder: Korrespondenz/Behörde
+    added_at: "2026-05-04"
+    tags: [correspondence]
+    markdown: mail/parking-thread.md
+    mail_facts: mail/parking-thread.facts.json
+
+  - name: Stellplatzberechnung_Hubergasse14.pdf
+    folder: Korrespondenz/Behörde
+    added_at: "2026-05-04"
+    tags: [Sonstiges]
+    mail_facts: mail/parking-thread.facts.json
+    pages:
+      - |
+        STELLPLATZBERECHNUNG
+        Aufstockung Wohnhaus Hubergasse 14, 1160 Wien
+        Verfasser: Verkehrsplanung Gruber, Ing. Paul Gruber
+        Stand: 30.04.2026
+
+        Neue Wohnungen im 3. Obergeschoß: 4
+        Pflichtstellplätze nach dem Wiener Garagengesetz: 4
+        Auf der Liegenschaft herstellbar: 0 (Innenhof bleibt Grünfläche)
+        Ergebnis: 4 Pflichtstellplätze, abzugelten durch Ausgleichsabgabe

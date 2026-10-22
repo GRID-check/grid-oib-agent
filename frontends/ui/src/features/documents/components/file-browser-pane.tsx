@@ -13,6 +13,7 @@ import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import { tagLabel } from '@/lib/documents/tag-vocabulary'
 import type { FileSearch } from '../hooks/use-file-search'
 import { useCoarsePointer } from '../hooks/use-coarse-pointer'
 import { useLevelDirection } from '../hooks/use-level-direction'
@@ -368,12 +369,13 @@ export function FileBrowserPane({
         documentDisplayName(f).toLowerCase().includes(q) ||
         f.filename.toLowerCase().includes(q) ||
         (f.summary ?? '').toLowerCase().includes(q) ||
-        (f.tags ?? []).some((tag) => tag.toLowerCase().includes(q)) ||
+        // A tag is found by what a person reads („Korrespondenz“), not its stored token.
+        (f.tags ?? []).some((tag) => tagLabel(tag, t).toLowerCase().includes(q)) ||
         (f.topics ?? []).some((topic) => topic.toLowerCase().includes(q)) ||
         olderRevisionNames(f).some((name) => name.toLowerCase().includes(q))
     )
     return sortFiles(withoutOlderRevisions(matches, showOlderRevisions), sort, locale)
-  }, [orderedFiles, files, searchFiles, query, sort, locale, showOlderRevisions])
+  }, [orderedFiles, files, searchFiles, query, sort, locale, showOlderRevisions, t])
 
   const currentFolderId = folderNav?.currentFolderId ?? null
   // A level the reader may only read offers no upload and no new folder

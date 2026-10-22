@@ -257,7 +257,7 @@ export const en: LegalContent = {
 
   subprocessors: {
     title: 'External Services & Subprocessors',
-    updated: '2026-10-10',
+    updated: '2026-10-22',
     intro:
       'All external services that can process data when you use Piloti, and the infrastructure the operator runs itself. This page implements the transparency commitment referenced in the Privacy Policy.',
     sections: [
@@ -337,6 +337,13 @@ export const en: LegalContent = {
               'Optional (only if configured)',
             ],
             [
+              'Cloudflare, Inc.',
+              'DNS for the Piloti domains; redirects www.piloti.at to piloti.at',
+              'DNS lookups of the domain names; for requests to www.piloti.at only, the visitor’s IP address and the requested address. The application itself is reached directly, not through Cloudflare',
+              'USA (global network)',
+              'Yes',
+            ],
+            [
               'Hosting provider',
               'Runs the application, databases and object storage',
               'All application data',
@@ -355,7 +362,7 @@ export const en: LegalContent = {
           rows: [
             ['PostgreSQL', 'Application database', 'Projects, conversations, memory, usage ledger, configuration'],
             ['SeaweedFS (S3-compatible)', 'Object storage', 'Uploaded documents'],
-            ['ChromaDB', 'Vector index', 'Document and regulation embeddings'],
+            ['Qdrant', 'Vector index', 'Document and regulation embeddings'],
             ['Dragonfly (Redis-compatible)', 'Cache, rate limiting', 'Short-lived operational data'],
           ],
         },

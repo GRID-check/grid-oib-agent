@@ -62,6 +62,16 @@
   types:
   - Sonstiges
   disciplines: []
+# Added 2026-10-22 with the type `correspondence`; not yet measured (the decision
+# provider account had no credit). An authority's letter that is not a Bescheid.
+- file_name: Schreiben_MA37_Nachreichung.pdf
+  text: 'MAGISTRAT DER STADT WIEN, MA 37 – Baupolizei. Betreff: Bauvorhaben Linzer Straße 12, Ihr Ansuchen
+    vom 02.09.2026. Sehr geehrte Frau Architektin Rainer, zur weiteren Bearbeitung Ihres Ansuchens werden
+    Sie ersucht, binnen vier Wochen den Stellplatznachweis und die Unterschrift der Miteigentümer nachzureichen.
+    Mit freundlichen Grüßen, Mag. Huber'
+  types:
+  - correspondence
+  disciplines: []
 - file_name: Statik_Vorbemessung.pdf
   text: 'Statische Vorbemessung. Tragwerk: Stahlbetonskelett, Flachdecken d = 24 cm, Stützen 30/30 cm,
     Fundierung Einzelfundamente. Lastannahmen nach ÖNORM EN 1991: Nutzlast 2,0 kN/m², Schneelast 1,36

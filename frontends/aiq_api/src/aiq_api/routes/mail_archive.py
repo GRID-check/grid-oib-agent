@@ -7,7 +7,13 @@ object storage (the BFF staged the upload there and decided who may import it):
   with headers, the body as text and what each attachment is.
 - ``POST /v1/mail-archive/attachment``: one attachment's bytes, raw.
 
-Answers the BFF acts on: 422 the file is not an archive (no retry helps), 409
+The URL is the caller's and this tier requests it, so it is an
+:data:`~aiq_api.object_store_url.ObjectStoreUrl`: a URL naming anything but the
+object store is refused with 422 before a byte is read. The token is checked
+before the body, so a caller without it gets 403 whatever it sent.
+
+Answers the BFF acts on: 422 the file is not an archive or the URL is not the
+store's (no retry helps), 409
 one attachment is damaged (skip it), 413 too large (skip it), 502 the object
 store failed (retry). A damaged message comes back in the page as an
 ``unreadable`` item rather than as an error, so the rest of the page files.
@@ -25,8 +31,8 @@ import logging
 from urllib.parse import quote
 
 from fastapi import APIRouter
+from fastapi import Depends
 from fastapi import HTTPException
-from fastapi import Request
 from fastapi import Response
 from pydantic import BaseModel
 from pydantic import Field
@@ -38,6 +44,8 @@ from ..mail_archive.reader import AttachmentInfo
 from ..mail_archive.reader import AttachmentTooLargeError
 from ..mail_archive.reader import UnreadableItemError
 from ..mail_archive.remote_file import RemoteFileError
+from ..object_store_url import ObjectStoreUrl
+from ..object_store_url import object_store_request_url
 from .internal_auth import _require_internal_token
 
 logger = logging.getLogger(__name__)
@@ -48,10 +56,13 @@ MAX_ATTACHMENT_BYTES = 512 * 1024 * 1024
 
 
 class ArchiveRef(BaseModel):
-    #: The object's storage key: identifies the archive across requests.
-    key: str = Field(min_length=1, max_length=1024)
-    #: A presigned GET for that object, against the in-network endpoint.
-    url: str = Field(min_length=1, max_length=8192)
+    #: The object's storage key, as the BFF names it. Read by nothing: the open
+    #: archive is found by the object ``url`` names (``archives.object_of``), so a
+    #: caller cannot reach an archive it holds no URL for. Still accepted because
+    #: the BFF sends it; drop it here after the BFF stops, one release on.
+    key: str | None = Field(default=None, max_length=1024)
+    #: A presigned GET for the archive, against the in-network endpoint.
+    url: ObjectStoreUrl
     size: int = Field(gt=0)
 
 
@@ -69,10 +80,18 @@ class AttachmentRequest(BaseModel):
 
 def add_mail_archive_routes(router: APIRouter) -> None:
     """Register the archive-reading endpoints."""
+    # A dependency, not a call in the handler: dependencies run before the body
+    # is validated, so a caller without the token gets 403 and never learns
+    # which URLs the gate would have taken.
+    internal_only = [Depends(_require_internal_token)]
 
-    @router.post("/v1/mail-archive/messages", tags=["platform"], summary="A page of messages from an Outlook archive")
-    async def messages(request: MessagesRequest, http_request: Request) -> dict:
-        _require_internal_token(http_request)
+    @router.post(
+        "/v1/mail-archive/messages",
+        tags=["platform"],
+        summary="A page of messages from an Outlook archive",
+        dependencies=internal_only,
+    )
+    async def messages(request: MessagesRequest) -> dict:
         page = await _read(lambda archive: archive.page(request.start, request.limit), request.archive)
         return {
             "total": page.total,
@@ -80,9 +99,13 @@ def add_mail_archive_routes(router: APIRouter) -> None:
             "messages": [_message_json(message) for message in page.messages],
         }
 
-    @router.post("/v1/mail-archive/attachment", tags=["platform"], summary="One attachment of an archived message")
-    async def attachment(request: AttachmentRequest, http_request: Request) -> Response:
-        _require_internal_token(http_request)
+    @router.post(
+        "/v1/mail-archive/attachment",
+        tags=["platform"],
+        summary="One attachment of an archived message",
+        dependencies=internal_only,
+    )
+    async def attachment(request: AttachmentRequest) -> Response:
         info, data = await _read(
             lambda archive: archive.attachment(request.position, request.index, MAX_ATTACHMENT_BYTES), request.archive
         )
@@ -97,7 +120,8 @@ async def _read(operation, ref: ArchiveRef):  # noqa: ANN001, ANN202 - a closure
     """Run ``operation`` on the open archive, off the event loop, with errors as HTTP answers."""
 
     def run():  # noqa: ANN202
-        with use_archive(ref.key, ref.url, ref.size) as archive:
+        # The store's own origin, the caller's path and presigned query only.
+        with use_archive(object_store_request_url(ref.url, field="archive.url"), ref.size) as archive:
             return operation(archive)
 
     try:
@@ -131,9 +155,13 @@ def _message_json(message: ArchiveMessage) -> dict:
         "sender": _address(message.sender),
         "to": [_address(item) for item in message.to],
         "cc": [_address(item) for item in message.cc],
+        "bcc": [_address(item) for item in message.bcc],
         "sent_at": message.sent_at.isoformat() if message.sent_at else None,
         "received_at": message.received_at.isoformat() if message.received_at else None,
         "message_id": message.message_id,
+        "in_reply_to": message.in_reply_to,
+        "references": message.references,
+        "conversation_index": message.conversation_index,
         "body": {
             "text": message.body.text if message.body else "",
             "source": message.body.source if message.body else "none",

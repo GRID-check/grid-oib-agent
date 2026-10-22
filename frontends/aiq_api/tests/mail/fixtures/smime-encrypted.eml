@@ -1,0 +1,11 @@
+From: Notar <office@notar.example>
+To: projekt-12.k7m2p9@mail.piloti.at
+Subject: Vertrag
+Date: Thu, 15 Oct 2026 12:00:00 +0200
+Message-ID: <f6@notar.example>
+MIME-Version: 1.0
+Content-Type: application/pkcs7-mime; smime-type=enveloped-data; name="smime.p7m"
+Content-Disposition: attachment; filename="smime.p7m"
+Content-Transfer-Encoding: base64
+
+MIAGCSqGSIb3DQEHA6CAMIACAQAxggFAMIIBPAIBADAkMBYxFDASBgNVBAMMC2V4YW1wbGUuY29t

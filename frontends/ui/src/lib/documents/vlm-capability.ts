@@ -13,7 +13,9 @@
  * why the design fetches the capability server-side rather than composing the
  * final list on the client from the layout store's `vlmAvailable`: the
  * server-side allow-list has no client store to read, and must apply the exact
- * same flag∧capability rule.)
+ * same flag∧capability rule.) Work without a session (a mail's parts offered
+ * for filing) reads the same rule through `acceptedTypesForOrganization`
+ * (`accepted-types.ts`), with the flags fetched per organization.
  *
  * Fail-closed: any error, timeout, or malformed payload resolves to `false`, so
  * images are never offered/accepted on a deployment whose VLM we couldn't

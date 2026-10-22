@@ -17,6 +17,7 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 | App | `aiq-agent` StatefulSet (no PVC; +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `skill-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`), the one-shot `chroma-migration` Job + its `chroma-migration-exporter` ConfigMap (only when `chromaMigration`) |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
 | DNS | Cloudflare A records for exactly the Gateway's HTTPS listener hosts, plus optionally the zone-level `www` / `_dmarc` / apex-redirect records — only when `dnsEnabled` (off by default; records are otherwise maintained by hand) |
+| Mail | Project mail at Cloudflare (ADR-0135): Email Routing on the mail domain's zone apex (by default the app zone), its catch-all, and the Email Worker that refuses addresses that are not project-shaped and posts the rest, RFC 9421-signed, to the BFF — only when `inboundMailDomain` is set (off by default) |
 
 ## Prerequisites
 
@@ -150,11 +151,18 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `dnsEnabled` | `false` | Manage the stack's A records in Cloudflare instead of by hand. The record set is derived from the same config the Gateway listeners are, so the two cannot drift. Requires a pinned `loadBalancerIp`. Off = records are maintained manually, exactly as before |
 | `dnsZoneId` | — | Cloudflare zone id (zone → Overview → API). Required when enabled |
 | `dnsZoneName` | — | The zone **apex** — not necessarily `baseDomain`, since a stack may live on a subdomain of its zone. Every managed host is checked to fall inside it: the Cloudflare API treats a name outside the zone as relative and appends the zone, creating a record that resolves nowhere and reporting success |
-| 🔒 `cloudflareApiToken` | — | Scoped to that one zone: `Zone:DNS:Edit`, plus `Zone:Dynamic URL Redirects:Edit` when `dnsApexRedirectTo` is set |
+| 🔒 `cloudflareApiToken` | — | Scoped to that one zone: `Zone:DNS:Edit`, plus `Zone:Dynamic URL Redirects:Edit` when `dnsApexRedirectTo` is set. With `inboundMailDomain` set it adds, on the mail domain's zone, `Zone:Zone Settings:Edit`, `Zone:Email Routing Rules:Edit` and `Zone:Zone:Read`, plus Account `Workers Scripts:Edit` with the account listed under the token's Account Resources (a token scoped to the zone alone lacks it) |
 | `dnsTtl` | `600` | TTL for unproxied records |
 | `dnsZoneBaseline` | `false` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex). **At most one stack** — two stacks writing the same record is not an API error, the later `up` silently wins |
 | `dnsDmarc` | — | Value of the `_dmarc` TXT record, when the baseline is owned here |
 | `dnsApexRedirectTo` | — | Absolute URL the apex and `www` redirect to (302) while no stack serves the apex. Unset it once one does — `loadConfig` refuses both at once |
+| **Project mail (Cloudflare Email Routing, ADR-0135)** — operator guide: [`docs/deployment/kubernetes.md` §3c](../../docs/deployment/kubernetes.md) | | |
+| `inboundMailDomain` | — | Domain of the project addresses, normally the app zone's apex (`piloti.at`, the same as `dnsZoneName`). Setting it turns the feature on: Email Routing, the catch-all and the Worker at Cloudflare, `GRID_INBOUND_MAIL_DOMAIN` on the frontend. Email Routing adds and locks the apex MX and SPF records and a DKIM TXT; it leaves the apex A record, `www` and `_dmarc` alone. **Must be the apex of `inboundMailZoneId`** (Cloudflare's catch-all exists only for an apex; refused at load time for a subdomain of `dnsZoneName`, at preview for any other mismatch). On the app zone it needs `dnsEnabled` and `dnsZoneBaseline`. Refused while `malwareScanEnabled` is false: every part of a mail is scanned before it can be filed. Refused at preview if the apex has MX records pointing anywhere but `*.mx.cloudflare.net`. A company address on the same apex needs a literal routing rule of its own (`postmaster@` and `abuse@` before the first promote: gate G7). Each organization also needs the `inbound-mail` WorkOS entitlement. At most one stack per mail zone. **Never unset it to turn the feature off**: set `inboundMailEnabled: false` first |
+| `inboundMailZoneId` | `dnsZoneId` when `inboundMailDomain` equals `dnsZoneName` | Cloudflare zone whose apex is `inboundMailDomain`. Set it only for a domain on a zone of its own |
+| `inboundMailEnabled` | `true` | The managed off switch. `false` keeps the domain and Email Routing, updates the catch-all in place to disabled (Cloudflare then refuses unclaimed addresses at SMTP time; never Drop, which loses mail silently), deletes the Worker after that, and takes the domain off the frontend. The keys are then not needed |
+| `inboundMailPaused` | `false` | The incident lever: the Worker answers every project address with a temporary failure before reading it, and the BFF answers 503 (`GRID_INBOUND_MAIL_PAUSED`). Senders retry for days; nothing bounces. The promote that first sets the domain sets this too; unpause after launch gates G1–G9 (`scripts/inbound-mail-smoke.ts`) |
+| 🔒 `inboundMailSigningKeys` | — | Required with the domain while enabled. JSON, keyid → base64 secret of at least 32 bytes, one or two entries: `{"mi-2026-10":"<openssl rand -base64 32>"}`. Reaches the frontend as `GRID_INBOUND_MAIL_SIGNING_KEYS`; the Worker gets only the entry it signs with, as a `secret_text` binding. Checked as the BFF checks it (a map it cannot use is a 503 on every delivery). Rotate: add the successor, set `inboundMailSigningKeyId` to it, promote; then remove the old entry and promote. Never edit the Worker's binding in the dashboard: the next `up` restores it from state |
+| `inboundMailSigningKeyId` | the only key | The keyid the Worker signs with. Required while the map holds two keys |
 | **Edge rate limiting (ADR-0040 L1)** | | |
 | `rateLimitEnabled` | `true` | Deploy the global rate limit service + its counter store and attach the per-route rules. Off = the app-layer limiters are the only ones |
 | `rateLimitShadowMode` | `true` | Evaluate every rule and emit its telemetry, but never refuse. **Ships on**: pick real numbers from the would-have-blocked counts, then flip it off |
@@ -162,6 +170,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `rateLimitApp` | `600`/min | Catch-all budget per client IP on the app host (deliberately loose — stops runaway clients, does not shape traffic) |
 | `rateLimitAppAuth` | `20`/min | `/api/auth/*` — the credential-stuffing surface |
 | `rateLimitAppWsUpgrade` | `30`/min | `/websocket` upgrades; mirrors `GRID_WS_UPGRADE_RATE_LIMIT` |
+| — | — | `/api/internal/signed/*` (the RFC 9421 signed internal routes, today the project mail webhook) has a route of its own and **no** edge bucket: all of it arrives from Cloudflare's shared egress, so a per-client bucket would let other Cloudflare traffic defer mail. Its edge ceiling is a `Content-Length` of at most 27 MiB matched on the header (Envoy answers 413 otherwise, without buffering a byte), and its upstream budget is 120 s (`SIGNED_INTERNAL_ROUTE` in `src/constants.ts`). The BFF limits per signing key, address and organization after the signature |
 | `rateLimitS3` | `300`/min | Presigned preview/download URLs (one preview fans out into many GETs) |
 | `rateLimitWeb` | `120`/min | Landing site + blog |
 | `rateLimitStoreMaxmemory` | `256mb` | Counter-store dataset cap (floor 256mb — Dragonfly's per-thread boot minimum) |
@@ -218,6 +227,9 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `geocoderIndexUrl` | GraphHopper's `photon-db-austria-1.0-latest.tar.bz2` | The Photon 1.x index; `<url>.md5` must exist beside it. Move it with the jar on a Photon major bump |
 | `geocoderStorageSize` | `10Gi` | The index volume. The index unpacks to about 2 GB; a refresh holds the tarball, the new index and the old one at once |
 | `geocoderIndexMaxAgeDays` | `30` | At pod start, an index older than this is fetched again, and the old one is served if that fails. Nothing restarts the pod on a clock; `kubectl -n grid rollout restart statefulset/geocoder` refreshes on demand |
+| **Malware scanner (ClamAV, ADR-0133)** | | |
+| `malwareScanEnabled` | `false` | clamd and freshclam in a `clamav` Deployment of one (`src/app/clamav.ts`), and `GRID_MALWARE_SCAN_URL=tcp://clamav:3310` on the frontend and the `bff-jobs` pool. Off, every scan fails closed (`not-configured`) and nothing that needs a clean scan is filed. Requests 2 GiB of memory; freshclam needs HTTPS egress to `database.clamav.net`. The pod is ready only while its signatures are under 48 hours old. With `networkPolicies` on it admits the frontend and the `bff-jobs` pool alone (`clamav-bff-only`). Its config is `deploy/compose/clamav/{clamd,freshclam}.conf`, shared with Compose |
+| `malwareScanImage` | `clamav/clamav:1.5.4@sha256:…` | The official image with its signatures baked in. Refused unless pinned by digest; keep it equal to the Compose pin. `grid-oib:malwareScanUrl` is refused on every stack: the URL is always the stack's own clamd |
 | **SeaweedFS (S3)** | | |
 | `seaweedfsImage` | `chrislusf/seaweedfs:latest` | Prod template pins 3.80 (storage engine) |
 | `seaweedfsStorageSize` | `20Gi` | Object-store volume (grow via PVC patch) |
@@ -342,7 +354,9 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 ## Validation (no target cluster required)
 
 ```bash
-npm run typecheck   # tsc: every typed manifest, incl. Gateway/Envoy CRD specs
+npm run typecheck   # tsc: every typed manifest, incl. Gateway/Envoy CRD specs,
+                    # the launch-gate tool, and the Email Worker against
+                    # @cloudflare/workers-types (tsconfig.worker.json)
 npm run validate    # pulumi preview → schema-check every CustomResource in the
                     # plan against the real upstream CRD schemas (CNPG + KEDA)
 npm run policy      # pulumi preview --policy-pack ./policy → CrossGuard
@@ -355,6 +369,25 @@ workflow runs all three as its gates before the apply; the apply itself is a
 plain `up` on the same runner, so the policy pack does **not** re-run there —
 the gate preview is the policy checkpoint (accepted residual, see
 `docs/deployment/pulumi-cloud-feature-audit.md`).
+
+### Project mail's launch gates
+
+`scripts/inbound-mail-smoke.ts` runs the launch gates G1–G9 of project mail
+against a deployed stack, after the promote that set `inboundMailDomain`
+with `inboundMailPaused: true` and before the unpause, and again after any
+bump of the Worker's `COMPATIBILITY_DATE` (G8). It never writes to
+Cloudflare and sends nothing without `--run`; its header lists the
+environment it reads. Never point it at a customer office's address: the
+probes are held mail in the test office.
+
+```bash
+bun scripts/inbound-mail-smoke.ts plan                # every gate's steps
+bun scripts/inbound-mail-smoke.ts cloudflare          # G7, routing, catch-all, Worker settings (read-only)
+bun scripts/inbound-mail-smoke.ts signed --run        # G3 at the BFF and the edge
+bun scripts/inbound-mail-smoke.ts signed --run --expect-paused   # G4, while paused
+bun scripts/inbound-mail-smoke.ts malware --run       # G6: EICAR and a limit-exceeding archive
+bun scripts/inbound-mail-smoke.ts dkim-share ./export # G9, offline, over .eml / .mbox
+```
 
 ### Rollout safety
 
@@ -387,6 +420,9 @@ index.ts                 wiring + stack outputs
 src/config.ts            typed config (every knob + secret)
 src/platform/            provider, namespace, cert-manager, gateway (Envoy),
                          dns (Cloudflare records for the Gateway's hosts),
+                         inbound-mail (Email Routing's catch-all + the Email
+                         Worker, inbound-mail-worker.js, uploaded verbatim),
+                         email-routing (the mail zone + apex MX guard),
                          metrics-server, scheduling (PDB/spread), rollout
                          (update strategy, drain, secret checksum)
 policy/                  CrossGuard policy pack (own package.json + bun.lock)
@@ -397,7 +433,9 @@ src/app/                 config (Secret + env), migrations Job,
                          workers, httproutes
 scripts/                 deploy.yml's helpers: GHCR tag lookup, the staging
                          image resolver + downgrade guard (reads the
-                         `deployedImages` output), CR schema validation
+                         `deployedImages` output), CR schema validation,
+                         and inbound-mail-smoke.ts (project mail's launch
+                         gates G1–G9, below)
 ```
 
 ## Notes

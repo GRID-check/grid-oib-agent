@@ -1708,7 +1708,9 @@
                       "conversation",
                       "bim_model",
                       "upload_batch",
-                      "proposal"
+                      "proposal",
+                      "inbound_mail",
+                      "mail_thread"
                     ]
                   },
                   "id": {
@@ -2761,7 +2763,9 @@
                           "conversation",
                           "bim_model",
                           "upload_batch",
-                          "proposal"
+                          "proposal",
+                          "inbound_mail",
+                          "mail_thread"
                         ]
                       },
                       "id": {

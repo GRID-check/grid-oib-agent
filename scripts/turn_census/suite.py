@@ -1497,11 +1497,15 @@ def main(argv: list[str] | None = None) -> int:
         from fixture_files import seed
         from fixture_visual import load_project
 
-        # The files set expects its project to be seeded already; this one seeds its own, idempotently.
+        # Each fixture set seeds the project it reads, idempotently: only what changed is embedded again.
         print(f"seeded {sum(seed(load_project()).values())} chunk(s) of the visual project")
-        if args.set == "north-star":
-            # Its files rows ask the office-file project, which the files set leaves to be seeded beforehand.
-            print(f"seeded {sum(seed().values())} chunk(s) of the office-file project")
+    if args.set in ("files", "north-star"):
+        from fixture_files import seed
+
+        # The north-star set's files rows ask the office-file project too. Seeding it here is what keeps
+        # a run from reading an older seed: the E-Mail-Verlauf's rows (ADR-0134) need its chunks as the
+        # real Markdown chunker cuts them, and its records on the metadata row.
+        print(f"seeded {sum(seed().values())} chunk(s) of the office-file project")
     if args.set == "files":
         from files_eval import arm_overrides
         from files_eval import configured_tools

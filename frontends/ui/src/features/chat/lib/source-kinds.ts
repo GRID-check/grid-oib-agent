@@ -127,6 +127,19 @@ export const KIND_TO_SIGNAL: Record<SourceKind, SourceSignal> = {
 export const AGENT_AUTHORED_LANE = 'office_piloti'
 export const AGENT_AUTHORED_LANE_LABEL = 'Piloti-Dokument'
 
+/**
+ * The fine lanes of a filed E-Mail-Verlauf — mirror of the backend
+ * `source_kinds.MAIL_LANE` / `OFFICE_MAIL_LANE` / `MAIL_LANE_LABEL`, decided in
+ * `norm_registry.lane_for_hit` from the chunk's `source_format: 'mail'`
+ * (ADR-0134). The kind stays the shelf's: `project_mail` is Projektwissen and
+ * `office_mail` Büroablage, so a mail from a Behörde's domain never paints in
+ * the building-law colour and never earns an authority badge. The label is the
+ * sub-label inside that kind, like {@link AGENT_AUTHORED_LANE_LABEL}.
+ */
+export const MAIL_LANE = 'project_mail'
+export const OFFICE_MAIL_LANE = 'office_mail'
+export const MAIL_LANE_LABEL = 'E-Mail'
+
 // Fine lane family → coarse kind (mirror of backend `source_kinds.kind_for_lane`).
 // The Herleitung fan-out and the chips MUST share this so they never disagree
 // (e.g. external norms are `building_law`, not `web`).

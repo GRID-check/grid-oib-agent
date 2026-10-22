@@ -574,3 +574,68 @@ class TestAPassageAcrossAPageBreakShowsItsRange:
         assert source_entry_to_wire(entry)["page_end"] == 5
         single = _entry_from_hit(_hit(citation_key="a.pdf, p.4", file_name="a.pdf", page=4), "knowledge_search")
         assert single.page_end is None
+
+
+class TestAMailPassageStatesItsFormat:
+    """A filed E-Mail-Verlauf's section says it is mail, and both readers place it in the mail lane (ADR-0134).
+
+    The format is a field of the hit and a line of the text. A replayed turn reads the text, so the
+    line is what keeps a resumed conversation's chip in „Projektwissen · E-Mail“ rather than in plain
+    Projektwissen, and what keeps a clerk's message out of the authority lane its domain would earn.
+    """
+
+    HEADING = "12.05.2026 09:12 · Mag. Anna Huber (ma37.wien.gv.at)"
+
+    def _render(self, **fields) -> str:
+        return render_grounding_block(
+            GroundingBlock(
+                preamble="Found 1 relevant document(s):",
+                degraded_banner="",
+                hits=(
+                    _hit(
+                        citation_key="Verlauf.md",
+                        file_name="Verlauf.md",
+                        shelf=Shelf.PROJECT,
+                        collection="proj_abc",
+                        clause=self.HEADING,
+                        body=f"Stellplätze › {self.HEADING}\n\nBitte bis 29.05.2026 nachreichen.",
+                        **fields,
+                    ),
+                ),
+                lanes=(),
+                tool="knowledge_search",
+            )
+        )
+
+    def test_the_line_sits_in_the_header_before_the_locus(self):
+        text = self._render(source_format="mail")
+        assert "\nFormat: mail — E-Mail\nPunkt: " in text
+        assert text.index("Format:") < text.index("Relevance Score:")
+
+    def test_no_format_renders_no_line(self):
+        assert "Format:" not in self._render()
+
+    @pytest.mark.parametrize("reader", ["records", "text"])
+    def test_both_readers_place_it_in_the_mail_lane(self, reader):
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        token = begin_grounding_capture() if reader == "records" else None
+        try:
+            text = self._render(source_format="mail")
+            assert (get_grounding_block(text) is not None) == (reader == "records")
+            (entry,) = extract_sources_from_tool_result("knowledge_search", text)
+        finally:
+            if token is not None:
+                end_grounding_capture(token)
+        assert entry.source_format == "mail"
+        wire = source_entry_to_wire(entry)
+        assert (wire["lane"], wire["lane_label"], wire["kind"]) == ("project_mail", "E-Mail", "project")
+
+    def test_a_resumed_conversation_keeps_the_format(self):
+        import dataclasses
+
+        from aiq_agent.common.citation_verification import _registry_from_cached_entries
+
+        (entry,) = extract_sources_from_tool_result("knowledge_search", self._render(source_format="mail"))
+        restored = _registry_from_cached_entries([dataclasses.asdict(entry)])
+        assert [e.source_format for e in restored._all] == ["mail"]

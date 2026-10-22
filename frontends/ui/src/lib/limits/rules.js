@@ -369,7 +369,79 @@ const MCP_REQUEST_LIMIT = {
   burst: { limit: 30, windowMs: 5 * 1000 },
 }
 
+/**
+ * Mail reaching one project's address (ADR-0134, DECISION D18), per address.
+ *
+ * Every mail arrives through Cloudflare's shared egress and one signing key, so
+ * no client address or person tells two senders apart: the address is the
+ * unit, and the organization and the key are bounds around it. Charged by the
+ * webhook after the signature and before a byte of the body is read; over it,
+ * the answer is a 429 the sending server retries for days, so a burst delays
+ * mail and never loses it. Two a minute for an hour is a busy project's whole
+ * correspondence and far below a script pointed at a leaked address, which the
+ * office then rotates. There is no count cap on what waits: a byte cap does
+ * that (`INBOUND_MAIL_ADDRESS_STAGED_BYTES` in `lib/inbound-mail/receive.ts`),
+ * because a count cap bounces real senders after a backlog (RT-X5).
+ * @type {LimitRule}
+ */
+const INBOUND_MAIL_ADDRESS_LIMIT = { name: 'inbound-mail-address', limit: 120, windowMs: 60 * 60 * 1000 }
+
+/**
+ * Mail reaching any address of one organization, per hour: five busy projects
+ * at once. One leaked address cannot spend it alone (the per-address rule
+ * stops it at a fifth).
+ * @type {LimitRule}
+ */
+const INBOUND_MAIL_ORGANIZATION_LIMIT = { name: 'inbound-mail-organization', limit: 600, windowMs: 60 * 60 * 1000 }
+
+/**
+ * Every delivery one signing key makes, per hour: the Worker's whole traffic
+ * under that key. A leaked key spraying known addresses meets this before it
+ * meets the database.
+ * @type {LimitRule}
+ */
+const INBOUND_MAIL_SIGNING_KEY_LIMIT = { name: 'inbound-mail-signing-key', limit: 3000, windowMs: 60 * 60 * 1000 }
+
+/**
+ * Deliveries to a token no project has, per signing key, in a bucket of their
+ * own (RT-S9): a guesser walking the token space is answered „unknown“ (and
+ * its sender bounces) until this runs out, then 429, and none of it spends the
+ * budgets real mail is charged to.
+ * @type {LimitRule}
+ */
+const INBOUND_MAIL_UNKNOWN_ADDRESS_LIMIT = {
+  name: 'inbound-mail-unknown-address',
+  limit: 300,
+  windowMs: 60 * 60 * 1000,
+}
+
+/**
+ * Downloading a mail's original `.eml` (ADR-0134, D6), per person: a held
+ * mail's (`inbound-mail-original-get`) and a filed message's
+ * (`mail-thread-entry-original-get`) share one budget.
+ *
+ * Every download is scanned whole by the in-cluster ClamAV on that request (up
+ * to 26 MiB, `ScanMail`), because a verdict from the day the mail arrived says
+ * nothing about today's signatures. So this rule bounds the scanner's load one
+ * person can cause, not the bytes: sixty an hour is a person working through a
+ * dispute's correspondence one original at a time, and the burst clause stops
+ * a script or a stuck client within the minute, before it queues the scanner
+ * for everyone else in the office.
+ * @type {LimitRule}
+ */
+const MAIL_ORIGINAL_DOWNLOAD_LIMIT = {
+  name: 'mail-original-download',
+  limit: 60,
+  windowMs: 60 * 60 * 1000,
+  burst: { limit: 10, windowMs: 60 * 1000 },
+}
+
 module.exports = {
+  MAIL_ORIGINAL_DOWNLOAD_LIMIT,
+  INBOUND_MAIL_ADDRESS_LIMIT,
+  INBOUND_MAIL_ORGANIZATION_LIMIT,
+  INBOUND_MAIL_SIGNING_KEY_LIMIT,
+  INBOUND_MAIL_UNKNOWN_ADDRESS_LIMIT,
   MCP_REQUEST_LIMIT,
   DICTATION_LIMIT,
   FEEDBACK_REPORT_LIMIT,

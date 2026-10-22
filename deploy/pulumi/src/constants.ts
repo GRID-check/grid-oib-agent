@@ -36,6 +36,13 @@ export const UID = {
    * volume writable to it.
    */
   geocoder: 1000,
+  /**
+   * ClamAV (`clamav/clamav`, Alpine): user `clamav` = 100, group `clamav` = 101.
+   * The image's entrypoint starts as root to chown and drop privileges; the pod
+   * skips it and starts clamd and freshclam as this user directly.
+   */
+  clamav: 100,
+  clamavGroup: 101,
 } as const;
 
 /** Service/container ports. One definition; Services, probes, env and
@@ -81,6 +88,8 @@ export const PORT = {
   clickhouseMetrics: 9363,
   /** Gotenberg API (office → PDF, ADR-0070). Upstream default. */
   gotenberg: 3000,
+  /** clamd, the malware scanner behind `GRID_MALWARE_SCAN_URL` (ADR-0133). Upstream default. */
+  clamav: 3310,
   /** Photon, the address search behind `GRID_GEOCODER_URL` (ADR-0120). Upstream default. */
   geocoder: 2322,
   /** Qdrant REST API: clients, probes and the snapshot CronJob. Upstream default. */
@@ -414,6 +423,55 @@ export const EDGE_RATE_LIMIT = {
 } as const;
 
 /**
+ * The signed internal routes at the edge (`/api/internal/signed/*`): requests
+ * from callers outside the cluster that push bytes in, each carrying an
+ * RFC 9421 signature the BFF checks before it reads the body
+ * (`requireInternalSignature`, ADR-0135). Today the one caller is the inbound
+ * mail Worker (`platform/inbound-mail-worker.js`).
+ *
+ * They get an HTTPRoute of their own (`app/httproutes.ts`), for three reasons
+ * the app route's policy cannot serve:
+ *
+ *   - **A body ceiling without buffering.** The route forwards only a request
+ *     whose `Content-Length` is a decimal of at most `maxBodyBytes`, matched on
+ *     the header; anything else (larger, chunked, absent) gets a 413 from
+ *     Envoy itself. Envoy Gateway's `requestBuffer` would enforce the same
+ *     number by holding every body in the proxy, and the proxy's 512Mi limit
+ *     (`PLATFORM_RESOURCES.envoyProxy`) would then be a dozen unauthenticated
+ *     27 MiB uploads away from an OOM that takes the whole edge down. The
+ *     header bounds the body anyway: the HTTP codec frames by it.
+ *   - **No per-client bucket.** Every inbound mail arrives from Cloudflare's
+ *     shared egress addresses, which other Cloudflare customers' traffic
+ *     shares, so a per-IP bucket would let a neighbour defer our mail
+ *     (RT-S9). The limits that mean something are the BFF's, per signing key,
+ *     address and office, counted after the signature (DECISION D18).
+ *   - **A short timeout.** The Worker gives up after 90 s and its sender
+ *     retries; an upstream budget of an hour would only let a slow request
+ *     hold a frontend connection that long.
+ */
+export const SIGNED_INTERNAL_ROUTE = {
+  /** HTTPRoute name; the BackendTrafficPolicy attaches to it by name. */
+  routeName: "grid-app-signed",
+  /**
+   * The path family. Must equal `SIGNED_INTERNAL_PREFIX` in
+   * `frontends/ui/src/lib/api/handler.ts` and `signedPathPrefix` in
+   * `shared/inbound-mail-contract.json` (the specs check the latter).
+   */
+  pathPrefix: "/api/internal/signed/",
+  /**
+   * The largest `Content-Length` forwarded: 27 MiB, one above the BFF's own
+   * 26 MiB message cap (`maxRawMessageBytes` in the contract), so the BFF's 413 with its
+   * verdict is the one a real mail meets, never this one. Equal to
+   * `edgeMaxBodyBytes` in the contract.
+   */
+  maxBodyBytes: 27 * 1024 * 1024,
+  /** Upstream budget per request, from the end of the request body. */
+  requestTimeout: "120s",
+  /** The HTTPRouteFilter that answers an over-limit or length-less request. */
+  refusalFilterName: "grid-signed-body-limit",
+} as const;
+
+/**
  * The geocoder (ADR-0120): a self-hosted Photon over the Austrian OSM extract,
  * behind the project creation dialog's address search (`GRID_GEOCODER_URL`,
  * `frontends/ui/src/lib/geocoding/photon.ts`).
@@ -461,6 +519,53 @@ export const GEOCODER = {
   fetchResources: {
     requests: { cpu: "100m", memory: "128Mi" },
     limits: { cpu: "1", memory: "512Mi" },
+  },
+} as const;
+
+/**
+ * ClamAV (ADR-0133): clamd, the malware scanner behind `GRID_MALWARE_SCAN_URL`,
+ * with freshclam beside it. Off by default (`malwareScanEnabled`).
+ *
+ * The image is a knob (`malwareScanImage`, digest-pinned); the name, the port,
+ * the paths and the signature age are fixed, because the frontend's URL, the
+ * NetworkPolicy, the Compose service and the BFF's own freshness rule
+ * (`frontends/ui/src/lib/malware-scan/config.ts`) all have to agree with them.
+ */
+export const CLAMAV = {
+  /** Deployment/Service name and `app.kubernetes.io/name`. */
+  name: "clamav",
+  /**
+   * The age past which the loaded signature database is refused: the BFF fails
+   * every scan with `stale-signatures`, and the readiness probe fails, so the
+   * pod is taken out of the Service and shows as not ready. Equal to the BFF's
+   * `MAX_SIGNATURE_AGE_MS` (asserted in `clamav.spec.ts`).
+   */
+  maxSignatureAgeHours: 48,
+  /**
+   * Where clamd.conf and freshclam.conf are mounted, the image's own path.
+   * Both files live in `deploy/compose/clamav/`, one source for both deploy paths.
+   */
+  configPath: "/etc/clamav",
+  /** The signature database: an emptyDir both containers share, seeded from the image. */
+  databasePath: "/var/lib/clamav",
+  /**
+   * clamd holds the whole database in memory, and while it loads a new one
+   * (`ConcurrentDatabaseReload yes`) it holds two: about 1 GiB each for 1.5.
+   * The request is what it needs steadily, the limit what a reload needs.
+   */
+  resources: {
+    requests: { cpu: "250m", memory: "2Gi" },
+    limits: { cpu: "2", memory: "4Gi" },
+  },
+  /** freshclam: a download and a signature check every two hours. */
+  freshclamResources: {
+    requests: { cpu: "10m", memory: "64Mi" },
+    limits: { cpu: "500m", memory: "512Mi" },
+  },
+  /** The init container that seeds the database from the image: one `cp`. */
+  seedResources: {
+    requests: { cpu: "10m", memory: "32Mi" },
+    limits: { cpu: "500m", memory: "128Mi" },
   },
 } as const;
 

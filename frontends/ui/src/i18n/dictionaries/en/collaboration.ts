@@ -921,6 +921,18 @@ export const collaboration = {
           },
         },
       },
+      inboundMailWaiting: {
+        titleOne: 'A mail to “{subject}” is waiting to be filed',
+        titleMany: '{count} mails to “{subject}” are waiting to be filed',
+        title: 'Mails to “{subject}” are waiting to be filed',
+        body: 'None of it is in the project until someone files it.',
+        variants: {
+          // Domain not verified, or sent automatically (a newsletter, a list).
+          unconfirmed: {
+            body: 'Some of them come from a domain that is not verified, or were sent automatically.',
+          },
+        },
+      },
       rootSortFailed: {
         title: 'The sort of “{subject}” stopped',
         body: 'What was moved until then stays. Open the files to see the reason.',

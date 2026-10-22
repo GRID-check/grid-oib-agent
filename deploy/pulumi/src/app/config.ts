@@ -19,6 +19,8 @@ export interface AppWiring {
   gotenbergUrl?: pulumi.Output<string>;
   /** The self-hosted Photon's URL (set when cfg.geocoder.enabled, ADR-0120). */
   geocoderUrl?: pulumi.Output<string>;
+  /** clamd's `tcp://` URL (set when cfg.malwareScan.enabled, ADR-0133). */
+  malwareScanUrl?: pulumi.Output<string>;
   /** The Qdrant cluster's client URL (ADR-0115): the one vector store, so there is no embedded one. */
   qdrantUrl: pulumi.Output<string>;
   /** Every DSN states its route (`via`), pooled or direct: see `PgRoute` in `data/postgres.ts`. */
@@ -137,6 +139,17 @@ export function buildScalerSecret(w: AppWiring): k8s.core.v1.Secret {
 }
 
 /**
+ * The app's public origin. The BFF pins it from `WORKOS_REDIRECT_URI`
+ * (`configuredAppOrigin`), and a signed internal route checks a signature's
+ * `@target-uri` against it, so a caller outside the cluster that signs
+ * requests (the inbound mail Worker's `BFF_URL`) must be given this same
+ * string. One function, so the two cannot drift.
+ */
+export function appOrigin(cfg: GridConfig): string {
+  return `https://${cfg.ingress.appDomain}`;
+}
+
+/**
  * One Kubernetes Secret holding every sensitive value (API keys, tokens, the
  * BYOK KEK, S3 secret key, and the fully-formed DB DSNs — which embed the PG
  * password). Non-secret env is inlined directly on each workload. Values stay
@@ -155,6 +168,11 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     GRID_INTERNAL_API_TOKEN: cfg.internal.apiToken,
     GRID_ADMIN_TOKEN: cfg.internal.adminToken,
     GRID_CORPUS_EXPORT_TOKEN: cfg.internal.corpusExportToken,
+    // The key map the inbound mail Worker's signatures are checked against
+    // (`platform/inbound-mail.ts`, ADR-0135). Its own secret, because it also
+    // lives outside the cluster, in a Cloudflare Worker binding. Empty = the
+    // signed route answers 503 and the Worker's senders retry.
+    GRID_INBOUND_MAIL_SIGNING_KEYS: cfg.inboundMail.signingKeys,
     GRID_JOB_PAYLOAD_KEK: cfg.internal.jobPayloadKek,
     GRID_WEB_PUSH_VAPID_PRIVATE_KEY: cfg.webPush.privateKey,
     // PostHog Support (feedback tickets). Absent unless the stack sets it, so
@@ -542,6 +560,17 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // The corpus export (`/api/internal/oib-corpus`). No caller since the
     // answer-suite CI workflow was removed; unset disables it.
     sref("GRID_CORPUS_EXPORT_TOKEN"),
+    // Project mail (ADR-0135). The key map is always wired, and empty fails
+    // closed. The domain is absent rather than empty while the feature is off
+    // or switched off, which is what hides the address in the UI; the pause
+    // makes the webhook answer 503, the Worker's own pause aside.
+    sref("GRID_INBOUND_MAIL_SIGNING_KEYS"),
+    ...(cfg.inboundMail.enabled
+      ? [
+          { name: "GRID_INBOUND_MAIL_DOMAIN", value: cfg.inboundMail.domain },
+          { name: "GRID_INBOUND_MAIL_PAUSED", value: String(cfg.inboundMail.paused) },
+        ]
+      : []),
     { name: "GRID_ALLOW_AGENT_ORG_MEMORY", value: String(cfg.auth.allowAgentOrgMemory) },
     // WorkOS AuthKit.
     { name: "WORKOS_CLIENT_ID", value: cfg.auth.workosClientId },
@@ -553,8 +582,8 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // runtime only while the image is built without it — Next.js would inline
     // a build-time value); WORKOS_REDIRECT_URI is the first-party callback
     // route's explicit runtime override and is immune to build-time inlining.
-    { name: "NEXT_PUBLIC_WORKOS_REDIRECT_URI", value: `https://${cfg.ingress.appDomain}/api/auth/callback` },
-    { name: "WORKOS_REDIRECT_URI", value: `https://${cfg.ingress.appDomain}/api/auth/callback` },
+    { name: "NEXT_PUBLIC_WORKOS_REDIRECT_URI", value: `${appOrigin(cfg)}/api/auth/callback` },
+    { name: "WORKOS_REDIRECT_URI", value: `${appOrigin(cfg)}/api/auth/callback` },
     // PostHog product analytics (fail-open: empty host/token keeps the
     // browser client disabled — see frontends/ui/src/lib/analytics/posthog.ts).
     // Read by the BFF per request into AppConfig, so pointing a deployment at
@@ -640,6 +669,11 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // Absent ⇒ the route answers `enabled: false` and the address stays a plain
     // text field. Only ever the in-cluster Photon: an address is client data.
     ...(w.geocoderUrl ? [{ name: "GRID_GEOCODER_URL", value: w.geocoderUrl }] : []),
+    // The malware scanner (ADR-0133): the in-cluster clamd, never anything
+    // else. Inherited by the bff-jobs pool, whose receive jobs scan what
+    // arrives; the request path scans an original before serving it. Absent ⇒
+    // every scan fails `not-configured`, and nothing waiting on one is filed.
+    ...(w.malwareScanUrl ? [{ name: "GRID_MALWARE_SCAN_URL", value: w.malwareScanUrl }] : []),
     // OTLP tracing via the cluster collector — injected only when the
     // observability tier is deployed, which is what makes
     // src/instrumentation.ts register @vercel/otel (it no-ops without the
@@ -702,7 +736,8 @@ const BFF_JOBS_OVERRIDES = new Set(["OTEL_SERVICE_NAME", "GRID_SHUTDOWN_DRAIN_MS
  * open. Erasing traces is the purger's and the scheduler's (ADR-0044).
  *
  * The geocoder's URL likewise: address search is a request-path feature, and
- * `geocoder-frontend-only` admits the frontend alone (ADR-0120).
+ * `geocoder-frontend-only` admits the frontend alone (ADR-0120). And the
+ * inbound mail webhook's key map and pause, for the same reason (ADR-0135).
  */
 const BFF_JOBS_WITHHELD = new Set([
   "LANGFUSE_HOST",
@@ -711,6 +746,10 @@ const BFF_JOBS_WITHHELD = new Set([
   "LANGFUSE_PUBLIC_KEY",
   "LANGFUSE_SECRET_KEY",
   "GRID_GEOCODER_URL",
+  // The inbound mail webhook is a request-path route; the receive job works on
+  // what it staged and verifies nothing, so it gets no key to verify with.
+  "GRID_INBOUND_MAIL_SIGNING_KEYS",
+  "GRID_INBOUND_MAIL_PAUSED",
 ]);
 const inheritedByBffJobs = (env: EnvVar) =>
   typeof env.name !== "string" || !(BFF_JOBS_OVERRIDES.has(env.name) || BFF_JOBS_WITHHELD.has(env.name));

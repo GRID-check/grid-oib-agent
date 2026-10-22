@@ -43,7 +43,7 @@
 
 import type { JSX } from 'react'
 import Link from 'next/link'
-import { Clock3, FileText, LayoutDashboard, MessageSquare } from 'lucide-react'
+import { Clock3, FileText, LayoutDashboard, Mail, MessageSquare } from 'lucide-react'
 import { useMemo } from 'react'
 import { FOCUS_RING } from '@/components/ui/focus-ring'
 import { MiddleTruncate } from '@/components/ui/middle-truncate'
@@ -239,6 +239,42 @@ export function ProjectOverviewLink({
     >
       <LayoutDashboard className="size-3.5" aria-hidden />
       {showLabel && <span>{t('card.overview')}</span>}
+    </Link>
+  )
+}
+
+/**
+ * Mail waiting in the project's E-Mail-Eingang (ADR-0134): „2 E-Mails warten“,
+ * a link straight into it, layered above `ProjectOpenLink` (`relative z-10`)
+ * the way {@link ProjectOverviewLink} is. Rendered only with a count above
+ * zero, and only for a reader who may file the project's mail: the caller's
+ * count comes from the list operation, filtered per reader, so it is honest in
+ * the `project-surfaces.md` sense. Quiet ink, never a badge colour.
+ */
+export function ProjectMailWaiting({
+  project,
+  count,
+  className,
+}: {
+  project: Pick<Project, 'id' | 'name'>
+  count: number
+  className?: string
+}): JSX.Element | null {
+  const t = useTranslations('projects')
+  if (!Number.isFinite(count) || count <= 0) return null
+  return (
+    <Link
+      href={`/app/projects/${encodeURIComponent(project.id)}/files/mail`}
+      aria-label={t('card.mailWaitingAria', { count, name: project.name })}
+      data-testid="project-mail-waiting"
+      className={cn(
+        'relative z-10 inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors duration-quick ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none motion-reduce:transition-none pointer-coarse:h-11 pointer-coarse:px-3',
+        FOCUS_RING,
+        className,
+      )}
+    >
+      <Mail className="size-3.5" aria-hidden />
+      <span className="tabular-nums">{t('card.mailWaiting', { count })}</span>
     </Link>
   )
 }

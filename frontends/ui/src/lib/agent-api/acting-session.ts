@@ -35,6 +35,13 @@ export type ActingReader = 'agent' | 'person'
 interface ActingCall {
   readonly session: AuthorizedSession
   readonly reader: ActingReader
+  /** The Piloti proposal the person accepted, when the call is that acceptance applied (ADR-0105). */
+  readonly proposalId?: string
+}
+
+/** What else the call carries besides the person: the proposal it applies, if it applies one. */
+export interface ActingOrigin {
+  readonly proposalId?: string
 }
 
 const acting = new AsyncLocalStorage<ActingCall>()
@@ -44,8 +51,9 @@ export function runAsActingSession<T>(
   session: AuthorizedSession,
   fn: () => Promise<T>,
   reader: ActingReader = 'person',
+  origin: ActingOrigin = {},
 ): Promise<T> {
-  return acting.run({ session, reader }, fn)
+  return acting.run({ session, reader, ...(origin.proposalId ? { proposalId: origin.proposalId } : {}) }, fn)
 }
 
 /** The session bound by {@link runAsActingSession}, or `undefined` outside one. */
@@ -56,4 +64,15 @@ export function currentActingSession(): AuthorizedSession | undefined {
 /** Whether the call in flight is an agent's, whose answer a model reads ({@link ActingReader}). */
 export function actingReaderIsAgent(): boolean {
   return acting.getStore()?.reader === 'agent'
+}
+
+/**
+ * The Piloti proposal whose acceptance the call in flight applies, or
+ * `undefined`. A route that records HOW a person decided (an E-Mail-Eingang
+ * decision's `via`, ADR-0134) reads it: a card Piloti worded may not carry an
+ * acknowledgement or a release, which the person gives only in the app or as
+ * themselves (RT-S5). Set only by the proposal applier, through `callOperation`.
+ */
+export function actingProposalId(): string | undefined {
+  return acting.getStore()?.proposalId
 }

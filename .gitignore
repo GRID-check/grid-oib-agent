@@ -119,8 +119,10 @@ frontends/benchmarks/*/analysis/*.csv
 /config_*.yml
 
 
-# Node dependencies (never commit)
-node_modules/
+# Node dependencies (never commit). No trailing slash: `node_modules/` matches
+# only a directory, and an agent worktree links the main checkout's install in
+# as a symlink, which then showed up as a new file and got committed.
+node_modules
 
 # Claude Code agent worktrees (transient, isolated checkouts)
 .claude/worktrees/

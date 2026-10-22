@@ -92,7 +92,8 @@ Chosen option 3.
   KEDA already counts, the `[bff-jobs] … now dead` ERROR lines (each one opens
   an issue), and a `SELECT` on the tables.
 * **A failed attempt costs an attempt, behind a backoff; a dead row is a trace.**
-  Only a drain, a cap or a yield gives a claim back free; a claim that has held
+  Only a drain, a cap, a yield or a handler's own deferral (not done, with a
+  `notBefore`) gives a claim back free; a claim that has held
   its slot for ten minutes yields between slices, so an hours-long job (an
   archive import, ADR-0085) never holds a replica's slots against every other
   organization's work. A handler that threw, a slice

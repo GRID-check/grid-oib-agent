@@ -116,7 +116,8 @@ PROJECT_LOOKUP_TOOL = "project_lookup"
 #: The ingestion tags' closed vocabularies, mirrored from
 #: ``knowledge/document_classification.py`` (the BFF validates against its own
 #: mirror, ``lib/documents/tag-vocabulary.ts``). Literal, so a provider
-#: constrains the argument before it is sent.
+#: constrains the argument before it is sent; ``tests/test_tag_vocabulary_parity.py``
+#: holds all three copies to the same order.
 DocumentType = Literal[
     "Bebauungsplan",
     "Flächenwidmungsplan",
@@ -128,6 +129,7 @@ DocumentType = Literal[
     "Bescheid",
     "Norm/Richtlinie",
     "Vertrag",
+    "correspondence",
     "Foto",
     "Sonstiges",
 ]

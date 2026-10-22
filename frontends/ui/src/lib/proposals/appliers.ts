@@ -39,6 +39,8 @@ export interface ApplyContext {
   locale: Locale
   /** The decider's choice to file an organization note in the project instead. */
   memoryScope?: 'project'
+  /** The proposal being applied, so a route that records how a person decided can say it was a card. */
+  proposalId?: string
 }
 
 /** How many words of a note name it in a result or an inbox row. */

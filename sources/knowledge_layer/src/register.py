@@ -1334,6 +1334,7 @@ def _trace_lanes_for_hits(hits, opened_files: frozenset[str] = frozenset()) -> t
             collection=hit.collection,
             shelf=hit.shelf,
             authored_by=hit.authored_by,
+            source_format=hit.source_format,
         )
         lanes.setdefault(key, (label, []))[1].append(hit)
     return tuple(
@@ -1593,6 +1594,9 @@ def _grounding_hit(chunk, *, resolved, resolved_titles, resolved_folders, ambigu
         body_truncated=truncated,
         regions=_hit_regions(chunk),
         page_end=_page_end(chunk, page),
+        # Stamped at ingest from the job config (`adapter._stamp_chunk_metadata`); only a filed
+        # E-Mail-Verlauf states one today.
+        source_format=_metadata_text(metadata.get("source_format")),
     )
 
 

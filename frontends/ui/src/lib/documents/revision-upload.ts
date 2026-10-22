@@ -28,9 +28,11 @@ import 'server-only'
 import { z } from 'zod'
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import type { Document } from '@/lib/db/schema'
 import { getAccessibleDocument } from './access'
 import { collectionFileRef } from './collection-file-ref'
-import { hasPassedScreening } from './document-reader'
+import { hasPassedScreening, SCREENED_ONLY } from './document-reader'
+import { findDocumentInOrg } from './repository'
 import { documentNameKey } from './name-match'
 import { documentShelf, type DocumentShelf } from './shelf'
 
@@ -97,7 +99,41 @@ export async function resolveRevisionOf(
   const older = await olderForLinking(session, olderId)
   // A held upload is its uploader's and the reviewers' alone (ADR-0086), and a link would carry its
   // name, and through the change summary what it holds, into documents everyone reads.
-  if (!older || !hasPassedScreening(older)) return ignoredFor('unavailable')
+  if (!older) return ignoredFor('unavailable')
+  return linkableRevisionOf(older, target)
+}
+
+/**
+ * The upload checks again, when a reviewer releases a held upload (ADR-0086):
+ * the older document's CURRENT file name, or `null` when the choice no longer
+ * resolves.
+ *
+ * The release can come days after the upload, and the choice recorded with it
+ * (`./filing-choice`) names the older document by id, never by name: meanwhile
+ * it may have been archived, renamed, or deleted and another file filed under
+ * its name. Read for no particular person, whoever the reviewer is: the
+ * uploader's right to change the older document was checked at upload, and the
+ * reviewer releasing is not the one filing.
+ */
+export async function resolveReleasedRevisionOf(
+  organizationId: string,
+  olderId: string,
+  released: Pick<Document, 'scope' | 'projectId' | 'collectionName' | 'filename'>,
+): Promise<string | null> {
+  // Screened rows only: a held document is never a Fassung to link (see `linkableRevisionOf`).
+  const older = await findDocumentInOrg(olderId, organizationId, SCREENED_ONLY)
+  const shelf = documentShelf(released)
+  if (!older || !shelf) return null
+  return linkableRevisionOf(older, {
+    shelf,
+    collectionName: released.collectionName,
+    filename: released.filename,
+  }).revisionOf
+}
+
+/** Every check on the older document but the reader's right to change it. */
+function linkableRevisionOf(older: Document, target: RevisionUploadTarget): ResolvedRevisionOf {
+  if (!hasPassedScreening(older)) return ignoredFor('unavailable')
   if (!sameShelf(target.shelf, documentShelf(older))) return ignoredFor('different_shelf')
   if (older.lifecycle !== 'active') return ignoredFor('archived')
   // A restricted folder is its own collection (ADR-0087); the link lives in one.

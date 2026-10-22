@@ -147,7 +147,7 @@ Consequences, where a reader looks for them.
 | [0082](0082-backend-roles-are-split-by-job-and-named-after-it.md) | Backend roles are split by job, and named after it | Proposed |
 | [0083](0083-postgres-connections-go-through-a-transaction-pooler.md) | Postgres connections go through a transaction pooler; session features take a direct connection | Proposed |
 | [0084](0084-the-backend-authorizes-a-job-by-the-scope-the-bff-signed.md) | The backend authorizes a job by the scope the BFF signed | Proposed |
-| [0085](0085-outlook-archives-are-read-by-range-and-filed-as-the-person-per-mail.md) | Outlook archives are read by range and filed as the person, one folder per mail | Proposed |
+| [0085](0085-outlook-archives-are-read-by-range-and-filed-as-the-person-per-mail.md) | Outlook archives are read by range and filed as the person, one folder per mail | Accepted |
 | [0086](0086-uploads-are-screened-locally-and-matches-wait-in-quarantine.md) | Uploads are screened locally before any model sees them, and matches wait in quarantine | Accepted |
 | [0087](0087-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md) | Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection (partly superseded by 0088) | Accepted |
 | [0088](0088-folder-access-is-read-write-per-role.md) | Folder access is read/write per role | Accepted |
@@ -175,7 +175,7 @@ Consequences, where a reader looks for them.
 | [0110](0110-live-channels-are-one-module-over-dragonfly.md) | Live channels are one module of our own over Dragonfly | Proposed |
 | [0111](0111-piloti-sets-a-project-up-from-its-documents.md) | Piloti sets a project up from its documents, as an agent of its own writing suggestions onto the profile | Proposed |
 | [0112](0112-web-push-for-the-inbox.md) | Web Push for the inbox: VAPID and `web-push`, a worker that caches nothing, minimal encrypted payloads, queued from the inbox write path | Proposed |
-| [0113](0113-a-held-files-reason-is-a-typed-verdict-stored-as-data.md) | A held file's reason is a typed verdict, stored as data | Proposed |
+| [0113](0113-a-held-files-reason-is-a-typed-verdict-stored-as-data.md) | A held file's reason is a typed verdict, stored as data | Accepted |
 | [0115](0115-qdrant-replaces-chroma-reached-through-qdrant-client.md) | Qdrant replaces Chroma as the vector store, reached through qdrant-client | Accepted |
 | [0116](0116-retrieval-scope-is-a-payload-filter-compiled-in-one-place.md) | Retrieval scope is a payload filter compiled in one place, not a collection | Accepted |
 | [0117](0117-a-document-is-parsed-on-one-worker-in-a-bounded-page-pipeline.md) | A document is parsed on one worker, in a bounded page pipeline | Proposed |
@@ -190,10 +190,11 @@ Consequences, where a reader looks for them.
 | [0126](0126-the-operator-console-has-its-own-mcp-door.md) | The operator console has its own MCP door: a second server for platform staff, its own audience | Accepted |
 | [0127](0127-search-finds-list-orients-read-reads.md) | Search finds, list orients, read reads: the office's files become navigable beside RAG, and a folder is a card | Proposed |
 | [0128](0128-one-look-in-every-turn-shown-where-it-looked.md) | One look in every turn: Piloti looks at a region of a page in chat, canvas and door alike, and the reader sees where | Proposed |
-| [0129](0129-piloti-learns-the-office-conventions.md) | Piloti learns the office's conventions: folder skeleton, where each Dokumentart is filed, Plannummer, Index and date patterns, counted from the office's projects and stated as "usually" | Proposed |
-| [0130](0130-piloti-notices-a-new-fassung.md) | Piloti notices a new Fassung: it compares it unasked and leaves proposed marks where it changed | Proposed |
+| [0129](0129-piloti-learns-the-office-conventions.md) | Piloti learns the office's conventions: folder skeleton, where each Dokumentart is filed, Plannummer, Index and date patterns, counted from the office's projects and stated as "usually" | Accepted |
+| [0130](0130-piloti-notices-a-new-fassung.md) | Piloti notices a new Fassung: it compares it unasked and leaves proposed marks where it changed | Accepted |
 | [0131](0131-the-agent-api-speaks-one-dialect.md) | The agent API speaks one dialect: one word, one id slot, lean pages, views not rows | Accepted |
 | [0132](0132-the-herleitung-shows-the-work-one-row-per-call.md) | The Herleitung shows the work: one row per call, grouped by round, with what it found | Proposed |
+| [0133](0133-attachments-from-outside-are-scanned-in-cluster-by-clamav.md) | Attachments from outside are scanned in the cluster by ClamAV before anyone can file or download them | Proposed |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

@@ -227,6 +227,9 @@ KEYWORD_FIELDS: tuple[str, ...] = (
     "authored_by",
     "approved_by",
     "producer",
+    # The document's format when it states one (``mail``: a filed E-Mail-Verlauf), so
+    # "only the correspondence" is one exact filter.
+    "source_format",
 )
 #: Payload field holding a chunk's place in document order (the seam's
 #: ``READING_ORDER``): derived at write time from ``page_label``, never read
@@ -261,7 +264,8 @@ INTEGER_FIELDS: tuple[str, ...] = (
     "segment_index",
 )
 #: Payload field holding the document's own date: the title block's ``revision_date``, else the
-#: photo's ``capture.captured_at``, else absent. Copied from the metadata row (``payload.document_facts``).
+#: photo's ``capture.captured_at``, else a mail thread's newest message (``mail_thread.latest_sent_at``),
+#: else absent. Copied from the metadata row (``payload.document_facts``).
 DOCUMENT_DATE_FIELD = "document_date"
 #: Payload field holding when the document was first indexed under its name (the row's ``added_at``).
 ADDED_AT_FIELD = "added_at"

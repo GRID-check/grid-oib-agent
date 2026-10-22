@@ -99,6 +99,20 @@ class TestFacts:
 
         assert facts["document_date"] == "2025-07-01T09:00:00Z"
 
+    def test_a_mail_thread_is_dated_by_its_newest_message(self):
+        """A filed E-Mail-Verlauf (ADR-0134): „the newest correspondence“ sorts by its last message."""
+        facts = document_facts(_document(mail_thread={"latest_sent_at": "2026-05-14T14:40:00Z", "message_count": 5}))
+
+        assert facts["document_date"] == "2026-05-14T14:40:00Z"
+
+    def test_a_file_that_came_with_a_mail_keeps_its_own_date(self):
+        """The day it was mailed is where it came from, not when it was written: no date of its own, none."""
+        origin = {"sent_at": "2026-05-04T06:30:00Z", "sender_trust": "external_verified"}
+
+        assert document_facts(_document(mail_origin=origin))["document_date"] is None
+        dated = document_facts(_document(mail_origin=origin, revision_facts={"revision_date": "2026-03-05"}))
+        assert dated["document_date"] == "2026-03-05T00:00:00Z"
+
     def test_an_unknown_date_is_stated_as_none_so_a_removed_one_is_cleared(self):
         facts = document_facts(_document(revision_facts={"revision_date": "unleserlich"}))
 

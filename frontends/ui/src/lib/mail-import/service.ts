@@ -13,12 +13,14 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { BodyOverlongError, readBoundedBody } from '@/lib/api/bounded-body'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { isMailImportEnabled } from '@/lib/authz/feature-flags'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { MailImport } from '@/lib/db/schema'
 import { requireShelfWrite } from '@/lib/documents/shelf-authz'
+import { decodeDocumentListCursor, encodeDocumentListCursor } from '@/lib/documents/list-cursor'
 import { projectShelf } from '@/lib/documents/shelf'
 import { BFF_JOB_PRIORITY, requesterOf } from '@/lib/jobs-queue/types'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
@@ -39,17 +41,36 @@ import {
   stagingKey,
   type UploadedPart,
 } from './staging'
-import type { MailImportList, MailImportUploadPlan, MailImportView, StartMailImportInput } from './types'
+import {
+  MAIL_IMPORT_LIST_PAGE_SIZE,
+  type MailImportList,
+  type MailImportListQuery,
+  type MailImportUploadPlan,
+  type MailImportView,
+  type StartMailImportInput,
+} from './types'
 import { sealImportBatch } from './upload-batch'
 
-/** Imports one person may have open in one project at a time. */
-const OPEN_IMPORTS_PER_PERSON = 1
-
-export async function listMailImports(session: AuthorizedSession, projectId: string): Promise<MailImportList> {
+/**
+ * One page of the project's imports, newest first (ADR-0131 rule 3). The
+ * deployment's ceiling and part size ride along, so the dialog knows before a
+ * start what it may send.
+ */
+export async function listMailImports(
+  session: AuthorizedSession,
+  projectId: string,
+  query: MailImportListQuery = {},
+): Promise<MailImportList> {
   await requireProjectAccess(session, projectId, 'project:view')
-  const rows = await repository.listProjectMailImports(session.organizationId, projectId)
+  // The schema refused a cursor this list did not write; one that reaches here decodes.
+  const cursor = query.cursor ? decodeDocumentListCursor(query.cursor) : null
+  const page = await repository.listProjectMailImports(session.organizationId, projectId, {
+    limit: query.limit ?? MAIL_IMPORT_LIST_PAGE_SIZE,
+    cursor,
+  })
   return {
-    imports: rows.map((row) => toView(row, session)),
+    imports: page.rows.map((row) => toView(row, session)),
+    nextCursor: page.next ? encodeDocumentListCursor(page.next) : null,
     maxSizeBytes: maxArchiveBytes(),
     partSize: MAIL_IMPORT_PART_BYTES,
   }
@@ -65,11 +86,9 @@ export async function startMailImport(
   assertArchiveAccepted(input)
   await assertWithinStorageQuota(session.organizationId, input.sizeBytes)
 
-  const open = (await repository.listProjectMailImports(session.organizationId, projectId)).filter(
-    (row) => row.userId === session.userId && isOpen(row),
-  )
-  if (open.length >= OPEN_IMPORTS_PER_PERSON) {
-    throw new ConflictError('An import of yours is still running in this project.', { importId: open[0].id })
+  const open = await repository.findOpenMailImportOf(session.organizationId, projectId, session.userId)
+  if (open) {
+    throw new ConflictError('An import of yours is still running in this project.', { importId: open.id })
   }
 
   // The row first, the multipart upload second: the unique index refuses a
@@ -127,10 +146,7 @@ export async function putMailImportPart(
   if (Number.isFinite(declared) && declared !== expected) {
     throw new BadRequestError(`Part ${partNumber} must be ${expected} bytes`, { expected, declared })
   }
-  const body = await readAtMost(request, expected, partNumber)
-  if (body.byteLength !== expected) {
-    throw new BadRequestError(`Part ${partNumber} must be ${expected} bytes`, { expected, received: body.byteLength })
-  }
+  const body = await readPart(request, expected, partNumber)
   await putStagedPart(staged(row), uploadIdOf(row), partNumber, body)
   // Touch the row: an upload still receiving parts is not a stale one.
   await repository.updateMailImport(session.organizationId, row.id, ['uploading'], {})
@@ -276,25 +292,22 @@ export function missingParts(sizeBytes: number, parts: readonly UploadedPart[]):
 }
 
 /**
- * The request body, refused the moment it passes `limit` bytes. A chunked
- * request declares no length, and the transport ceiling in front of the route
- * is the upload one (hundreds of megabytes), so reading it whole first would
- * buffer whatever a client sends before the size check could say no.
+ * The part's body, exactly `expected` bytes, through `readBoundedBody`. A
+ * chunked request declares no length, and the transport ceiling in front of
+ * the route is the upload one (hundreds of megabytes), so the read stops the
+ * moment the body passes `expected` instead of buffering whatever a client
+ * sends: this route's 400, as for a declared length that is wrong. A body that
+ * ends short was cut in transit and is `readBoundedBody`'s 503
+ * `body-truncated`, which the browser's `sendPart` retries like any 5xx.
  */
-async function readAtMost(request: Request, limit: number, partNumber: number): Promise<Uint8Array> {
-  const body = new Uint8Array(limit)
-  const reader = request.body?.getReader()
-  if (!reader) return body.subarray(0, 0)
-  let length = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) return body.subarray(0, length)
-    if (length + value.byteLength > limit) {
-      await reader.cancel()
-      throw new BadRequestError(`Part ${partNumber} must be ${limit} bytes`, { expected: limit })
+async function readPart(request: Request, expected: number, partNumber: number): Promise<Uint8Array> {
+  try {
+    return await readBoundedBody(request, { expectedLength: expected, maxBytes: expected })
+  } catch (error) {
+    if (error instanceof BodyOverlongError) {
+      throw new BadRequestError(`Part ${partNumber} must be ${expected} bytes`, { expected })
     }
-    body.set(value, length)
-    length += value.byteLength
+    throw error
   }
 }
 

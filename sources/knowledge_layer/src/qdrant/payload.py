@@ -206,10 +206,16 @@ def document_facts(document: Any | None) -> dict[str, Any]:
 
 
 def _document_date(document: Any) -> str | None:
-    """The document's own date: the title block's ``revision_date``, else the photo's ``captured_at``."""
+    """The document's own date: the title block's ``revision_date``, else the photo's ``captured_at``,
+    else, for a filed E-Mail-Verlauf, its newest message's send time (``mail_thread.latest_sent_at``).
+
+    A file that came WITH a mail keeps its own date: a Stellplatznachweis dated in March and sent in
+    May is a March document, so ``mail_origin`` is not read here.
+    """
     revision = getattr(document, "revision_facts", None)
     capture = getattr(document, "capture", None)
-    for source, key in ((revision, "revision_date"), (capture, "captured_at")):
+    thread = getattr(document, "mail_thread", None)
+    for source, key in ((revision, "revision_date"), (capture, "captured_at"), (thread, "latest_sent_at")):
         if isinstance(source, Mapping) and (stamp := as_rfc3339(source.get(key))):
             return stamp
     return None

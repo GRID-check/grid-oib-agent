@@ -457,6 +457,7 @@ export async function applyProposal(
       originConversationId: claim.originConversationId,
       locale: options.locale ?? defaultLocale,
       memoryScope: options.memoryScope,
+      proposalId: claim.id,
     })
   } catch (error) {
     await releaseProposedChange(session.organizationId, claim)

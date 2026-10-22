@@ -6,7 +6,9 @@
  *
  * GET is scope-aware like PATCH: a project document or an Archiv document, as
  * the row its shelf's listing would carry (`toDocumentWireRows`), for a link to
- * a document the paged Files level has not loaded (ADR-0102).
+ * a document the paged Files level has not loaded (ADR-0102). A document that
+ * came with mail names the mails that brought its Fassungen (`mailOrigins`,
+ * D36), through the mail threads the reader may read, and only then.
  *
  * PATCH is SCOPE-AWARE, like the sibling item routes (download/preview/status/
  * reingest/tags) under this `[id]` folder: it renames a project document and an
@@ -23,19 +25,25 @@ import { deleteDocument, renameDocument } from '@/lib/documents/service'
 import { getListedDocument } from '@/lib/documents/listed-document'
 import { toDocumentWireRows } from '@/lib/documents/list-projection'
 import { renameDocumentSchema } from '@/lib/documents/document-wire'
+import { documentMailOrigins } from '@/lib/mail-thread/mail-origins'
 
 type Params = { id: string }
 
 export const GET = apiRoute<Params>(
   async ({ session, params }) => {
     const listed = await getListedDocument(session, params.id)
-    const [document] = await toDocumentWireRows(session.organizationId, [listed])
+    const [[document], mailOrigins] = await Promise.all([
+      toDocumentWireRows(session.organizationId, [listed]),
+      documentMailOrigins(session, { id: listed.id, projectId: listed.projectId }),
+    ])
     // The row and the shelf it is on: a caller with only the id learns the project here.
-    return { document: { ...document, projectId: listed.projectId } }
+    return { document: { ...document, projectId: listed.projectId, ...(mailOrigins.length > 0 ? { mailOrigins } : {}) } }
   },
   {
     authz: {
-      enforcedBy: 'getListedDocument -> getAccessibleDocument (project:view | any member of the Archiv organization)',
+      enforcedBy:
+        'getListedDocument -> getAccessibleDocument (project:view | any member of the Archiv organization); ' +
+        'mailOrigins only through threads the reader may read (documentMailOrigins)',
     },
   }
 )

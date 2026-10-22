@@ -44,6 +44,9 @@ import { runInboxPush } from '@/lib/push/inbox-push-job'
 import { runDueRemindersSlice } from '@/lib/annotations/due-reminders'
 import { runDocumentCheckSlice } from '@/lib/document-check/job'
 import { runRevisionNotice } from '@/lib/revision-notice/job'
+import { runInboundMailFiling } from '@/lib/inbound-mail/file-job'
+import { runInboundMailReceive } from '@/lib/inbound-mail/receive-job'
+import { runInboundMailSuggest } from '@/lib/inbound-mail/suggest-job'
 import { isLastAttempt } from './attempts'
 import {
   annotationDueRemindersPayloadSchema,
@@ -63,6 +66,10 @@ import {
   restoreFolderBinPayloadSchema,
   revisionNoticePayloadSchema,
   documentCheckPayloadSchema,
+  inboundMailFilePayloadSchema,
+  inboundMailFollowPayloadSchema,
+  inboundMailReceivePayloadSchema,
+  inboundMailSuggestPayloadSchema,
   rootSortPayloadSchema,
   type BffJobKind,
   type JobAttempt,
@@ -201,4 +208,18 @@ export const JOB_HANDLERS: Record<BffJobKind, JobHandler> = {
   revision_notice: systemHandler(revisionNoticePayloadSchema, runRevisionNotice),
   // Sliced: start the turn, then wait for its answer; the person is resolved in each slice.
   document_check: systemSliceHandler(documentCheckPayloadSchema, runDocumentCheckSlice),
+  // As the system: it reads, scans, labels and holds; it never files (`review-first.spec.ts`).
+  inbound_mail_receive: systemHandler(inboundMailReceivePayloadSchema, runInboundMailReceive),
+  // As the system, metadata only (D21): it fails open, and it imports no filing code (`review-first.spec.ts`).
+  inbound_mail_suggest: systemHandler(inboundMailSuggestPayloadSchema, runInboundMailSuggest),
+  // As the person who decided: what a person decided, filed through their own
+  // upload path; never anything a decision row does not name (`file-job.ts`).
+  inbound_mail_file: handler(inboundMailFilePayloadSchema, runInboundMailFiling),
+  // Registered before its work exists (PR-D assembles it from several
+  // packages), ending without effect: the reply waits for a person, as it
+  // would without a follow.
+  inbound_mail_follow: handler(inboundMailFollowPayloadSchema, async (_session, payload) => {
+    console.warn(`[jobs] inbound_mail_follow has no step yet; mail ${payload.mailId} waits for a person`)
+    return { done: true, payload }
+  }),
 }

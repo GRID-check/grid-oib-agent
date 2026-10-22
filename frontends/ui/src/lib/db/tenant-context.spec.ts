@@ -240,7 +240,11 @@ describe('route factories open a request-scoped slot', () => {
     const source = readFileSync(join(process.cwd(), file), 'utf8')
 
     for (const factory of factories) {
-      const start = source.indexOf(`export function ${factory}`)
+      // The LAST declaration: an overloaded factory (`internalApiRoute`, token
+      // or signed) lists its bodiless overload signatures first, and TypeScript
+      // requires the implementation to follow them directly. Reading the first
+      // one checked a signature, which has no body to return anything from.
+      const start = source.lastIndexOf(`export function ${factory}`)
       expect(start, `${factory} not found in ${file}`).toBeGreaterThan(-1)
       const next = FACTORIES.flatMap((entry) => entry.factories)
         .map((name) => source.indexOf(`export function ${name}`, start + 1))

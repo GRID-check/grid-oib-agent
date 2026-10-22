@@ -39,6 +39,12 @@ paths = [
   # reads as a credential. A path rule because the scan walks full history and
   # the fixtures are re-recorded as the contract moves.
   '''(^|/)shared/wire/v2/.*\.jsonl$''',
+  # The signed-delivery test vectors (RFC 9421, `shared/inbound-mail-signature.json`),
+  # read by the Email Worker's spec and the BFF verifier's spec alike. Each vector
+  # carries the HMAC key it was signed with, so both sides recompute the same
+  # signature; `generic-api-key` reads that key as a credential. A path rule like
+  # the wire fixtures': every vector's key is a fixture, and history keeps them.
+  '''(^|/)shared/inbound-mail-signature\.json$''',
   '''(^|/)__mocks__/''',
   '''(^|/)mocks/''',
   '''\.spec\.tsx?$''',

@@ -128,6 +128,54 @@ class TestSelectFiles:
         assert "Still processing" in text and "Neu.pdf" in text
 
 
+class TestAFiledMailIsListedInTheWordsOfItsVerlauf:
+    """``list_files`` names where a filed mail came from, never an unconfirmed sender as the domain (ADR-0134)."""
+
+    THREAD = {"latest_sent_at": "2026-05-14T14:40:00Z", "message_count": 5, "locale": "de"}
+    SIGNED = {
+        "sent_at": "2026-05-04T06:30:00Z",
+        "from_name": "Ing. Paul Gruber",
+        "from_domain": "verkehrsplanung-gruber.at",
+        "signer_domain": "verkehrsplanung-gruber.at",
+        "sender_trust": "external_verified",
+    }
+    FORGED = {
+        "sent_at": "2026-05-14T14:40:00Z",
+        "from_name": "Mag. Anna Huber",
+        "from_domain": "ma37-wien.at",
+        "sender_trust": "external_unverified",
+    }
+
+    def _listing(self, **extra) -> str:
+        return render_listing(select_files(file_rows([_doc("Datei.pdf", "Korrespondenz", **extra)])))
+
+    def test_the_verlauf_says_what_it_is_and_how_new(self):
+        text = self._listing(mail_thread=self.THREAD)
+        assert "E-Mail-Verlauf · 5 E-Mails, zuletzt 14.05.2026" in text
+
+    def test_an_attachment_names_the_signed_mail_it_came_with(self):
+        text = self._listing(mail_origin=self.SIGNED)
+        assert "kam mit der E-Mail vom 04.05.2026 08:30 von Ing. Paul Gruber (verkehrsplanung-gruber.at)" in text
+
+    def test_an_unconfirmed_sender_is_printed_as_unconfirmed(self):
+        text = self._listing(mail_origin=self.FORGED)
+        assert "von Mag. Anna Huber (ma37-wien.at, Domain nicht bestätigt)" in text
+
+    def test_a_record_that_cannot_be_printed_honestly_prints_nothing(self):
+        text = self._listing(mail_origin={**self.FORGED, "sender_trust": "trusted"})
+        assert "kam mit der E-Mail" not in text and "Domain" not in text
+
+    def test_the_verlaufs_date_is_its_newest_message_and_an_attachments_is_its_own(self):
+        thread, attachment = file_rows(
+            [
+                _doc("Verlauf.md", mail_thread=self.THREAD),
+                _doc("Berechnung.pdf", mail_origin=self.SIGNED),
+            ]
+        )
+        assert thread.document_date == "2026-05-14"
+        assert attachment.document_date is None
+
+
 def _builder() -> MagicMock:
     builder = MagicMock()
     builder.get_function_config = MagicMock(

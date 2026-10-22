@@ -27,6 +27,7 @@ import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TimeAgo } from '@/components/ui/time-ago'
 import { useLocale, useTranslations } from '@/i18n'
+import { tagLabel } from '@/lib/documents/tag-vocabulary'
 import { useProjectName, useUploadSummary, type UploadSummaryState } from '../hooks/use-upload-summary'
 import {
   documentHref,
@@ -54,6 +55,7 @@ function Section({ label, testId, children }: { label: string; testId: string; c
 
 export function UploadSummaryView({ summary }: { summary: UploadSummary }): JSX.Element {
   const t = useTranslations('uploadBatches')
+  const tFiles = useTranslations('files')
   const tallyLabel = useTallyLabel()
   const tally = useMemo(() => tallySummary(summary), [summary])
   const groups = useMemo(() => groupByFolder(summary.documents), [summary.documents])
@@ -80,7 +82,7 @@ export function UploadSummaryView({ summary }: { summary: UploadSummary }): JSX.
           <ul className="flex flex-wrap gap-1.5">
             {types.map(({ type, count }) => (
               <li key={type} className="max-w-full">
-                <NamedCount name={type} count={count} />
+                <NamedCount name={tagLabel(type, tFiles)} count={count} />
               </li>
             ))}
           </ul>

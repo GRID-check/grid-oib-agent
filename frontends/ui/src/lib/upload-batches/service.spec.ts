@@ -35,7 +35,8 @@ import { clearanceOf, loadCustomFolderTree, type AccessFolder } from '@/lib/auth
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
-import type { UploadBatch } from '@/lib/db/schema'
+import { DEFAULT_UPLOAD_BATCH_EFFECTS, type UploadBatch } from '@/lib/db/schema'
+import { openUploadBatchSchema } from './batch-wire'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { findFolderPathsInProject } from '@/lib/documents/repository'
 import { encodeDocumentListCursor } from '@/lib/documents/list-cursor'
@@ -90,6 +91,7 @@ const batch = (overrides: Partial<UploadBatch> = {}): UploadBatch => ({
   sealedAt: null,
   completedAt: null,
   createdAt: new Date('2026-10-01T10:00:00Z'),
+  ...DEFAULT_UPLOAD_BATCH_EFFECTS,
   ...overrides,
 })
 
@@ -146,6 +148,26 @@ describe('openUploadBatch', () => {
     expect(insertUploadBatch).toHaveBeenCalledWith(
       expect.objectContaining({ id: BATCH_ID, createdBy: 'uploader', projectId: 'proj-1', conversationId: null })
     )
+  })
+
+  it("opens it with every effect of a person's upload unless the caller asks otherwise (migration 0185)", async () => {
+    const input = { id: BATCH_ID, scope: 'project' as const, projectId: 'proj-1', conversationId: null, expectedCount: 1, excluded: [] }
+    await openUploadBatch(session, input)
+    expect(insertUploadBatch).toHaveBeenLastCalledWith(expect.objectContaining(DEFAULT_UPLOAD_BATCH_EFFECTS))
+
+    await openUploadBatch(session, { ...input, effects: { announcesCompletion: false, revisionNotice: 'marks_only' } })
+    expect(insertUploadBatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ announcesCompletion: false, reviewsFiling: true, startsIntake: true, revisionNotice: 'marks_only' })
+    )
+  })
+
+  // Only a server-side caller filing on a person's decision opens a quiet
+  // batch; the body a browser or an agent sends has no field for it.
+  it('takes no effects from the route body', () => {
+    const body = { id: BATCH_ID, scope: 'project', projectId: '6f1c2d3e-4a5b-4c6d-8e7f-9a0b1c2d3e4f', expectedCount: 1 }
+    expect(openUploadBatchSchema.safeParse(body).success).toBe(true)
+    expect(openUploadBatchSchema.safeParse({ ...body, effects: { announcesCompletion: false } }).success).toBe(false)
+    expect(openUploadBatchSchema.safeParse({ ...body, revisionNotice: 'marks_only' }).success).toBe(false)
   })
 
   it("refuses a Büroablage batch to someone who does not curate it, as if it didn't exist", async () => {

@@ -12,11 +12,13 @@ from fastapi import FastAPI
 from httpx import ASGITransport
 from httpx import AsyncClient
 
+from aiq_api.routes.filing_fit import MAIL_INSTRUCTIONS
 from aiq_api.routes.filing_fit import MAX_SCORED_FOLDERS
 from aiq_api.routes.filing_fit import SORT_INSTRUCTIONS
 from aiq_api.routes.filing_fit import SYSTEM_PROMPT
 from aiq_api.routes.filing_fit import FilingFitRequest
 from aiq_api.routes.filing_fit import FilingMove
+from aiq_api.routes.filing_fit import _trace_metadata
 from aiq_api.routes.filing_fit import add_filing_fit_routes
 from aiq_api.routes.filing_fit import build_user_content
 from aiq_api.routes.filing_fit import parse_moves
@@ -267,3 +269,148 @@ async def test_too_many_folders_to_offer_are_not_scored(monkeypatch):
     scores = await score_moves(request, [FilingMove(id="d1", folder="Ordner 0", reason="x")], None)
     assert scores == [None]
     spy.assert_not_awaited()
+
+
+# ── basis: mail (ADR-0134, D21): a held mail's attachments, placed from metadata only ──
+
+MAIL_BODY = {
+    "basis": "mail",
+    "locale": "de",
+    "folders": BODY["folders"],
+    "conventions": BODY["conventions"],
+    "documents": [
+        {"id": "a1", "file": "Bescheid_MA37_2026-10-14.pdf"},
+        {"id": "a2", "file": "Lageplan.dwg"},
+    ],
+    "mail": {"subject": "AW: Einreichung Stellplatznachweis ███", "sender_domain": "wien.gv.at", "text_id": "t1"},
+    "trace": {"batch_id": "mail-1", "project_id": "p1", "shelf": "project"},
+}
+
+
+def _mail_request(**changes) -> FilingFitRequest:
+    return FilingFitRequest.model_validate({**MAIL_BODY, **changes})
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"id": "a1", "file": "a.pdf", "summary": "Was im Anhang steht"},
+        {"id": "a1", "file": "a.pdf", "type": "Bescheid"},
+        {"id": "a1", "file": "a.pdf", "tags": ["Brandschutz"]},
+        {"id": "a1", "file": "a.pdf", "folder": "Bescheide"},
+        {"id": "a1", "file": "a.pdf", "text": "Sehr geehrte Damen und Herren"},
+    ],
+)
+def test_a_mail_request_carries_names_only_and_refuses_anything_read_from_content(document):
+    with pytest.raises(ValueError):
+        _mail_request(documents=[document])
+
+
+@pytest.mark.parametrize("mail", [{"body": "Sehr geehrte Damen und Herren"}, {"text": "x"}, {"own_text": "x"}])
+def test_the_mail_has_no_field_that_could_carry_its_text(mail):
+    with pytest.raises(ValueError):
+        _mail_request(mail={**MAIL_BODY["mail"], **mail})
+
+
+def test_the_mail_comes_with_the_mail_basis_and_only_with_it():
+    with pytest.raises(ValueError):
+        _mail_request(mail=None)
+    with pytest.raises(ValueError):
+        _request(mail=MAIL_BODY["mail"])
+    with pytest.raises(ValueError):
+        _mail_request(purpose="sort")
+
+
+def test_the_model_reads_the_mail_the_types_and_the_text_to_place():
+    content = build_user_content(_mail_request())
+    assert '"subject": "AW: Einreichung Stellplatznachweis ███"' in content
+    assert '"sender_domain": "wien.gv.at"' in content
+    types = content.split("TYPES", 1)[1].split("TEXT", 1)[0]
+    # Each type with its criterion: a bare list read a Nachweis as „Sonstiges“ (D14's run of 20 mails).
+    assert '"Bescheid"' in types
+    assert "Nachweis" in types
+    assert '{"id": "t1", "type": "correspondence"}' in content
+    assert '"file": "Lageplan.dwg"' in content
+    assert '"text_id"' not in content
+
+
+def test_a_mail_move_keeps_a_type_of_the_vocabulary_and_places_the_text():
+    answer = {
+        "moves": [
+            {"id": "a1", "folder": "Bescheide", "type": "Bescheid", "reason": "Ein Bescheid der MA 37."},
+            {"id": "a2", "folder": "Pläne/Einreichung", "type": "Lieblingsplan", "reason": "Ein Lageplan."},
+            {"id": "t1", "folder": "Korrespondenz", "type": "Bescheid", "reason": "Schriftverkehr mit der Behörde."},
+        ]
+    }
+    moves = parse_moves(answer, _mail_request())
+    assert moves is not None
+    assert [(move.id, move.folder, move.type, move.new) for move in moves] == [
+        ("a1", "Bescheide", "Bescheid", False),
+        ("a2", "Pläne/Einreichung", None, False),
+        ("t1", "Korrespondenz", None, True),
+    ]
+
+
+def test_no_other_basis_answers_a_type():
+    answer = {"moves": [{"id": "d1", "folder": "Bescheide", "type": "Bescheid", "reason": "Ein Bescheid."}]}
+    moves = parse_moves(answer, _request())
+    assert moves is not None
+    assert moves[0].type is None
+
+
+def test_the_mail_generation_names_its_surface_and_ids_only():
+    metadata = _trace_metadata(_mail_request())
+    assert metadata["surface"] == "inbound_mail"
+    assert metadata["basis"] == "mail"
+    assert metadata["batch_id"] == "mail-1"
+    assert metadata["text_placed"] is True
+    assert "subject" not in metadata and "sender_domain" not in metadata
+    assert "surface" not in _trace_metadata(_request())
+
+
+@pytest.mark.asyncio
+async def test_a_mail_is_placed_in_one_bulk_call_with_the_mail_instructions(app, monkeypatch):
+    from aiq_agent.common import provider_limiter
+    from aiq_api.routes import filing_fit
+
+    classes = []
+    real = filing_fit.limited_async_http_client
+
+    def recording(*args, cls, **kwargs):
+        classes.append(cls)
+        return real(*args, cls=cls, **kwargs)
+
+    monkeypatch.setattr(filing_fit, "limited_async_http_client", recording)
+    answer = json.dumps({"moves": [{"id": "a1", "folder": "Bescheide", "type": "Bescheid", "reason": "Ein Bescheid."}]})
+    fake, post = _client_returning(answer)
+    body = (await _judge(app, fake, MAIL_BODY)).json()
+    assert body["moves"] == [
+        {
+            "id": "a1",
+            "folder": "Bescheide",
+            "reason": "Ein Bescheid.",
+            "new": False,
+            "description": None,
+            "confidence": None,
+            "type": "Bescheid",
+        }
+    ]
+    assert post.await_count == 1
+    assert post.call_args.kwargs["json"]["messages"][0]["content"] == SYSTEM_PROMPT + "\n" + MAIL_INSTRUCTIONS
+    assert classes == [provider_limiter.BULK]
+
+
+@pytest.mark.asyncio
+async def test_a_mail_with_only_its_text_to_place_is_still_judged(app):
+    fake, post = _client_returning(json.dumps({"moves": [{"id": "t1", "folder": "Bescheide", "reason": "Behörde."}]}))
+    body = (await _judge(app, fake, {**MAIL_BODY, "documents": []})).json()
+    assert [move["id"] for move in body["moves"]] == ["t1"]
+    assert post.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_a_mail_with_nothing_to_place_makes_no_call(app):
+    fake, post = _client_returning(json.dumps({"moves": []}))
+    body = (await _judge(app, fake, {**MAIL_BODY, "documents": [], "mail": {"subject": "x"}})).json()
+    assert body["moves"] == []
+    assert post.await_count == 0

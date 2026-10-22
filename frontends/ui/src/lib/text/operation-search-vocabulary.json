@@ -113,6 +113,15 @@
     "punkt": ["passage"],
     "aktenvermerk": ["document"],
     "gebaeudeklasse": ["profile"],
-    "bundesland": ["profile"]
+    "bundesland": ["profile"],
+    "email": ["mail"],
+    "anhang": ["attachment"],
+    "anhaenge": ["attachment"],
+    "ableg": ["file"],
+    "abgelegt": ["file"],
+    "verwerf": ["dismiss"],
+    "verworfen": ["dismiss"],
+    "absender": ["sender"],
+    "adresse": ["address"]
   }
 }

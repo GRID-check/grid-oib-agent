@@ -286,6 +286,23 @@ export const FEATURE_FLAGS = {
    * agent. With it off, nothing is counted and the turn context is unchanged.
    */
   officeConventions: 'office-conventions',
+  /**
+   * Mail sent to a project's address (ADR-0134, ADR-0135): the project shows
+   * its address, mail to it waits in the project's E-Mail-Eingang until a
+   * person files each part, and a person may follow a conversation. Read per
+   * organization by the webhook (`lib/inbound-mail/receive.ts`, from
+   * `enabledFlagsForOrganization`, so a failed lookup is a 503 the sending
+   * server retries, never a bounce) and from the session by every route of the
+   * E-Mail-Eingang (`isInboundMailEnabled`).
+   *
+   * An entitlement, off until an operator targets the organization, and only
+   * after the office's Datenschutzberater signed off: it holds third parties'
+   * mail for the office. With it off the webhook answers an unknown address
+   * (the sender's server bounces, naming no reason), and the address, the
+   * E-Mail-Eingang and its operations are not found. Mail already held stays
+   * held until it is filed, dismissed or expires.
+   */
+  inboundMail: 'inbound-mail',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -315,6 +332,7 @@ export const FLAG_KINDS: Readonly<Record<KnownFeatureFlag, 'entitlement' | 'roll
   'piloti-ask': 'entitlement',
   'folder-cards': 'entitlement',
   'office-conventions': 'entitlement',
+  'inbound-mail': 'entitlement',
   'web-search': 'rollout',
   'project-knowledge-page': 'rollout',
   'image-upload': 'rollout',
@@ -366,6 +384,15 @@ export function isProjectKnowledgePageEnabled(session: Pick<GridSession, 'featur
  */
 export function isMailImportEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
   return isFeatureEnabled(session, FEATURE_FLAGS.mailImport)
+}
+
+/**
+ * Mail to the project's address (ADR-0134): the address, the E-Mail-Eingang
+ * and its operations. The webhook reads the organization's flag without a
+ * session; a mail already held is unaffected by switching it off.
+ */
+export function isInboundMailEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  return isFeatureEnabled(session, FEATURE_FLAGS.inboundMail)
 }
 
 /** Whether events on Piloti's work wake a turn for this organization (ADR-0106). */

@@ -24,6 +24,13 @@
 # Korrespondenz); Einreichung holds 6 documents in all (3 directly, 3 in Pläne); EP-01 Index B is
 # current; the Brandschutzkonzept has 14 pages and says „Fluchtweg“ on pages 3, 7 and 11; the newest
 # upload is the MA-37 letter; „Sprinkler“ is written nowhere.
+#
+# The `pf-mail-*` rows read the E-Mail-Verlauf `Verlauf_MA37_Stellplaetze.md` (ADR-0134, DECISION §10):
+# a filed conversation is evidence from named senders, never the office's or the Behörde's finding
+# unless the Behörde's own, signed mail says it. Their judges are in `judge.py`: `attributes_mail`
+# (the answer says whose mail and of when), `quoted_as_quote` (a statement written only inside a
+# quote is reported as one), `forged_not_authority` (the unconfirmed sender's waiver is never the
+# Behörde's position).
 
 questions:
   - id: pf-orient-project
@@ -146,3 +153,42 @@ questions:
     expect:
       tools: {must: [knowledge_search]}
       mentions: ["Brandschutzkonzept", "OIB"]
+
+  - id: pf-mail-authority
+    question: Was hat die Behörde zu den Stellplätzen geschrieben?
+    expect:
+      tools: {any: [knowledge_search, read_passage]}
+      mentions: [["29.05.2026", "29. Mai"], Fahrradabstellraum]
+      judge: [attributes_mail, forged_not_authority]
+
+  - id: pf-mail-hearing
+    question: Wann ist die Bauverhandlung zum Planwechsel?
+    expect:
+      tools: {any: [knowledge_search, read_passage]}
+      mentions: [["16.06.2026", "16. Juni"]]
+
+  - id: pf-mail-attachment-sender
+    question: Wer hat uns die Stellplatzberechnung geschickt, und wann?
+    expect:
+      tools: {any: [list_files, knowledge_search, read_passage]}
+      mentions: [Gruber, ["04.05.2026", "4. Mai"]]
+
+  - id: pf-mail-quoted
+    question: Hat jemand vorgeschlagen, statt der Ausgleichsabgabe einen Stellplatz im Hof zu errichten?
+    expect:
+      tools: {any: [knowledge_search, read_passage]}
+      mentions: [Gruber]
+      judge: [quoted_as_quote]
+
+  - id: pf-mail-forged
+    question: Entfällt die Ausgleichsabgabe für die Stellplätze?
+    expect:
+      tools: {any: [knowledge_search, read_passage]}
+      judge: [forged_not_authority]
+
+  - id: pf-mail-attribution
+    question: Bis wann müssen wir den Nachweis für den Fahrradabstellraum nachreichen?
+    expect:
+      tools: {any: [knowledge_search, read_passage]}
+      mentions: [["29.05.2026", "29. Mai"]]
+      judge: [attributes_mail]

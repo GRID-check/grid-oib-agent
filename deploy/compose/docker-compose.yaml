@@ -639,6 +639,15 @@ services:
       - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:-}
       # Corpus tarball (/api/internal/oib-corpus). No caller since the answer-suite CI workflow was removed. Unset = disabled.
       - GRID_CORPUS_EXPORT_TOKEN=${GRID_CORPUS_EXPORT_TOKEN:-}
+      # Project mail (ADR-0135). Off unless the domain is set (the UI then shows
+      # no address). The Cloudflare Email Worker that posts to
+      # /api/internal/signed/inbound-mail runs only on Cloudflare; Pulumi deploys
+      # it (deploy/pulumi/src/platform/inbound-mail.ts). The key map is what its
+      # RFC 9421 signatures are checked against: unset = the route answers 503.
+      # PAUSED=true answers 503 too, and the sender retries.
+      - GRID_INBOUND_MAIL_DOMAIN=${GRID_INBOUND_MAIL_DOMAIN:-}
+      - GRID_INBOUND_MAIL_SIGNING_KEYS=${GRID_INBOUND_MAIL_SIGNING_KEYS:-}
+      - GRID_INBOUND_MAIL_PAUSED=${GRID_INBOUND_MAIL_PAUSED:-false}
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID}
       - WORKOS_API_KEY=${WORKOS_API_KEY}
       - NEXT_PUBLIC_WORKOS_REDIRECT_URI=${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}}
@@ -676,6 +685,11 @@ services:
       # you accept that: those files are then marked failed (retryable), and
       # .xlsx/.xlsm index without preview or thumbnail.
       - GOTENBERG_URL=${GOTENBERG_URL-http://gotenberg:3000}
+      # The malware scanner (ADR-0133). Unset, every scan fails `not-configured`
+      # and nothing that waits on a clean scan is filed. To scan, start clamd
+      # with `--profile malware-scan` and set GRID_MALWARE_SCAN_URL=tcp://clamav:3310
+      # in deploy/.env. `fake://` is accepted only with APP_ENV=development.
+      - GRID_MALWARE_SCAN_URL=${GRID_MALWARE_SCAN_URL:-}
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
       # Browser-reachable endpoint used ONLY to sign presigned URLs handed to the
       # browser (PDF preview/download). Must be a host the browser can resolve --
@@ -1056,6 +1070,48 @@ services:
           memory: 512M
     restart: unless-stopped
 
+  clamav:
+    # The malware scanner (ADR-0133): clamd, and freshclam updating its
+    # signatures. OPT-IN (`--profile malware-scan`): it holds about 1 GiB of
+    # signatures in memory, twice that while it loads new ones, and nothing
+    # scans until GRID_MALWARE_SCAN_URL points here (see the frontend).
+    #   - The same image pin as Pulumi (`malwareScanImage`), and the same two
+    #     config files, mounted from ./clamav/ (clamav.spec.ts holds them equal).
+    #   - The image's own entrypoint: it starts as root, chowns the database
+    #     volume, and starts freshclam and clamd, which drop to `clamav`
+    #     (`User clamav` in clamd.conf). FRESHCLAM_CHECKS keeps it at twelve
+    #     checks a day; the entrypoint's default is one.
+    #   - No published port. It needs egress for database.clamav.net, so it
+    #     sits on aiq-network rather than an internal one.
+    #   - Healthy only while clamd answers and its signatures are younger than
+    #     48 hours: the Kubernetes readiness check, `$` doubled for Compose, and
+    #     the age past which the BFF refuses every scan.
+    image: clamav/clamav:1.5.4@sha256:e19130cdebaeacc71fa46eab3ed6f69941f2f22aa5e08d55e9197f8edf43ce5e
+    container_name: grid-clamav
+    profiles: [malware-scan]
+    environment:
+      - FRESHCLAM_CHECKS=12
+    volumes:
+      - ./clamav/clamd.conf:/etc/clamav/clamd.conf:ro
+      - ./clamav/freshclam.conf:/etc/clamav/freshclam.conf:ro
+      - clamav-data:/var/lib/clamav
+    networks:
+      - aiq-network
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |-
+          reply=$$(printf 'zVERSION\0' | nc -w 5 127.0.0.1 3310 | tr -d '\0')
+          built=$$(date -u -D "%a %b %d %H:%M:%S %Y" -d "$${reply##*/}" +%s) || exit 1
+          [ $$(( $$(date -u +%s) - built )) -lt 172800 ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # The first start loads the baked signatures, then freshclam fetches
+      # what changed since the image was built.
+      start_period: 300s
+    restart: unless-stopped
+
   dragonfly:
     # Redis-protocol shared cache (ADR-0020). Cache semantics only: every
     # value is reconstructible (read-through caches, rate-limit counters,
@@ -1372,6 +1428,9 @@ volumes:
   postgres-data:
     driver: local
   clickhouse-data:
+    driver: local
+  # ClamAV's signature database, so a restart does not download it again.
+  clamav-data:
     driver: local
 
 networks:

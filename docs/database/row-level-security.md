@@ -88,6 +88,29 @@ not readable-by-everyone; it is not readable at all, and you get
 > **One policy per table.** Two permissive policies OR together, so a second one
 > silently *widens* the first. The coverage spec asserts exactly one.
 
+### Append-only tables
+
+Refuse changes with a trigger, and refuse DELETE to the runtime role with a
+privilege, not with `current_user`. `grid_document_quarantine_decisions_guard`
+(0119) lets only `grid_app_platform` delete by testing `current_user`, and that
+works because the table has no foreign keys. A foreign-key cascade runs as the
+owner of the table it cascades into, so on a table with an FK from `projects`
+the same test sees the owner during a project purge and refuses it (checked on
+PostgreSQL 16, 2026-10-22). On such a table, `REVOKE DELETE … FROM grid_app_rw`
+(the owner's cascades and the platform role's sweeps keep working) and let the
+trigger refuse UPDATE only.
+
+A delete guard may still ask about the PARENT. Inside the cascade from a
+deleted row, the child's `BEFORE DELETE` trigger no longer sees that row
+(PostgreSQL 16, checked 2026-10-22). `inbound_mail_decisions` (0186) uses this:
+a decision the audit trail has not taken yet is refused deletion while
+`EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)`, so a retention
+sweep or a thread's cascade waits for the audit, and a project purge, which
+deletes the project row first, still goes through. A trigger's refusal names
+its rule with `RAISE … USING CONSTRAINT = '<name>'`; `psql` prints that name
+only under `\set VERBOSITY verbose`, which is how `scripts/rls-test-db.sh`
+asserts it.
+
 ---
 
 ## Writing code that touches the database

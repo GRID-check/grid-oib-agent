@@ -28,6 +28,15 @@ import 'server-only'
  * client, and valid for {@link CONFIRMATION_TTL_SECONDS}; the second round must
  * repeat the same call. Neither `inputResponses` nor an unsigned state is
  * trusted: the SDK refuses a state that fails verification before a handler runs.
+ *
+ * One kind of operation is stricter (ADR-0122, amendment "a decision only the
+ * person makes"): one marked `requiresPersonConfirmation` runs for an outside
+ * agent only on the person's yes. Where the question above can be asked, it is
+ * asked, whether or not the operation is otherwise destructive. Where it cannot
+ * (a 2025-era request, a client without form elicitation, no signing key), the
+ * call is refused and never runs, and the agent is handed the page where the
+ * person decides it themselves ({@link personRequiredResult}). Every operation
+ * without the mark is answered exactly as described above.
  */
 
 import { createHmac } from 'node:crypto'
@@ -42,6 +51,7 @@ import {
   inputRequired,
   inputResponse,
 } from '@modelcontextprotocol/server'
+import { configuredAppOrigin } from '@/lib/app-origin'
 import { recordAuditEventAfterCommit } from '@/lib/audit/after-commit'
 import { withTenant } from '@/lib/db/tenant-context'
 import { usableInternalSecret } from '@/lib/internal-auth'
@@ -130,12 +140,65 @@ export function declaresFormElicitation(req: ServerContext): boolean {
   return elicitation.form !== undefined || elicitation.url === undefined
 }
 
-/** The operation `call` names if the person must confirm it: visible, run, a destructive write. */
+/**
+ * The operation `call` names if the person must confirm it: visible, run, and
+ * a destructive write or one that runs only on the person's yes.
+ */
 function operationToConfirm(principal: AgentPrincipal, call: PendingCall): AgentOperation | null {
   const op = findVisibleOperation(principal, call.operation)
   if (!op || callDecision(principal, op) !== 'run') return null
+  if (op.requiresPersonConfirmation) return op
   const annotations = annotationsOf(op)
   return !annotations.readOnlyHint && annotations.destructiveHint ? op : null
+}
+
+/**
+ * What the agent reads when an operation runs only on the person's yes and its
+ * client cannot ask them: nothing changed, the page where the person decides
+ * it, and not to try again unasked. `url` is null when the deployment pins no
+ * origin, as for every other link the door hands out (`links.ts`).
+ */
+export function personRequiredResult(op: string, url: string | null): CallToolResult {
+  const where = url
+    ? ` Give the person this link, where they decide it in Piloti themselves: ${url}`
+    : ' The person decides it in Piloti themselves.'
+  return {
+    isError: true,
+    content: [
+      {
+        type: 'text',
+        text:
+          `${op} runs only on the person's own yes, and this client cannot ask them for it (MCP form elicitation), ` +
+          `so nothing was changed.${where} Do not call it again unless they ask you to.`,
+      },
+    ],
+    structuredContent: { decision: 'person_required', operation: op, changed: false, url },
+  }
+}
+
+/**
+ * The refusal for a call that runs only on the person's yes when this request
+ * cannot carry the question; null for every other call, which then takes its
+ * path unchanged. Only an outside agent's call is refused here: Piloti's write
+ * is a proposal the person accepts, and a name the caller cannot see stays
+ * unknown. A malformed call is left to today's path, whose validator refuses it
+ * with the reason, so the agent fixes its input before it is sent to the person.
+ */
+function refusalWithoutThePerson(ctx: McpCallContext, call: PendingCall): CallToolResult | null {
+  if (ctx.principal.actor !== 'external_agent') return null
+  const op = findVisibleOperation(ctx.principal, call.operation)
+  const confirmation = op?.requiresPersonConfirmation
+  if (!op || !confirmation || callDecision(ctx.principal, op) !== 'run') return null
+  let input: OperationInput
+  try {
+    input = validateOperationInput(op, call.input)
+  } catch (error) {
+    if (error instanceof OperationInputError) return null
+    throw error
+  }
+  const origin = configuredAppOrigin()
+  recordOperationCalled(ctx, { operation: op.name, domain: op.domain, decision: 'person_required', status: 403, startedAt: Date.now() })
+  return personRequiredResult(op.name, origin ? `${origin}${confirmation.decideAt(input)}` : null)
 }
 
 /** The project and document the call names, by the names the person reads; none when they cannot be read cheaply. */
@@ -201,8 +264,9 @@ function auditDecision(
 
 /**
  * Run `call` for `ctx`, asking the person first when {@link operationToConfirm}
- * says so and the request can carry the question; `run` is today's path for the
- * same call, which every case but the question itself ends in. `call` is null
+ * says so and the request can carry the question, and refusing it when it runs
+ * only on their yes and the request cannot ({@link refusalWithoutThePerson});
+ * `run` is today's path for the same call, which every other case ends in. `call` is null
  * when the arguments name no catalog operation (a read tool, an unparseable
  * call): then it is `run`, unchanged.
  */
@@ -213,6 +277,10 @@ export async function confirmThenRun(
   run: (ctx: McpCallContext) => Promise<CallToolResult>,
 ): Promise<CallToolResult | InputRequiredResult> {
   const confirmation = ctx.confirmation
+  if (call && !(confirmation && declaresFormElicitation(req))) {
+    const refused = refusalWithoutThePerson(ctx, call)
+    if (refused) return refused
+  }
   if (!confirmation) return run(ctx)
   // Verified and bound by the SDK before this handler runs (`requestState.verify`); absent when the round carried none.
   const pending = req.mcpReq.requestState<PendingCall>()

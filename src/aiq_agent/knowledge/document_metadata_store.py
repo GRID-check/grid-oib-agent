@@ -43,6 +43,8 @@ from aiq_agent.common.db_utils import redact_db_url
 from aiq_agent.knowledge.document_classification import LEGACY_DOC_CLASSES
 from aiq_agent.knowledge.document_classification import MAX_TOPIC_VOCABULARY
 from aiq_agent.knowledge.document_classification import canonical_doc_class
+from aiq_agent.knowledge.mail_facts import normalise_mail_origin
+from aiq_agent.knowledge.mail_facts import normalise_mail_thread
 from aiq_agent.knowledge.page_count import page_number
 from aiq_agent.knowledge.title_block import normalise_revision_facts
 
@@ -85,6 +87,8 @@ _OPTIONAL_COLUMNS: tuple[str, ...] = (
     "change_basis",
     "revision_facts",
     "page_count",
+    "mail_thread",
+    "mail_origin",
 )
 
 #: DDL type of an optional column that is not TEXT. Every other column is TEXT.
@@ -105,7 +109,7 @@ SUGGESTION_BASES = ("title_block", "name", "content")
 _DOCUMENT_COLUMNS = (
     "filename, summary, tags, doc_class, display_title, folder_path, created_at, "
     "topics, capture, superseded_by, revision_suggestion, change_summary, change_basis, revision_facts, "
-    "page_count"
+    "page_count, mail_thread, mail_origin"
 )
 
 #: Where the Fassung facts a person made outlive a purge that can be undone (an archive, the folder
@@ -1055,6 +1059,38 @@ class DocumentMetadataStore:
         """
         return self._update_column(collection, filename, "page_count", _encode_page_count(page_count))
 
+    def set_mail_thread(self, collection: str, filename: str, thread: dict[str, Any] | None) -> bool:
+        """Replace only the ``mail_thread`` record of an existing metadata row (sync): this document is a Verlauf.
+
+        ``latest_sent_at`` (the newest message's clamped send time), ``message_count`` and the thread's
+        ``locale`` (:func:`~aiq_agent.knowledge.mail_facts.normalise_mail_thread`). Written by the ingest of
+        each Fassung, so the newest one's count and date stand. A record with no newest message clears the
+        column, which is what a re-upload of the name as an ordinary file means. Same UPDATE-only contract
+        as :meth:`set_capture`.
+        """
+        import json
+
+        normalised = normalise_mail_thread(thread)
+        return self._update_column(
+            collection, filename, "mail_thread", json.dumps(normalised, ensure_ascii=False) if normalised else None
+        )
+
+    def set_mail_origin(self, collection: str, filename: str, origin: dict[str, Any] | None) -> bool:
+        """Replace only the ``mail_origin`` record of an existing metadata row (sync): the message a file came with.
+
+        ``sent_at``, ``received_at``, the sender's display name and domains, the ``sender_trust`` the receive
+        step established, the Verlauf's BFF id and the thread's locale
+        (:func:`~aiq_agent.knowledge.mail_facts.normalise_mail_origin`, which keeps no address). A record
+        that names no date or no trust clears the column: an origin that cannot be printed honestly is not
+        printed. Same UPDATE-only contract as :meth:`set_capture`.
+        """
+        import json
+
+        normalised = normalise_mail_origin(origin)
+        return self._update_column(
+            collection, filename, "mail_origin", json.dumps(normalised, ensure_ascii=False) if normalised else None
+        )
+
     def get_page_count(self, collection: str, filename: str) -> int | None:
         """The stored page count of a document, or ``None`` when there is none (sync)."""
         return _decode_page_count(self._get_column(collection, filename, "page_count"))
@@ -1558,6 +1594,18 @@ class DocumentMetadataStore:
             return None
 
     @staticmethod
+    def _decode_mail(raw: Any, normalise: Any) -> dict[str, Any] | None:
+        """Decode a JSON mail record (``mail_thread``, ``mail_origin``) through its normaliser (fail-open)."""
+        if not raw:
+            return None
+        import json
+
+        try:
+            return normalise(json.loads(raw))
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
     def _normalise_suggestion(value: Any) -> dict[str, Any] | None:
         """A revision suggestion as it is stored and read: exactly its six keys, each valid, or ``None``.
 
@@ -1619,6 +1667,8 @@ class DocumentMetadataStore:
             change_basis=(row[12] or None) if len(row) > 12 else None,
             revision_facts=self._decode_revision_facts(row[13]) if len(row) > 13 else None,
             page_count=_decode_page_count(row[14]) if len(row) > 14 else None,
+            mail_thread=self._decode_mail(row[15], normalise_mail_thread) if len(row) > 15 else None,
+            mail_origin=self._decode_mail(row[16], normalise_mail_origin) if len(row) > 16 else None,
             collection=collection,
         )
 

@@ -19,8 +19,53 @@ Routes are **thin transport adapters**. They:
   - `apiRoute(handler, options?)` — session-authenticated routes (the default).
     `options.permission` enforces an org/platform permission from the registry
     (`@/lib/authz/permissions`) before the handler runs.
-  - `internalApiRoute(label, handler, { tenancy })` — service-to-service routes guarded by
-    `GRID_INTERNAL_API_TOKEN` (fail-closed).
+  - `internalApiRoute(label, handler, { tenancy, tokenEnv? })` — service-to-service routes
+    guarded by the `x-grid-internal-token` header (`lib/internal-auth.ts`), compared with
+    `timingSafeEqual`; a wrong token answers 403. Fail-closed: an unset secret, or the
+    well-known dev default outside a dev environment, answers 503 and never serves.
+    `tenancy` is required: `{ fromPayload: '…' }` (the handler opens its own `withTenant`
+    scope once it has parsed the organization) or `{ crossTenant: 'why' }` (the audited
+    bypass). `tokenEnv` names a dedicated secret for a credential handed outside the
+    cluster (`GRID_CORPUS_EXPORT_TOKEN`), so a leak opens one route. A key derived from
+    such a secret (an HMAC) takes it through `usableInternalSecret()`, which applies the
+    same refusal.
+  - `internalApiRoute(label, handler, { tenancy, auth: { signature: { keysEnv, components? } } })`
+    — a route a caller **outside** the cluster pushes a raw body to (the inbound-mail
+    Worker). A token proves who sent a request; an
+    [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) signature also proves which
+    method, which URL, which body and when, so a captured request cannot be retargeted
+    or given another body. What is accepted (`requireInternalSignature`,
+    `lib/internal-auth.ts`; the cryptography is the maintained `http-message-signatures`
+    library):
+    - exactly one signature, `alg="hmac-sha256"`, with `keyid`, `created` and `expires`,
+      `expires - created` ≤ 300 s, `created` at most 30 s in the future. No nonce store:
+      within the window a replay is the same bytes, and the route answers them
+      idempotently;
+    - covered components `@method`, `@target-uri`, `content-digest`, `content-length`,
+      plus the route's `components` (every header it acts on);
+    - `@target-uri` is rebuilt from the pinned app origin (`configuredAppOrigin()`, the
+      origin of `WORKOS_REDIRECT_URI`) plus the path and query, because TLS ends at the
+      gateway and `request.url` may read `http://` and a pod address. A signer must post
+      to that origin;
+    - the key map is a JSON object of keyid → base64 secret (≥ 32 bytes), one or two
+      entries for an overlap rotation. Any defect, or the well-known dev secret outside
+      dev, disables the route (503).
+
+    A refusal is 401 with `details.reason` one of `unsigned`, `malformed`, `expired`,
+    `unknown-key` or `bad-signature`, logged as one line with the code only. The handler
+    gets `signature` (keyid, times, the signed `contentLength` and `contentDigest`) and
+    reads the body with `readBoundedBody` or `streamBodyTo` (`lib/api/bounded-body.ts`),
+    held to exactly that length (a short body is 503 `body-truncated`, which the sender
+    retries) and to the [RFC 9530](https://www.rfc-editor.org/rfc/rfc9530)
+    `Content-Digest` (`sha-256` or `sha-512`; a mismatch is 401 `bad-digest`).
+    `streamBodyTo` errors the stream itself on a mismatch, so a consumer writing to
+    storage fails rather than completing over bad bytes.
+
+    Such a route lives under `app/api/internal/signed/`, which `src/proxy.ts` leaves off
+    its matcher: behind the proxy a body above `proxyClientMaxBodySize` is buffered and
+    cut short without an error ([gotchas](../contributing/gotchas.md)). The factory
+    refuses a signed route elsewhere (500), and `lib/api/signed-routes.spec.ts` fails
+    one in the wrong folder and an unsigned one in the right folder.
   - `publicApiRoute(handler)` — intentionally unauthenticated (health checks
     only; anything else needs an ADR).
 - validate input **shape** with zod via `parseJsonBody` / `parseQuery`

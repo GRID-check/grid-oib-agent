@@ -47,24 +47,27 @@ import {
   NotFoundError,
   UpstreamError,
 } from '@/lib/api/errors'
-import { ALLOWED_TAGS, MAX_TOPICS, MAX_TOPIC_LENGTH } from './tag-vocabulary'
+import { ALLOWED_TAGS, MAX_TOPICS, MAX_TOPIC_LENGTH, documentTypeOf, type DocumentTypeTag } from './tag-vocabulary'
 import { documentStatusFacts } from './document-status'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING, INGEST_WOULD_FAIL_AGAIN } from './reingest-codes'
 import { canRetry, contentHashChanged, CURRENT_INGEST_READER_VERSION, type RetryFacts } from './retry-policy'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
-import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
+import { uploadExtensionOf } from '@/shared/config/file-upload'
+import { acceptedTypesForFlags } from './accepted-types'
+import { filingChoiceRecord } from './filing-choice'
+import {
+  mailOriginIngestFactsSchema,
+  mailThreadIngestFactsSchema,
+  type MailOriginIngestFacts,
+  type MailThreadIngestFacts,
+} from '@/lib/mail-thread/ingest-facts'
 import {
   buildDocumentImageUrl,
   DOCUMENT_IMAGE_CACHE_CONTROL,
   verifyDocumentImageUrl,
 } from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
-import {
-  FEATURE_FLAGS,
-  isFeatureEnabled,
-  isIfcModelsEnabled,
-} from '@/lib/authz/feature-flags'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import { assertNoActiveHold } from '@/lib/compliance/holds'
@@ -352,6 +355,31 @@ export interface DispatchIngestExtras {
    * and then not sent at all.
    */
   revisionOf?: string | null
+  /**
+   * The older document's ID, beside `revisionOf`: recorded with the job, never sent,
+   * so a reviewer's release re-resolves the choice (`./filing-choice`).
+   */
+  revisionOfId?: string | null
+  /**
+   * The document type the one filing these bytes chose (`ShelfUploadInput.documentType`).
+   * Sent as `document_type`; the ingest job stores it as the person's type tag,
+   * which no classifier pass replaces. Absent for every other dispatch, and then
+   * not sent at all. `ingest-document-type-contract.spec.ts` pins the key.
+   */
+  documentType?: DocumentTypeTag | null
+  /**
+   * A Fassung of an E-Mail-Verlauf (ADR-0134): sent as `mail_thread`, which
+   * makes its chunks the `project_mail` lane and the newest message's date the
+   * document's. Absent for every other dispatch, and then not sent at all.
+   * `ingest-mail-contract.spec.ts` pins the key.
+   */
+  mailThread?: MailThreadIngestFacts | null
+  /**
+   * An attachment filed with a mail (ADR-0134): sent as `mail_origin`, the
+   * message it came with, which the knowledge layer prints beside the file.
+   * Never together with `mailThread` (the backend refuses both).
+   */
+  mailOrigin?: MailOriginIngestFacts | null
 }
 
 /**
@@ -496,6 +524,11 @@ export async function dispatchIngest(
     ...(extras.priority === 'bulk' ? { priority: 'bulk' } : {}),
     // Only an upload a person filed as a new Fassung says so (ADR-0099).
     ...(extras.revisionOf ? { revision_of: extras.revisionOf } : {}),
+    // Only a filing that said what the file is says so.
+    ...(extras.documentType ? { document_type: extras.documentType } : {}),
+    // Only a filed mail says so: a Verlauf its thread, an attachment its message.
+    ...(extras.mailThread ? { mail_thread: extras.mailThread } : {}),
+    ...(extras.mailOrigin && !extras.mailThread ? { mail_origin: extras.mailOrigin } : {}),
     // Absent for every human document, and the Python side treats absent,
     // null and a non-agent author identically (`parse_agent_provenance`).
     // Spread so the four keys are the four keys, never a nested object the
@@ -514,7 +547,15 @@ export async function dispatchIngest(
   const ingestJobId = attempt.jobId
 
   if (ingestJobId) {
-    await setDocumentIngestJob(documentId, organizationId, ingestJobId)
+    // The choice rides on the row with the job, so a reviewer's release of a
+    // file this reading holds sends it again (`./filing-choice`).
+    const filingChoice = filingChoiceRecord({
+      documentType: extras.documentType,
+      revisionOfId: extras.revisionOf ? extras.revisionOfId : null,
+      mailThread: extras.mailThread,
+      mailOrigin: extras.mailThread ? null : extras.mailOrigin,
+    })
+    await setDocumentIngestJob(documentId, organizationId, ingestJobId, filingChoice)
     return { jobId: ingestJobId, status: 'pending' }
   }
   // No job id, failed or not. The backend answers 202 with a `job_id` on every
@@ -1041,15 +1082,15 @@ export interface UploadDocumentInput {
   revisionOf?: string | null
   /** See `ShelfUploadInput.priority`: `bulk` for a machine filing on a person's behalf. */
   priority?: IngestPriority
+  /** See `ShelfUploadInput.documentType`: what the file is, when the one filing it said so. */
+  documentType?: DocumentTypeTag
+  /** See `ShelfUploadInput.mailThread`. */
+  mailThread?: MailThreadIngestFacts
+  /** See `ShelfUploadInput.mailOrigin`. */
+  mailOrigin?: MailOriginIngestFacts
 }
 
 export type { UploadDocumentResult }
-
-/** Lowercased extension including the leading dot, or '' when there is none. */
-function fileExtension(name: string): string {
-  const idx = name.lastIndexOf('.')
-  return idx > 0 ? name.slice(idx).toLowerCase() : ''
-}
 
 /**
  * Server-side upload allow-list. The client already filters by accepted type,
@@ -1062,24 +1103,17 @@ function fileExtension(name: string): string {
  * TTL-cached probe (`isVlmConfigured`) that layout.tsx uses, so this allow-list
  * and the client's accepted-types list are ONE truth. Fail-closed: an
  * unconfirmable capability excludes images (never a silent-failure upload).
+ *
+ * The list is `acceptedTypesForFlags`, the resolver the sessionless path
+ * (`acceptedTypesForOrganization`) answers from too, so a mail part offered for
+ * filing and the upload that files it agree by construction.
  */
 export async function assertUploadTypeAllowed(
   session: AuthorizedSession,
   filename: string
 ): Promise<void> {
-  const imageUploadEnabled = isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
-  const ifcUploadEnabled = isIfcModelsEnabled(session)
-  const vlmAvailable = await isVlmConfigured()
-  const { acceptedTypes } = getFileUploadConfigFromEnv(process.env, {
-    imageUploadEnabled,
-    vlmAvailable,
-    ifcUploadEnabled,
-  })
-  const allowed = acceptedTypes
-    .split(',')
-    .map((ext) => ext.trim().toLowerCase())
-    .filter(Boolean)
-  const ext = fileExtension(filename)
+  const allowed = [...acceptedTypesForFlags(session, await isVlmConfigured())]
+  const ext = uploadExtensionOf(filename)
   if (!ext || !allowed.includes(ext)) {
     throw new BadRequestError(`File type "${ext || 'unknown'}" is not permitted`, {
       extension: ext || null,
@@ -1166,6 +1200,16 @@ export interface DispatchDocumentInput extends BeginModelExtractionInput {
    * only: an IFC model's digest is not the file the row names.
    */
   revisionOf?: string | null
+  /** The older document's id, beside `revisionOf`; recorded for a release, never sent. */
+  revisionOfId?: string | null
+  /**
+   * The document type the filing chose (`ShelfUploadInput.documentType`). Read
+   * by the ingest paths only, like `revisionOf`.
+   */
+  documentType?: DocumentTypeTag | null
+  /** A filed mail's facts (`ShelfUploadInput.mailThread`, `.mailOrigin`). Read by the ingest paths only. */
+  mailThread?: MailThreadIngestFacts | null
+  mailOrigin?: MailOriginIngestFacts | null
 }
 
 export interface DispatchDocumentResult {
@@ -1317,6 +1361,10 @@ export async function dispatchDocument(
       provenance: input.provenance ?? null,
       priority: input.priority,
       revisionOf: input.revisionOf ?? null,
+      revisionOfId: input.revisionOfId ?? null,
+      documentType: input.documentType ?? null,
+      mailThread: input.mailThread ?? null,
+      mailOrigin: input.mailOrigin ?? null,
     }
   )
 }
@@ -1585,6 +1633,10 @@ export async function beginRenditionIngest(
     fileName,
     provenance: input.provenance ?? null,
     revisionOf: input.revisionOf ?? null,
+    revisionOfId: input.revisionOfId ?? null,
+    documentType: input.documentType ?? null,
+    mailThread: input.mailThread ?? null,
+    mailOrigin: input.mailOrigin ?? null,
   })
 }
 
@@ -1606,6 +1658,12 @@ export async function runOfficeRenditionJob(
     ...dispatchInputOf(organizationId, payload),
     provenance: payload.provenance ?? null,
     revisionOf: payload.revisionOf ?? payload.fassungOf ?? null,
+    revisionOfId: payload.revisionOfId ?? null,
+    // Read through the vocabulary: a queued value it no longer holds is no choice.
+    documentType: documentTypeOf([payload.documentType ?? '']) ?? null,
+    // Parsed as the backend parses them: a queued record that no longer fits is none.
+    mailThread: mailThreadIngestFactsSchema.safeParse(payload.mailThread).data ?? null,
+    mailOrigin: mailOriginIngestFactsSchema.safeParse(payload.mailOrigin).data ?? null,
   }
   if (!(await jobStillOwnsRow(input))) return
 
@@ -1645,6 +1703,10 @@ async function ingestThroughRendition(input: DispatchDocumentInput, fileName: st
       extractionRef: indexesRendition ? renditionRef : null,
       priority: input.priority,
       revisionOf: input.revisionOf ?? null,
+      revisionOfId: input.revisionOfId ?? null,
+      documentType: input.documentType ?? null,
+      mailThread: input.mailThread ?? null,
+      mailOrigin: input.mailOrigin ?? null,
     }
   )
 }

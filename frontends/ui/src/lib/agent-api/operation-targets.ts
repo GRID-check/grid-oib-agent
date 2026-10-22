@@ -18,7 +18,7 @@
  *
  * Read from the operation's own path (`/api/projects/[id]/…` names a project)
  * and from its query and body, by key (`projectId`, `documentId`, `folderId`,
- * `conversationId`, `modelId`, and a `resourceType`/`resourceId` or
+ * `conversationId`, `modelId`, a held mail's `mailId`, a `mailThreadId`, and a `resourceType`/`resourceId` or
  * `entityType`/`entityId` pair), at any depth up to {@link MAX_DEPTH}. A key
  * this file does not know names nothing: the route's own check still applies,
  * as it does to every call.
@@ -59,6 +59,9 @@ const PATH_SEGMENT_TARGETS: Readonly<Record<string, TargetType>> = {
   models: 'bim_model',
   'upload-batches': 'upload_batch',
   proposals: 'proposal',
+  // A held mail and a mail thread live in their project (ADR-0134); the path names the project too.
+  'inbound-mails': 'inbound_mail',
+  'mail-threads': 'mail_thread',
 }
 
 /** An input key, and what its value (a string or a list of strings) names. */
@@ -73,6 +76,12 @@ export const KEY_TARGETS: Readonly<Record<string, TargetType>> = {
   modelId: 'bim_model',
   // The model a comparison or a compliance diff reads beside the one in the path (`lib/bim/query.ts`).
   baseModelId: 'bim_model',
+  // What a decision about held mail names (`inbound-mail-file`, `inbound-mail-dismiss`, ADR-0134).
+  mailId: 'inbound_mail',
+  mailIds: 'inbound_mail',
+  mailThreadId: 'mail_thread',
+  // The document an attachment is filed as the next Fassung of.
+  revisionOf: 'document',
 }
 
 /** The values a `resourceType` / `entityType` takes that name something here. */

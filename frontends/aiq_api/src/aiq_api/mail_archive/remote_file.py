@@ -57,8 +57,28 @@ class RangeFile(io.RawIOBase):
         self.last_error = None
 
     def renew(self, url: str) -> None:
-        """Read through a fresh presigned URL for the same object from now on."""
+        """Read through a fresh presigned URL for the same object from now on.
+
+        Only a URL :meth:`prove` accepted: the cache serves what an earlier URL read.
+        """
         self._url = url
+
+    def prove(self, url: str) -> None:
+        """Raise :class:`RemoteFileError` unless the store serves this object's first byte through ``url``.
+
+        The blocks cached here were read through another holder's presigned
+        URL. A URL naming the same object is not yet proof of a right to read
+        it: its signature may be missing, wrong or expired, and only the store
+        can tell. So a fresh URL is asked for one byte before it is trusted.
+        Leaves this file untouched (its URL, its blocks, ``last_error``), so a
+        refused URL costs the other holders nothing.
+        """
+        try:
+            response = self._client.get(url, headers={"Range": "bytes=0-0"})
+        except httpx.HTTPError as error:
+            raise RemoteFileError(f"proof read: {type(error).__name__}") from error
+        if response.status_code != 206 or len(response.content) != 1:
+            raise RemoteFileError(f"proof read answered {response.status_code} with {len(response.content)} bytes")
 
     def readable(self) -> bool:
         return True

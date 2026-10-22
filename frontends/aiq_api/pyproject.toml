@@ -43,6 +43,13 @@ dependencies = [
     # imports them.
     "lxml>=6.1.0,<7",
     "httpx>=0.28",
+    # Inbound mail (`aiq_api.mail`): the reply and quote split and the
+    # signature cut, German and English rules. MIT, pure Python, no
+    # dependencies; pinned because its rules are what the review shows.
+    "mail-parser-reply==1.36",
+    # Calendar invites in inbound mail. BSD-2-Clause, pure Python; brings
+    # python-dateutil and tzdata (Europe/Vienna without the system zone files).
+    "icalendar==7.3.0",
 ]
 
 [project.optional-dependencies]

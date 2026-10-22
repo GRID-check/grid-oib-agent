@@ -291,6 +291,18 @@ describe('tag filter', () => {
     ])
     expect(tagOptions([file({ id: 'x' })], 'de')).toEqual([])
   })
+
+  test('offers a token by its label and filters by the token', () => {
+    const mail = [file({ id: 'm', tags: ['correspondence'] }), file({ id: 'n', tags: ['Detail'] })]
+    const labelOf = (tag: string) => (tag === 'correspondence' ? 'Korrespondenz' : tag)
+    // Ties sort by what a person reads: „Detail“ before „Korrespondenz“, though `correspondence` < `detail`.
+    expect(tagOptions(mail, 'de', labelOf)).toEqual([
+      { key: 'detail', label: 'Detail', count: 1 },
+      { key: 'correspondence', label: 'Korrespondenz', count: 1 },
+    ])
+    const narrowed = applyFileFilters(mail, { ...NO_FILE_FILTERS, tags: ['correspondence'] }, ctx)
+    expect(narrowed.map((row) => row.id)).toEqual(['m'])
+  })
 })
 
 describe('showOlderRevisions', () => {

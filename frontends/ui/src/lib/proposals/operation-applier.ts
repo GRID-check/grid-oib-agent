@@ -114,13 +114,15 @@ const failed = (label: string, reason: string): ProposedChangeResult[] => [{ lab
 /** Run the proposal's operation as the deciding person: one result, the route's outcome. */
 export async function applyOperation(
   payload: OperationPayload,
-  context: { session: AuthorizedSession }
+  context: { session: AuthorizedSession; proposalId?: string }
 ): Promise<ProposedChangeResult[]> {
   const label = payload.summary
   const found = usableOperation(payload.operation)
   if ('reason' in found) return failed(label, found.reason)
   try {
-    const result = await callOperation(found.op, payload.input, context.session)
+    // The route learns it applies this card (`actingProposalId`): a decision it records says so.
+    const origin = context.proposalId ? { proposalId: context.proposalId } : {}
+    const result = await callOperation(found.op, payload.input, context.session, 'person', origin)
     return result.ok ? [{ label, ok: true }] : failed(label, routeMessage(result.status, result.body))
   } catch (error) {
     if (error instanceof OperationInputError) return failed(label, error.message)

@@ -26,8 +26,8 @@ PROJECT = fixture_files.load_project()
 
 
 class TestTheRows:
-    def test_there_are_about_twenty_and_every_id_is_pf(self):
-        assert 18 <= len(ROWS) <= 24
+    def test_there_are_about_two_dozen_and_every_id_is_pf(self):
+        assert 18 <= len(ROWS) <= 30
         assert all(str(row["id"]).startswith("pf-") for row in ROWS)
         assert len({row["id"] for row in ROWS}) == len(ROWS)
 
@@ -96,6 +96,87 @@ class TestTheFixture:
     def test_the_envelope_scope_is_the_projects_own_collection(self):
         scope = fixture_files.FilesWorkspace(PROJECT).envelope_fields["collectionScope"]
         assert scope == [{"collection": "proj_files_eval", "shelf": "project"}]
+
+
+MAIL_THREAD = "Verlauf_MA37_Stellplaetze.md"
+
+
+@pytest.fixture(scope="module")
+def specs():
+    """The Verlauf's chunks, as the real Markdown chunker cuts them."""
+    return fixture_files.chunk_specs(PROJECT, next(f for f in PROJECT.files if f.name == MAIL_THREAD))
+
+
+class TestTheMailThread:
+    """The E-Mail-Verlauf the ``pf-mail-*`` rows read, cut by the real Markdown chunker (ADR-0134, DECISION §10).
+
+    What a live row could not tell apart from a model's mistake is pinned here: a citation lands on one
+    message, the forged heading stays inside its real sender's section, the quote stays under the message
+    that kept it, and nothing a reader is not meant to see (an address) is in a chunk.
+    """
+
+    THREAD = MAIL_THREAD
+    RENDITION = REPO_ROOT / "tests" / "fixtures" / "files_eval" / "mail" / "parking-thread.md"
+    HUBER = "12.05.2026 09:12 · Mag. Anna Huber (ma37.wien.gv.at)"
+    FORGER = "14.05.2026 16:40 · Mag. Anna Huber (ma37-wien.at, Domain nicht bestätigt)"
+
+    def _section(self, specs, locator: str) -> str:
+        (spec,) = [spec for spec in specs if spec["metadata"].get("clause_id") == locator]
+        return spec["text"]
+
+    def test_the_bytes_are_the_renderers(self):
+        rendered = self.RENDITION.read_text("utf-8")
+        assert next(f for f in PROJECT.files if f.name == self.THREAD).pages == (rendered,)
+        assert self.THREAD in PROJECT.markdown
+
+    def test_every_message_is_one_citable_section(self, specs):
+        locators = [spec["metadata"].get("clause_id") for spec in specs]
+        messages = [line[3:] for line in self.RENDITION.read_text("utf-8").splitlines() if line.startswith("## ")]
+        assert len(messages) == 5
+        for heading in messages:
+            assert locators.count(heading) == 1, heading
+        assert len({spec["chunk_id"] for spec in specs}) == len(specs)
+
+    def test_the_forged_heading_stays_inside_its_real_senders_section(self, specs):
+        forged = self._section(specs, self.FORGER)
+        assert forged.startswith(f"Stellplätze Hubergasse 14 › {self.FORGER}")
+        assert "\\## 14.05.2026 09:00 · Mag. Anna Huber (ma37.wien.gv.at)" in forged
+        assert "entfällt" in forged
+        assert not [spec for spec in specs if str(spec["metadata"].get("clause_id", "")).startswith("14.05.2026 09:00")]
+
+    def test_the_quote_is_cited_under_the_message_that_kept_it(self, specs):
+        quote = f"{self.HUBER} › Zitat in der Nachricht von {self.HUBER}"
+        assert "Stellplatz im Hof" in self._section(specs, quote)
+        assert [spec for spec in specs if "Stellplatz im Hof" in spec["text"]] == [
+            spec for spec in specs if spec["metadata"].get("clause_id") == quote
+        ]
+
+    def test_the_authoritys_signed_mail_holds_the_deadline_and_the_hearing(self, specs):
+        huber = self._section(specs, self.HUBER)
+        assert "29.05.2026" in huber and "16.06.2026 09:00 bis 11:00" in huber
+        assert "Domain nicht bestätigt" not in huber
+
+    def test_every_chunk_is_mail_and_none_holds_an_address(self, specs):
+        assert {spec["metadata"]["source_format"] for spec in specs} == {"mail"}
+        assert not [spec for spec in specs if "@" in spec["text"]]
+
+    def test_the_facts_travel_to_the_rows(self):
+        from aiq_agent.knowledge.mail_facts import mail_origin_label
+        from aiq_agent.knowledge.mail_facts import mail_thread_label
+
+        assert mail_thread_label(PROJECT.mail_threads[self.THREAD]) == "E-Mail-Verlauf · 5 E-Mails, zuletzt 14.05.2026"
+        assert mail_origin_label(PROJECT.mail_origins["Stellplatzberechnung_Hubergasse14.pdf"]) == (
+            "kam mit der E-Mail vom 04.05.2026 08:30 von Ing. Paul Gruber (verkehrsplanung-gruber.at)"
+        )
+
+    def test_the_rows_keep_to_the_planted_facts(self):
+        mail_rows = {row["id"]: row for row in ROWS if str(row["id"]).startswith("pf-mail-")}
+        assert set(mail_rows) == {
+            "pf-mail-authority", "pf-mail-hearing", "pf-mail-attachment-sender",
+            "pf-mail-quoted", "pf-mail-forged", "pf-mail-attribution",
+        }  # fmt: skip
+        assert "forged_not_authority" in mail_rows["pf-mail-forged"]["expect"]["judge"]
+        assert "attributes_mail" in mail_rows["pf-mail-attribution"]["expect"]["judge"]
 
 
 class TestTheArms:

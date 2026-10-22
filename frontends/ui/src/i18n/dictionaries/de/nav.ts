@@ -71,6 +71,7 @@ export const nav: typeof en.nav = {
     newProject: 'Neues Projekt',
   },
   /** Die untere Tab-Leiste am Telefon (`components/shell/phone-tab-bar.tsx`). */
+  inboundMailWaiting: '{count, plural, one {# E-Mail wartet auf Ablage} other {# E-Mails warten auf Ablage}}',
   tabBar: {
     label: 'Hauptnavigation',
     /** Öffnet das Blatt mit den Zielen, die die Leiste nicht trägt. */

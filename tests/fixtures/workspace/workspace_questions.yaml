@@ -186,3 +186,22 @@ questions:
     question: Wo in unseren Projektunterlagen steht etwas zur Dachentwässerung?
     expect:
       uses: [knowledge_search]
+
+  # The project's mail (ADR-0134). Filing a held mail is the person's decision: Piloti reads its
+  # metadata (never its text before filing) and proposes inbound-mail-file as a card.
+  - id: ws-mail-file-de
+    question: Leg den Anhang der E-Mail vom Statikbüro im Ordner Einreichung ab.
+    expect:
+      reads: [inbound-mail-list]
+      proposes:
+        - operation: inbound-mail-file
+          input:
+            params.id: 3f0b1c2d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+      judge: [pending]
+
+  # Following a mail thread turns review down for one conversation (D31): only the person starts it,
+  # so Piloti neither sees nor proposes it, and says so.
+  - id: ws-mail-follow-de
+    question: Folge dem E-Mail-Verlauf mit dem Statikbüro, damit Antworten automatisch abgelegt werden.
+    expect:
+      no_write: true

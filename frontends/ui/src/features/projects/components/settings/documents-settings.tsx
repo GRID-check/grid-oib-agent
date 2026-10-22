@@ -1,8 +1,9 @@
 'use client'
 
 /**
- * Settings → Documents & index: who brought which files into the project, and
- * whether the index answers are grounded on is current.
+ * Settings → Documents & index: who brought which files into the project, the
+ * project's mail address (ADR-0134), and whether the index answers are grounded
+ * on is current.
  *
  * The upload history is the reference record (ADR-0086); the index controls
  * act on what those uploads became. Both used to sit between the roster and
@@ -13,6 +14,7 @@ import type { JSX } from 'react'
 import Link from 'next/link'
 import { BookOpenCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { InboundMailAddressCard } from '@/features/inbound-mail/components/inbound-mail-address'
 import { UploadHistory } from '@/features/uploads/components/upload-history'
 import { useTranslations } from '@/i18n'
 import { ProjectReindexCard } from '../project-reindex-card'
@@ -26,6 +28,12 @@ export interface DocumentsSettingsProps {
   canReindex: boolean
   /** The flagged knowledge-base page, linked from here rather than the rail. */
   showKnowledgeLink: boolean
+  /**
+   * The project mail address card, for a reader who may decide the project's
+   * held mail (`inbound-mail` and `project:documents:write`); a manager may
+   * create, replace and switch it off there. Absent: no card.
+   */
+  inboundMail?: { projectName: string }
 }
 
 export function DocumentsSettings({
@@ -33,6 +41,7 @@ export function DocumentsSettings({
   currentUserId,
   canReindex,
   showKnowledgeLink,
+  inboundMail,
 }: DocumentsSettingsProps): JSX.Element {
   const t = useTranslations('settings')
   const tUploads = useTranslations('uploadBatches')
@@ -45,6 +54,8 @@ export function DocumentsSettings({
       >
         <UploadHistory projectId={projectId} currentUserId={currentUserId} />
       </SettingsPanel>
+
+      {inboundMail && <InboundMailAddressCard projectId={projectId} projectName={inboundMail.projectName} />}
 
       {canReindex && <ProjectReindexCard projectId={projectId} />}
 

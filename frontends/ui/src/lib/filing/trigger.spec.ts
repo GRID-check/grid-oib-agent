@@ -24,7 +24,7 @@ const SESSION = {
   featureFlags: null,
 }
 
-const BATCH = { id: '00000000-0000-4000-8000-0000000000b1', scope: 'project' as const, createdBy: 'uploader' }
+const BATCH = { id: '00000000-0000-4000-8000-0000000000b1', scope: 'project' as const, createdBy: 'uploader', reviewsFiling: true }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -68,6 +68,18 @@ describe('queueFilingReview', () => {
     vi.stubEnv('GRID_FILING_SUGGESTIONS', 'off')
     expect(await queueFilingReview('org-1', BATCH, 'name')).toBe(false)
     expect(enqueueJob).not.toHaveBeenCalled()
+  })
+
+  // Migration 0185: a batch a person placed on purpose (a mail they filed) is
+  // not re-judged, at the seal or at the settle, and its neighbours still are.
+  it('queues neither review for a batch opened without filing reviews', async () => {
+    const quiet = { ...BATCH, id: '00000000-0000-4000-8000-0000000000b3', reviewsFiling: false }
+    expect(await queueFilingReview('org-1', quiet, 'name')).toBe(false)
+    expect(await queueFilingReview('org-1', quiet, 'content')).toBe(false)
+    expect(resolvePinnedRequesterSession).not.toHaveBeenCalled()
+
+    await queueFilingReviewsAfterSettle('org-1', [quiet, BATCH])
+    expect(vi.mocked(enqueueJob).mock.calls.map(([job]) => (job.payload as { batchId: string }).batchId)).toEqual([BATCH.id])
   })
 
   it('never throws into the upload when the queue refuses', async () => {

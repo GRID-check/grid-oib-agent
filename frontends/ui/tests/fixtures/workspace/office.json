@@ -98,6 +98,28 @@
           { "id": "mem_1", "kind": "decision", "content": "Außenwände in Holzrahmenbauweise, Fassade hinterlüftet.", "confidence": "high", "pinned": false }
         ]
       }
+    },
+    "inbound-mail-list": {
+      "3f0b1c2d-4e5f-4a6b-8c7d-9e0f1a2b3c4d": {
+        "items": [
+          { "id": "7c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f", "projectId": "3f0b1c2d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", "status": "waiting", "subject": "AW: Statik Einreichung Wohnhaus Mödling", "senderName": "DI Petra Weber", "senderDomain": "statik-weber.at", "senderTrust": "external_verified", "senderFlags": [], "automatic": false, "receivedAt": "2026-10-21T08:14:00.000Z", "expiresAt": "2026-11-20T08:14:00.000Z", "attachments": 1, "waitingParts": 2, "outcomes": { "filed": 0, "dismissed": 0, "expired": 0 }, "restorableUntil": null, "thread": null, "updatedAt": "2026-10-21T08:15:00.000Z" }
+        ],
+        "nextCursor": null
+      }
+    },
+    "inbound-mail-get": {
+      "3f0b1c2d-4e5f-4a6b-8c7d-9e0f1a2b3c4d": {
+        "id": "7c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f", "projectId": "3f0b1c2d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", "status": "waiting", "projectClosed": false, "ifMatch": "Zk3q0y7m1Qe9Tq2xJm4bVw5u8Ac",
+        "subject": "AW: Statik Einreichung Wohnhaus Mödling",
+        "sender": { "name": "DI Petra Weber", "address": "p.weber@statik-weber.at", "domain": "statik-weber.at", "signerDomain": "statik-weber.at", "trust": "external_verified", "reason": "dkim_pass", "flags": [] },
+        "participants": [], "sentAt": "2026-10-21T08:12:00.000Z", "receivedAt": "2026-10-21T08:14:00.000Z", "expiresAt": "2026-11-20T08:14:00.000Z",
+        "automatic": false, "rawScan": "clean", "originalHeld": true, "notStaged": [],
+        "parts": [
+          { "id": "2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f6a", "kind": "message", "position": 0, "filename": null, "contentType": "text/plain", "sizeBytes": 812, "state": "waiting", "scan": "not_applicable", "scannedAt": null, "riskFlags": [], "nameStopTerms": [], "contentFindings": [], "offered": true, "lastFailure": null, "documentId": null, "duplicateOf": null, "revisionCandidate": null, "revisionCandidateHidden": false, "suggestion": null, "restorableUntil": null },
+          { "id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "kind": "attachment", "position": 1, "filename": "Statik_Vorbemessung.pdf", "contentType": "application/pdf", "sizeBytes": 482113, "state": "waiting", "scan": "clean", "scannedAt": "2026-10-21T08:14:30.000Z", "riskFlags": [], "nameStopTerms": [], "contentFindings": [], "offered": true, "lastFailure": null, "documentId": null, "duplicateOf": null, "revisionCandidate": null, "revisionCandidateHidden": false, "suggestion": null, "restorableUntil": null }
+        ],
+        "threadCandidates": [], "hiddenThreadCandidates": 0, "followedBy": null, "updatedAt": "2026-10-21T08:15:00.000Z"
+      }
     }
   }
 }

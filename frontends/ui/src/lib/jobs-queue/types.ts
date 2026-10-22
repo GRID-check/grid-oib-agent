@@ -53,6 +53,17 @@ import { BFF_JOB_PRIORITY, type BffJobPriority } from '@/lib/db/schema'
  * where they disagree. Sliced: the first slice starts the turn, the next ones
  * wait (`notBefore`) for its answer and leave what it found. Does nothing when
  * the organization's `piloti-notices` is off.
+ * The four `inbound_mail_*` kinds carry a mail sent to a project's address
+ * (ADR-0134), and who each runs as is the point of the design: nothing that
+ * runs as the system files. `inbound_mail_receive` is one step AS THE SYSTEM
+ * (`SYSTEM_ACTORS.inboundMail`): it reads, scans, labels and holds a mail for a
+ * person, and decides nothing a person would. `inbound_mail_suggest` is one
+ * step as the system too: Piloti's placement suggestion from names and
+ * metadata, a proposal only. `inbound_mail_file` runs AS THE PERSON who decided
+ * (`requester`), resolved per slice, because filing is their upload, with their
+ * rights, quota and screening. `inbound_mail_follow` runs AS THE FOLLOWER: their
+ * standing decision to append a conversation's verified replies, re-checked as
+ * them before anything is written.
  * The other three are one bounded step each and run as the system, because the
  * person's permission was checked when the work was requested and what they do
  * afterwards takes no session: parsing a model, converting a file, rendering
@@ -77,6 +88,10 @@ export const BFF_JOB_KINDS = [
   'annotation_due_reminders',
   'revision_notice',
   'document_check',
+  'inbound_mail_receive',
+  'inbound_mail_suggest',
+  'inbound_mail_file',
+  'inbound_mail_follow',
 ] as const
 export type BffJobKind = (typeof BFF_JOB_KINDS)[number]
 
@@ -295,12 +310,28 @@ export const officeRenditionPayloadSchema = documentWorkPayloadSchema.extend({
     .optional(),
   /** The older file this upload was filed as the new Fassung of (ADR-0099); absent for every other. */
   revisionOf: z.string().nullable().optional(),
+  /** The older document's id beside `revisionOf`, recorded for a reviewer's release (`filing-choice`). */
+  revisionOfId: z.string().uuid().nullable().optional(),
   /**
    * The key a job queued before the rename carries (migration 0165 era). The queue
    * outlives a deploy, so a claimed job may still hold it; the consumer reads
    * `revisionOf ?? fassungOf`, and nothing writes this key again. Remove after one release.
    */
   fassungOf: z.string().nullable().optional(),
+  /**
+   * The document type the filing chose (`ShelfUploadInput.documentType`); absent for every other.
+   * A string here, read through the vocabulary by the consumer (`runOfficeRenditionJob`): a value
+   * a job queued before a vocabulary change still holds reads as no choice, so the classifier types
+   * the file, rather than failing the job's parse or sending a type `POST /v1/ingest` refuses.
+   */
+  documentType: z.string().nullable().optional(),
+  /**
+   * A filed mail's facts (`ShelfUploadInput.mailThread`, `.mailOrigin`, ADR-0134); absent for every other.
+   * Unknown here, parsed by the consumer against `lib/mail-thread/ingest-facts`: a record a job queued
+   * before a contract change reads as none rather than failing the job or the backend's 422.
+   */
+  mailThread: z.unknown().optional(),
+  mailOrigin: z.unknown().optional(),
 })
 export type OfficeRenditionPayload = z.infer<typeof officeRenditionPayloadSchema>
 
@@ -488,6 +519,56 @@ export const documentCheckPayloadSchema = z.object({
   waits: z.number().int().nonnegative(),
 })
 export type DocumentCheckPayload = z.infer<typeof documentCheckPayloadSchema>
+
+/**
+ * `inbound_mail_receive`: read, scan, label and hold one mail the webhook
+ * staged (ADR-0134, `lib/inbound-mail/receive-job.ts`). The job id is the
+ * mail's id, so the webhook's enqueue and the sweep's re-enqueue of a mail left
+ * `received` are one job. Ids only: everything else is on the row and in the
+ * staged message.
+ */
+export const inboundMailReceivePayloadSchema = z.object({
+  mailId: z.string().uuid(),
+  projectId: z.string().uuid(),
+})
+export type InboundMailReceivePayload = z.infer<typeof inboundMailReceivePayloadSchema>
+
+/**
+ * `inbound_mail_suggest`: Piloti's placement suggestion for a held mail's
+ * parts, from names and metadata only (D21). Job id uuid5 of the mail
+ * (`inboundMailJobId`). Ids only.
+ */
+export const inboundMailSuggestPayloadSchema = z.object({
+  mailId: z.string().uuid(),
+  projectId: z.string().uuid(),
+})
+export type InboundMailSuggestPayload = z.infer<typeof inboundMailSuggestPayloadSchema>
+
+/**
+ * `inbound_mail_file`: file the parts a person decided on, as that person
+ * (D26). What to do is on the decision rows the parts name, never here: the
+ * payload says only which mails and who.
+ */
+export const inboundMailFilePayloadSchema = z.object({
+  projectId: z.string().uuid(),
+  mailIds: z.array(z.string().uuid()).min(1).max(20),
+  requester: requesterSchema,
+})
+export type InboundMailFilePayload = z.infer<typeof inboundMailFilePayloadSchema>
+
+/**
+ * `inbound_mail_follow`: append a reply's text to a followed thread, as the
+ * follower (D31). Queued by the receive job only when conditions 1–6 held
+ * (`followEligibility`); the job re-checks all nine as the follower. Job id
+ * uuid5 of the mail.
+ */
+export const inboundMailFollowPayloadSchema = z.object({
+  projectId: z.string().uuid(),
+  mailId: z.string().uuid(),
+  followId: z.string().uuid(),
+  requester: requesterSchema,
+})
+export type InboundMailFollowPayload = z.infer<typeof inboundMailFollowPayloadSchema>
 
 /** What a one-step job is told about the attempt it is running. */
 export interface JobAttempt {

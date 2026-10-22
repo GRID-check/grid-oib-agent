@@ -249,6 +249,8 @@ const projectTarget: InboxTargetDescriptor = {
         if (context.itemType === 'piloti.proposal_waiting') return `/app/projects/${resourceId}/files`
         // A finished reading waits on the project's setup page, where it is reviewed (ADR-0111).
         if (context.itemType === 'piloti.intake_ready') return `/app/projects/${resourceId}/setup`
+        // Mail waiting for a person opens the project's E-Mail-Eingang (ADR-0134).
+        if (context.itemType === 'inbound_mail.waiting') return `/app/projects/${resourceId}/files/mail`
         // A sort of the project's root waits in its files, with the dialog open (ADR-0121).
         if (context.itemType.startsWith('root_sort.')) {
           return rootSortHref(`/app/projects/${resourceId}/files`, context.anchorId)

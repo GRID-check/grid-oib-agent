@@ -1,0 +1,45 @@
+{
+  "$comment": "The webhook contract between the inbound-mail Email Worker (deploy/pulumi/src/platform/inbound-mail-worker.js) and the BFF (frontends/ui/src/lib/inbound-mail/contract.ts, the route under /api/internal/signed/). The Worker posts the buffered message to `path` on the app origin (the origin of WORKOS_REDIRECT_URI), signs `signedComponents` (RFC 9421, `signatureAlgorithm`, expires = created + signatureLifetimeSeconds, label `signatureLabel`) over an RFC 9530 Content-Digest, and reads the answer by `cases`: a 2xx is accepted, a 4xx carrying `verdictHeader: verdictReject` is bounced with `rejectText`, and everything else makes it throw so the sending server retries. Neither side imports this file at runtime (the Worker is one dependency-free module; the BFF's image has no shared/): each states the values in code and a spec on each side holds them to this file (contract.spec.ts; inbound-mail-worker.spec.ts). The signature itself is pinned by shared/inbound-mail-signature.json. ADR-0135; the bounce set is DECISION D5.",
+  "path": "/api/internal/signed/inbound-mail",
+  "signedPathPrefix": "/api/internal/signed/",
+  "contentType": "message/rfc822",
+  "envelopeToHeader": "x-envelope-to",
+  "envelopeFromHeader": "x-envelope-from",
+  "verdictHeader": "x-inbound-verdict",
+  "verdictReject": "reject",
+  "maxRawMessageBytes": 27262976,
+  "edgeMaxBodyBytes": 28311552,
+  "workerTimeoutMs": 90000,
+  "signatureAlgorithm": "hmac-sha256",
+  "signatureLabel": "sig",
+  "signedComponents": ["@method", "@target-uri", "content-digest", "content-length", "x-envelope-to", "x-envelope-from"],
+  "signatureLifetimeSeconds": 300,
+  "rejectText": "This message could not be delivered: the address is unknown or no longer valid. Help: https://piloti.at/e-mail-eingang/ Privacy: https://piloti.at/datenschutz/",
+  "unknownAddressText": "Unknown address: this message was not delivered.",
+  "envelopeEncoding": {
+    "$comment": "How the Worker writes an SMTP envelope address into envelopeToHeader and envelopeFromHeader, and how the BFF reads it back. Every byte of the address's UTF-8 form outside 0x21-0x7E, and '%' itself, is written as %XX (uppercase hex), so decodeURIComponent restores it exactly; an ASCII address without '%' passes unchanged. A null reverse-path (an empty envelope sender, as on a bounce) is written as nullSender, never as an empty header.",
+    "nullSender": "<>",
+    "cases": [
+      { "address": "sender@example.org", "header": "sender@example.org" },
+      { "address": "", "header": "<>" },
+      { "address": "zoë@example.org", "header": "zo%C3%AB@example.org" },
+      { "address": "100%real@example.org", "header": "100%25real@example.org" },
+      { "address": "\"two words\"@example.org", "header": "\"two%20words\"@example.org" }
+    ]
+  },
+  "limitsNote": "maxRawMessageBytes (26 MiB: Cloudflare's 25 MiB inbound cap plus headroom) is the largest body the BFF accepts; a larger signed Content-Length is answered 413 + reject before a byte is read. edgeMaxBodyBytes (27 MiB) is the edge's ceiling for every signed route (deploy/pulumi src/constants.ts SIGNED_INTERNAL_ROUTE), at or above it, so a real mail meets the BFF's bounce and never the edge's bare 413. workerTimeoutMs is how long the Worker waits for an answer before it throws.",
+  "cases": [
+    { "status": 202, "verdict": null, "outcome": "accepted", "note": "held, or dropped as an auto-reply" },
+    { "status": 202, "verdict": null, "outcome": "accepted", "note": "a closed project HOLDS its mail (RT-X13)" },
+    { "status": 200, "verdict": null, "outcome": "accepted", "note": "a duplicate delivery" },
+    { "status": 404, "verdict": "reject", "outcome": "rejected", "note": "unknown or revoked token, deleted project, office switched off" },
+    { "status": 413, "verdict": "reject", "outcome": "rejected", "note": "larger than maxRawMessageBytes" },
+    { "status": 404, "verdict": null, "outcome": "retry", "note": "a 404 without the verdict is a misrouted URL or a proxy, never the sender's fault" },
+    { "status": 413, "verdict": null, "outcome": "retry", "note": "the edge's own 413 (over edgeMaxBodyBytes, or no Content-Length)" },
+    { "status": 401, "verdict": null, "outcome": "retry", "note": "signature refused: our key is wrong, not the mail" },
+    { "status": 429, "verdict": null, "outcome": "retry", "note": "over a rate limit or byte cap" },
+    { "status": 503, "verdict": null, "outcome": "retry", "note": "paused, storage down, body truncated" },
+    { "status": 500, "verdict": "reject", "outcome": "retry", "note": "only a 4xx may bounce" },
+    { "status": 302, "verdict": null, "outcome": "retry", "note": "a redirect is never followed (redirect: manual)" }
+  ]
+}

@@ -19,7 +19,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { actingReaderIsAgent, currentActingSession, runAsActingSession } from './acting-session'
+import { actingProposalId, actingReaderIsAgent, currentActingSession, runAsActingSession } from './acting-session'
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -55,5 +55,12 @@ describe('the acting session', () => {
     // A person applying a proposal reads the route's words in their own language.
     await runAsActingSession(session, async () => expect(actingReaderIsAgent()).toBe(false))
     expect(currentActingSession()).toBeUndefined()
+  })
+
+  it('names the proposal a call applies, and none outside that call or for any other', async () => {
+    const session = { userId: 'user_1' } as AuthorizedSession
+    await runAsActingSession(session, async () => expect(actingProposalId()).toBe('prop-1'), 'person', { proposalId: 'prop-1' })
+    await runAsActingSession(session, async () => expect(actingProposalId()).toBeUndefined(), 'agent')
+    expect(actingProposalId()).toBeUndefined()
   })
 })

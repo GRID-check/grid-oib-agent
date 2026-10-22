@@ -75,7 +75,7 @@ noticing is still the only defence, the ratchet has not clicked.
 | What went wrong | Layer to strengthen | Where that lives here |
 |---|---|---|
 | The behaviour was never pinned down | Written spec, or an up-front question instead of a guess | The task's own brief; `AskUserQuestion` when the readings diverge materially |
-| Domain context was missing | Repository documentation or an ADR | `docs/architecture/`, `docs/adr/` |
+| Domain context was missing | Repository documentation or an ADR, written in the same change as the work that had to find it out, including every finding of a subagent's report | `docs/architecture/`, `docs/adr/`; the **What we learned** line of the closing checklist |
 | The same implementation error, again | An instruction, a skill, or a lint rule | `AGENTS.md`, `skills/`, ruff and oxlint config |
 | A regression nobody caught | A deterministic gate | A test in the suite `task verify` runs |
 | The environment, not the code | The environment contract | `Taskfile.yml`, `.devcontainer/`, `deploy/compose/` |

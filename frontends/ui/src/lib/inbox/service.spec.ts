@@ -156,6 +156,7 @@ const ALL_TYPES = [
   'annotation.mentioned',
   'root_sort.ready',
   'root_sort.failed',
+  'inbound_mail.waiting',
 ] as const satisfies readonly InboxItemType[]
 
 /** What a tenant WITHOUT collaboration may see: the operational types only. */
@@ -201,6 +202,7 @@ const OPERATIONAL_TYPES = [
   // A sort of a shelf's root is ready or has stopped (ADR-0121): documents are not a chat feature.
   'root_sort.ready',
   'root_sort.failed',
+  'inbound_mail.waiting',
 ] as const satisfies readonly InboxItemType[]
 
 const at = new Date('2026-07-29T10:00:00.000Z')

@@ -43,11 +43,12 @@
               "Bescheid",
               "Norm/Richtlinie",
               "Vertrag",
+              "correspondence",
               "Foto",
               "Sonstiges"
             ]
           },
-          "maxItems": 12
+          "maxItems": 13
         },
         "disciplines": {
           "type": "array",

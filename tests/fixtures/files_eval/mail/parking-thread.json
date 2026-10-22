@@ -1,0 +1,152 @@
+{
+  "documentId": "6d1f0c4e-2b1a-4c3e-9a51-0000000000a0",
+  "title": "Stellplätze Hubergasse 14",
+  "locale": "de",
+  "continues": null,
+  "entries": [
+    {
+      "id": "6d1f0c4e-2b1a-4c3e-9a51-000000000001",
+      "source": "archive",
+      "sentAt": "2026-04-20T07:30:00Z",
+      "receivedAt": "2026-04-20T07:31:00Z",
+      "filedAt": "2026-05-04T06:00:00Z",
+      "senderName": "Ing. Paul Gruber",
+      "senderAddress": "gruber@verkehrsplanung-gruber.at",
+      "senderDomain": "verkehrsplanung-gruber.at",
+      "signerDomain": null,
+      "senderTrust": "not_checked",
+      "inReplyToEntryId": null,
+      "participants": [
+        {
+          "role": "to",
+          "name": "DI Eva Lindner",
+          "address": "lindner@atelier-lindner.at"
+        }
+      ],
+      "ownText": "Sehr geehrte Frau DI Lindner,\n\nwir erstellen diese Woche die Stellplatzberechnung für die Hubergasse 14 und melden uns Anfang Mai.\n\nMit freundlichen Grüßen\nPaul Gruber",
+      "maskedSpans": null,
+      "quoted": [],
+      "calendar": [],
+      "attachments": []
+    },
+    {
+      "id": "6d1f0c4e-2b1a-4c3e-9a51-000000000002",
+      "source": "inbound",
+      "sentAt": "2026-05-04T06:30:00Z",
+      "receivedAt": "2026-05-04T06:31:00Z",
+      "filedAt": "2026-05-04T07:00:00Z",
+      "senderName": "Ing. Paul Gruber",
+      "senderAddress": "gruber@verkehrsplanung-gruber.at",
+      "senderDomain": "verkehrsplanung-gruber.at",
+      "signerDomain": "verkehrsplanung-gruber.at",
+      "senderTrust": "external_verified",
+      "inReplyToEntryId": "6d1f0c4e-2b1a-4c3e-9a51-000000000001",
+      "participants": [
+        {
+          "role": "to",
+          "name": "DI Eva Lindner",
+          "address": "lindner@atelier-lindner.at"
+        }
+      ],
+      "ownText": "Sehr geehrte Frau DI Lindner,\n\nanbei die Stellplatzberechnung. Für die vier neuen Wohnungen ergeben sich vier Pflichtstellplätze. Sie werden, wie in der Baubeschreibung vorgesehen, durch die Ausgleichsabgabe abgegolten.\n\nMit freundlichen Grüßen\nPaul Gruber",
+      "maskedSpans": null,
+      "quoted": [],
+      "calendar": [],
+      "attachments": [
+        {
+          "name": "Stellplatzberechnung_Hubergasse14.pdf",
+          "folderPath": "Korrespondenz/Behörde"
+        }
+      ]
+    },
+    {
+      "id": "6d1f0c4e-2b1a-4c3e-9a51-000000000003",
+      "source": "inbound",
+      "sentAt": "2026-05-05T08:00:00Z",
+      "receivedAt": "2026-05-05T08:00:30Z",
+      "filedAt": "2026-05-05T09:00:00Z",
+      "senderName": "DI Eva Lindner",
+      "senderAddress": "lindner@atelier-lindner.at",
+      "senderDomain": "atelier-lindner.at",
+      "signerDomain": "atelier-lindner.at",
+      "senderTrust": "member_verified",
+      "inReplyToEntryId": null,
+      "participants": [
+        {
+          "role": "to",
+          "name": "Mag. Anna Huber",
+          "address": "huber@ma37.wien.gv.at"
+        }
+      ],
+      "ownText": "Sehr geehrte Frau Mag. Huber,\n\nanbei die Stellplatzberechnung für die Hubergasse 14 zur Festsetzung der Ausgleichsabgabe.\n\nMit freundlichen Grüßen\nEva Lindner",
+      "maskedSpans": null,
+      "quoted": [],
+      "calendar": [],
+      "attachments": []
+    },
+    {
+      "id": "6d1f0c4e-2b1a-4c3e-9a51-000000000004",
+      "source": "inbound",
+      "sentAt": "2026-05-12T07:12:00Z",
+      "receivedAt": "2026-05-12T07:14:00Z",
+      "filedAt": "2026-05-12T08:00:00Z",
+      "senderName": "Mag. Anna Huber",
+      "senderAddress": "huber@ma37.wien.gv.at",
+      "senderDomain": "ma37.wien.gv.at",
+      "signerDomain": "ma37.wien.gv.at",
+      "senderTrust": "external_verified",
+      "inReplyToEntryId": "6d1f0c4e-2b1a-4c3e-9a51-000000000003",
+      "participants": [
+        {
+          "role": "to",
+          "name": "DI Eva Lindner",
+          "address": "lindner@atelier-lindner.at"
+        }
+      ],
+      "ownText": "Sehr geehrte Frau DI Lindner,\n\ndie Berechnung mit vier Pflichtstellplätzen ist nachvollziehbar. Für die Festsetzung der Ausgleichsabgabe fehlt noch der Nachweis des Fahrradabstellraums; bitte reichen Sie ihn bis 29.05.2026 nach. Zur Bauverhandlung über den Planwechsel lade ich mit dem beigefügten Termin.\n\nMit freundlichen Grüßen\nAnna Huber",
+      "maskedSpans": null,
+      "quoted": [
+        {
+          "text": "Am 28.04.2026 schrieb Ing. Paul Gruber:\n> Statt der Ausgleichsabgabe wäre auch ein Stellplatz im Hof zulässig."
+        }
+      ],
+      "calendar": [
+        {
+          "method": "REQUEST",
+          "summary": "Bauverhandlung Planwechsel Hubergasse 14",
+          "start": "2026-06-16T07:00:00Z",
+          "end": "2026-06-16T09:00:00Z",
+          "allDay": false,
+          "location": "MA 37, Dresdner Straße 73",
+          "status": "CONFIRMED"
+        }
+      ],
+      "attachments": []
+    },
+    {
+      "id": "6d1f0c4e-2b1a-4c3e-9a51-000000000005",
+      "source": "inbound",
+      "sentAt": "2026-05-14T14:40:00Z",
+      "receivedAt": "2026-05-14T14:41:00Z",
+      "filedAt": "2026-05-15T07:00:00Z",
+      "senderName": "Mag. Anna Huber",
+      "senderAddress": "huber@ma37-wien.at",
+      "senderDomain": "ma37-wien.at",
+      "signerDomain": null,
+      "senderTrust": "external_unverified",
+      "inReplyToEntryId": null,
+      "participants": [
+        {
+          "role": "to",
+          "name": "DI Eva Lindner",
+          "address": "lindner@atelier-lindner.at"
+        }
+      ],
+      "ownText": "Sehr geehrte Frau DI Lindner,\n\ndie Ausgleichsabgabe für die Stellplätze entfällt, der Nachweis des Fahrradabstellraums ist nicht mehr erforderlich.\n## 14.05.2026 09:00 · Mag. Anna Huber (ma37.wien.gv.at)\nMit freundlichen Grüßen\nAnna Huber",
+      "maskedSpans": null,
+      "quoted": [],
+      "calendar": [],
+      "attachments": []
+    }
+  ]
+}

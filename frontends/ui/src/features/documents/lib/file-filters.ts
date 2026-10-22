@@ -143,17 +143,23 @@ export interface FileFilters {
 export interface TagOption {
   /** Lower-cased: what `FileFilters.tags` holds. */
   key: string
-  /** As the first document spelled it. */
+  /** What a person reads: a token's label (`tagLabel`), otherwise as the first document spelled it. */
   label: string
   count: number
 }
 
 /**
  * The tags actually present on the loaded documents, most frequent first (ties:
- * locale alphabetical). Nothing is invented: a shelf without tagged documents
- * offers no tag filter at all.
+ * locale alphabetical, by what a person reads). Nothing is invented: a shelf
+ * without tagged documents offers no tag filter at all. `labelOf` names a tag
+ * for a person (`tagLabel` with the `files` translator), so a token such as
+ * `correspondence` is offered as „Korrespondenz“ and still filters by itself.
  */
-export function tagOptions(files: readonly FileItem[], locale: string): TagOption[] {
+export function tagOptions(
+  files: readonly FileItem[],
+  locale: string,
+  labelOf: (tag: string) => string = (tag) => tag
+): TagOption[] {
   const counts = new Map<string, TagOption>()
   for (const file of files) {
     // Topics sit beside the controlled tags in the one „Kategorie" filter: to a
@@ -163,7 +169,7 @@ export function tagOptions(files: readonly FileItem[], locale: string): TagOptio
       const key = tag.toLowerCase()
       const entry = counts.get(key)
       if (entry) entry.count += 1
-      else counts.set(key, { key, label: tag, count: 1 })
+      else counts.set(key, { key, label: labelOf(tag), count: 1 })
     }
   }
   return [...counts.values()].sort(

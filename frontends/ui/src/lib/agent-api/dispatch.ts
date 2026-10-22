@@ -16,7 +16,7 @@ import 'server-only'
  */
 
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { type ActingReader, runAsActingSession } from './acting-session'
+import { type ActingOrigin, type ActingReader, runAsActingSession } from './acting-session'
 import { fieldDescription } from './field-description'
 import { type AgentOperation, pathParams, withInputDefaults } from './operation'
 import { type UploadBody, decodeBase64 } from './upload-wire'
@@ -336,13 +336,15 @@ function requestInit(op: AgentOperation, input: OperationInput): Pick<RequestIni
  * Call `op` as `session`. Route refusals come back as a result with their
  * status and the route's error envelope, exactly as the browser sees them;
  * only input the operation cannot even address throws. `reader` says who reads
- * what the route words: an agent (English) or the person applying a proposal.
+ * what the route words: an agent (English) or the person applying a proposal;
+ * `origin` names the proposal that application applies (`actingProposalId`).
  */
 export async function callOperation(
   op: AgentOperation,
   input: OperationInput,
   session: AuthorizedSession,
   reader: ActingReader = 'person',
+  origin: ActingOrigin = {},
 ): Promise<OperationResult> {
   const checked = validateOperationInput(op, input)
   const url = new URL(resolvePath(op, checked.params), DISPATCH_ORIGIN)
@@ -358,6 +360,7 @@ export async function callOperation(
     session,
     () => handler(request, { params: Promise.resolve(checked.params ?? {}) }),
     reader,
+    origin,
   )
   const body = await readResponseBody(response)
   // A redirect is an answer (the link), not a failure, though `Response.ok` is false for it.

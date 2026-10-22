@@ -222,3 +222,34 @@ export const getFileUploadConfigFromEnv = (
     imageUploadBlockedReason,
   }
 }
+
+/** What the flag-governed types depend on: the two product flags and the derived VLM capability. */
+export type UploadTypeGates = Required<
+  Pick<FileUploadConfigOptions, 'imageUploadEnabled' | 'vlmAvailable' | 'ifcUploadEnabled'>
+>
+
+/**
+ * The extension of `fileName` as the upload allow-list reads it: lowercased,
+ * with its dot, or `''` when there is none. A name that only starts with a dot
+ * (`.env`) has none.
+ */
+export const uploadExtensionOf = (fileName: string): string => {
+  const dot = fileName.lastIndexOf('.')
+  return dot > 0 ? fileName.slice(dot).toLowerCase() : ''
+}
+
+/**
+ * The extensions an upload may have, lowercased, in the accept-list's order:
+ * the server-side allow-list, read from the same {@link getFileUploadConfigFromEnv}
+ * the picker's list comes from. The one resolver for a caller with a session
+ * (`assertUploadTypeAllowed`) and one without (`acceptedTypesForOrganization`),
+ * so a type the upload refuses is never offered elsewhere, nor the reverse.
+ */
+export const acceptedUploadExtensions = (
+  gates: UploadTypeGates,
+  env: Record<string, string | undefined> = process.env
+): string[] =>
+  getFileUploadConfigFromEnv(env, gates)
+    .acceptedTypes.split(',')
+    .map((ext) => ext.trim().toLowerCase())
+    .filter(Boolean)

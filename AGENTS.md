@@ -119,6 +119,20 @@ Ratcheted means a second occurrence is caught by something other than a person
 noticing. Reach for it when a reviewer corrects you, when something surprises
 you, or when you correct yourself twice for one reason.
 
+**Everything you learn is written down, in the same change.** Every fact about
+this system that you had to find out, because no doc told you, is research the
+next agent pays for again unless it lands in the repo. That covers what you read
+in code, what a failure taught you, and every finding of a subagent, scout or
+consultant you ran: their reports live in a scratch directory that dies with the
+session, so nothing they found exists until it is in a tracked file. Before it
+lands, challenge it: a fact goes in only after you re-checked it in the code,
+because a confident wrong note is worse than none. Write it where the next agent
+will already be looking (the doc for that area, the scoped `AGENTS.md`, the
+gotchas register, the ADR, the glossary), never in a new note nobody opens. A
+discrepancy between a doc and the code is fixed in the same change, the code or
+the doc, not reported. The definition of done's closing checklist names each
+fact and the file it went to.
+
 **Finish the task.** Reversible work does not get a permission checkpoint. A
 natural boundary, a layer done or a slice green or a commit pushed, is a place
 to report progress, never a place to stop and ask whether to continue. Asking costs
@@ -179,7 +193,7 @@ ones that will fail your PR.
 | Add a model call, a quality check, an agent step or a surface | Make it observable in Langfuse: a model call is a generation (`observed_generation` outside a NAT run), a check is a score declared in `SCORE_DEFINITIONS`, a dimension is trace metadata. Langfuse is our observability platform and this is not optional. [`docs/observability/langfuse.md`](docs/observability/langfuse.md) | `test_model_calls_are_traced.py`, `test_langfuse_scores.py`, review |
 | Change what shapes an answer: the prompt, the card or envelope contract, retrieval, ingestion, the answer pipeline, a model or effort default | Run `task be:eval:answer-suite` before and after yourself and put the report in the PR. [The answer suite](docs/contributing/testing-and-verification.md#the-answer-suite) | Review. Nothing else sees seconds, reasoning spikes or a wrong value in a real answer |
 | Say a change is done, finished or ready, or open a PR | Clear [`definition-of-done.md`](docs/contributing/definition-of-done.md) and put its closing checklist, every line filled with evidence or with why not, in your summary | Review. "Done" without evidence is the one way to fail it |
-| Learn something the repo could have told you | Write it down where the next agent will already be looking, before you carry on | Nothing, once. Then everyone re-earns it. [The ratchet](docs/contributing/correction-ratchet.md#human-intervention-is-a-failure-signal) |
+| Learn something the repo could have told you, yourself or through a subagent's report | Verify it in the code, then write it where the next agent will already be looking, in the same change; fix any doc-versus-code discrepancy you found rather than noting it. [Everything you learn is written down](#working-style), [the ratchet](docs/contributing/correction-ratchet.md#human-intervention-is-a-failure-signal) | The **What we learned** line of the [closing checklist](docs/contributing/definition-of-done.md#the-closing-checklist); review for whether the list is complete |
 
 `task verify` is the local gate: host-native, defined once in `Taskfile.yml`. CI
 calls the same definitions but schedules them differently, so a local pass is

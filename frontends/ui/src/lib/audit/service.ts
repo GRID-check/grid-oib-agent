@@ -178,6 +178,13 @@ export const SYSTEM_ACTORS = {
   uploadScreening: 'system:upload_screening',
   /** The restricted-memory judge (ADR-0087): a language model. */
   memoryJudge: 'system:memory_judge',
+  /**
+   * The receive job of the E-Mail-Eingang (ADR-0134): rule-based, no model. It
+   * labels and holds a mail (sender trust, scan, flags) and decides nothing a
+   * person would; it can never file, because a decision's `decided_by` must be
+   * a person's id (migration 0186).
+   */
+  inboundMail: 'system:inbound_mail',
 } as const
 
 function requestContext(request?: Request): { location: string; userAgent?: string } {

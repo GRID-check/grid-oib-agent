@@ -211,7 +211,8 @@
     Könnten wir auf Montag 14 Uhr gehen? Den Grundriss mit der geänderten Küche hab ich mir angeschaut,
     passt für mich so. Wegen der Wärmepumpe meld ich mich noch.
     Lg Thomas Leitner
-  type: Sonstiges
+  # Relabelled 2026-10-22 from Sonstiges: the e-mail is what the type `correspondence` names.
+  type: correspondence
   disciplines: []
 
 - file_name: SSN_Reihenhaeuser_Haus1-6.pdf

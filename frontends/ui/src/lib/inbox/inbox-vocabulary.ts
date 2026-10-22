@@ -188,5 +188,15 @@ export const INBOX_ITEM_TYPES = [
    * and opens the shelf's files with the sort dialog, which holds the reason.
    */
   'root_sort.failed',
+  /**
+   * Actionable, operational tier: mail sent to a project's address waits for a
+   * person to file it (ADR-0134). Every held mail is announced, whoever sent
+   * it (RT-X1): to its sender when that is a verified member who may read the
+   * project, otherwise to the project's managers. One row per recipient and
+   * project, counted; it names the project and never the mail (no sender, no
+   * subject), so a stranger's words never reach a push or a lock screen.
+   * Resolved when the mails are decided or expire.
+   */
+  'inbound_mail.waiting',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]

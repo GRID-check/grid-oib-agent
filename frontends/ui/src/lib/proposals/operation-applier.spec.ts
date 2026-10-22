@@ -94,3 +94,12 @@ describe('an operation Piloti does with a native tool (exposure.config.ts, `nati
     expect(callOperation).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('an accepted card reaches its route as that card', () => {
+  it('passes the proposal id, so a decision the route records says it came from a card', async () => {
+    vi.mocked(callOperation).mockResolvedValue({ status: 200, ok: true, body: {} })
+    const results = await applyOperation(payload('project-rename'), { session: SESSION, proposalId: 'prop-1' })
+    expect(results).toEqual([{ label: payload('project-rename').summary, ok: true }])
+    expect(vi.mocked(callOperation).mock.calls[0]?.slice(3)).toEqual(['person', { proposalId: 'prop-1' }])
+  })
+})

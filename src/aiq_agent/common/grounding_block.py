@@ -41,6 +41,8 @@ from pydantic import ConfigDict
 from aiq_agent.common.provenance import AGENT_AUTHOR
 from aiq_agent.common.provenance import AgentProvenance
 from aiq_agent.common.provenance import provenance_label
+from aiq_agent.common.source_kinds import MAIL_LANE_LABEL
+from aiq_agent.common.source_kinds import MAIL_SOURCE_FORMAT
 from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.common.turn_status import current_action_call
 from aiq_agent.common.turn_status import current_retrieval_round
@@ -204,6 +206,12 @@ class GroundingHit(BaseModel):
     #: Last page of a passage that runs over a page break, when it is later than :attr:`page`. Rendered
     #: as the range ``Page: 4–5``; the citation key keeps the start page, which is its identity.
     page_end: int | None = None
+    #: The document's FORMAT when it states one: ``mail`` for a filed E-Mail-Verlauf, whose
+    #: sections are messages headed by their sender, date and whether the sender's domain was
+    #: confirmed (``source_kinds.MAIL_SOURCE_FORMAT``). Rendered as ``Format: mail — E-Mail``, so
+    #: the model reads a passage as one party's message and not as the document's finding, and
+    #: ``lane_for_hit`` places it in the mail lane. ``None`` for every other document: no line.
+    source_format: str | None = None
 
     @property
     def authored_by(self) -> str | None:
@@ -424,6 +432,8 @@ def _header_lines(hit: GroundingHit) -> Iterator[str]:
         yield f"Dokumentart: {_line(hit.doc_class)} — {_line(_doc_class_label(hit.doc_class))}"
     if hit.provenance is not None:
         yield f"Herkunft: {_line(provenance_label(hit.provenance))}"
+    if hit.source_format:
+        yield f"Format: {_line(hit.source_format)} — {_line(_source_format_label(hit.source_format))}"
     if hit.page is not None:
         yield f"Page: {hit.page}–{hit.page_end}" if hit.page_end and hit.page_end > hit.page else f"Page: {hit.page}"
     for region in hit.regions[:MAX_RENDERED_REGIONS]:
@@ -475,6 +485,11 @@ def _line(value: str) -> str:
     hold.
     """
     return value.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+
+
+def _source_format_label(source_format: str) -> str:
+    """The label a format renders under: the mail lane's (``E-Mail``), or the token itself."""
+    return MAIL_LANE_LABEL if source_format == MAIL_SOURCE_FORMAT else source_format
 
 
 def _doc_class_label(doc_class: str) -> str:

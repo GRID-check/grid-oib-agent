@@ -62,12 +62,15 @@ under an alias (ADR-0103).
 verify`.** It needs PostgreSQL server binaries, so it runs separately. Run it
 whenever you touch the tenant boundary — and whenever you touch a claim that is
 really about SQL. The script (`scripts/rls-test-db.sh`) runs a fixed list of
-`*.integration.spec.ts` files, not a glob: tenant isolation, the two BIM query
-suites, and the memory service's "one fact, one live row" consolidation suite.
-A new database-backed spec has to be added to that list, or it only ever runs
-on a developer's machine. Each of those files also carries a
-`GRID_RLS_SUITE_REQUIRED` guard so the CI job fails if the database goes
-missing instead of skipping green.
+`*.integration.spec.ts` files, not a glob; the list in the script is the
+authority. A new database-backed spec has to be added to that list, or nothing
+in CI runs it: the spec itself skips without `GRID_TEST_DATABASE_URL`, and
+nothing checks the list is complete. On 2026-10-22 four were missing
+(`retrieval-settings/service` and the three `model-config/*` integration
+specs). Each listed file carries a `GRID_RLS_SUITE_REQUIRED` guard so the CI job
+fails if the database goes missing instead of skipping green; CI sets that
+variable (`.github/workflows/ci.yml`), the script does not, so a local run can
+still skip green.
 
 The per-migration sections at the end of that script prove a backfill, a data
 rewrite or a down migration on a clone of the chain. Once the migration has
@@ -90,7 +93,9 @@ Backend job.** `tests/aiq_agent/common/test_claim_queue.py`,
 SQLite, which ranks in Python, and on Postgres, which runs production's claim
 SQL. The folder card builder's suites (`tests/aiq_agent/knowledge/folder_cards/`:
 dirty queue, budget, manifests, worker) run on both too, through the
-`database_url` and `agent_db` fixtures in their `conftest.py`. Without `AIQ_TEST_POSTGRES_URL` the Postgres parameter skips, so the task
+`database_url` and `agent_db` fixtures in their `conftest.py`, and so does the
+metadata store's mail records (`tests/aiq_agent/knowledge/test_mail_facts.py`: the
+add-column path on a table from before the columns, and the read-back). Without `AIQ_TEST_POSTGRES_URL` the Postgres parameter skips, so the task
 reuses `scripts/rls-test-db.sh --exec` for a throwaway cluster and names a
 scratch database in it. Each file carries an `AIQ_TEST_POSTGRES_REQUIRED` guard,
 set in CI, that fails instead of skipping. A new suite with a Postgres parameter
@@ -681,11 +686,13 @@ task be:eval:answer-suite -- --set workspace --out /tmp/ws/after --baseline /tmp
 
 **The files set** (`-- --set files --arm search|navigate|both`, ADR-0127) asks about
 a project's own files: what is in a folder, where a document is, how many, what a
-page range says, every occurrence of a word. About 20 `pf-*` rows
+page range says, every occurrence of a word, and what a filed mail says and who
+said it. About 26 `pf-*` rows
 (`tests/fixtures/files_eval/files_questions.yaml`, whose header says what each check
 means) run through the real `list_files`, `knowledge_search` and `read_passage` in a
 fixture project (`tests/fixtures/files_eval/project.yaml`, the intake eval's project
-grown to nested folders, a 14-page report and a letter). Each row states
+grown to nested folders, a 14-page report, a letter and an E-Mail-Verlauf with one
+filed attachment). Each row states
 `expect.tools`, the move that fits it, and the report gives pass rate, rounds,
 tokens, seconds, the moves each row made and the `status:budget|repeat|width`
 counts. A row with `needs:` waits for a tool argument a later slice adds and is
@@ -702,7 +709,21 @@ The project has to exist where the tools read it. The suite seeds it itself
 `AIQ_QDRANT_URL`, the documents into the metadata store at `AIQ_SUMMARY_DB`, which
 must be a database URL). Seeding is idempotent and embeds only what changed; it
 needs the deployment's embedding key. Reseed after editing `project.yaml` by
-running the suite again.
+running the suite again. Because the seed bypasses the chunker, the files set
+does not see a change to how a text or CSV file is cut into sections; for that,
+ingest a file for real and ask by hand, or add a case to the chunker's own specs.
+
+The one exception is the E-Mail-Verlauf (`tests/fixtures/files_eval/mail/`, the
+`pf-mail-*` rows, ADR-0134): what those rows test is the message boundary, so it
+is cut by the real Markdown chunker and stamped `source_format: mail` as an
+ingest job would. Its bytes are the BFF renderer's, pinned by
+`frontends/ui/src/lib/mail-thread/files-eval-fixture.spec.ts` from
+`parking-thread.json`; after a change to the rendition's format, rewrite them
+with `UPDATE_FIXTURES=1 bunx vitest run src/lib/mail-thread/files-eval-fixture.spec.ts`
+in `frontends/ui` and reseed. The rows' judges (`attributes_mail`,
+`quoted_as_quote`, `forged_not_authority`, `scripts/turn_census/judge.py`) ask
+whether the answer says whose mail and of when, calls a quote a quote, and never
+presents the unconfirmed sender's claim as the Behörde's.
 
 ```bash
 task be:eval:answer-suite -- --set files --arm both --runs 3 --out /tmp/pf/both

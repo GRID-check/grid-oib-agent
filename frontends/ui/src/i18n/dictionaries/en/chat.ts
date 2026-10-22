@@ -708,6 +708,8 @@ export const chat = {
         bim_model: 'Model {name}',
         upload_batch: 'Upload {name}',
         proposal: 'Proposal {name}',
+        inbound_mail: 'Email {name}',
+        mail_thread: 'Mail thread {name}',
       },
       applied: 'The action was carried out.',
       dismissed: 'Discarded. The action was not carried out.',

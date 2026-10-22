@@ -35,6 +35,8 @@
  */
 
 import { z } from 'zod'
+import { SENDER_TRUSTS } from '@/lib/inbound-mail/inbound-mail-vocabulary'
+import type { MailOriginView } from '@/lib/inbound-mail/inbound-mail-wire'
 
 /**
  * The editorial states of one version.
@@ -122,13 +124,11 @@ export const DOCUMENT_VERSION_EFFECTS = [
   /** A live hint on the event hub. Never authoritative; the client re-reads. */
   'eventHint',
   /**
-   * Dispatch the published bytes to `/v1/ingest` with provenance.
-   *
-   * A NO-OP in this slice, and deliberately present anyway. Slice 4 is the one
-   * that may turn it on, and it may do so only together with the labelled-
-   * citation work — the build spec's own condition on this seam. Naming the slot
-   * now is what makes that a registry entry rather than a new call site inside
-   * `publish`, which is where the no-ingest rule would quietly stop being true.
+   * Dispatch the published bytes to `/v1/ingest` with provenance. A person's
+   * upload is dispatched only when its content hash was not already screened;
+   * a Piloti document is purged of its superseded chunks first and indexed
+   * under the `piloti/` namespace (`ingestPublished` in `lifecycle.ts`). This is
+   * the only place an agent-authored version reaches the index.
    */
   'ingestPublished',
   /**
@@ -650,6 +650,23 @@ export const internalDocumentVersionRequestSchema = z.discriminatedUnion('op', [
 
 export type InternalDocumentVersionRequest = z.infer<typeof internalDocumentVersionRequestSchema>
 
+/**
+ * A mail that brought a Fassung (D36, `MailOriginView`): the E-Mail-Verlauf's
+ * message (`threadId`, `entryId`, for `mail-thread-get`), when it was sent and
+ * received, the sender's display name, the signing domain and how far the
+ * sender was confirmed. Never an address.
+ */
+export const mailOriginViewSchema = z.object({
+  threadId: z.string(),
+  entryId: z.string(),
+  sentAt: z.string(),
+  receivedAt: z.string(),
+  fromName: z.string().nullable(),
+  signerDomain: z.string().nullable(),
+  senderTrust: z.enum(SENDER_TRUSTS),
+})
+mailOriginViewSchema satisfies z.ZodType<MailOriginView>
+
 /** One version, as the browser and the agent receive it. */
 export const documentVersionViewSchema = z.object({
   id: z.string(),
@@ -679,6 +696,12 @@ export const documentVersionViewSchema = z.object({
    * readable, and the routes decide again either way.
    */
   bytesReadable: z.boolean().optional(),
+  /**
+   * The mails that brought THIS Fassung as an attachment (D36), oldest first,
+   * only through mail threads the reader may read. Only the version list
+   * carries it, and only for a Fassung a mail brought.
+   */
+  mailOrigins: z.array(mailOriginViewSchema).optional(),
 })
 
 export type DocumentVersionView = z.infer<typeof documentVersionViewSchema>

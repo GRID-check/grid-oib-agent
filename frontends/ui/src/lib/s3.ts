@@ -1,6 +1,7 @@
 import { S3Client, type GetObjectCommand, type PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { BadRequestError } from "@/lib/api/errors";
+import { INBOUND_MAIL_STAGING_SEGMENT, MAIL_ORIGINALS_SEGMENT } from "@/lib/inbound-mail/inbound-mail-vocabulary";
 
 const credentials = {
   accessKeyId: process.env.SEAWEED_ACCESS_KEY || "",
@@ -148,8 +149,8 @@ export const bucketName = process.env.SEAWEED_BUCKET || "grid-documents";
  * store, not fail. A segment of nothing but dots is `.` or `..` itself, which
  * has no flattening to do and is prefixed instead.
  *
- * The names of the derived siblings are prefixed the same way, see
- * {@link RESERVED_DERIVED_SEGMENTS}.
+ * The names of the derived siblings, and of the prefixes the app stages under
+ * a project, are prefixed the same way, see {@link RESERVED_DERIVED_SEGMENTS}.
  */
 export function storageKeySegment(raw: string): string {
   const flattened = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/[/\\]/g, '_')
@@ -162,7 +163,13 @@ export function storageKeySegment(raw: string): string {
 /**
  * The names the pipelines write BESIDE a stored file, in the file's own
  * directory: the `_thumb.jpg` and `_render.pdf` siblings and the `_img/` and
- * `_bim/` prefixes (`lib/bim/service.ts`). An uploaded file may not take one.
+ * `_bim/` prefixes (`lib/bim/service.ts`). And the prefixes the app writes
+ * beside a project's folders: `mail-imports/`, where an Outlook import stages
+ * its archive (`lib/mail-import/staging.ts`); `_inbound-mail/`, where a mail
+ * sent to the project waits until a person files it; and `_mail-originals/`,
+ * where a filed message's original `.eml` is kept as evidence (ADR-0134). No
+ * segment of an uploaded key may take one: a file, or a folder at any depth, so
+ * above all one at the root.
  *
  * A file named `_render.pdf` was stored at `<dir>/_render.pdf`, which is
  * exactly the key {@link buildRenditionStorageKey} derives from it, so the raw
@@ -171,15 +178,31 @@ export function storageKeySegment(raw: string): string {
  * pipeline's thumbnail PUT landed on the original and replaced the person's
  * bytes. `_img` and `_bim` would make one path both an object and a directory,
  * which a filer-backed gateway such as SeaweedFS cannot hold, and put the
- * original inside the prefix a delete sweeps. Prefixed with `_` (`__render.pdf`)
- * like a dot-only name, rather than refused, for the same reason: the uploader
- * did nothing wrong. Compared without case, so no case-insensitive store or
+ * original inside the prefix a delete sweeps. A root folder `mail-imports`
+ * would file the person's documents under the import's staging prefix: the
+ * staged archive is deleted by its exact key today, and the reservation is
+ * what keeps a later sweep by prefix from taking documents with it. The two
+ * mail prefixes are worse still: a folder named `_inbound-mail` would put the
+ * office's documents among a stranger's unreviewed mail, and one named
+ * `_mail-originals` would put them among evidence no model may read. Each is
+ * erased by the keys its rows name, and the project purge sweeps the whole
+ * project prefix. Prefixed with `_` (`__render.pdf`, `_mail-imports`) like a
+ * dot-only name, rather than refused, for the same reason: the uploader did
+ * nothing wrong. Compared without case, so no case-insensitive store or
  * gateway can fold one onto the other.
  *
  * Keys written before this rule keep their names; the derived-key builders
  * below refuse to return a key equal to the input, which covers them.
  */
-const RESERVED_DERIVED_SEGMENTS: ReadonlySet<string> = new Set(['_thumb.jpg', '_render.pdf', '_img', '_bim'])
+const RESERVED_DERIVED_SEGMENTS: ReadonlySet<string> = new Set([
+  '_thumb.jpg',
+  '_render.pdf',
+  '_img',
+  '_bim',
+  'mail-imports',
+  INBOUND_MAIL_STAGING_SEGMENT,
+  MAIL_ORIGINALS_SEGMENT,
+])
 
 export function buildStorageKey(
   organizationId: string,

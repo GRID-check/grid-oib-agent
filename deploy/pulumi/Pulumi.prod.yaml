@@ -179,6 +179,17 @@ config:
 
   # the zone apex, that stack is the natural owner.
   grid-oib:dnsEnabled: "true"
+  # ── Project mail (Cloudflare Email Routing, ADR-0135) ──
+  # Off until owner gate O4 (docs/deployment/kubernetes.md §3c). The promote that
+  # turns it on sets the domain AND the pause, with the scanner already running:
+  #   pulumi config set        grid-oib:malwareScanEnabled true   (PR-C, deployed first)
+  #   pulumi config set --secret grid-oib:inboundMailSigningKeys '{"mi-2026-10":"<openssl rand -base64 32>"}'
+  #   pulumi config set        grid-oib:inboundMailPaused   true
+  #   pulumi config set        grid-oib:inboundMailDomain   piloti.at
+  # The Cloudflare token then also needs Zone:Zone Settings:Edit, Zone:Email Routing
+  # Rules:Edit, Zone:Zone:Read and Account:Workers Scripts:Edit (account listed
+  # under the token's Account Resources). Unpause after launch gates G1-G9.
+  # Turning it off: inboundMailEnabled false and promote; never unset the domain first.
   # NetworkPolicies (default-deny ingress + least-privilege allows) are ON by
 
   # default. Set false only if a validation pass shows they block required

@@ -1,0 +1,19 @@
+{
+  "mail_thread": {
+    "latest_sent_at": "2026-05-14T14:40:00Z",
+    "message_count": 5,
+    "locale": "de"
+  },
+  "mail_origins": {
+    "Stellplatzberechnung_Hubergasse14.pdf": {
+      "sent_at": "2026-05-04T06:30:00Z",
+      "received_at": "2026-05-04T06:31:00Z",
+      "from_name": "Ing. Paul Gruber",
+      "from_domain": "verkehrsplanung-gruber.at",
+      "signer_domain": "verkehrsplanung-gruber.at",
+      "sender_trust": "external_verified",
+      "thread_document_id": "6d1f0c4e-2b1a-4c3e-9a51-0000000000a0",
+      "locale": "de"
+    }
+  }
+}

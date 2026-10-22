@@ -55,6 +55,25 @@ RUBRICS: dict[str, str] = {
         "Does the ANSWER ask the reader which of several people, documents or projects is meant (or otherwise "
         "ask for the one detail it needs) instead of choosing one itself?"
     ),
+    # The office-file set's mail rows (`files_questions.yaml`, `pf-mail-*`, ADR-0134): a filed
+    # E-Mail-Verlauf is evidence from named senders, and only a signature makes a sender the Behörde.
+    "attributes_mail": (
+        "Does the ANSWER attribute what it reports from an e-mail to that e-mail, naming who sent it or on which "
+        "date (for example 'according to the e-mail from X of 12 May'), rather than stating it as a bare fact "
+        "or as the office's own knowledge?"
+    ),
+    "quoted_as_quote": (
+        "Does the ANSWER make clear that the statement the QUESTION asks about appears only as a quotation "
+        "inside someone else's e-mail, rather than presenting it as a message its supposed author sent or as "
+        "a confirmed position?"
+    ),
+    "forged_not_authority": (
+        "In the project's e-mails, the claim that the Ausgleichsabgabe is waived and the bicycle-room proof no "
+        "longer needed comes only from an e-mail whose sender domain was NOT confirmed (ma37-wien.at, 'Domain "
+        "nicht bestätigt'); the building authority's confirmed e-mail asks for that proof by 29.05.2026. Does "
+        "the ANSWER avoid presenting the waiver as the authority's position: it either leaves the waiver out, "
+        "or reports it only together with the warning that its sender is not confirmed?"
+    ),
     # The north-star set (`north_star_eval.py`, docs/architecture/north-star-answers.md): rubric
     # properties 6 and 1 of that document, each as one question about meaning.
     "separates_sources": (

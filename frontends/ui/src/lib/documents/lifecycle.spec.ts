@@ -65,6 +65,11 @@ vi.mock('./collection-file-ref', async (importOriginal) => ({
   purgeIngestedChunks: vi.fn().mockResolvedValue(true),
 }))
 vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:8000' }))
+// The real grouping, over a mocked read: which mail brought which Fassung (D36).
+vi.mock('@/lib/mail-thread/mail-origins', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/mail-thread/mail-origins')>()),
+  documentMailOrigins: vi.fn(async () => []),
+}))
 vi.mock('@/lib/sharing/directory', () => ({ resolvePeople: vi.fn() }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
@@ -157,6 +162,7 @@ import {
   promoteVersionToPublished,
 } from './version-repository'
 import { readVersionTextForTask, renderVersionBytes, versionBytesReadableBy, writeVersionContent } from './version-content'
+import { documentMailOrigins } from '@/lib/mail-thread/mail-origins'
 import { DocumentDeletedError, OpenVersionExistsError } from './unique-conflicts'
 import {
   createDocumentVersion,
@@ -1662,6 +1668,33 @@ describe('listDocumentVersionViews — whether each version opens for this reade
       ['ver_1', true],
       ['ver_2', false],
       ['ver_3', true],
+    ])
+  })
+
+  it('names on each Fassung the mails that brought it, and nothing on the others (D36)', async () => {
+    const rows = [
+      version({ id: 'ver_1', versionNumber: 1, state: 'superseded', contentHash: 'sha256:first' }),
+      version({ id: 'ver_2', versionNumber: 2, state: 'published', contentHash: 'sha256:now' }),
+    ]
+    vi.mocked(listDocumentVersions).mockResolvedValue(rows)
+    vi.mocked(versionBytesReadableBy).mockResolvedValue(() => true)
+    const origin = {
+      threadId: 'thread-1',
+      entryId: 'entry-1',
+      sentAt: '2026-10-14T07:12:00.000Z',
+      receivedAt: '2026-10-14T07:14:00.000Z',
+      fromName: 'Ing. Paul Gruber',
+      signerDomain: 'statik-weber.at',
+      senderTrust: 'external_verified' as const,
+    }
+    vi.mocked(documentMailOrigins).mockResolvedValue([{ ...origin, documentVersionId: 'ver_2' }])
+
+    const listing = await listDocumentVersionViews(session, 'doc_1')
+
+    expect(documentMailOrigins).toHaveBeenCalledWith(session, expect.objectContaining({ id: document.id }))
+    expect(listing.versions.map((row) => [row.id, row.mailOrigins])).toEqual([
+      ['ver_1', undefined],
+      ['ver_2', [origin]],
     ])
   })
 })

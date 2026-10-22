@@ -16,6 +16,13 @@ identifier, a file name or a module. Say the German term to users and the code
 name to the compiler. The stored values, URLs and permission slugs that still
 read German are listed after the table.
 
+The banned stems live in [`ci/german_stems.json`](../ci/german_stems.json):
+`stems` for identifiers, `prose_words` for what an agent reads. Do not copy the
+list here. A cleanup shrinks the ratchet's baseline
+(`ci/english_names_baseline_py.json` for Python): rerun
+`tests/test_english_names.py` or `frontends/ui/src/english-names.spec.ts` with
+`UPDATE_ENGLISH_NAMES=1` to lock it in.
+
 | Domain term | Code name | Not |
 |---|---|---|
 | Fassung | `revision` (`lib/documents/revision-*`, `DocumentRevisions`, `revision_diff.py`) | `version`, which is the approval states |
@@ -37,6 +44,9 @@ read German are listed after the table.
 | Gesetzesnummer (RIS law number in a norm's verify seed) | `statute_number` | the RIS URL parameter `Gesetzesnummer`, which is the external API's |
 | Spatial result keys (`warum`, `abhilfe`, `lage`, `trennend`, `gemeinsam`, `oeffnungen` …) | `why`, `remedy`, `position`, `separating`, `shared`, `openings` … (`ifc-spatial`, `ifc-spatial-py`) | |
 | Befund, Befundmatrix | `finding`, `findingsMatrix` | |
+| Postfach (what needs a person's attention) | `inbox` (`lib/inbox/`, the `inbox-*` operations in `catalog/collaboration.ts`) | the mail import (`lib/mail-import/`), which is not a mail inbox |
+| Projekterfassung | `project-intake` (`lib/project-intake/`, the page `/app/projects/[id]/setup`, ADR-0111) | `inbox` |
+| Verlauf | `conversation` for a chat; an annotation's replies are its `thread` (`lib/annotations/`). `POST /api/documents/[id]/thread` is the exception: it answers a chat `conversationId` (ADR-0106) | bare `thread` for a chat |
 | erfüllt, nicht erfüllt, offen, nicht anwendbar | `met`, `notMet`, `open`, `notApplicable` | |
 | Laufblock | `RunBlock`; states `running`, `waiting`, `done`, `cancelled`, `interrupted` | |
 | Aktenvermerk | `fileNote` | |
@@ -119,7 +129,7 @@ replaced `agent_capability_missing`.
 | Workspace primitive, typed client | A workspace capability exposed as one HTTP API with a typed client, which the UI, the agent's tools and tasks all call as equal clients (ADR-0055) | [`docs/adr/0055-api-first-workspace-primitives.md`](adr/0055-api-first-workspace-primitives.md) |
 | Route factories | `apiRoute`, `internalApiRoute`, `publicApiRoute`, `platformApiRoute`: the only sanctioned wrappers for a BFF route handler, each declaring its authorization | [`frontends/ui/src/lib/api/handler.ts`](../frontends/ui/src/lib/api/handler.ts) |
 | `SourceKind` | The code form of a source kind (`building_law`, `office`, `project`, `web`, plus `measurement` for model measurements). Defined in Python and mirrored by hand in `source-kinds.ts`; changing one and not the other renders the chip as unknown | [`src/aiq_agent/common/source_kinds.py`](../src/aiq_agent/common/source_kinds.py) |
-| `doc_class`, norm lanes | The stored Dokumentart (human-set, beats any filename guess), and the finer `norm_registry` lanes (`building_law_oib`, `building_law_state`, …) that sub-label a source kind | [`src/aiq_agent/knowledge/document_classification.py`](../src/aiq_agent/knowledge/document_classification.py) |
+| `doc_class`, norm lanes | The base corpus's norm class (closed vocabulary `DOCUMENT_CLASSES`: `oib_guideline` … `law`, `other`), human-set and beating any filename guess, and the finer `norm_registry` lanes (`building_law_oib`, `building_law_state`, …) that sub-label a source kind. A fine lane maps to its kind by prefix (`kind_for_lane`, mirrored by `kindForLane` in `source-kinds.ts`), so a new `office_*` or `project_*` lane needs no `SourceKind` change, but `lane_for_hit` must produce it: a user's shelf yields plain `office` or `project`, and the one fine lane that beats the shelf is `office_piloti` (stated provenance, `authored_by`). Not the Dokumentart of a project document: that is its type tag (`DOCUMENT_TYPE_TAGS`: `Grundriss`, `Gutachten`, `Sonstiges`, …) in `document_metadata.tags` | [`src/aiq_agent/knowledge/document_classification.py`](../src/aiq_agent/knowledge/document_classification.py) |
 | Answer envelope | The one JSON object a research answer is generated as: the `answer` prose plus optional anatomy (kind, verdict, takeaways, callout, cards) | [`src/aiq_agent/common/answer_envelope.py`](../src/aiq_agent/common/answer_envelope.py) |
 | Grounding block | The single renderer for what an evidence tool returns: each hit becomes a `--- Result N ---` block with source, citation and score, and a `## Trace-Lanes` line names the collections searched | [`src/aiq_agent/common/grounding_block.py`](../src/aiq_agent/common/grounding_block.py) |
 | Knowledge layer | The `sources/knowledge_layer` package (LlamaIndex ingestion, Qdrant storage) behind `knowledge_search` | [`sources/AGENTS.md`](../sources/AGENTS.md) |

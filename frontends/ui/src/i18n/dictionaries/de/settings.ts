@@ -130,6 +130,9 @@ export const settings: typeof en.settings = {
       knowledgeTitle: 'Wissensbasis',
       knowledgeDescription: 'Was die Wissensbasis des Projekts enthält, Abschnitt für Abschnitt.',
       knowledgeLink: 'Wissensbasis öffnen',
+      inboundMailTitle: 'E-Mail-Adresse des Projekts',
+      inboundMailDescription:
+        'Leiten Sie E-Mails mit Unterlagen an diese Adresse weiter. Sie warten im E-Mail-Eingang unter Dateien, bis jemand sie ablegt; Piloti schlägt für jeden Anhang Ordner, Namen und Dokumentart vor. Abgelegt wird nur, was eine Person bestätigt.',
     },
   },
 }

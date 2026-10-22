@@ -313,6 +313,9 @@ export const projects = {
     open: 'Open {name}',
     overview: 'Overview',
     overviewAria: 'Open overview of {name}',
+    /** `ProjectMailWaiting`: mail waiting in the project's E-Mail-Eingang, for a reader who may file it. */
+    mailWaiting: '{count, plural, one {# mail waits} other {# mails wait}}',
+    mailWaitingAria: '{count, plural, one {# mail waits to be filed in {name}} other {# mails wait to be filed in {name}}}',
   },
   officeShelfCard: {
     title: 'Office filing',

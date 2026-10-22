@@ -205,6 +205,8 @@ export const OPERATION_TARGET_TYPES = [
   'bim_model',
   'upload_batch',
   'proposal',
+  'inbound_mail',
+  'mail_thread',
 ] as const
 export type OperationTargetType = (typeof OPERATION_TARGET_TYPES)[number]
 

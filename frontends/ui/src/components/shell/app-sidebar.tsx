@@ -47,6 +47,8 @@ import {
 import { useTranslations } from '@/i18n'
 import { pruneProjectSections, useRecordProjectSection } from '@/hooks/use-last-project-section'
 import { useLayoutStore } from '@/features/layout/store'
+import { InboundMailWaitingBadge } from '@/features/inbound-mail/components/waiting-badge'
+import { useInboundMailWaiting } from '@/features/inbound-mail/hooks/use-inbound-mail-waiting'
 import { useInboxBadge } from '@/features/collaboration/hooks/use-inbox'
 import { InboxBadge } from '@/features/collaboration/components'
 import { cn } from '@/lib/utils'
@@ -143,6 +145,12 @@ export interface AppSidebarProps {
    * what the rail looks like. A required prop turns that into a compile error.
    */
   canAccessInbox: boolean
+  /**
+   * The office receives project mail (`inbound-mail`, ADR-0134): Dateien
+   * carries the muted count of mail waiting for this reader. Optional and off
+   * by default, so a preview without it shows the rail as it was.
+   */
+  inboundMailEnabled?: boolean
 }
 
 /** One rendered rail entry, after both scopes have been reduced to a shape. */
@@ -153,6 +161,8 @@ interface RailItemModel {
   label: string
   active: boolean
   badgeCount: number
+  /** A quiet count beside the entry (mail waiting in Dateien); the Postfach's ink pill is `badgeCount`. */
+  waitingCount: number | null
 }
 
 interface RailGroupModel {
@@ -190,12 +200,14 @@ function AppSidebarFrame({
   showModels = false,
   showSkills = false,
   canAccessInbox,
+  inboundMailEnabled = false,
 }: AppSidebarProps) {
   const pathname = usePathname() ?? ''
   const t = useTranslations('nav')
   const tCollaboration = useTranslations('collaboration')
   const { state, isMobile } = useSidebar()
   const { pending: inboxPending } = useInboxBadge(canAccessInbox)
+  const inboundMail = useInboundMailWaiting(projectId, inboundMailEnabled)
 
   const projectSheetOpen = useShellOverlays((s) => s.projectSheetOpen)
   const setProjectSheetOpen = useShellOverlays((s) => s.setProjectSheetOpen)
@@ -233,6 +245,7 @@ function AppSidebarFrame({
       label: sectionLabel(item, t, tCollaboration),
       active: pathname.startsWith(sectionHref(item, base)),
       badgeCount: item.key === 'inbox' ? inboxPending : 0,
+      waitingCount: item.key === 'files' ? inboundMail.count : null,
     })),
   }))
 
@@ -363,6 +376,7 @@ function AppSidebarFrame({
                         active={item.active}
                         label={item.label}
                         badgeCount={item.badgeCount}
+                        waitingCount={item.waitingCount}
                         tooltip={iconRail}
                         pillId={activePillId}
                       />
@@ -395,6 +409,7 @@ function AppSidebarFrame({
                           active={item.active}
                           label={item.label}
                           badgeCount={item.badgeCount}
+                          waitingCount={item.waitingCount}
                           tooltip={iconRail}
                           pillId={activePillId}
                         />
@@ -548,6 +563,7 @@ function RailNavItem({
   active,
   label,
   badgeCount,
+  waitingCount = null,
   tooltip,
   pillId,
   tourAnchor,
@@ -557,6 +573,8 @@ function RailNavItem({
   active: boolean
   label: string
   badgeCount: number
+  /** The muted count (mail waiting in Dateien); shown only where no ink pill is. */
+  waitingCount?: number | null
   tooltip: boolean
   /** Shared-layout identity for the active chip — see {@link railActivePillId}. */
   pillId: string
@@ -650,6 +668,12 @@ function RailNavItem({
             pending={badgeCount}
             className="relative ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-right-1 group-data-[collapsible=icon]:-top-1 group-data-[collapsible=icon]:ml-0"
           />
+          {badgeCount <= 0 && (
+            <InboundMailWaitingBadge
+              count={waitingCount}
+              className="relative ml-auto group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:-right-1 group-data-[collapsible=icon]:-top-1 group-data-[collapsible=icon]:ml-0"
+            />
+          )}
         </Link>
       </SidebarMenuButton>
     </SidebarMenuItem>

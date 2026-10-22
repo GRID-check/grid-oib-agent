@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-08
+status: accepted
+date: 2026-10-22
 decision-makers: Grid engineering
 consulted: product owner
 informed: everyone working in this repo
@@ -111,8 +111,9 @@ items, not a sequence of `.eml` files, so the inbox's parser does not apply.
 * Bad, because the BFF carries the upload's bytes. Twenty gigabytes through the
   frontend pods is the price of keeping the store private.
 * Neutral: an attached mail (a forward) is skipped in this version, not unpacked.
-* Neutral: the import is behind the `mail-import` WorkOS flag, or
-  `GRID_MAIL_IMPORT_ENABLED` without enforcement, off by default. An archive is
+* Neutral: the import is behind the `mail-import` WorkOS flag, off by default;
+  there is no env fallback, because flags are always enforced
+  ([`workos-provisioning.md`](../deployment/workos-provisioning.md)). An archive is
   the correspondence of everyone who wrote to the mailbox; switching it on for
   an organization is a decision about that data, so the operator makes it.
 

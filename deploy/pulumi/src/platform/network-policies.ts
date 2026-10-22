@@ -1,7 +1,7 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig, backendAutoscaled } from "../config";
-import { CHROMA_MIGRATION, EDGE_RATE_LIMIT, GEOCODER, GOTENBERG, LANGFUSE, PORT, QDRANT } from "../constants";
+import { CHROMA_MIGRATION, CLAMAV, EDGE_RATE_LIMIT, GEOCODER, GOTENBERG, LANGFUSE, PORT, QDRANT } from "../constants";
 import { KEDA_NAMESPACE, KEDA_OPERATOR_LABEL } from "./keda";
 import { CLUSTER_NAME as POSTGRES_CLUSTER } from "../data/postgres";
 
@@ -59,7 +59,8 @@ export const QDRANT_CALLERS = [
  *     workers→data, backend→frontend BFF). Per-edge micro-policies buy little
  *     here and are far easier to get subtly wrong. The exceptions are the pods
  *     whose receivers authenticate nobody or hold a store of every tenant's
- *     text (Langfuse and its ClickHouse, Gotenberg, Qdrant) — see rule 2.
+ *     text (Langfuse and its ClickHouse, Gotenberg, Qdrant), and ClamAV, which
+ *     parses whatever strangers send — see rule 2.
  *   - Cross-namespace allows are explicit: the **edge** (Envoy Gateway) to the
  *     three public services, and the **CNPG operator** to its managed pods.
  *
@@ -122,6 +123,7 @@ export function installNetworkPolicies(
             ...langfuseWithheld,
             ...(cfg.gotenberg.enabled ? [GOTENBERG.name] : []),
             ...(cfg.geocoder.enabled ? [GEOCODER.name] : []),
+            ...(cfg.malwareScan.enabled ? [CLAMAV.name] : []),
             QDRANT.name,
           ],
         },
@@ -521,6 +523,34 @@ export function installNetworkPolicies(
         })
       : undefined;
 
+  // 22. ClamAV (ADR-0133): the frontend and the bff-jobs pool in. Egress open.
+  //
+  //     clamd authenticates nobody and its whole job is to open hostile files,
+  //     so it is withheld from rule 2: the BFF is its only caller, in the
+  //     request path (an original's download is scanned whole) and in the
+  //     bff-jobs pool (the receive job scans each attachment and raw message).
+  //     Ingress only, as decided in ADR-0133: freshclam needs DNS and HTTPS to
+  //     database.clamav.net, a CDN no NetworkPolicy can name, and a port-only
+  //     rule (as the geocoder's) would admit the whole internet on 443 anyway.
+  //     The kubelet's exec probes are not network traffic.
+  const clamav = cfg.malwareScan.enabled
+    ? mk("clamav-bff-only", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": CLAMAV.name } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [
+              { podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } },
+              ...(cfg.bffJobs.enabled
+                ? [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "bff-jobs" } } }]
+                : []),
+            ],
+            ports: [{ protocol: "TCP", port: PORT.clamav }],
+          },
+        ],
+      })
+    : undefined;
+
   return [
     deny,
     intra,
@@ -540,6 +570,7 @@ export function installNetworkPolicies(
     ...(langfuseToClickhouse ? [langfuseToClickhouse] : []),
     ...(gotenberg ? [gotenberg] : []),
     ...(geocoder ? [geocoder] : []),
+    ...(clamav ? [clamav] : []),
     appToQdrant,
     qdrantPeers,
     ...(collectorToQdrant ? [collectorToQdrant] : []),

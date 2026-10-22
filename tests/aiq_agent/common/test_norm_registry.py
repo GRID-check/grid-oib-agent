@@ -507,6 +507,38 @@ class TestLaneForAgentAuthoredHit:
             assert nr.lane_for_hit(shelf="office_shelf", authored_by=authored_by) == ("office", "Büroablage")
 
 
+class TestLaneForMailHit:
+    """A chunk of a filed E-Mail-Verlauf (``source_format: mail``) is in the mail lane of its shelf."""
+
+    def test_a_project_thread_is_project_mail(self):
+        assert nr.lane_for_hit(shelf="project", collection="proj_abc", source_format="mail") == (
+            "project_mail",
+            "E-Mail",
+        )
+
+    def test_an_office_thread_is_office_mail(self):
+        assert nr.lane_for_hit(shelf="office_shelf", source_format="mail") == ("office_mail", "E-Mail")
+
+    def test_an_authority_domain_on_a_mail_never_reaches_the_authority_lane(self):
+        """MA 37's domain makes a URL the curated authority lane; on a mail it makes nothing."""
+        lane = nr.lane_for_hit(shelf="project", source_url="https://www.wien.gv.at/ma37", source_format="mail")
+        assert lane == ("project_mail", "E-Mail")
+
+    def test_it_outranks_a_doc_class_a_person_set(self):
+        """A thread a person classed as law is still a conversation: each section is one sender's message."""
+        assert nr.lane_for_hit(doc_class="law", shelf="project", source_format="mail")[0] == "project_mail"
+
+    def test_the_stated_author_still_outranks_it(self):
+        assert nr.lane_for_hit(shelf="project", authored_by="agent", source_format="mail")[0] == "office_piloti"
+
+    def test_any_other_format_changes_nothing(self):
+        for source_format in (None, "", "pdf", "MAIL "):
+            assert nr.lane_for_hit(shelf="project", source_format=source_format) == ("project", "Projektwissen")
+
+    def test_the_knowledge_hit_variant_passes_it_through(self):
+        assert nr.lane_for_knowledge_hit(shelf="project", source_format="mail") == ("project_mail", "E-Mail")
+
+
 class TestLaneForKnowledgeHit:
     """A retrieved document is something we hold — it can never be Web."""
 

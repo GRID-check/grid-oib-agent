@@ -39,8 +39,12 @@ export interface ToolCallRecord {
   door: 'mcp' | 'piloti' | 'a2a' | 'platform'
   /** The MCP server's mode; null on the A2A door. */
   mode: 'search' | 'tools' | null
-  /** `confirm`: put to the person in their own chat; `declined`: they did not confirm (`agent-api/confirmation.ts`). */
-  decision: 'run' | 'propose' | 'refused' | 'confirm' | 'declined'
+  /**
+   * `confirm`: put to the person in their own chat; `declined`: they did not
+   * confirm; `person_required`: not run, the client cannot ask the person
+   * (`agent-api/confirmation.ts`).
+   */
+  decision: 'run' | 'propose' | 'refused' | 'confirm' | 'declined' | 'person_required'
   /** `elicitation` when the person confirmed this call in their own chat; otherwise absent. */
   decisionSource?: 'elicitation' | null
   status: number
@@ -54,13 +58,14 @@ export interface ToolCallRecord {
 
 type IngestionBatch = Parameters<LangfuseClient['api']['ingestion']['batch']>[0]
 
-/** Langfuse's environment alphabet, as `trace_context.langfuse_environment` coerces `APP_ENV`. */
-function environment(raw = process.env.APP_ENV ?? ''): string | undefined {
+/** Langfuse's environment alphabet, as `trace_context.langfuse_environment` coerces `APP_ENV`. Shared by the BFF's traces. */
+export function environment(raw = process.env.APP_ENV ?? ''): string | undefined {
   const value = raw.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
   return value && !value.startsWith('langfuse') ? value : undefined
 }
 
-function release(raw = process.env.GRID_GIT_SHA ?? ''): string | undefined {
+/** The deployed commit, as a trace's release; none when unknown. */
+export function release(raw = process.env.GRID_GIT_SHA ?? ''): string | undefined {
   const value = raw.trim()
   return value && value !== 'unknown' ? value : undefined
 }
@@ -133,7 +138,8 @@ export function toolCallBatch(call: ToolCallRecord, ids: { traceId: string; obse
 
 let cached: { key: string; client: LangfuseClient } | null = null
 
-function clientFor(config: LangfuseApiConfig): LangfuseClient {
+/** One ingestion client per configuration, shared by the BFF's own traces. */
+export function clientFor(config: LangfuseApiConfig): LangfuseClient {
   const key = `${config.baseUrl}\u0000${config.publicKey}\u0000${config.secretKey}`
   if (cached?.key !== key) {
     cached = {

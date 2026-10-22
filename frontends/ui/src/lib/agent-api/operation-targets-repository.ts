@@ -15,7 +15,7 @@ import { and, eq } from 'drizzle-orm'
 import { findConversationInOrg } from '@/lib/conversations/repository'
 import { getDb } from '@/lib/db'
 import { findBimModelById } from '@/lib/bim/repository'
-import { projectFolders, projects, proposedChanges, uploadBatches } from '@/lib/db/schema'
+import { inboundMails, mailThreads, projectFolders, projects, proposedChanges, uploadBatches } from '@/lib/db/schema'
 import { hasPassedScreening, memberReader } from '@/lib/documents/document-reader'
 import { findDocumentInOrg } from '@/lib/documents/repository'
 import { isUuid } from '@/lib/ids'
@@ -88,6 +88,23 @@ export async function findTargetPlace(
         .select({ projectId: uploadBatches.projectId })
         .from(uploadBatches)
         .where(and(eq(uploadBatches.id, target.id), eq(uploadBatches.organizationId, organizationId)))
+        .limit(1)
+      return row ? place(row.projectId) : null
+    }
+    case 'inbound_mail': {
+      // Where a held mail is, never what it says: its project only.
+      const [row] = await db
+        .select({ projectId: inboundMails.projectId })
+        .from(inboundMails)
+        .where(and(eq(inboundMails.id, target.id), eq(inboundMails.organizationId, organizationId)))
+        .limit(1)
+      return row ? place(row.projectId) : null
+    }
+    case 'mail_thread': {
+      const [row] = await db
+        .select({ projectId: mailThreads.projectId })
+        .from(mailThreads)
+        .where(and(eq(mailThreads.id, target.id), eq(mailThreads.organizationId, organizationId)))
         .limit(1)
       return row ? place(row.projectId) : null
     }

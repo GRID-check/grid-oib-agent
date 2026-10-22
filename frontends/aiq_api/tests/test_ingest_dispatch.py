@@ -103,6 +103,22 @@ def test_the_payload_round_trips_with_its_downloads():
     assert decoded.config["thumbnail_upload_url"] == _THUMBNAIL
 
 
+def test_a_worker_uploads_the_thumbnail_to_the_configured_origin_whatever_the_row_spells():
+    """A queued row's URL is rebuilt on the store's own origin before the job sees it."""
+    import json
+
+    from aiq_api.jobs import payload_crypto
+
+    data = payload_crypto.deserialize(ingest_dispatch.encode(_prepared()))
+    spelled = "HTTP://SeaweedFS.Test:80/bucket/thumb.jpg?X-Amz-Signature=t"
+    data["config"]["thumbnail_upload_url"] = spelled
+    stored = "json:" + base64.b64encode(json.dumps(data).encode()).decode()
+
+    assert ingest_dispatch.decode(stored).config["thumbnail_upload_url"] == (
+        "http://seaweedfs.test/bucket/thumb.jpg?X-Amz-Signature=t"
+    )
+
+
 def test_the_stored_payload_is_encrypted_when_a_key_is_set(monkeypatch):
     monkeypatch.setenv("GRID_JOB_PAYLOAD_KEK", base64.b64encode(os.urandom(32)).decode())
 

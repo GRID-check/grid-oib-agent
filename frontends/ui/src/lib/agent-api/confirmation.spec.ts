@@ -14,14 +14,33 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 vi.mock('./catalog', async () => {
   const { FAKE_OPERATIONS } = await import('./test-operations')
+  const { z } = await import('zod')
+  const enc = encodeURIComponent
+  // A write that is not destructive by itself, so only the mark puts it to the person.
+  const personDecides: import('./operation').AgentOperation = {
+    name: 'held-item-file',
+    domain: 'documents',
+    summary: 'File a held item',
+    description: 'Files an item that waits for a person into the project. Runs only on the person’s own yes.',
+    method: 'POST',
+    path: '/api/projects/[id]/held-items/file',
+    params: z.object({ id: z.string().min(1) }),
+    body: z.object({ itemId: z.string().min(1) }).strict(),
+    requiresPersonConfirmation: {
+      decideAt: (input) => `/app/projects/${enc(input.params?.id ?? '')}/files/held/${enc((input.body as { itemId: string }).itemId)}`,
+    },
+    load: async () => ({}),
+  }
+  const operations = [...FAKE_OPERATIONS, personDecides]
   return {
-    AGENT_OPERATIONS: FAKE_OPERATIONS,
-    findOperation: (name: string) => FAKE_OPERATIONS.find((op) => op.name === name),
+    AGENT_OPERATIONS: operations,
+    findOperation: (name: string) => operations.find((op) => op.name === name),
   }
 })
-vi.mock('./exposure.config', async (importOriginal) =>
-  (await import('./test-operations')).withFakeExposure(await importOriginal<typeof import('./exposure.config')>()),
-)
+vi.mock('./exposure.config', async (importOriginal) => {
+  const faked = (await import('./test-operations')).withFakeExposure(await importOriginal<typeof import('./exposure.config')>())
+  return { ...faked, EXPOSURE: { ...faked.EXPOSURE, 'held-item-file': { external: true, piloti: true } } }
+})
 vi.mock('./dispatch', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./dispatch')>()),
   callOperation: vi.fn(),
@@ -39,9 +58,11 @@ vi.mock('@/lib/audit/after-commit', () => ({ recordAuditEventAfterCommit: vi.fn(
 vi.mock('./telemetry', () => ({ recordOperationCalled: vi.fn(), recordOperationMissing: vi.fn() }))
 
 import { recordAuditEventAfterCommit } from '@/lib/audit/after-commit'
+import { AGENT_OPERATIONS } from './catalog'
 import { CONFIRMATION_TTL_SECONDS } from './confirmation'
 import { callOperation } from './dispatch'
 import { createAgentDoorHandler } from './mcp-server'
+import { annotationsOf } from './operation'
 import { describeTargets } from './operation-targets'
 import { proposeOperation } from './operation-proposals'
 import type { AgentPrincipal } from './principal'
@@ -324,5 +345,106 @@ describe('everyone the feature does not reach is answered as before', () => {
     const legacy = JSON.parse(await legacyCall(piloti, DELETE_P1)) as Rpc
     expect(legacy.result?.structuredContent).toMatchObject({ decision: 'propose', proposalId: 'prop_1' })
     expect(callOperation).not.toHaveBeenCalled()
+  })
+})
+
+describe('an operation that runs only on the person’s own yes', () => {
+  const FILE_ITEM = {
+    name: 'held-item-file',
+    arguments: { name: 'held-item-file', input: { params: { id: 'p-1' }, body: { itemId: 'm 7' } } },
+  }
+  const LINK = 'https://app.piloti.test/app/projects/p-1/files/held/m%207'
+  const REFUSAL =
+    'held-item-file runs only on the person\'s own yes, and this client cannot ask them for it (MCP form elicitation), ' +
+    `so nothing was changed. Give the person this link, where they decide it in Piloti themselves: ${LINK} ` +
+    'Do not call it again unless they ask you to.'
+
+  beforeEach(() => {
+    vi.stubEnv('WORKOS_REDIRECT_URI', 'https://app.piloti.test/callback')
+  })
+
+  function expectRefused(result: Rpc['result']) {
+    expect(result?.isError).toBe(true)
+    expect(result?.content?.[0].text).toBe(REFUSAL)
+    expect(result?.structuredContent).toEqual({ decision: 'person_required', operation: 'held-item-file', changed: false, url: LINK })
+    expect(callOperation).not.toHaveBeenCalled()
+    expect(vi.mocked(recordOperationCalled).mock.calls.map(([, call]) => call)).toEqual([
+      expect.objectContaining({ operation: 'held-item-file', decision: 'person_required', status: 403 }),
+    ])
+  }
+
+  it('is refused, never run, for a 2025-era client, which cannot carry the question', async () => {
+    expectRefused((JSON.parse(await legacyCall(outside, FILE_ITEM)) as Rpc).result)
+  })
+
+  it('is refused for a 2026-07-28 client that does not declare form elicitation, in either mode', async () => {
+    expectRefused((await modernCall(outside, FILE_ITEM, { capabilities: {} })).result)
+    vi.mocked(recordOperationCalled).mockReset()
+    expectRefused((await modernCall(outside, FILE_ITEM, { capabilities: { elicitation: { url: {} } }, mode: 'tools' })).result)
+  })
+
+  it('is refused when no signing key exists to carry the question to a second round', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', '')
+    expectRefused((await modernCall(outside, FILE_ITEM)).result)
+  })
+
+  it('refuses a second round that dropped the elicitation capability, whatever state it carries', async () => {
+    const { state } = await askFor(outside, FILE_ITEM)
+    vi.mocked(recordOperationCalled).mockReset()
+    const second = await modernCall(outside, FILE_ITEM, { capabilities: {}, extra: { inputResponses: accept(true), requestState: state } })
+    expectRefused(second.result)
+  })
+
+  it('names no link when the deployment pins no origin, and still changes nothing', async () => {
+    vi.stubEnv('WORKOS_REDIRECT_URI', '')
+    vi.stubEnv('NEXT_PUBLIC_WORKOS_REDIRECT_URI', '')
+    const result = (await modernCall(outside, FILE_ITEM, { capabilities: {} })).result
+    expect(result?.content?.[0].text).toContain('so nothing was changed. The person decides it in Piloti themselves.')
+    expect(result?.structuredContent).toMatchObject({ decision: 'person_required', url: null })
+    expect(callOperation).not.toHaveBeenCalled()
+  })
+
+  it('is put to the person when the client can ask, though it is not destructive, and runs on their yes', async () => {
+    const { first, state } = await askFor(outside, FILE_ITEM)
+    expect(first.result?.resultType).toBe('input_required')
+    expect(callOperation).not.toHaveBeenCalled()
+    const second = await modernCall(outside, FILE_ITEM, { extra: { inputResponses: accept(true), requestState: state } })
+    expect(second.result?.isError).toBeUndefined()
+    expect(callOperation).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(recordAuditEventAfterCommit).mock.calls[0][0].metadata).toMatchObject({ decision: 'applied', decisionSource: 'elicitation' })
+  })
+
+  it('changes nothing when the person says no', async () => {
+    const { state } = await askFor(outside, FILE_ITEM)
+    const second = await modernCall(outside, FILE_ITEM, { extra: { inputResponses: accept(false), requestState: state } })
+    expect(second.result?.structuredContent).toEqual({ decision: 'declined', operation: 'held-item-file', changed: false })
+    expect(callOperation).not.toHaveBeenCalled()
+  })
+
+  it('stays Piloti’s proposal, which the person accepts, on either era', async () => {
+    const modern = await modernCall(piloti, FILE_ITEM, { capabilities: {} })
+    expect(modern.result?.structuredContent).toMatchObject({ decision: 'propose', proposalId: 'prop_1' })
+    const legacy = JSON.parse(await legacyCall(piloti, FILE_ITEM)) as Rpc
+    expect(legacy.result?.structuredContent).toMatchObject({ decision: 'propose', proposalId: 'prop_1' })
+    expect(callOperation).not.toHaveBeenCalled()
+  })
+
+  it('leaves a malformed call to today’s validator, so the agent learns what to fix before the person is sent anywhere', async () => {
+    const bad = { name: 'held-item-file', arguments: { name: 'held-item-file', input: { params: { id: 'p-1' }, body: {} } } }
+    const result = (JSON.parse(await legacyCall(outside, bad)) as Rpc).result
+    expect(result?.structuredContent).not.toHaveProperty('decision', 'person_required')
+    // The dispatcher is a stub here; the real one validates the input first (`dispatch.spec.ts`).
+    expect(vi.mocked(callOperation).mock.calls[0][1]).toEqual({ params: { id: 'p-1' }, body: {} })
+  })
+
+  it('tells every client to confirm it with the person', () => {
+    const op = AGENT_OPERATIONS.find((candidate) => candidate.name === 'held-item-file')
+    expect(op && annotationsOf(op)).toMatchObject({ readOnlyHint: false, destructiveHint: true })
+  })
+
+  it('marks writes only in the real catalog: a read Piloti runs would never reach the person', async () => {
+    const real = await vi.importActual<typeof import('./catalog')>('./catalog')
+    const marked = real.AGENT_OPERATIONS.filter((op) => op.requiresPersonConfirmation)
+    expect(marked.filter((op) => annotationsOf(op).readOnlyHint).map((op) => op.name)).toEqual([])
   })
 })

@@ -16,7 +16,7 @@
  *    `platform` domain, and that domain on no other door.
  *
  * `withheld` keeps an operation in the catalog and on no door, with its
- * category and reason (the amendment's four categories); offering it again is
+ * category and reason (the amendments' five categories); offering it again is
  * replacing the entry. Every entry that is not plainly offered to both office
  * audiences says why in `reason`.
  *
@@ -46,9 +46,10 @@ import type { OperationName } from './catalog'
  * `product-config`: how Piloti itself works for the office (models, keys,
  * budgets, policies, settings). `model-compute`: model work the caller can do
  * itself whose result is no office artifact. `ui-state`: this person's own
- * screen or device state.
+ * screen or device state. `evidence`: bytes kept as proof, which no model reads
+ * (a mail's original `.eml`, ADR-0134; ADR-0122's amendment of 2026-10-22).
  */
-export const WITHHELD_CATEGORIES = ['external-service', 'product-config', 'model-compute', 'ui-state'] as const
+export const WITHHELD_CATEGORIES = ['external-service', 'product-config', 'model-compute', 'ui-state', 'evidence'] as const
 export type WithheldCategory = (typeof WITHHELD_CATEGORIES)[number]
 
 export interface Withholding {
@@ -103,6 +104,28 @@ const ASK = {
   piloti: false,
   reason: 'how another agent consults Piloti; Piloti never asks Piloti (ADR-0124, the recursion lock)',
 } as const satisfies Exposure
+
+/**
+ * The Outlook import's byte protocol (start, part upload, complete). Piloti has
+ * no archive to send, and a part is 32 MiB, far past what a proposal may carry
+ * (`MAX_PROPOSED_INPUT_CHARS`), so offering it costs Piloti a tool slot and a
+ * proposal that is always refused. Watching and cancelling an import stay offered.
+ */
+const ARCHIVE_BYTES = {
+  external: true,
+  piloti: false,
+  reason:
+    'Piloti holds no Outlook archive: the bytes come from the person’s disk, and a part is larger than any proposal a person can read',
+} as const satisfies Exposure
+
+/**
+ * A held mail's text and an attachment's bytes, before a person filed them
+ * (ADR-0134, D7, D22, RT-S6): unconfirmed third-party content. Piloti reads
+ * metadata only until a person files the mail; an outside agent reads them as
+ * the person, masked, who decides in their own client.
+ */
+const HELD_MAIL =
+  'held mail is unconfirmed third-party content nobody has filed yet; Piloti reads it once a person filed it into the project'
 
 const NATIVE_READ = 'Piloti reads with this native tool itself; the door offers it to outside agents'
 const MEMORY =
@@ -206,12 +229,6 @@ export const EXPOSURE = {
   'hold-create': OFFERED,
   'hold-list': OFFERED,
   'hold-release': SENSITIVE,
-  'mail-import-cancel': OFFERED,
-  'mail-import-complete': OFFERED,
-  'mail-import-get': OFFERED,
-  'mail-import-list': OFFERED,
-  'mail-import-part-upload': OFFERED,
-  'mail-import-start': OFFERED,
   'project-upload-list': OFFERED,
   'quarantine-list': OFFERED,
   'session-document-upload': OFFERED,
@@ -243,6 +260,46 @@ export const EXPOSURE = {
   'root-sort-run-cancel': OFFERED,
   'root-sort-run-get': OFFERED,
   'root-sort-run-undo': OFFERED,
+
+  // mail
+  'inbound-mail-address-create': OFFERED,
+  'inbound-mail-address-delete': OFFERED,
+  'inbound-mail-address-get': OFFERED,
+  'inbound-mail-address-rotate': OFFERED,
+  // Piloti proposes these as a card that files clean, unflagged parts only (RT-S5); an
+  // outside agent's call runs only on the person's own yes (`requiresPersonConfirmation`).
+  'inbound-mail-dismiss': OFFERED,
+  'inbound-mail-file': OFFERED,
+  'inbound-mail-get': OFFERED,
+  'inbound-mail-list': OFFERED,
+  'inbound-mail-original-get': {
+    external: false,
+    piloti: false,
+    withheld: {
+      category: 'evidence',
+      reason: 'the original message as received, kept as proof of what was sent; no model reads it, a person downloads it in the app',
+    },
+  },
+  'inbound-mail-part-content-get': { external: true, piloti: false, reason: HELD_MAIL },
+  'inbound-mail-restore': OFFERED,
+  'inbound-mail-text-get': { external: true, piloti: false, reason: HELD_MAIL },
+  'mail-import-cancel': OFFERED,
+  'mail-import-complete': ARCHIVE_BYTES,
+  'mail-import-get': OFFERED,
+  'mail-import-list': OFFERED,
+  'mail-import-part-upload': ARCHIVE_BYTES,
+  'mail-import-start': ARCHIVE_BYTES,
+  'mail-thread-entry-detach': OFFERED,
+  'mail-thread-entry-original-get': {
+    external: false,
+    piloti: false,
+    withheld: {
+      category: 'evidence',
+      reason: 'a filed message as received, kept as proof of what was sent; no model reads it, a person downloads it in the app',
+    },
+  },
+  'mail-thread-get': OFFERED,
+  'mail-thread-list': OFFERED,
 
   // review
   'annotation-create': { external: true, piloti: 'native:canvas__mark', reason: CANVAS },

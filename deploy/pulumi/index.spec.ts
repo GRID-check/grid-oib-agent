@@ -252,6 +252,21 @@ describe("the program constructs in the split topology", () => {
     expect(STACK.geocoderUrl).toBeDefined();
   });
 
+  it("leaves the malware scanner off by default, and the frontend without its URL (ADR-0133)", () => {
+    // Prepared, not switched on: a stack opts in with `malwareScanEnabled`.
+    // Off, `npm run preview` shows no change, and the BFF fails every scan
+    // closed (`not-configured`).
+    expect(named("kubernetes:apps/v1:Deployment")).not.toContain("clamav");
+    expect(named("kubernetes:core/v1:ConfigMap")).not.toContain("clamav-config");
+    expect(named("kubernetes:networking.k8s.io/v1:NetworkPolicy")).not.toContain("clamav-bff-only");
+    for (const name of ["frontend", "bff-jobs"]) {
+      const deployment = RESOURCES.find((r) => r.type === "kubernetes:apps/v1:Deployment" && r.name === name);
+      const env = deployment?.inputs.spec?.template?.spec.containers[0].env ?? [];
+      expect(env.length, name).toBeGreaterThan(0);
+      expect(env.map((e) => e.name), name).not.toContain("GRID_MALWARE_SCAN_URL");
+    }
+  });
+
   /** A workload's pod template, read with the fields the sizing cases need. */
   type SizedPod = {
     metadata: { labels: Record<string, string> };
@@ -345,6 +360,32 @@ describe("the program constructs in the split topology", () => {
     // on delete (`whenDeleted: Retain`), never a resource of this program. A
     // claim resource here would be one a later `up` could delete.
     expect(named("kubernetes:core/v1:PersistentVolumeClaim")).toEqual([]);
+  });
+
+  it("leaves project mail off while inboundMailDomain is unset", () => {
+    // Off means nothing at Cloudflare and no domain on the frontend, which is
+    // what hides the address in the UI. The key map is still wired (empty),
+    // so the signed route answers 503 rather than reading an unset variable.
+    expect(RESOURCES.filter((r) => r.type.startsWith("cloudflare:"))).toEqual([]);
+    const frontend = RESOURCES.find(
+      (r) => r.type === "kubernetes:apps/v1:Deployment" && r.name === "frontend",
+    );
+    const spec = frontend?.inputs.spec as {
+      template: { spec: { containers: Array<{ env: Array<{ name: string }> }> } };
+    };
+    const names = spec.template.spec.containers[0].env.map((e) => e.name);
+    expect(names).not.toContain("GRID_INBOUND_MAIL_DOMAIN");
+    expect(names).toContain("GRID_INBOUND_MAIL_SIGNING_KEYS");
+  });
+
+  it("serves the signed internal routes on a route of their own, mail or not", () => {
+    // The family exists before any caller does (PR-C's routes), so its edge
+    // ceiling and its exemption from the app buckets do too.
+    expect(
+      RESOURCES.filter((r) => r.inputs.kind === "HTTPRoute").map(
+        (r) => (r.inputs.metadata as { name: string }).name,
+      ),
+    ).toContain("grid-app-signed");
   });
 
   it("keeps the S3 endpoint on the name the app tier already uses", () => {

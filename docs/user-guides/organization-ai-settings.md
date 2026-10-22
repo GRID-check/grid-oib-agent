@@ -44,3 +44,15 @@ exact figures and request counts); the legend below lists spend per model.
   against your EUR limits with a fixed deployment-configured rate. Every
   request is kept in an audit ledger (who, which project, which model, what
   cost), and every limit change records who made it.
+
+## What Piloti has learned about the office
+
+Under **Organisation → „Was Piloti über das Büro gelernt hat“** Piloti lists
+habits it counted across your projects: where a Dokumentart is usually filed,
+which folders most projects keep, the shape of Plannummern, the index and the
+way file names write a date. A habit appears once it shows in at least three
+projects (`MIN_PROJECTS` in `lib/office-conventions/extract.ts`). **Bestätigen**
+keeps a line for Piloti even when later counts fall short, **Ablehnen** means
+Piloti never uses it, and **Zurücknehmen** undoes either. Your organization's
+operator switches this on (the `office-conventions` flag)
+([ADR-0129](../adr/0129-piloti-learns-the-office-conventions.md)).

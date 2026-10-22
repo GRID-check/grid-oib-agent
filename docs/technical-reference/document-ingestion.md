@@ -75,7 +75,7 @@ Body: { projectId: string, file: File }
 
 1. **Auth check** — `requireAuthorizedSession()` + `requireProjectAccess(session, projectId, 'project:edit')`
 2. **Generate documentId** — `uuidv4()`
-3. **Store in SeaweedFS** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildStorageKey()` in `s3.ts`). The filename segment goes through `storageKeySegment`: separators are flattened, and a name the pipelines write beside the original (`_render.pdf`, `_thumb.jpg`, `_img`, `_bim`, compared without case) or a dot-only name gets a `_` prefix, so a user file named `_render.pdf` is stored as `__render.pdf` and cannot be mistaken for a derived object. The row keeps the user's filename
+3. **Store in SeaweedFS** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildStorageKey()` in `s3.ts`). The filename segment goes through `storageKeySegment`: separators are flattened, and a name the pipelines write beside the original (`_render.pdf`, `_thumb.jpg`, `_img`, `_bim`), a prefix the app stages under a project (`mail-imports`, the Outlook import's archive), each compared without case, or a dot-only name gets a `_` prefix, in every segment of the folder path as in the filename, so a user file named `_render.pdf` is stored as `__render.pdf` and cannot be mistaken for a derived object. The row keeps the user's filename
 4. **Insert DB row** — Drizzle `documents` table with `status: 'uploaded'`, storing `documentId`, `organizationId`, `projectId`, `createdBy`, `filename`, `storageKey`, `collectionName`, `fileSize`, `contentType`
 5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: INGEST_JOB_REF_TTL_SECONDS })`. 24 hours, not the 600 s `SEAWEED_PRESIGNED_URL_TTL_SECONDS` default the other signed reads use: the ingest job downloads the file when the bounded ingest pool reaches it, which can be well after dispatch (Step 3)
 6. **Trigger ingestion** — POST to `{BACKEND_URL}/v1/ingest` with `{ file_ref: presignedUrl, collection: collectionName, document_id: documentId, file_name: filename, folder_path }`. `file_name` is the row's own `documents.filename`, stated rather than derived from the presigned URL's last path segment, because it is the join key every chunk purge addresses
@@ -150,6 +150,12 @@ Body: {
   file_name: str | None, folder_path: str | None, thumbnail_upload_url: str | None,
   # the older file this upload replaces, when a person filed it as a new Fassung (ADR-0099)
   revision_of: str | None,
+  # the document type a person chose when filing it, one of DOCUMENT_TYPE_TAGS (422 otherwise)
+  document_type: str | None,
+  # a filed mail (ADR-0134): the E-Mail-Verlauf's newest message, or the message an attachment came with
+  mail_thread: {latest_sent_at, message_count, locale} | None,
+  mail_origin: {sent_at, received_at?, from_name?, from_domain?, signer_domain?, sender_trust,
+                thread_document_id?, locale} | None,
   # office renditions (ADR-0070, ADR-0071): presigned GETs of _render.pdf
   preview_ref: str | None, extraction_ref: str | None,
   # provenance, all four together or none (ADR-0054)
@@ -164,7 +170,7 @@ once more, so every second spent before the job id is returned is a false
 and a retry landing on another replica while the first attempt was still
 downloading.
 
-1. Validates `file_ref` and `collection` are present, and passes `file_ref`, `extraction_ref`, `preview_ref` and `thumbnail_upload_url` through the object-store SSRF gates. It is the only gate those URLs meet: the job fetches them later without asking again
+1. Validates the body: `file_ref`, `extraction_ref`, `preview_ref` and `thumbnail_upload_url` are each an `ObjectStoreUrl` (`aiq_api.object_store_url`), so a URL whose origin is not the configured object store is refused with 422 before the handler runs; `collection` must be present (400); a `document_type` outside `DOCUMENT_TYPE_TAGS` is a 422. The durable queue's worker checks the URLs once more when it reads the row back; nothing else does. Every request to one of them, the download (`DeferredObjectDownload`) and the thumbnail upload, goes to the URL rebuilt on the configured endpoint's origin (`object_store_request_url`): only the object's path and its presigned query come from the caller, never the host it names
 2. With a `document_id`, looks for a live job under the dispatch key (sha256 of `document_id` and the object path of `file_ref`), under a per-key lock on this replica, and answers with that job's id when one exists
 3. Otherwise submits to the active ingestor: `ingestor.submit_job([DeferredObjectDownload(file_ref)], collection, config={cleanup_files: True, original_filenames: [...], ...})`. `original_filenames` is `file_name` when the BFF stated one and the URL basename otherwise; it becomes each chunk's `file_name` metadata. A rendition goes in as `extraction_paths: [DeferredObjectDownload(extraction_ref, suffix=".pdf")]`, positional like `original_filenames`, so the chunks are read from the PDF and still carry the original's name (`Bericht.docx`). `DeferredObjectDownload`'s `repr` is `<deferred object download>`: no presigned URL is logged or visible in the job config
 4. Returns `{ job_id, status: 'pending', document_id }` (202) and fetches nothing itself. An office original with `preview_ref` and no `extraction_ref` (a spreadsheet) gets the rendition as the job's second deferred download (`preview_paths`), drawn into its thumbnail only after the screen passes (ADR-0086)
@@ -307,6 +313,104 @@ Three things change for an uploaded image.
   `[IMAGE from page N]` marker (`_strip_visual_marker`). The marker is for
   retrieval, which cites a page. People read the summary, so it starts with the
   description.
+- **Photo facts.** The EXIF of the original image is read before the JPEG
+  re-encode drops it (`photo_facts.read_photo_facts`) and stored as
+  `document_metadata.capture`: `captured_at`, `latitude`, `longitude`,
+  `camera`. People who may open the file see it. `latitude` and `longitude`
+  never reach a model; `captured_at` (as a date) and `camera` may. A re-ingest
+  writes `capture` again from the new bytes. `captured_at` also feeds the
+  `document_date` payload field, where the title block's `revision_date` wins
+  when both exist (`_document_date` in `qdrant/payload.py`).
+
+A project document's Dokumentart is its type tag (`DOCUMENT_TYPE_TAGS` in
+`aiq_agent/knowledge/document_classification.py`, mirrored in
+`lib/documents/tag-vocabulary.ts`, both held to one order by
+`tests/test_tag_vocabulary_parity.py`), not `doc_class`, which classifies the
+base corpus. A letter or an e-mail is `correspondence` (an E-Mail-Verlauf is
+one), minutes are `Sonstiges`. `correspondence` is the first type stored as an
+English token: a person reads it through i18n (`files.documentTag`, via
+`tagLabel`), and every surface that shows, counts, filters or searches tags goes
+through that label. The older types are still stored as German words and read as
+themselves until their rename.
+
+**A type chosen at filing.** Whoever files a file can say what it is:
+`ShelfUploadInput.documentType` (a `DocumentTypeTag`), which the dispatch sends
+as `document_type` on `POST /v1/ingest`, through the office-rendition job
+payload too. The route refuses a value outside `DOCUMENT_TYPE_TAGS` (422) and
+copies it into the job config. The job then treats it as a field a person set,
+beside `_read_human_set_fields`:
+
+| Step | What happens |
+|---|---|
+| after classification (`_chosen_document_type`, `_with_document_type`) | the chosen type replaces every type tag the classifier or the photo rule read, and leads; the discipline tags stay, up to `MAX_TAGS`. The permit check and the Fassung reading see this list |
+| after the summary row is written (`_keep_chosen_document_type`) | the list is stored with `set_document_tags_by_person`, so `tags_set_by = 'person'`. When the row already holds a person's tags (a re-upload, or tags carried from another spelling), those are the base and only their type is replaced |
+| every later read („Erneut lesen", a reindex) | no dispatch carries the choice again, and none needs to: `register` keeps a person's tags, so the classifier never overwrites the type. A person's later edit in the tag editor replaces it like any tag |
+
+The marker is the store's one person flag, so it also keeps the row's topics, as
+a person's edit in the tag editor does. The same bytes already filed
+(`unchanged`) never store the choice: nothing is dispatched.
+
+**A held file keeps it.** A file the screening holds (ADR-0086) stops at the
+verdict, before anything is stored, so its reading never stores the choice. The
+dispatch therefore records what it carried on the BFF row, beside the job id and
+the digest of the bytes that job reads: `documents.metadata.filingChoice`
+(`{documentType?, revisionOfId?}`, `setDocumentIngestJob`). The Fassung is the
+older document's id, never its name. The reviewer's release
+(`releaseQuarantinedDocument`) reads the choice back from the row it loaded and
+sends it again, but only while that digest is the row's (`storedFilingChoice`,
+`lib/documents/filing-choice.ts`); the id is first resolved again
+(`resolveReleasedRevisionOf`: active, past screening, same shelf and
+collection), `revision_of` carries the older file's name as it is then, and a
+choice that no longer resolves is dropped. Every later dispatch
+rewrites the metadata, and one that carries no choice (a re-index, a placement
+move) drops it: were a re-index to send the type again, it would overwrite a
+person's later edit in the tag editor, since the job treats it as the newest
+choice. A file stranded at `processing` on the rendition path still carries its
+choice in the queued job's payload, not on the row.
+
+**A filed mail (ADR-0134).** A conversation a person files from a project's
+E-Mail-Eingang is one document, the E-Mail-Verlauf: the BFF renders it as
+Markdown with one `##` section per message (`lib/mail-thread/render.ts`) and
+dispatches it with `mail_thread`; every attachment the person files is its own
+document and is dispatched with `mail_origin`. Both models refuse any key they
+do not know (`extra="forbid"`), an address as a name, a trust outside
+`SENDER_TRUSTS` and a time without an offset (422), and the two together. The
+job does three things with them:
+
+| Step | What happens |
+|---|---|
+| chunking | nothing new: a `.md` is cut by `text_formats.markdown_documents`, one section per ATX heading, cited by its heading (`clause_id`), so each message is one passage and a quote (`### Zitat in der Nachricht von …`) is cited under the message that kept it. A body line that looks like a heading was escaped by the renderer and stays inside its real sender's section |
+| stamping (`_stamp_chunk_metadata`) | `mail_thread` puts `source_format: mail` on every chunk (excluded from the embedding and the LLM header, indexed as a keyword). `norm_registry.lane_for_hit` reads it after the stated author and before the doc_class: `project_mail` on a project, `office_mail` on the Büroablage, label „E-Mail“, the shelf's kind. A mail from `ma37.wien.gv.at` never reaches the authority lane. The grounding block states it as `Format: mail — E-Mail` (ADR-0061), so a replayed turn places it the same way |
+| after the summary row (`_store_mail_facts`) | `mail_thread` and `mail_origin` land on the row through `aiq_agent.knowledge.mail_facts`, which keeps no address. The Verlauf's `latest_sent_at` is its `document_date` in the payload; an attachment keeps its own date (the day it was mailed is where it came from, not when it was written). A re-upload of the name without them clears both |
+
+`list_files` prints a Verlauf as `E-Mail-Verlauf · 5 E-Mails, zuletzt
+14.05.2026` and an attachment as `kam mit der E-Mail vom 04.05.2026 08:30 von
+Ing. Paul Gruber (verkehrsplanung-gruber.at)`; `read_passage` opens an
+attachment's read with the same line. The domain in brackets is the signing
+domain only when the sender was verified (`member_verified`,
+`external_verified`); every other sender's From domain carries „Domain nicht
+bestätigt“ (an archive entry's „aus dem Outlook-Archiv“), the words of the
+Verlauf's own headings, in the thread's locale. So Piloti attributes a statement
+to its mail and never presents an unconfirmed sender as the Behörde. The
+original `.eml` is never dispatched.
+
+The filing job sets both through the upload path (`ShelfUploadInput.mailThread`,
+`.mailOrigin`, from `lib/mail-thread/ingest-facts.ts`), and every dispatch that
+carries one records it with the filing choice (`documents.metadata.filingChoice`,
+`lib/documents/filing-choice.ts`), as it does `documentType`. So a Verlauf the
+content screening holds (the full text of a mail) keeps its lane and its date
+through the reviewer's release, and a held attachment keeps its „kam mit der
+E-Mail …“ line: the release re-dispatch reads the record back from the row,
+parsed as the backend parses it, so a record that no longer fits is no record
+rather than a 422. An office file's conversion job carries both the same way
+(`office_rendition` payload). `ingest-mail-contract.spec.ts` pins both keys and
+both models' fields against `requests.py`.
+
+`PATCH /api/documents/[id]/tags` (`document-tags-update`) cannot do this job:
+it needs the metadata row, which only the ingest job writes, and a type set
+before that job ran would be overwritten by its own classification.
+`ingest-document-type-contract.spec.ts` pins the key and the vocabulary across
+the BFF and the backend.
 
 ### A re-upload replaces the previous version once it has indexed
 

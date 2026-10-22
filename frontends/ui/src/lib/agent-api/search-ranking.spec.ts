@@ -55,6 +55,12 @@ const FOUND_IN_THE_FIRST_THREE: ReadonlyArray<readonly [string, string]> = [
   ['undo deleting a document', 'document-restore'],
   ['create a task', 'task-create'],
   ['open points of the project', 'project-annotation-list'],
+  // The project's mail (ADR-0134): what waits, filing it, the address it comes to.
+  ['incoming email', 'inbound-mail-list'],
+  ['file email attachment', 'inbound-mail-file'],
+  ['project email address', 'inbound-mail-address-get'],
+  ['E-Mail-Anhang ablegen', 'inbound-mail-file'],
+  ['email thread of the project', 'mail-thread-list'],
 ]
 
 describe('search-operations for the requests agents typed', () => {

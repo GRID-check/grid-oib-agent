@@ -710,66 +710,6 @@
    "withheld": null,
    "reason": "its `sensitivity` widens access, touches a secret or turns a control down: an outside agent sees it only under the organization’s opt-in and the step-up scope, and accepting a card Piloti worded is not the confirmation it needs"
   },
-  "mail-import-cancel": {
-   "kind": "catalog",
-   "domain": "documents",
-   "sensitivity": null,
-   "external": true,
-   "piloti": true,
-   "platform": false,
-   "withheld": null,
-   "reason": null
-  },
-  "mail-import-complete": {
-   "kind": "catalog",
-   "domain": "documents",
-   "sensitivity": null,
-   "external": true,
-   "piloti": true,
-   "platform": false,
-   "withheld": null,
-   "reason": null
-  },
-  "mail-import-get": {
-   "kind": "catalog",
-   "domain": "documents",
-   "sensitivity": null,
-   "external": true,
-   "piloti": true,
-   "platform": false,
-   "withheld": null,
-   "reason": null
-  },
-  "mail-import-list": {
-   "kind": "catalog",
-   "domain": "documents",
-   "sensitivity": null,
-   "external": true,
-   "piloti": true,
-   "platform": false,
-   "withheld": null,
-   "reason": null
-  },
-  "mail-import-part-upload": {
-   "kind": "catalog",
-   "domain": "documents",
-   "sensitivity": null,
-   "external": true,
-   "piloti": true,
-   "platform": false,
-   "withheld": null,
-   "reason": null
-  },
-  "mail-import-start": {
-   "kind": "catalog",
-   "domain": "documents",
-   "sensitivity": null,
-   "external": true,
-   "piloti": true,
-   "platform": false,
-   "withheld": null,
-   "reason": null
-  },
   "project-upload-list": {
    "kind": "catalog",
    "domain": "documents",
@@ -1053,6 +993,232 @@
   "root-sort-run-undo": {
    "kind": "catalog",
    "domain": "folders",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "inbound-mail-address-create": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "inbound-mail-address-delete": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "inbound-mail-address-get": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "inbound-mail-address-rotate": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "inbound-mail-dismiss": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "inbound-mail-file": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "inbound-mail-get": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "inbound-mail-list": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "inbound-mail-original-get": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": false,
+   "piloti": false,
+   "platform": false,
+   "withheld": {
+    "category": "evidence",
+    "reason": "the original message as received, kept as proof of what was sent; no model reads it, a person downloads it in the app"
+   },
+   "reason": null
+  },
+  "inbound-mail-part-content-get": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": false,
+   "platform": false,
+   "withheld": null,
+   "reason": "held mail is unconfirmed third-party content nobody has filed yet; Piloti reads it once a person filed it into the project"
+  },
+  "inbound-mail-restore": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "inbound-mail-text-get": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": false,
+   "platform": false,
+   "withheld": null,
+   "reason": "held mail is unconfirmed third-party content nobody has filed yet; Piloti reads it once a person filed it into the project"
+  },
+  "mail-import-cancel": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "mail-import-complete": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": false,
+   "platform": false,
+   "withheld": null,
+   "reason": "Piloti holds no Outlook archive: the bytes come from the person’s disk, and a part is larger than any proposal a person can read"
+  },
+  "mail-import-get": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "mail-import-list": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "mail-import-part-upload": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": false,
+   "platform": false,
+   "withheld": null,
+   "reason": "Piloti holds no Outlook archive: the bytes come from the person’s disk, and a part is larger than any proposal a person can read"
+  },
+  "mail-import-start": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": false,
+   "platform": false,
+   "withheld": null,
+   "reason": "Piloti holds no Outlook archive: the bytes come from the person’s disk, and a part is larger than any proposal a person can read"
+  },
+  "mail-thread-entry-detach": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "mail-thread-entry-original-get": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": false,
+   "piloti": false,
+   "platform": false,
+   "withheld": {
+    "category": "evidence",
+    "reason": "a filed message as received, kept as proof of what was sent; no model reads it, a person downloads it in the app"
+   },
+   "reason": null
+  },
+  "mail-thread-get": {
+   "kind": "catalog",
+   "domain": "mail",
+   "sensitivity": null,
+   "external": true,
+   "piloti": true,
+   "platform": false,
+   "withheld": null,
+   "reason": null
+  },
+  "mail-thread-list": {
+   "kind": "catalog",
+   "domain": "mail",
    "sensitivity": null,
    "external": true,
    "piloti": true,

@@ -1,7 +1,8 @@
 /**
  * The work starts a reading (ADR-0111): a completed upload batch on a project
  * whose intake is not finished queues a BFF job, `project_intake_read`, that
- * starts one as the uploader. `settleUploadBatches` is where "these documents
+ * starts one as the uploader, unless the batch was opened with `startsIntake`
+ * off. `settleUploadBatches` is where "these documents
  * are read" first becomes true on the server, so it calls here.
  *
  * Only an uploader who may write the profile (`project:memory:write` or
@@ -53,15 +54,16 @@ export async function enqueueIntakeRead(organizationId: string, projectId: strin
 
 /**
  * After these batches completed: one reading per project with an open intake,
- * as the uploader of the first of its batches. The projects queued.
+ * as the uploader of the first of its batches that starts one. A batch opened
+ * with `startsIntake` off (migration 0185) starts none. The projects queued.
  */
 export async function queueIntakeReadsAfterUpload(
   organizationId: string,
-  completed: readonly Pick<UploadBatch, 'scope' | 'projectId' | 'createdBy'>[]
+  completed: readonly Pick<UploadBatch, 'scope' | 'projectId' | 'createdBy' | 'startsIntake'>[]
 ): Promise<string[]> {
   const uploaderOf = new Map<string, string>()
   for (const batch of completed) {
-    if (batch.scope !== 'project' || !batch.projectId || uploaderOf.has(batch.projectId)) continue
+    if (!batch.startsIntake || batch.scope !== 'project' || !batch.projectId || uploaderOf.has(batch.projectId)) continue
     uploaderOf.set(batch.projectId, batch.createdBy)
   }
   if (uploaderOf.size === 0) return []

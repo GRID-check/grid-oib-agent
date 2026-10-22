@@ -307,6 +307,66 @@
         },
         "bytesReadable": {
           "type": "boolean"
+        },
+        "mailOrigins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "threadId": {
+                "type": "string"
+              },
+              "entryId": {
+                "type": "string"
+              },
+              "sentAt": {
+                "type": "string"
+              },
+              "receivedAt": {
+                "type": "string"
+              },
+              "fromName": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "signerDomain": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "senderTrust": {
+                "type": "string",
+                "enum": [
+                  "member_verified",
+                  "member_unverified",
+                  "external_verified",
+                  "external_unverified",
+                  "not_checked"
+                ]
+              }
+            },
+            "required": [
+              "threadId",
+              "entryId",
+              "sentAt",
+              "receivedAt",
+              "fromName",
+              "signerDomain",
+              "senderTrust"
+            ],
+            "additionalProperties": true
+          }
         }
       },
       "required": [
@@ -512,6 +572,66 @@
               },
               "bytesReadable": {
                 "type": "boolean"
+              },
+              "mailOrigins": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "threadId": {
+                      "type": "string"
+                    },
+                    "entryId": {
+                      "type": "string"
+                    },
+                    "sentAt": {
+                      "type": "string"
+                    },
+                    "receivedAt": {
+                      "type": "string"
+                    },
+                    "fromName": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "signerDomain": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "senderTrust": {
+                      "type": "string",
+                      "enum": [
+                        "member_verified",
+                        "member_unverified",
+                        "external_verified",
+                        "external_unverified",
+                        "not_checked"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "threadId",
+                    "entryId",
+                    "sentAt",
+                    "receivedAt",
+                    "fromName",
+                    "signerDomain",
+                    "senderTrust"
+                  ],
+                  "additionalProperties": true
+                }
               }
             },
             "required": [
@@ -730,6 +850,66 @@
             },
             "bytesReadable": {
               "type": "boolean"
+            },
+            "mailOrigins": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "threadId": {
+                    "type": "string"
+                  },
+                  "entryId": {
+                    "type": "string"
+                  },
+                  "sentAt": {
+                    "type": "string"
+                  },
+                  "receivedAt": {
+                    "type": "string"
+                  },
+                  "fromName": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "signerDomain": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "senderTrust": {
+                    "type": "string",
+                    "enum": [
+                      "member_verified",
+                      "member_unverified",
+                      "external_verified",
+                      "external_unverified",
+                      "not_checked"
+                    ]
+                  }
+                },
+                "required": [
+                  "threadId",
+                  "entryId",
+                  "sentAt",
+                  "receivedAt",
+                  "fromName",
+                  "signerDomain",
+                  "senderTrust"
+                ],
+                "additionalProperties": true
+              }
             }
           },
           "required": [

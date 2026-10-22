@@ -93,6 +93,13 @@ describe('PilotiReading', () => {
       expect(screen.getByText('Brandschutz')).not.toHaveAttribute('data-testid')
     })
 
+    it('names a type stored as a token by its label', () => {
+      render(<PilotiReading file={fileFixture({ tags: ['correspondence', 'Brandschutz'] })} canManage />)
+
+      expect(screen.getByTestId('piloti-reading-type')).toHaveTextContent('Correspondence')
+      expect(screen.queryByText('correspondence')).toBeNull()
+    })
+
     it('shows the chips as static text, with no remove affordance', () => {
       render(<PilotiReading file={fileFixture({ tags: ['Grundriss', 'Brandschutz'] })} canManage />)
 

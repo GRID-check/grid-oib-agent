@@ -18,9 +18,14 @@
     "noUnusedLocals": true
   },
   "files": [
-    "index.ts"
+    "index.ts",
+    "scripts/inbound-mail-smoke.ts"
   ],
   "include": [
     "src/**/*.ts"
+  ],
+  // Checked against the Workers runtime types instead (tsconfig.worker.json).
+  "exclude": [
+    "src/platform/inbound-mail-worker.spec.ts"
   ]
 }

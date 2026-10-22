@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTranslations } from '@/i18n'
-import { DISCIPLINE_TAGS, DOCUMENT_TYPE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
+import { DISCIPLINE_TAGS, DOCUMENT_TYPE_TAGS, MAX_TAGS, tagLabel } from '@/lib/documents/tag-vocabulary'
 
 /** Every tag a user may assign, in vocabulary order (Dokumenttyp then Fachbereich). */
 const ALL_VOCABULARY_TAGS: readonly string[] = [...DOCUMENT_TYPE_TAGS, ...DISCIPLINE_TAGS]
@@ -104,22 +104,25 @@ export function DocumentTagsEditor({
     [persist, tags]
   )
 
+  /** What a person reads for a tag: a token (`correspondence`) is matched and shown by its label. */
+  const labelOf = useCallback((tag: string) => tagLabel(tag, t), [t])
+
   // Vocabulary entries still assignable, narrowed by the typed query.
   const suggestions = useMemo(() => {
     const q = input.trim().toLowerCase()
     const available = ALL_VOCABULARY_TAGS.filter((tag) => !tags.includes(tag))
-    return q ? available.filter((tag) => tag.toLowerCase().includes(q)) : available
-  }, [input, tags])
+    return q ? available.filter((tag) => labelOf(tag).toLowerCase().includes(q)) : available
+  }, [input, tags, labelOf])
 
   /** Resolve the free-typed input to a canonical vocabulary entry, if any. */
   const resolveInput = useCallback((): string | null => {
     const q = input.trim().toLowerCase()
     if (!q) return null
-    const exact = ALL_VOCABULARY_TAGS.find((tag) => tag.toLowerCase() === q)
+    const exact = ALL_VOCABULARY_TAGS.find((tag) => labelOf(tag).toLowerCase() === q)
     if (exact && !tags.includes(exact)) return exact
     // A query narrowing to exactly one candidate is unambiguous — accept it.
     return suggestions.length === 1 ? suggestions[0] : null
-  }, [input, suggestions, tags])
+  }, [input, suggestions, tags, labelOf])
 
   const atCap = tags.length >= MAX_TAGS
   const showNoMatchHint = isEditing && input.trim() !== '' && suggestions.length === 0
@@ -133,13 +136,13 @@ export function DocumentTagsEditor({
             key={tag}
             className="bg-muted text-muted-foreground inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium"
           >
-            {tag}
+            {labelOf(tag)}
             {!readOnly && (
               <button
                 type="button"
                 onClick={() => removeTag(tag)}
                 disabled={isSaving}
-                aria-label={t('preview.removeTag', { tag })}
+                aria-label={t('preview.removeTag', { tag: labelOf(tag) })}
                 className="duration-snap hover:bg-accent hover:text-foreground focus-visible:ring-ring touch-target -mr-0.5 rounded-sm p-0.5 transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50 motion-reduce:transition-none"
               >
                 <X className="size-3" aria-hidden />
@@ -226,7 +229,7 @@ export function DocumentTagsEditor({
               // flex-wrap row, so catchments would land on each other.
               className="border-border text-muted-foreground duration-snap hover:bg-muted hover:text-foreground focus-visible:ring-ring pointer-coarse:min-h-11 pointer-coarse:px-3.5 inline-flex items-center rounded-md border bg-transparent px-2 py-0.5 text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50 motion-reduce:transition-none"
             >
-              {tag}
+              {labelOf(tag)}
             </button>
           ))}
         </div>

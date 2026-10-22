@@ -377,6 +377,154 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
     )
   })
 
+  /**
+   * The E-Mail-Eingang and the E-Mail-Verlauf (migration 0186, ADR-0134), as
+   * the runtime role: each tenant sees its own mail, threads and follows, and
+   * the database refuses every way of filing mail without a person's decision.
+   * `scripts/rls-test-db.sh` proves each of 0186's refusals as the owner; this
+   * proves the ones the review-first promise rests on through the app's own
+   * connection (DECISION §10, ratchet 1).
+   */
+  it('keeps inbound mail inside its tenant, and refuses a filing no person decided', async () => {
+    // People are WorkOS user ids: 0186 refuses every other shape.
+    const person = (org: string) => `user_01J0TENANT${org === ORG_A ? 'A' : 'B'}${'0'.repeat(15)}`
+    type Seeded = { project: string; mail: string; text: string; file: string; thread: string; follow: string }
+    const seeded = new Map<string, Seeded>()
+    for (const org of [ORG_A, ORG_B]) {
+      const rows = await withTenant({ organizationId: org, userId: person(org) }, async (): Promise<Seeded> => {
+        const [project] = await db.execute(sql`select id from projects where organization_id = ${org} limit 1`)
+        const projectId = String(project.id)
+        const token = org === ORG_A ? 'aaaaaaaaaaa2' : 'bbbbbbbbbbb2'
+        const [address] = await db.execute(
+          sql`insert into inbound_mail_addresses (organization_id, project_id, token, created_by)
+              values (${org}, ${projectId}, ${token}, ${person(org)}) returning id`
+        )
+        const [thread] = await db.execute(
+          sql`insert into mail_threads (organization_id, project_id, base_subject, locale, created_by)
+              values (${org}, ${projectId}, 'Statik', 'de', ${person(org)}) returning id`
+        )
+        const [follow] = await db.execute(
+          sql`insert into mail_thread_follows (organization_id, project_id, thread_id, user_id, expires_at)
+              values (${org}, ${projectId}, ${thread.id}, ${person(org)}, now() + interval '60 days') returning id`
+        )
+        const [mail] = await db.execute(
+          sql`insert into inbound_mails (organization_id, project_id, address_id, status, delivery_key, raw_size_bytes,
+                                         staging_bucket, raw_scan_status, raw_scanned_at, sender_address, sender_trust, sender_reason, expires_at)
+              values (${org}, ${projectId}, ${address.id}, 'waiting', ${'e'.repeat(64)}, 100, 'grid-documents', 'clean', now(),
+                      'huber@statik.at', 'external_verified', 'dkim_pass', now() + interval '30 days') returning id`
+        )
+        const [text] = await db.execute(
+          sql`insert into inbound_mail_parts (organization_id, project_id, mail_id, position, kind, content_type, size_bytes, sha256, scan_status)
+              values (${org}, ${projectId}, ${mail.id}, 0, 'message', 'text/plain', 10, ${'a'.repeat(64)}, 'not_applicable') returning id`
+        )
+        const key = `org/${org}/project/${projectId}/_inbound-mail/${mail.id}/1`
+        const [file] = await db.execute(
+          sql`insert into inbound_mail_parts (organization_id, project_id, mail_id, position, kind, filename, content_type, size_bytes, sha256, storage_key, scan_status)
+              values (${org}, ${projectId}, ${mail.id}, 1, 'attachment', 'S-101.pdf', 'application/pdf', 10, ${'b'.repeat(64)}, ${key}, 'pending') returning id`
+        )
+        return {
+          project: projectId,
+          mail: String(mail.id),
+          text: String(text.id),
+          file: String(file.id),
+          thread: String(thread.id),
+          follow: String(follow.id),
+        }
+      })
+      seeded.set(org, rows)
+    }
+    const a = seeded.get(ORG_A)!
+    const b = seeded.get(ORG_B)!
+    const inA = <T,>(run: () => Promise<T>) => withTenant({ organizationId: ORG_A, userId: person(ORG_A) }, run)
+    /** A refusal's rule: a CHECK names it in the message, a trigger in the error's constraint field. */
+    const refusedBy = async (run: () => Promise<unknown>) => {
+      const cause = (await rejectionCause(() => inA(run))) as Error & { constraint_name?: string }
+      return `${cause.constraint_name ?? ''} ${cause.message}`
+    }
+
+    for (const table of ['inbound_mail_addresses', 'inbound_mails', 'inbound_mail_parts', 'mail_threads', 'mail_thread_follows']) {
+      const seen = await inA(() => db.execute(sql.raw(`select distinct organization_id from "${table}"`)))
+      expect([...seen].map((row) => row.organization_id), table).toEqual([ORG_A])
+    }
+
+    // No system actor decides (RT-S7).
+    expect(
+      await refusedBy(() =>
+        db.execute(
+          sql`insert into inbound_mail_decisions (organization_id, project_id, mail_id, part_id, action, decided_by, folder_path)
+              values (${ORG_A}, ${a.project}, ${a.mail}, ${a.file}, 'file', 'system:inbound_mail', 'Statik')`
+        )
+      )
+    ).toMatch(/inbound_mail_decisions_decider_is_person/)
+    // A Piloti card carries no acknowledgement (RT-S5).
+    expect(
+      await refusedBy(() =>
+        db.execute(
+          sql`insert into inbound_mail_decisions (organization_id, project_id, mail_id, part_id, action, decided_by, via, proposal_id, folder_path, acknowledged_risk)
+              values (${ORG_A}, ${a.project}, ${a.mail}, ${a.file}, 'file', ${person(ORG_A)}, 'piloti_proposal', gen_random_uuid(), 'Statik', true)`
+        )
+      )
+    ).toMatch(/inbound_mail_decisions_piloti_cards_file_clean/)
+    // A follow decision is the follower's own (D31).
+    expect(
+      await refusedBy(() =>
+        db.execute(
+          sql`insert into inbound_mail_decisions (organization_id, project_id, mail_id, part_id, action, decided_by, via, follow_id, thread_action, mail_thread_id, message_text)
+              values (${ORG_A}, ${a.project}, ${a.mail}, ${a.text}, 'file', ${person(ORG_B)}, 'follow', ${a.follow}, 'append', ${a.thread}, 'full')`
+        )
+      )
+    ).toMatch(/inbound_mail_decisions_follower_fkey/)
+    // A part is filed only on a person's file decision about it, and only once it scanned clean.
+    expect(
+      await refusedBy(() =>
+        db.execute(
+          sql`update inbound_mail_parts set state = 'filing', claim_expires_at = now() + interval '5 minutes' where id = ${a.file}`
+        )
+      )
+    ).toMatch(/inbound_mail_parts_decision_iff_filing/)
+    const decide = (action: 'file' | 'dismiss') =>
+      inA(() =>
+        db.execute(
+          sql`insert into inbound_mail_decisions (organization_id, project_id, mail_id, part_id, action, decided_by, folder_path)
+              values (${ORG_A}, ${a.project}, ${a.mail}, ${a.file}, ${action}, ${person(ORG_A)}, ${action === 'file' ? 'Statik' : null})
+              returning id`
+        )
+      )
+    const claim = (decisionId: unknown) =>
+      db.execute(
+        sql`update inbound_mail_parts set state = 'filing', decision_id = ${decisionId}, claim_expires_at = now() + interval '5 minutes'
+            where id = ${a.file}`
+      )
+    const [dismissal] = await decide('dismiss')
+    expect(await refusedBy(() => claim(dismissal.id))).toMatch(/inbound_mail_parts_decision_files/)
+    const [filing] = await decide('file')
+    expect(await refusedBy(() => claim(filing.id))).toMatch(/inbound_mail_parts_filed_is_clean/)
+    // Nobody is shown a mail whose raw message was not scanned (RT-S3).
+    expect(
+      await refusedBy(() =>
+        db.execute(sql`update inbound_mails set raw_scan_status = 'pending', raw_scanned_at = null where id = ${a.mail}`)
+      )
+    ).toMatch(/inbound_mails_waiting_is_scanned/)
+    // A decision is append-only, and no tenant session deletes mail or a decision.
+    expect(
+      await refusedBy(() => db.execute(sql`update inbound_mail_decisions set folder_path = 'Anderswo' where id = ${filing.id}`))
+    ).toMatch(/inbound_mail_decisions_immutable/)
+    expect(await refusedBy(() => db.execute(sql`delete from inbound_mails where id = ${a.mail}`))).toMatch(/permission denied/)
+    expect(await refusedBy(() => db.execute(sql`delete from inbound_mail_decisions where id = ${filing.id}`))).toMatch(
+      /permission denied/
+    )
+    // Writing into the other tenant is refused by the policy.
+    expect(
+      await refusedBy(() =>
+        db.execute(
+          sql`insert into mail_thread_follows (organization_id, project_id, thread_id, user_id, expires_at)
+              values (${ORG_B}, ${b.project}, ${b.thread}, ${person(ORG_A)}, now() + interval '1 day')`
+        )
+      )
+    ).toMatch(/row-level security/)
+    // afterAll deletes the projects, which cascades through all eight tables.
+  })
+
   it('updates and deletes nothing in another tenant', async () => {
     await withTenant({ organizationId: ORG_A }, async () => {
       await db.execute(sql`update projects set name = 'overwritten' where organization_id = ${ORG_B}`)

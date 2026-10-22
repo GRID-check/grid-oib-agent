@@ -4,13 +4,12 @@
  * No `'server-only'`: the inbox list, the badge and the row renderer are client
  * components and import these directly.
  *
- * **The extensibility contract lives here.** A new notification type needs:
- *   1. a member added to `INBOX_ITEM_TYPES` (in the schema module),
- *   2. an entry in `INBOX_TYPE_PRESENTATION` below,
- *   3. the two translation keys it names.
+ * A new notification type needs, among other steps, an entry in
+ * `INBOX_TYPE_PRESENTATION` below; the full list is in
+ * docs/architecture/adding-a-shareable-resource-type.md#adding-an-inbox-item-type.
  * No schema change, no new component — the generic row renders every registered
  * type from its entry. `Record<InboxItemType, …>` makes the map exhaustive, so
- * `tsc` fails until step 2 is done.
+ * `tsc` fails until it has the entry.
  */
 
 import type { InboxItemType, InboxTargetType, ShareableResourceType } from '@/lib/db/schema'
@@ -256,6 +255,7 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
   'annotation.mentioned': { icon: 'at-sign', i18nKey: 'annotationMentioned', tone: 'request', anchor: 'mark' },
   'root_sort.ready': { icon: 'check-circle', i18nKey: 'rootSortReady', tone: 'info' },
   'root_sort.failed': { icon: 'alert-triangle', i18nKey: 'rootSortFailed', tone: 'warning' },
+  'inbound_mail.waiting': { icon: 'clock', i18nKey: 'inboundMailWaiting', tone: 'request' },
 }
 
 /**

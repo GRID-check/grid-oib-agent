@@ -86,9 +86,20 @@ SCORE_DEFINITIONS: tuple[ScoreDefinition, ...] = (
         "piloti-decision",
         "CATEGORICAL",
         "A person's decision on something Piloti produced in this turn: a proposal or a proposed mark taken "
-        "over (accepted) or dismissed, an applied change undone. Metadata names the subject and its id.",
+        "over (accepted) or dismissed, an applied change undone, a held mail's part filed where Piloti "
+        "suggested (accepted) or not (dismissed). Metadata names the subject and its id.",
         writer="bff",
         categories=("accepted", "dismissed", "undone"),
+    ),
+    ScoreDefinition(
+        "mail-thread-match",
+        "CATEGORICAL",
+        "What a person did with the E-Mail-Verlauf a held mail matched (ADR-0134): appended it to the strongest "
+        "match (followed), to another Verlauf (other_thread), or started a new one (new_thread). One per decided "
+        "mail text with a match; a follow's append is followed with metadata via follow. The precision of "
+        "thread matching, by strength and sender trust.",
+        writer="bff",
+        categories=("followed", "other_thread", "new_thread"),
     ),
     ScoreDefinition(
         "revision-notice",

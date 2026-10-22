@@ -772,6 +772,18 @@ export const collaboration: typeof en.collaboration = {
           },
         },
       },
+      inboundMailWaiting: {
+        titleOne: 'Eine E-Mail an „{subject}“ wartet auf Ablage',
+        titleMany: '{count} E-Mails an „{subject}“ warten auf Ablage',
+        title: 'E-Mails an „{subject}“ warten auf Ablage',
+        body: 'Nichts davon ist im Projekt, bis jemand es ablegt.',
+        variants: {
+          // Domain nicht bestätigt, oder automatisch versandt (Newsletter, Liste).
+          unconfirmed: {
+            body: 'Darunter E-Mails, deren Domain nicht bestätigt ist oder die automatisch versandt wurden.',
+          },
+        },
+      },
       rootSortFailed: {
         title: 'Die Sortierung von „{subject}“ wurde abgebrochen',
         body: 'Was bis dahin verschoben wurde, bleibt. Öffnen Sie die Dateien, um den Grund zu sehen.',

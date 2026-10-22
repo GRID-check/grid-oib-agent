@@ -23,7 +23,9 @@
  * stand-in with different intrinsic widths would prove nothing.
  *
  * `?variant=narrow` renders it at a laptop width, which is where the squeeze
- * appeared first. Not linked from anywhere; 404s outside development.
+ * appeared first. The E-Mail-Eingang's entry carries its muted count (three
+ * mails wait), and the upload menu offers „Per E-Mail senden …“ (ADR-0134).
+ * Not linked from anywhere; 404s outside development.
  */
 
 import type { JSX } from 'react'
@@ -58,6 +60,7 @@ function Header() {
           onViewChange={setView}
           binHref="/app/projects/dev/files/bin"
           openPointsHref="/dev/open-points"
+          inboundMail={{ href: '/dev/inbound-mail?variant=many', waiting: 3 }}
           renderFilter={(compact) => (
             <FileFilterMenu
               canCollaborate
@@ -69,7 +72,7 @@ function Header() {
             />
           )}
           search={{ value: query, onChange: setQuery, onSubmit: () => {}, onClear: () => setQuery('') }}
-          upload={phone ? undefined : <ProjectUppyUpload onUpload={() => {}} isUploading={false} allowFolders />}
+          upload={phone ? undefined : <ProjectUppyUpload onUpload={() => {}} isUploading={false} allowFolders onSendByMail={() => {}} />}
         />
       }
     />

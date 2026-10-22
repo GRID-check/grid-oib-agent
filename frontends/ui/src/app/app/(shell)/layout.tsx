@@ -66,6 +66,7 @@ export default async function AppShellLayout({
       canAccessInbox={chrome.navFlags.canAccessInbox}
       showSkills={chrome.showSkills}
       showModels={chrome.showModels}
+      inboundMail={chrome.inboundMail}
       tours={chrome.tours}
       overlay={overlay}
     >

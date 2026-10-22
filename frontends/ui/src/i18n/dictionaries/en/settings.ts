@@ -126,6 +126,9 @@ export const settings = {
       knowledgeTitle: 'Knowledge base',
       knowledgeDescription: 'What the project’s knowledge base contains, chunk by chunk.',
       knowledgeLink: 'Open knowledge base',
+      inboundMailTitle: 'Project mail address',
+      inboundMailDescription:
+        'Forward mail with documents to this address. It waits in Project mail under Files until someone files it; Piloti suggests a folder, a name and a document type for each attachment. Nothing is filed unless a person confirms it.',
     },
   },
 }

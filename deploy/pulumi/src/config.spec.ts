@@ -2,6 +2,14 @@ import { describe, it, expect } from "vitest";
 import * as pulumi from "@pulumi/pulumi";
 import { RETIRED_VECTOR_KEYS, loadConfig } from "./config";
 import { baseStackConfig } from "./test-support/stack-config";
+import {
+  APP_ZONE,
+  APP_ZONE_ID,
+  appZoneStackConfig,
+  mailStackConfig,
+  SIGNING_KEY_ID,
+  SIGNING_SECRET,
+} from "./test-support/app-zone-config";
 
 // `new pulumi.Config()` (config.ts:873) namespaces every key by the PROJECT
 // name, which the runtime reads from the mock context. Without this the keys
@@ -54,6 +62,12 @@ function loadWith(values: Record<string, string>, omit: string[] = []): Error | 
   } catch (error) {
     return error as Error;
   }
+}
+
+/** `loadWith`, for a config that loads: the resolved values. */
+function loadValues(values: Record<string, string>) {
+  pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...values });
+  return loadConfig();
 }
 
 describe("tenant bucket prefix", () => {
@@ -457,5 +471,167 @@ describe("chat tier scale-out (ADR-0080)", () => {
     // so the first socket the Service hands to the wrong replica hangs silently.
     const error = loadWith({ "grid-oib:chatAffinity": "false", "grid-oib:conversationBus": "false" });
     expect(error?.message).toMatch(/needs grid-oib:conversationBus=true/);
+  });
+});
+
+/**
+ * The malware scanner (ADR-0133). Off by default; on, it runs an image that
+ * parses every hostile file strangers send, so the image is a digest, and the
+ * URL the BFF gets is always this stack's own clamd.
+ */
+describe("malwareScan", () => {
+  function cfgWith(values: Record<string, string>) {
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...values });
+    return loadConfig();
+  }
+
+  it("is off by default, on a digest-pinned image", () => {
+    const { malwareScan } = cfgWith({});
+    expect(malwareScan.enabled).toBe(false);
+    expect(malwareScan.image).toMatch(/^clamav\/clamav:1\.\d+\.\d+@sha256:[0-9a-f]{64}$/);
+  });
+
+  it("switches on per stack", () => {
+    expect(cfgWith({ "grid-oib:malwareScanEnabled": "true" }).malwareScan.enabled).toBe(true);
+  });
+
+  it.each(["clamav/clamav:1.5.4", "clamav/clamav:latest", "clamav/clamav@sha256:abc"])(
+    "refuses an image without a full digest: %s",
+    (image) => {
+      expect(loadWith({ "grid-oib:malwareScanImage": image })?.message).toMatch(/malwareScanImage .* pin it by digest/);
+    },
+  );
+
+  it.each(["fake://", "fake:", "tcp://clamd.elsewhere:3310"])(
+    "refuses a scanner URL on any stack, the development fake above all: %s",
+    (url) => {
+      expect(loadWith({ "grid-oib:malwareScanUrl": url })?.message).toMatch(/malwareScanUrl .* is refused/);
+    },
+  );
+});
+
+describe("project mail (ADR-0135)", () => {
+  const mail = {
+    ...mailStackConfig(),
+    "grid-oib:inboundMailDomain": "post.example.test",
+    "grid-oib:inboundMailZoneId": "zone-mail-1",
+  };
+  const keys = (map: Record<string, unknown>) => ({ ...mail, "grid-oib:inboundMailSigningKeys": JSON.stringify(map) });
+
+  it("is off, and asks for nothing, while the domain is unset", () => {
+    expect(loadWith({})).toBeNull();
+    const values = loadValues({}).inboundMail;
+    expect(values).toMatchObject({ configured: false, enabled: false, signingKeyId: "" });
+  });
+
+  it("loads with the domain, the zone, the scanner, a key and the token", () => {
+    expect(loadWith(mail)).toBeNull();
+    expect(loadValues(mail).inboundMail).toMatchObject({
+      configured: true,
+      enabled: true,
+      paused: false,
+      domain: "post.example.test",
+      signingKeyId: SIGNING_KEY_ID,
+    });
+  });
+
+  it("refuses the domain while the malware scanner is off", () => {
+    // Mail from anyone is scanned before it can be filed; without clamd every
+    // scan fails closed and nothing that arrives could ever be filed.
+    const error = loadWith({ ...mail, "grid-oib:malwareScanEnabled": "false" });
+    expect(error?.message).toMatch(/inboundMailDomain needs grid-oib:malwareScanEnabled=true/);
+  });
+
+  // A domain without a usable key map deploys a Worker whose every delivery
+  // gets a 503: the sender's server retries for days, then bounces.
+  it.each(["grid-oib:inboundMailSigningKeys", "grid-oib:cloudflareApiToken"])("refuses the domain without %s", (key) => {
+    expect(loadWith(mail, [key])?.message).toContain(key);
+  });
+
+  it.each([
+    ["not JSON", "mi-2026-10=abc", /not JSON/],
+    ["an array", "[]", /not an object/],
+    ["no keys", "{}", /it has 0/],
+    ["three keys", JSON.stringify({ a: SIGNING_SECRET, b: SIGNING_SECRET, c: SIGNING_SECRET }), /it has 3/],
+    ["a keyid with a space", JSON.stringify({ "mi 2026": SIGNING_SECRET }), /keyid "mi 2026"/],
+    ["a short secret", JSON.stringify({ k: Buffer.alloc(16, 1).toString("base64") }), /secret of "k"/],
+    ["a hex secret", JSON.stringify({ k: "ab".repeat(32) + "!" }), /secret of "k"/],
+    [
+      "the development secret",
+      JSON.stringify({ k: Buffer.from("grid-internal-dev-signing-secret").toString("base64") }),
+      /well-known development secret/,
+    ],
+  ])("refuses a key map that is %s, as the BFF would", (_label, raw, message) => {
+    const error = loadWith({ ...mail, "grid-oib:inboundMailSigningKeys": raw });
+    expect(error?.message).toMatch(message);
+    // Only key names reach a message, never a secret.
+    expect(error?.message).not.toContain(SIGNING_SECRET);
+  });
+
+  it("requires the Worker's keyid while two keys are held", () => {
+    const two = keys({ old: SIGNING_SECRET, new: Buffer.alloc(32, 3).toString("base64") });
+    expect(loadWith(two)?.message).toMatch(/inboundMailSigningKeyId must name the key/);
+    expect(loadWith({ ...two, "grid-oib:inboundMailSigningKeyId": "new" })).toBeNull();
+    expect(loadWith({ ...two, "grid-oib:inboundMailSigningKeyId": "gone" })?.message).toMatch(/got "gone"/);
+  });
+
+  it("switches off without keys, but keeps the zone checks", () => {
+    const off = { ...mail, "grid-oib:inboundMailEnabled": "false" };
+    delete (off as Record<string, string>)["grid-oib:inboundMailSigningKeys"];
+    expect(loadWith(off)).toBeNull();
+    expect(loadValues(off).inboundMail).toMatchObject({ configured: true, enabled: false });
+    expect(loadWith({ ...off, "grid-oib:inboundMailZoneId": "" }, ["grid-oib:inboundMailZoneId"])?.message).toMatch(
+      /inboundMailZoneId is required/,
+    );
+  });
+
+  it("reads the pause", () => {
+    expect(loadValues({ ...mail, "grid-oib:inboundMailPaused": "true" }).inboundMail.paused).toBe(true);
+  });
+
+  it("refuses the domain without the zone to enable routing on", () => {
+    expect(loadWith(mail, ["grid-oib:inboundMailZoneId"])?.message).toMatch(/inboundMailZoneId is required/);
+  });
+
+  it.each(["https://post.example.test", "inbox@post.example.test", "post"])("refuses %s as a domain", (domain) => {
+    expect(loadWith({ ...mail, "grid-oib:inboundMailDomain": domain })?.message).toMatch(
+      /must be a bare domain name/,
+    );
+  });
+
+  it("refuses a subdomain of the DNS zone, which the catch-all cannot cover", () => {
+    const error = loadWith({
+      ...mail,
+      "grid-oib:inboundMailDomain": "mail.example.test",
+      "grid-oib:inboundMailZoneId": "zone-dns-1",
+      "grid-oib:dnsZoneId": "zone-dns-1",
+      "grid-oib:dnsZoneName": "example.test",
+    });
+    expect(error?.message).toMatch(/is not the apex of its zone/);
+  });
+
+  it("takes the app zone when the domain is its apex and no zone is given", () => {
+    const values = { ...appZoneStackConfig(), ...mailStackConfig(), "grid-oib:inboundMailDomain": APP_ZONE };
+    expect(loadWith(values)).toBeNull();
+    expect(loadValues(values).inboundMail.zoneId).toBe(APP_ZONE_ID);
+  });
+
+  it.each([
+    ["grid-oib:dnsZoneBaseline", "false"],
+    ["grid-oib:dnsEnabled", "false"],
+  ])("refuses project mail on the app zone unless this stack owns it (%s=%s)", (key, value) => {
+    // The catch-all is one object per zone: a second stack's `up` would
+    // silently repoint it at its own Worker.
+    const error = loadWith({
+      ...appZoneStackConfig(),
+      ...mail,
+      "grid-oib:inboundMailDomain": APP_ZONE,
+      "grid-oib:inboundMailZoneId": APP_ZONE_ID,
+      // The apex-serving stack must itself be the baseline; serve a subdomain
+      // so that the only refusal left is project mail's.
+      "grid-oib:baseDomain": `www2.${APP_ZONE}`,
+      [key]: value,
+    });
+    expect(error?.message).toMatch(/inboundMailDomain on the app zone needs grid-oib:dnsEnabled/);
   });
 });

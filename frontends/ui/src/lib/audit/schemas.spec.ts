@@ -55,7 +55,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { AUDIT_ACTIONS, AUDIT_SCHEMAS, RETIRED_AUDIT_ACTIONS } from './schemas.mjs'
+import { AUDIT_ACTIONS, AUDIT_SCHEMAS, AWAITING_EMITTER_AUDIT_ACTIONS, RETIRED_AUDIT_ACTIONS } from './schemas.mjs'
 import { AUTHORED_REF_KINDS } from '@/lib/documents/document-authors'
 import { DOCUMENT_VERSION_TRANSITIONS } from '@/lib/documents/lifecycle-types'
 
@@ -144,8 +144,19 @@ describe('audit schema coverage', () => {
     // same array, so it was green for a registry containing an action no call
     // site has ever passed. `EMITTED_ACTIONS` comes from the call sites.
     const retired = new Set<string>(RETIRED_AUDIT_ACTIONS)
-    const orphans = Object.keys(REGISTRY).filter((action) => !EMITTED_ACTIONS.has(action) && !retired.has(action))
+    const awaiting = new Set<string>(AWAITING_EMITTER_AUDIT_ACTIONS)
+    const orphans = Object.keys(REGISTRY).filter(
+      (action) => !EMITTED_ACTIONS.has(action) && !retired.has(action) && !awaiting.has(action),
+    )
     expect(orphans).toEqual([])
+  })
+
+  it('takes an action off the awaiting list the moment it has an emitter, so the list only shrinks', () => {
+    // Registered ahead of their emitter while one change is assembled from
+    // several packages (schemas.mjs, `AWAITING_EMITTER_AUDIT_ACTIONS`). An entry
+    // that is emitted, or not registered, is stale: it would hide an orphan.
+    expect(AWAITING_EMITTER_AUDIT_ACTIONS.filter((action) => EMITTED_ACTIONS.has(action))).toEqual([])
+    expect(AWAITING_EMITTER_AUDIT_ACTIONS.filter((action) => !(action in REGISTRY))).toEqual([])
   })
 
   it('writes no retired action: those stay registered for history only', () => {
@@ -159,7 +170,9 @@ describe('audit schema coverage', () => {
     // EVERY schema an orphan — which fails loudly — but a scan that collects
     // every string in the repository would make every schema look emitted and
     // fail silently. Naming a handful of call sites is what tells the two apart.
-    expect(EMITTED_ACTIONS.size).toBeGreaterThanOrEqual(AUDIT_ACTIONS.length - RETIRED_AUDIT_ACTIONS.length)
+    expect(EMITTED_ACTIONS.size).toBeGreaterThanOrEqual(
+      AUDIT_ACTIONS.length - RETIRED_AUDIT_ACTIONS.length - AWAITING_EMITTER_AUDIT_ACTIONS.length,
+    )
     expect(EMITTED_ACTIONS).toContain('document.generated')
     // Picked by a ternary at one call site each, which is why the scan reads the
     // whole `action:` expression rather than a literal immediately after it.
@@ -224,6 +237,36 @@ describe('audit schema coverage', () => {
     expect(piloti.length).toBeGreaterThanOrEqual(9)
     for (const [action, schema] of piloti) {
       expect(Object.keys(schema.metadata ?? {}).filter((key) => CONTENT.test(key)), action).toEqual([])
+    }
+  })
+
+  it('keeps a stranger\'s mail out of the E-Mail-Eingang\'s trail: ids, codes, counts and flags only', () => {
+    // Anyone may write to a project's address, and the trail outlives the scrub
+    // of a settled mail (migration 0186). A key that could carry a sender, a
+    // subject, a file name, an address, a token or text is refused here, before
+    // an emitter can fill it; the receive job's PII canary checks the values.
+    const PERSONAL = /body|content|text|note|title|label|name|summary|subject|address|token|domain|email|file|path/i
+    const mail = Object.entries(REGISTRY).filter(([action]) => /^(inbound_mail|inbound_mail_address|mail_thread)\./.test(action))
+    expect(mail.map(([action]) => action).sort()).toEqual(
+      [
+        'inbound_mail.decided',
+        'inbound_mail.expired',
+        'inbound_mail.original_read',
+        'inbound_mail.part_read',
+        'inbound_mail.received',
+        'inbound_mail_address.created',
+        'inbound_mail_address.deleted',
+        'inbound_mail_address.rotated',
+        'mail_thread.entry_detached',
+        'mail_thread.follow_ended',
+        'mail_thread.follow_started',
+        'mail_thread.original_read',
+      ].sort(),
+    )
+    for (const [action, schema] of mail) {
+      // `previousAddressId` names a row, not an address.
+      const keys = Object.keys(schema.metadata ?? {}).filter((key) => !/Id$/.test(key))
+      expect(keys.filter((key) => PERSONAL.test(key)), action).toEqual([])
     }
   })
 

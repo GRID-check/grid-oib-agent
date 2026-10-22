@@ -10,7 +10,9 @@
  *                           `./platform-handler` so that AuthKit stays out
  *                           of the module every route imports.
  *   - `internalApiRoute`  — service-to-service routes guarded by
- *                           `GRID_INTERNAL_API_TOKEN`.
+ *                           `GRID_INTERNAL_API_TOKEN`, or, with
+ *                           `auth: { signature }`, by an RFC 9421 request
+ *                           signature (routes under `/api/internal/signed/`).
  *   - `publicApiRoute`    — the rare intentionally unauthenticated route
  *                           (health checks). Using it is an explicit,
  *                           grep-able decision.
@@ -56,7 +58,13 @@ import { ZodError, type ZodType, type output } from 'zod'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { isAuthzError } from '@/lib/auth-utils'
 import { hasPermission, type KnownPermission } from '@/lib/authz/permissions'
-import { requireInternalToken, type InternalTokenEnv } from '@/lib/internal-auth'
+import {
+  requireInternalSignature,
+  requireInternalToken,
+  type InternalTokenEnv,
+  type SignatureRequirement,
+  type VerifiedSignature,
+} from '@/lib/internal-auth'
 import { runWithTenantSlot, withPlatformAccess } from '@/lib/db/tenant-context'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { DEFAULT_MUTATION_LIMIT } from '@/lib/limits/catalog'
@@ -94,6 +102,16 @@ export interface ApiContext<TParams = Record<string, never>> {
 export interface InternalApiContext<TParams = Record<string, never>> {
   request: Request
   params: TParams
+}
+
+/**
+ * Context passed to signature-guarded internal handlers. `signature` is what
+ * the verified signature vouches for; the body is not read yet, and the
+ * handler reads it with `readBoundedBody` / `streamBodyTo` held to
+ * `signature.contentLength` and `signature.contentDigest`.
+ */
+export interface SignedInternalApiContext<TParams = Record<string, never>> extends InternalApiContext<TParams> {
+  signature: VerifiedSignature
 }
 
 export interface PublicApiContext<TParams = Record<string, never>> {
@@ -215,7 +233,32 @@ export interface InternalRouteOptions extends FixedAuthzRouteOptions {
   readonly tenancy: InternalTenancy
   /** The secret this route checks; the shared service token when omitted. */
   readonly tokenEnv?: InternalTokenEnv
+  readonly auth?: never
 }
+
+/**
+ * An internal route a caller OUTSIDE the cluster pushes bytes to. A shared
+ * token proves only who sent a request; the RFC 9421 signature also binds the
+ * method, the URL, the body (through `Content-Digest` and `Content-Length`)
+ * and the time, so a captured request cannot be retargeted or given another
+ * body (`@/lib/internal-auth`).
+ *
+ * Such a route must live under {@link SIGNED_INTERNAL_PREFIX}: the proxy
+ * matcher excludes that prefix, so the body reaches the handler unbuffered
+ * and uncut (`src/proxy.ts`). Anywhere else the factory refuses to serve it.
+ */
+export interface SignedInternalRouteOptions extends FixedAuthzRouteOptions {
+  readonly tenancy: InternalTenancy
+  readonly auth: { readonly signature: SignatureRequirement }
+  readonly tokenEnv?: never
+}
+
+/**
+ * The path family of signature-guarded routes. `src/proxy.ts` leaves it out of
+ * the proxy matcher, which is the reason the prefix exists: a proxied body is
+ * buffered and, above `proxyClientMaxBodySize`, silently cut.
+ */
+export const SIGNED_INTERNAL_PREFIX = '/api/internal/signed/'
 
 /** Options for the intentionally unauthenticated routes. */
 interface PublicRouteOptions extends FixedAuthzRouteOptions {
@@ -447,25 +490,53 @@ export function apiRoute<TParams = Record<string, string | string[]>>(
   }
 }
 
+type InternalRouteHandler = (request: Request, context?: NextRouteContext) => Promise<Response>
+
 /**
  * Declare an internal service-to-service route guarded by
- * `GRID_INTERNAL_API_TOKEN` (fail-closed; see `@/lib/internal-auth`).
+ * `GRID_INTERNAL_API_TOKEN` (fail-closed; see `@/lib/internal-auth`), or, with
+ * `auth: { signature: { keysEnv } }`, by an RFC 9421 signature verified before
+ * the handler runs and before a byte of the body is read.
  */
+export function internalApiRoute<TParams = Record<string, string | string[]>>(
+  label: string,
+  handler: (ctx: SignedInternalApiContext<TParams>) => Promise<unknown>,
+  options: SignedInternalRouteOptions
+): InternalRouteHandler
 export function internalApiRoute<TParams = Record<string, string | string[]>>(
   label: string,
   handler: (ctx: InternalApiContext<TParams>) => Promise<unknown>,
   options: InternalRouteOptions
-) {
+): InternalRouteHandler
+export function internalApiRoute<TParams = Record<string, string | string[]>>(
+  label: string,
+  handler: (ctx: SignedInternalApiContext<TParams>) => Promise<unknown>,
+  options: InternalRouteOptions | SignedInternalRouteOptions
+): InternalRouteHandler {
+  const signature = options.auth?.signature ?? null
   return async (request: Request, context?: NextRouteContext): Promise<Response> => {
-    const denied = requireInternalToken(request, label, options.tokenEnv)
-    if (denied) return denied
+    let verified: VerifiedSignature | null = null
+    if (signature) {
+      try {
+        assertSignedPath(request, label)
+        verified = await requireInternalSignature(request, label, signature)
+      } catch (error) {
+        return errorResponse(error, request)
+      }
+    } else {
+      const denied = requireInternalToken(request, label, options.tokenEnv)
+      if (denied) return denied
+    }
     // The slot matters most here: these routes carry no session, so a
     // `fromPayload` handler that forgot its scope MUST fail closed rather than
     // silently inherit whatever tenant last used this socket.
     return runWithTenantSlot(async () => {
       try {
         const params = (await resolveParams(context)) as TParams
-        const run = () => handler({ request, params })
+        // The overloads pair a signed context with signed options only; a token
+        // route's handler is typed without `signature` and never reads it.
+        const ctx = (verified ? { request, params, signature: verified } : { request, params }) as SignedInternalApiContext<TParams>
+        const run = () => handler(ctx)
         // `fromPayload` routes establish their own scope once they have parsed the
         // organization out of the body; until they do, any query throws
         // MissingTenantContextError rather than reading across tenants.
@@ -479,6 +550,18 @@ export function internalApiRoute<TParams = Record<string, string | string[]>>(
       }
     })
   }
+}
+
+/**
+ * A signed route outside {@link SIGNED_INTERNAL_PREFIX} would sit behind the
+ * proxy, whose buffering cuts a large body short without an error. That is a
+ * route declared in the wrong folder, so it fails as a 500 on its first call
+ * rather than serving truncated bodies (`signed-routes.spec.ts` catches it
+ * before that).
+ */
+function assertSignedPath(request: Request, label: string): void {
+  if (new URL(request.url).pathname.startsWith(SIGNED_INTERNAL_PREFIX)) return
+  throw new Error(`[${label}] a signature-guarded route must live under ${SIGNED_INTERNAL_PREFIX}`)
 }
 
 /**

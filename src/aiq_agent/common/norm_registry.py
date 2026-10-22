@@ -44,6 +44,10 @@ from pydantic import field_validator
 
 from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE
 from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE_LABEL
+from aiq_agent.common.source_kinds import MAIL_LANE
+from aiq_agent.common.source_kinds import MAIL_LANE_LABEL
+from aiq_agent.common.source_kinds import MAIL_SOURCE_FORMAT
+from aiq_agent.common.source_kinds import OFFICE_MAIL_LANE
 from aiq_agent.profile_names import normalize_profile_token
 
 logger = logging.getLogger(__name__)
@@ -822,6 +826,9 @@ _LANE_LABELS: dict[str, str] = {
     # Reachable only through stated PROVENANCE (``authored_by: agent``), never
     # through a doc_class — see :data:`~aiq_agent.common.source_kinds.AGENT_AUTHORED_LANE`.
     AGENT_AUTHORED_LANE: AGENT_AUTHORED_LANE_LABEL,
+    # Reachable only through the chunk's ``source_format`` (a filed mail thread).
+    MAIL_LANE: MAIL_LANE_LABEL,
+    OFFICE_MAIL_LANE: MAIL_LANE_LABEL,
 }
 
 
@@ -1256,6 +1263,7 @@ def lane_for_hit(
     registry: NormRegistry | None = None,
     shelf: object = None,
     authored_by: str | None = None,
+    source_format: str | None = None,
 ) -> tuple[str, str]:
     """(stratum_key, human label) for a retrieval/citation hit — display tagging only.
 
@@ -1282,6 +1290,14 @@ def lane_for_hit(
     miss; and a doc_class stamped on it by ingest would place it in the norm
     hierarchy, in law blue, under the ``"Baurecht"`` label fallback. Who wrote
     a document is not a guess any of those signals can overturn.
+
+    ``source_format`` comes next: ``mail`` is a filed E-Mail-Verlauf
+    (:data:`~aiq_agent.common.source_kinds.MAIL_SOURCE_FORMAT`), and it
+    outranks the doc_class and every URL rule for the same reason. A mail from
+    ``ma37.wien.gv.at`` is a clerk's message, never the curated authority lane,
+    and a doc_class a person set on the thread names what the thread is about,
+    not who wrote each section. The kind stays the shelf's
+    (``project_mail`` is Projektwissen, ``office_mail`` Büroablage).
     """
     from aiq_agent.common.provenance import is_agent_author
     from aiq_agent.common.source_kinds import Shelf
@@ -1291,6 +1307,8 @@ def lane_for_hit(
     if is_agent_author(authored_by):
         return (AGENT_AUTHORED_LANE, AGENT_AUTHORED_LANE_LABEL)
     known_shelf = parse_shelf(shelf) or legacy_shelf_for_collection_name(collection)
+    if source_format == MAIL_SOURCE_FORMAT:
+        return (OFFICE_MAIL_LANE if known_shelf is Shelf.OFFICE_SHELF else MAIL_LANE, MAIL_LANE_LABEL)
     users_shelf = known_shelf in (Shelf.OFFICE_SHELF, Shelf.PROJECT, Shelf.SESSION)
     if doc_class:
         from aiq_agent.knowledge.document_classification import DEFAULT_DOC_CLASS
@@ -1320,7 +1338,8 @@ def lane_for_hit(
         return ("building_law_ris", "Rechtsquelle (RIS)")
     # wien.gv.at is the curated MA-37 (Baupolizei Wien) registry pointer —
     # official municipal building information, Baurecht family, never Web.
-    # Mirrors the frontend laneForHitClient so both render paths agree.
+    # The frontend renders the lane and label it is sent; only the kind is
+    # derived there (`kindForLane` in source-kinds.ts mirrors `kind_for_lane`).
     if _host_matches(source_url, "wien.gv.at"):
         return ("authority", "Behördliche Information")
     if collection:  # a named KB collection that is not project/office_shelf: the base corpus
@@ -1337,6 +1356,7 @@ def lane_for_knowledge_hit(
     registry: NormRegistry | None = None,
     shelf: object = None,
     authored_by: str | None = None,
+    source_format: str | None = None,
 ) -> tuple[str, str]:
     """:func:`lane_for_hit` for a hit that came from the KNOWLEDGE LAYER.
 
@@ -1360,5 +1380,6 @@ def lane_for_knowledge_hit(
         registry=registry,
         shelf=shelf,
         authored_by=authored_by,
+        source_format=source_format,
     )
     return ("project", "Projektwissen") if lane == ("web", "Web") else lane

@@ -561,60 +561,6 @@
    "describe": "{\"name\":\"hold-list\",\"domain\":\"documents\",\"summary\":\"List open legal holds\",\"description\":\"The open legal holds of the organization, each with its entity, reason and id. Needs the compliance permission.\",\"annotations\":{\"title\":\"List open legal holds\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}}"
   },
   {
-   "name": "mail-import-cancel",
-   "domain": "documents",
-   "summary": "Cancel a mail import",
-   "description": "Cancels an import and discards the parts already sent. Only the person who started it, or an org project administrator, may cancel. Import ids come from mail-import-list.",
-   "readOnly": false,
-   "destructive": true,
-   "describe": "{\"name\":\"mail-import-cancel\",\"domain\":\"documents\",\"summary\":\"Cancel a mail import\",\"description\":\"Cancels an import and discards the parts already sent. Only the person who started it, or an org project administrator, may cancel. Import ids come from mail-import-list.\",\"annotations\":{\"title\":\"Cancel a mail import\",\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"},\"importId\":{\"type\":\"string\",\"description\":\"The mail import id, from mail-import-list.\"}},\"required\":[\"id\",\"importId\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
-  },
-  {
-   "name": "mail-import-complete",
-   "domain": "documents",
-   "summary": "Finish sending an Outlook archive",
-   "description": "Call once every part is sent: the parts are joined and the filing job is queued (HTTP 202). Answers the import with its status; follow it with mail-import-get. Refused with 409 when the import was cancelled meanwhile, and with 400 when a part is missing.",
-   "readOnly": false,
-   "destructive": false,
-   "describe": "{\"name\":\"mail-import-complete\",\"domain\":\"documents\",\"summary\":\"Finish sending an Outlook archive\",\"description\":\"Call once every part is sent: the parts are joined and the filing job is queued (HTTP 202). Answers the import with its status; follow it with mail-import-get. Refused with 409 when the import was cancelled meanwhile, and with 400 when a part is missing.\",\"annotations\":{\"title\":\"Finish sending an Outlook archive\",\"readOnlyHint\":false,\"destructiveHint\":false,\"idempotentHint\":false,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"},\"importId\":{\"type\":\"string\",\"description\":\"The mail import id, from mail-import-list.\"}},\"required\":[\"id\",\"importId\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
-  },
-  {
-   "name": "mail-import-get",
-   "domain": "documents",
-   "summary": "Read one mail import",
-   "description": "One Outlook archive import, as the upload plan: which parts the store already holds. Use it to check progress or to resume a send that broke off. Import ids come from mail-import-list.",
-   "readOnly": true,
-   "destructive": false,
-   "describe": "{\"name\":\"mail-import-get\",\"domain\":\"documents\",\"summary\":\"Read one mail import\",\"description\":\"One Outlook archive import, as the upload plan: which parts the store already holds. Use it to check progress or to resume a send that broke off. Import ids come from mail-import-list.\",\"annotations\":{\"title\":\"Read one mail import\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"},\"importId\":{\"type\":\"string\",\"description\":\"The mail import id, from mail-import-list.\"}},\"required\":[\"id\",\"importId\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
-  },
-  {
-   "name": "mail-import-list",
-   "domain": "documents",
-   "summary": "List a project’s mail imports",
-   "description": "The project's Outlook archive imports with their status and counts. Import ids feed mail-import-get and mail-import-cancel.",
-   "readOnly": true,
-   "destructive": false,
-   "describe": "{\"name\":\"mail-import-list\",\"domain\":\"documents\",\"summary\":\"List a project’s mail imports\",\"description\":\"The project's Outlook archive imports with their status and counts. Import ids feed mail-import-get and mail-import-cancel.\",\"annotations\":{\"title\":\"List a project’s mail imports\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"}},\"required\":[\"id\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
-  },
-  {
-   "name": "mail-import-part-upload",
-   "domain": "documents",
-   "summary": "Send one part of an Outlook archive",
-   "description": "Sends part `partNumber` (1-based) of the archive started with mail-import-start as `body.contentBase64`, exactly `partSize` bytes (the last the remainder). Sending a part again replaces it: resume from mail-import-get `uploadedParts`.",
-   "readOnly": false,
-   "destructive": false,
-   "describe": "{\"name\":\"mail-import-part-upload\",\"domain\":\"documents\",\"summary\":\"Send one part of an Outlook archive\",\"description\":\"Sends part `partNumber` (1-based) of the archive started with mail-import-start as `body.contentBase64`, exactly `partSize` bytes (the last the remainder). Sending a part again replaces it: resume from mail-import-get `uploadedParts`.\",\"annotations\":{\"title\":\"Send one part of an Outlook archive\",\"readOnlyHint\":false,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"},\"importId\":{\"type\":\"string\",\"description\":\"The mail import id, from mail-import-list.\"},\"partNumber\":{\"type\":\"string\",\"description\":\"The part number, 1-based, up to the plan’s `partCount`.\"}},\"required\":[\"id\",\"importId\",\"partNumber\"]},\"body\":{\"type\":\"object\",\"properties\":{\"contentBase64\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":44739244,\"description\":\"The file's bytes as standard base64 (RFC 4648, with padding), at most 33554432 bytes decoded.\"}},\"required\":[\"contentBase64\"]}},\"additionalProperties\":false,\"required\":[\"params\",\"body\"]}}"
-  },
-  {
-   "name": "mail-import-start",
-   "domain": "documents",
-   "summary": "Start an Outlook archive import",
-   "description": "Registers a .pst or .ost archive (`filename`, `sizeBytes`, up to 25 GB) and answers the upload plan `{ import, partSize, partCount, uploadedParts }`. Send the parts with mail-import-part-upload, then call mail-import-complete.",
-   "readOnly": false,
-   "destructive": false,
-   "describe": "{\"name\":\"mail-import-start\",\"domain\":\"documents\",\"summary\":\"Start an Outlook archive import\",\"description\":\"Registers a .pst or .ost archive (`filename`, `sizeBytes`, up to 25 GB) and answers the upload plan `{ import, partSize, partCount, uploadedParts }`. Send the parts with mail-import-part-upload, then call mail-import-complete.\",\"annotations\":{\"title\":\"Start an Outlook archive import\",\"readOnlyHint\":false,\"destructiveHint\":false,\"idempotentHint\":false,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"}},\"required\":[\"id\"]},\"body\":{\"type\":\"object\",\"properties\":{\"filename\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":255},\"sizeBytes\":{\"type\":\"integer\"}},\"required\":[\"filename\",\"sizeBytes\"]}},\"additionalProperties\":false,\"required\":[\"params\",\"body\"]}}"
-  },
-  {
    "name": "project-upload-list",
    "domain": "documents",
    "summary": "List a project’s upload history",
@@ -865,6 +811,141 @@
    "readOnly": false,
    "destructive": false,
    "describe": "{\"name\":\"root-sort-run-undo\",\"domain\":\"folders\",\"summary\":\"Send what a root-sort run moved back to the root\",\"description\":\"Moves every file an applied (or partly applied, then failed) run moved back to the shelf root; folders it created stay. Answers at once with the run in `undoing`; follow it with root-sort-run-get. Refused when the run moved nothing.\",\"annotations\":{\"title\":\"Send what a root-sort run moved back to the root\",\"readOnlyHint\":false,\"destructiveHint\":false,\"idempotentHint\":false,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"runId\":{\"type\":\"string\",\"description\":\"The root-sort run id, from project-root-sort-start, office-shelf-root-sort-start or their -get.\"}},\"required\":[\"runId\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
+  },
+  {
+   "name": "inbound-mail-address-create",
+   "domain": "mail",
+   "summary": "Give a project an email address",
+   "description": "Mail sent to it waits in inbound-mail-list for a person; nothing is filed by itself. Needs project:manage.",
+   "readOnly": false,
+   "destructive": false,
+   "describe": "{\"name\":\"inbound-mail-address-create\",\"domain\":\"mail\",\"summary\":\"Give a project an email address\",\"description\":\"Mail sent to it waits in inbound-mail-list for a person; nothing is filed by itself. Needs project:manage.\",\"annotations\":{\"title\":\"Give a project an email address\",\"readOnlyHint\":false,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"}},\"required\":[\"id\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
+  },
+  {
+   "name": "inbound-mail-address-delete",
+   "domain": "mail",
+   "summary": "Switch off a project’s email address",
+   "description": "Mail to it then bounces and every follow in the project ends; waiting mail stays. Needs project:manage.",
+   "readOnly": false,
+   "destructive": true,
+   "describe": "{\"name\":\"inbound-mail-address-delete\",\"domain\":\"mail\",\"summary\":\"Switch off a project’s email address\",\"description\":\"Mail to it then bounces and every follow in the project ends; waiting mail stays. Needs project:manage.\",\"annotations\":{\"title\":\"Switch off a project’s email address\",\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"}},\"required\":[\"id\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
+  },
+  {
+   "name": "inbound-mail-address-get",
+   "domain": "mail",
+   "summary": "Read a project’s email address",
+   "description": "`state` \"active\" (with the address), \"none\" (see inbound-mail-address-create) or \"unavailable\" (this deployment receives no mail).",
+   "readOnly": true,
+   "destructive": false,
+   "describe": "{\"name\":\"inbound-mail-address-get\",\"domain\":\"mail\",\"summary\":\"Read a project’s email address\",\"description\":\"`state` \\\"active\\\" (with the address), \\\"none\\\" (see inbound-mail-address-create) or \\\"unavailable\\\" (this deployment receives no mail).\",\"annotations\":{\"title\":\"Read a project’s email address\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"}},\"required\":[\"id\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
+  },
+  {
+   "name": "inbound-mail-address-rotate",
+   "domain": "mail",
+   "summary": "Replace a project’s email address",
+   "description": "For a leaked address: the old one stops at once and every follow in the project ends. Needs project:manage.",
+   "readOnly": false,
+   "destructive": true,
+   "describe": "{\"name\":\"inbound-mail-address-rotate\",\"domain\":\"mail\",\"summary\":\"Replace a project’s email address\",\"description\":\"For a leaked address: the old one stops at once and every follow in the project ends. Needs project:manage.\",\"annotations\":{\"title\":\"Replace a project’s email address\",\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":false,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"}},\"required\":[\"id\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
+  },
+  {
+   "name": "inbound-mail-dismiss",
+   "domain": "mail",
+   "summary": "Dismiss held email",
+   "description": "Restorable for seven days with inbound-mail-restore. Runs only on the person’s own yes.",
+   "readOnly": false,
+   "destructive": true,
+   "describe": "{\"name\":\"inbound-mail-dismiss\",\"domain\":\"mail\",\"summary\":\"Dismiss held email\",\"description\":\"Restorable for seven days with inbound-mail-restore. Runs only on the person’s own yes.\",\"annotations\":{\"title\":\"Dismiss held email\",\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":false,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"}},\"required\":[\"id\"]},\"body\":{\"type\":\"object\",\"properties\":{\"mailIds\":{\"type\":\"array\",\"items\":{\"type\":\"string\",\"format\":\"uuid\"},\"maxItems\":20,\"description\":\"From inbound-mail-list.\"}},\"required\":[\"mailIds\"],\"additionalProperties\":false}},\"additionalProperties\":false,\"required\":[\"params\",\"body\"]}}"
+  },
+  {
+   "name": "inbound-mail-file",
+   "domain": "mail",
+   "summary": "File held email attachments and text into the project",
+   "description": "Files `parts` into folders and `message` into a thread; every other waiting part is dismissed. A refusal names its rule in `details.reason`. Runs as you, on the person’s own yes.",
+   "readOnly": false,
+   "destructive": true,
+   "describe": "{\"name\":\"inbound-mail-file\",\"domain\":\"mail\",\"summary\":\"File held email attachments and text into the project\",\"description\":\"Files `parts` into folders and `message` into a thread; every other waiting part is dismissed. A refusal names its rule in `details.reason`. Runs as you, on the person’s own yes.\",\"annotations\":{\"title\":\"File held email attachments and text into the project\",\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":false,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"}},\"required\":[\"id\"]},\"body\":{\"type\":\"object\",\"properties\":{\"mails\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"mailId\":{\"type\":\"string\",\"format\":\"uuid\"},\"ifMatch\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":100,\"description\":\"From inbound-mail-get.\"},\"parts\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"partId\":{\"type\":\"string\",\"format\":\"uuid\",\"description\":\"From inbound-mail-get `parts`.\"},\"folderId\":{\"anyOf\":[{\"type\":\"string\",\"format\":\"uuid\"},{\"type\":\"null\"}],\"description\":\"null: root or `newFolderPath`.\"},\"newFolderPath\":{\"anyOf\":[{\"type\":\"string\",\"minLength\":1,\"maxLength\":1000},{\"type\":\"null\"}],\"description\":\"Created if missing, e.g. \\\"Permits/Fire\\\".\"},\"name\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":255,\"description\":\"The file name; name-screened.\"},\"documentType\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":64,\"description\":\"A document type tag.\"},\"revisionOf\":{\"type\":\"string\",\"format\":\"uuid\",\"description\":\"File as the next version of this document.\"},\"screeningRelease\":{\"const\":\"name\",\"description\":\"The person overrides the name check.\"}},\"required\":[\"partId\",\"folderId\",\"newFolderPath\",\"name\"],\"additionalProperties\":false},\"maxItems\":100,\"description\":\"To file; the others are dismissed.\"},\"message\":{\"anyOf\":[{\"type\":\"object\",\"properties\":{\"partId\":{\"type\":\"string\",\"format\":\"uuid\",\"description\":\"The part of kind \\\"message\\\".\"},\"text\":{\"type\":\"string\",\"enum\":[\"masked\",\"full\"],\"description\":\"\\\"masked\\\" only with `contentFindings`.\"},\"thread\":{\"oneOf\":[{\"type\":\"object\",\"properties\":{\"action\":{\"const\":\"append\"},\"mailThreadId\":{\"type\":\"string\",\"format\":\"uuid\",\"description\":\"From `threadCandidates` or mail-thread-list.\"}},\"required\":[\"action\",\"mailThreadId\"],\"additionalProperties\":false},{\"type\":\"object\",\"properties\":{\"action\":{\"const\":\"create\"},\"folderId\":{\"anyOf\":[{\"type\":\"string\",\"format\":\"uuid\"},{\"type\":\"null\"}],\"description\":\"null: root or `newFolderPath`.\"},\"newFolderPath\":{\"anyOf\":[{\"type\":\"string\",\"minLength\":1,\"maxLength\":1000},{\"type\":\"null\"}],\"description\":\"Created if missing.\"},\"name\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":255,\"description\":\"The thread document’s name; name-screened.\"},\"screeningRelease\":{\"const\":\"name\",\"description\":\"The person overrides the name check.\"}},\"required\":[\"action\",\"folderId\",\"newFolderPath\",\"name\"],\"additionalProperties\":false}],\"discriminator\":{\"propertyName\":\"action\"}}},\"required\":[\"partId\",\"text\",\"thread\"],\"additionalProperties\":false},{\"type\":\"null\"}],\"description\":\"null dismisses the text.\"},\"acknowledgeSender\":{\"const\":true,\"description\":\"The person accepts an unconfirmed sender; one mail only.\"},\"acknowledgeRisk\":{\"type\":\"array\",\"items\":{\"type\":\"string\",\"format\":\"uuid\"},\"maxItems\":101,\"description\":\"Parts whose risk the person accepts; one mail only.\"}},\"required\":[\"mailId\",\"ifMatch\",\"parts\",\"message\"],\"additionalProperties\":false},\"maxItems\":20}},\"required\":[\"mails\"],\"additionalProperties\":false}},\"additionalProperties\":false,\"required\":[\"params\",\"body\"],\"examples\":[{\"params\":{\"id\":\"3f0b1c2d-4e5f-4a6b-8c7d-9e0f1a2b3c4d\"},\"body\":{\"mails\":[{\"mailId\":\"7c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f\",\"ifMatch\":\"Zk3q0y7m1Qe9Tq2xJm4bVw5u8Ac\",\"parts\":[{\"partId\":\"9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d\",\"folderId\":\"1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e\",\"newFolderPath\":null,\"name\":\"S-101_C.pdf\"}],\"message\":{\"partId\":\"2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f6a\",\"text\":\"full\",\"thread\":{\"action\":\"append\",\"mailThreadId\":\"4e5f6a7b-8c9d-4e0f-8a1b-2c3d4e5f6a7b\"}}}]}}]}}"
+  },
+  {
+   "name": "inbound-mail-get",
+   "domain": "mail",
+   "summary": "Read one held email’s parts and placement options",
+   "description": "Its parts (text and attachments: state, scan, risk flags, suggestion, duplicate, earlier version), `threadCandidates` and the `ifMatch` for inbound-mail-file. No text, no bytes.",
+   "readOnly": true,
+   "destructive": false,
+   "describe": "{\"name\":\"inbound-mail-get\",\"domain\":\"mail\",\"summary\":\"Read one held email’s parts and placement options\",\"description\":\"Its parts (text and attachments: state, scan, risk flags, suggestion, duplicate, earlier version), `threadCandidates` and the `ifMatch` for inbound-mail-file. No text, no bytes.\",\"annotations\":{\"title\":\"Read one held email’s parts and placement options\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"},\"mailId\":{\"type\":\"string\",\"description\":\"From inbound-mail-list.\"}},\"required\":[\"id\",\"mailId\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
+  },
+  {
+   "name": "inbound-mail-list",
+   "domain": "mail",
+   "summary": "List incoming email waiting in a project",
+   "description": "Held until a person files or dismisses each part. Metadata only: masked subject, sender domain, `senderTrust` (about the domain, never a person). Then inbound-mail-get.",
+   "readOnly": true,
+   "destructive": false,
+   "describe": "{\"name\":\"inbound-mail-list\",\"domain\":\"mail\",\"summary\":\"List incoming email waiting in a project\",\"description\":\"Held until a person files or dismisses each part. Metadata only: masked subject, sender domain, `senderTrust` (about the domain, never a person). Then inbound-mail-get.\",\"annotations\":{\"title\":\"List incoming email waiting in a project\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"}},\"required\":[\"id\"]},\"query\":{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\",\"enum\":[\"waiting\",\"handled\"],\"description\":\"\\\"waiting\\\": a part waits for a person. \\\"handled\\\": none does.\"},\"outcome\":{\"type\":\"string\",\"enum\":[\"filed\",\"dismissed\",\"expired\"],\"description\":\"With \\\"handled\\\": mails with a part that ended so.\"},\"limit\":{\"type\":\"integer\",\"description\":\"Default 25, max 50.\"},\"cursor\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":200,\"description\":\"The previous page’s `nextCursor`.\"}}}},\"additionalProperties\":false,\"required\":[\"params\",\"query\"]}}"
+  },
+  {
+   "name": "inbound-mail-restore",
+   "domain": "mail",
+   "summary": "Restore dismissed or expired email",
+   "description": "Its dismissed or expired parts wait again, within seven days of their end; else 409 `not_restorable`.",
+   "readOnly": false,
+   "destructive": false,
+   "describe": "{\"name\":\"inbound-mail-restore\",\"domain\":\"mail\",\"summary\":\"Restore dismissed or expired email\",\"description\":\"Its dismissed or expired parts wait again, within seven days of their end; else 409 `not_restorable`.\",\"annotations\":{\"title\":\"Restore dismissed or expired email\",\"readOnlyHint\":false,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"},\"mailId\":{\"type\":\"string\",\"description\":\"From inbound-mail-list.\"}},\"required\":[\"id\",\"mailId\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
+  },
+  {
+   "name": "mail-import-cancel",
+   "domain": "mail",
+   "summary": "Cancel a mail import",
+   "description": "For good: sent parts and the staged archive are discarded. Filed mails stay (document-bin removes them). Only its starter or an org project administrator.",
+   "readOnly": false,
+   "destructive": true,
+   "describe": "{\"name\":\"mail-import-cancel\",\"domain\":\"mail\",\"summary\":\"Cancel a mail import\",\"description\":\"For good: sent parts and the staged archive are discarded. Filed mails stay (document-bin removes them). Only its starter or an org project administrator.\",\"annotations\":{\"title\":\"Cancel a mail import\",\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"},\"importId\":{\"type\":\"string\",\"description\":\"From mail-import-list.\"}},\"required\":[\"id\",\"importId\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
+  },
+  {
+   "name": "mail-import-get",
+   "domain": "mail",
+   "summary": "Read one mail import",
+   "description": "One import as its upload plan: which parts the store holds. To check progress or resume a broken-off send.",
+   "readOnly": true,
+   "destructive": false,
+   "describe": "{\"name\":\"mail-import-get\",\"domain\":\"mail\",\"summary\":\"Read one mail import\",\"description\":\"One import as its upload plan: which parts the store holds. To check progress or resume a broken-off send.\",\"annotations\":{\"title\":\"Read one mail import\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"},\"importId\":{\"type\":\"string\",\"description\":\"From mail-import-list.\"}},\"required\":[\"id\",\"importId\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
+  },
+  {
+   "name": "mail-import-list",
+   "domain": "mail",
+   "summary": "List a project’s mail imports",
+   "description": "The project’s Outlook archive imports with status and counts, newest first.",
+   "readOnly": true,
+   "destructive": false,
+   "describe": "{\"name\":\"mail-import-list\",\"domain\":\"mail\",\"summary\":\"List a project’s mail imports\",\"description\":\"The project’s Outlook archive imports with status and counts, newest first.\",\"annotations\":{\"title\":\"List a project’s mail imports\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"}},\"required\":[\"id\"]},\"query\":{\"type\":\"object\",\"properties\":{\"limit\":{\"type\":\"integer\",\"description\":\"Default 20, max 50.\"},\"cursor\":{\"type\":\"string\",\"maxLength\":200,\"description\":\"The nextCursor of the previous page.\"}}}},\"additionalProperties\":false,\"required\":[\"params\",\"query\"]}}"
+  },
+  {
+   "name": "mail-thread-entry-detach",
+   "domain": "mail",
+   "summary": "Move a filed email to another thread",
+   "description": "For a misfiled message; both threads get a new version.",
+   "readOnly": false,
+   "destructive": true,
+   "describe": "{\"name\":\"mail-thread-entry-detach\",\"domain\":\"mail\",\"summary\":\"Move a filed email to another thread\",\"description\":\"For a misfiled message; both threads get a new version.\",\"annotations\":{\"title\":\"Move a filed email to another thread\",\"readOnlyHint\":false,\"destructiveHint\":true,\"idempotentHint\":false,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"},\"threadId\":{\"type\":\"string\",\"description\":\"From mail-thread-list.\"},\"entryId\":{\"type\":\"string\",\"description\":\"From mail-thread-get.\"}},\"required\":[\"id\",\"threadId\",\"entryId\"]},\"body\":{\"type\":\"object\",\"properties\":{\"target\":{\"oneOf\":[{\"type\":\"object\",\"properties\":{\"action\":{\"const\":\"append\"},\"mailThreadId\":{\"type\":\"string\",\"format\":\"uuid\",\"description\":\"From mail-thread-list.\"}},\"required\":[\"action\",\"mailThreadId\"],\"additionalProperties\":false},{\"type\":\"object\",\"properties\":{\"action\":{\"const\":\"create\"},\"folderId\":{\"type\":\"string\",\"format\":\"uuid\"},\"newFolderPath\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1000},\"name\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":240},\"screeningRelease\":{\"const\":\"name\"}},\"required\":[\"action\",\"name\"],\"additionalProperties\":false}],\"discriminator\":{\"propertyName\":\"action\"}}},\"required\":[\"target\"],\"additionalProperties\":false}},\"additionalProperties\":false,\"required\":[\"params\",\"body\"]}}"
+  },
+  {
+   "name": "mail-thread-get",
+   "domain": "mail",
+   "summary": "Read one email thread with its messages and attachments",
+   "description": "Its messages in order, each with its `attachments`: `filed` (document and version), `already_present` or `not_filed`. A document’s `mailOrigins` lead here.",
+   "readOnly": true,
+   "destructive": false,
+   "describe": "{\"name\":\"mail-thread-get\",\"domain\":\"mail\",\"summary\":\"Read one email thread with its messages and attachments\",\"description\":\"Its messages in order, each with its `attachments`: `filed` (document and version), `already_present` or `not_filed`. A document’s `mailOrigins` lead here.\",\"annotations\":{\"title\":\"Read one email thread with its messages and attachments\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"},\"threadId\":{\"type\":\"string\",\"description\":\"From mail-thread-list.\"}},\"required\":[\"id\",\"threadId\"]}},\"additionalProperties\":false,\"required\":[\"params\"]}}"
+  },
+  {
+   "name": "mail-thread-list",
+   "domain": "mail",
+   "summary": "List a project’s email threads",
+   "description": "A thread is one document; each filed message adds a section and a version. Newest first.",
+   "readOnly": true,
+   "destructive": false,
+   "describe": "{\"name\":\"mail-thread-list\",\"domain\":\"mail\",\"summary\":\"List a project’s email threads\",\"description\":\"A thread is one document; each filed message adds a section and a version. Newest first.\",\"annotations\":{\"title\":\"List a project’s email threads\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"params\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"The project id, from project-list.\"}},\"required\":[\"id\"]},\"query\":{\"type\":\"object\",\"properties\":{\"documentId\":{\"type\":\"string\",\"format\":\"uuid\",\"description\":\"Finds this document’s thread.\"},\"limit\":{\"type\":\"integer\",\"description\":\"Default and max 50.\"},\"cursor\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":200,\"description\":\"The previous `nextCursor`.\"}}}},\"additionalProperties\":false,\"required\":[\"params\",\"query\"]}}"
   },
   {
    "name": "annotation-get",
@@ -1350,7 +1431,7 @@
    "description": "The person’s own inbox, newest first. `filter`: `requests` (waits on them), `unread`, `pending` (unread OR open request), `archived`, `all` (default); `type` and `projectId` narrow it. Page with `nextCursor`.",
    "readOnly": true,
    "destructive": false,
-   "describe": "{\"name\":\"inbox-list\",\"domain\":\"collaboration\",\"summary\":\"List the person’s inbox\",\"description\":\"The person’s own inbox, newest first. `filter`: `requests` (waits on them), `unread`, `pending` (unread OR open request), `archived`, `all` (default); `type` and `projectId` narrow it. Page with `nextCursor`.\",\"annotations\":{\"title\":\"List the person’s inbox\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"object\",\"properties\":{\"filter\":{\"type\":\"string\",\"enum\":[\"pending\",\"requests\",\"unread\",\"all\",\"archived\"],\"description\":\"The slice; `all` (unarchived) is the default.\"},\"type\":{\"type\":\"string\",\"enum\":[\"mention.requested\",\"mention.answered\",\"conversation.shared_with_you\",\"conversation.activity\",\"storage.quota_warning\",\"document.assigned_to_you\",\"task_run.completed\",\"task_run.failed\",\"task_run.waiting\",\"document.review_requested\",\"feedback.submitted\",\"feedback.replied\",\"upload.completed\",\"document.quarantined\",\"document.release_requested\",\"mail_import.completed\",\"mail_import.failed\",\"document.new_revision\",\"piloti.work_done\",\"piloti.work_failed\",\"piloti.asks_you\",\"piloti.proposal_waiting\",\"piloti.intake_ready\",\"piloti.revision_checked\",\"annotation.assigned_to_you\",\"annotation.activity\",\"annotation.mentioned\",\"root_sort.ready\",\"root_sort.failed\"],\"description\":\"Only this item type.\"},\"projectId\":{\"type\":\"string\",\"format\":\"uuid\",\"description\":\"Only items about this project or its conversations and documents.\"},\"limit\":{\"type\":\"integer\",\"description\":\"Page size (default and most 50).\"},\"cursor\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":200,\"description\":\"The previous `nextCursor`.\"}}}},\"additionalProperties\":false,\"required\":[\"query\"]}}"
+   "describe": "{\"name\":\"inbox-list\",\"domain\":\"collaboration\",\"summary\":\"List the person’s inbox\",\"description\":\"The person’s own inbox, newest first. `filter`: `requests` (waits on them), `unread`, `pending` (unread OR open request), `archived`, `all` (default); `type` and `projectId` narrow it. Page with `nextCursor`.\",\"annotations\":{\"title\":\"List the person’s inbox\",\"readOnlyHint\":true,\"destructiveHint\":false,\"idempotentHint\":true,\"openWorldHint\":false},\"sensitivity\":null,\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"object\",\"properties\":{\"filter\":{\"type\":\"string\",\"enum\":[\"pending\",\"requests\",\"unread\",\"all\",\"archived\"],\"description\":\"The slice; `all` (unarchived) is the default.\"},\"type\":{\"type\":\"string\",\"enum\":[\"mention.requested\",\"mention.answered\",\"conversation.shared_with_you\",\"conversation.activity\",\"storage.quota_warning\",\"document.assigned_to_you\",\"task_run.completed\",\"task_run.failed\",\"task_run.waiting\",\"document.review_requested\",\"feedback.submitted\",\"feedback.replied\",\"upload.completed\",\"document.quarantined\",\"document.release_requested\",\"mail_import.completed\",\"mail_import.failed\",\"document.new_revision\",\"piloti.work_done\",\"piloti.work_failed\",\"piloti.asks_you\",\"piloti.proposal_waiting\",\"piloti.intake_ready\",\"piloti.revision_checked\",\"annotation.assigned_to_you\",\"annotation.activity\",\"annotation.mentioned\",\"root_sort.ready\",\"root_sort.failed\",\"inbound_mail.waiting\"],\"description\":\"Only this item type.\"},\"projectId\":{\"type\":\"string\",\"format\":\"uuid\",\"description\":\"Only items about this project or its conversations and documents.\"},\"limit\":{\"type\":\"integer\",\"description\":\"Page size (default and most 50).\"},\"cursor\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":200,\"description\":\"The previous `nextCursor`.\"}}}},\"additionalProperties\":false,\"required\":[\"query\"]}}"
   },
   {
    "name": "inbox-summary-get",
@@ -1853,7 +1934,7 @@
    "project-annotation-list",
    "project-task-run-list",
    "document-list",
-   "project-person-add"
+   "document-role-list"
   ],
   "Projekte auflisten": [
    "project-list",
@@ -1865,7 +1946,7 @@
    "project-annotation-list",
    "project-task-run-list",
    "document-list",
-   "project-person-add"
+   "document-role-list"
   ],
   "create task": [
    "project-create",
@@ -1908,9 +1989,9 @@
    "mention-request-release",
    "conversation-list",
    "conversation-message-export",
+   "mail-thread-get",
    "conversation-message-changes",
-   "conversation-message-update",
-   "project-intake-start"
+   "conversation-message-update"
   ],
   "rename document": [
    "document-rename",
@@ -1958,7 +2039,7 @@
    "office-shelf-folder-update",
    "document-bin",
    "project-folder-bin-list",
-   "diagram-file"
+   "inbound-mail-file"
   ],
   "create folder": [
    "office-shelf-folder-create",
@@ -1999,14 +2080,14 @@
   "Fassungen eines Dokuments": [
    "document-version-list",
    "document-revision-link-set",
+   "document-revision-candidates",
+   "document-revision-compare",
    "document-version-approve",
    "document-version-content-get",
    "document-version-content-replace",
    "document-version-diff",
    "document-version-fork",
-   "document-version-get",
-   "document-version-publish",
-   "document-version-submit"
+   "document-version-get"
   ],
   "request review release": [
    "mention-request-release",
@@ -2160,7 +2241,7 @@
    "project-annotation-list",
    "project-task-run-list",
    "document-list",
-   "project-person-add"
+   "document-role-list"
   ],
   "(a+)+$": []
  }

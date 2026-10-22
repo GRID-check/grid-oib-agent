@@ -83,6 +83,23 @@ describe('the exposure config', () => {
     }
   })
 
+  it('keeps a held mail’s text and bytes from Piloti, and evidence off every door (ADR-0134, D22)', () => {
+    // Piloti reads a mail once a person filed it; before, metadata only (RT-S6).
+    for (const name of ['inbound-mail-text-get', 'inbound-mail-part-content-get']) expect(entry(name).piloti, name).toBe(false)
+    // The original `.eml` is proof: no model reads it, whoever asks (ADR-0122, amendment "evidence is on no door").
+    const evidence = Object.entries(entries).filter(([, exposure]) => exposure.withheld?.category === 'evidence').map(([name]) => name)
+    expect(evidence).toContain('inbound-mail-original-get')
+    for (const op of AGENT_OPERATIONS.filter((candidate) => /\/original$/.test(candidate.path))) {
+      expect(entry(op.name).withheld?.category, op.name).toBe('evidence')
+    }
+  })
+
+  it('lets the person decide held mail: filing and dismissing run for an outside agent only on their yes', () => {
+    for (const name of ['inbound-mail-file', 'inbound-mail-dismiss']) {
+      expect(AGENT_OPERATIONS.find((op) => op.name === name)?.requiresPersonConfirmation, name).toBeDefined()
+    }
+  })
+
   it('names a native tool by its bound name, and gives each read tool its own', () => {
     for (const [name, exposure] of Object.entries(entries)) {
       if (typeof exposure.piloti === 'string') expect(exposure.piloti, name).toMatch(NATIVE)

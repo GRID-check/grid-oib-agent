@@ -45,6 +45,8 @@ const FILE_NAMESPACES = [
   'common',
   'nav',
   'errors',
+  'inboundMail',
+  'mailThread',
 ] as const
 
 const FORBIDDEN: Record<'de' | 'en', RegExp> = {
@@ -84,6 +86,9 @@ const REVISION_SUBTREES = [
   // summary says which did.
   'files.folderUpload',
   'uploadBatches.summary.files',
+  // A filed mail adds a Fassung to its E-Mail-Verlauf („wird Fassung 4“), and an
+  // attachment may come in as the next Fassung of a document.
+  'inboundMail',
 ] as const
 
 const REVISION_FORBIDDEN: Record<'de' | 'en', RegExp> = {
@@ -131,4 +136,58 @@ describe('file copy never calls a file a plan', () => {
       expect(offenders).toEqual([])
     })
   }
+})
+
+/**
+ * The E-Mail-Eingang's words (DECISION §3, „Vocabulary“; CONTEXT.md,
+ * „E-Mail-Eingang“). Each banned word names something else in this product,
+ * which is why it was chosen against:
+ *
+ * - „Projektadresse“ is where the building stands; the mail address is
+ *   „E-Mail-Adresse des Projekts“.
+ * - „Posteingang“ is Outlook's folder, „Postfach“ and „Inbox“ the
+ *   notifications, „Quarantäne“ the content check's hold.
+ * - „Durchsicht“ was the consultant's word for deciding; the decision is
+ *   „ablegen“ or „verwerfen“, never „annehmen“, „ablehnen“, „freigeben“ or
+ *   „zulassen“ (Freigabe and Zurückgehalten own those).
+ * - A mail is „E-Mail“, never „Nachricht“; the conversation is
+ *   „E-Mail-Verlauf“, never a bare „Verlauf“ (the chat's), „Thread“ or
+ *   „Unterhaltung“.
+ * - „Abgelegt“ is the upload status `stored`; a mail never wears it as a
+ *   state. It stays allowed as the handled list's facet, the one place the
+ *   decision shows it, and inside sentences („2 Dateien abgelegt“).
+ */
+const MAIL_NAMESPACES = ['inboundMail', 'mailThread', 'files.inboundMail', 'nav.inboundMailWaiting', 'projects.card.mailWaiting'] as const
+
+const MAIL_FORBIDDEN: Record<'de' | 'en', RegExp> = {
+  de: /Projektadresse|Posteingang|Postfach|Quarantäne|Durchsicht|durchsehen|annehmen|ablehnen|freigeben|zulassen|\bNachrichte?n?\b|\bThreads?\b|Unterhaltung|\bInbox\b|Schriftverkehr|abonnieren|(?<!E-Mail-)\bVerl(?:auf|äufe)\b(?! folgen\))/u,
+  en: /\binbox\b|\bintake\b|project address|\bmessages?\b|(?<!mail )\bthreads?\b|\bapprove|\bdecline|\baccept(?!ed)|\bquarantine/i,
+}
+
+/** Where „Abgelegt“ alone is the right value: the facet that filters what was filed. */
+const MAIL_FACET_PATHS = new Set(['inboundMail.filters.outcome.filed'])
+
+describe('the E-Mail-Eingang keeps its own words', () => {
+  for (const [locale, dictionary] of [
+    ['de', de],
+    ['en', en],
+  ] as const) {
+    it(`${locale}: no word the vocabulary gave to something else`, () => {
+      const offenders = MAIL_NAMESPACES.flatMap((path) => {
+        const node = subtree(dictionary, path)
+        expect(node, `${path} moved; update MAIL_NAMESPACES`).toBeDefined()
+        return leaves(node, path)
+      })
+        .filter(([, text]) => MAIL_FORBIDDEN[locale].test(text))
+        .map(([path, text]) => `${path}: ${text}`)
+      expect(offenders).toEqual([])
+    })
+  }
+
+  it('de: „Abgelegt“ is never a mail\'s state', () => {
+    const offenders = MAIL_NAMESPACES.flatMap((path) => leaves(subtree(de, path), path))
+      .filter(([path, text]) => /^\s*Abgelegt\s*$/u.test(text) && !MAIL_FACET_PATHS.has(path))
+      .map(([path, text]) => `${path}: ${text}`)
+    expect(offenders).toEqual([])
+  })
 })

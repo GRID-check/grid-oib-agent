@@ -57,6 +57,7 @@ import { getBackendUrl } from '@/lib/backend-proxy'
 import { resolvePeople } from '@/lib/sharing/directory'
 import type { Document, DocumentVersion } from '@/lib/db/schema'
 import { getAccessibleDocument } from './access'
+import { documentMailOrigins, mailOriginsByVersion } from '@/lib/mail-thread/mail-origins'
 import {
   AGENT_REFUSAL_LOCALE,
   confinementRefusal,
@@ -1438,7 +1439,12 @@ export async function listDocumentVersionViews(
   // Whether `…/versions/{id}/file` and `/content` will hand this reader the
   // bytes (ADR-0086), so the timeline offers Öffnen only where they will.
   const readable = await versionBytesReadableBy(session, document, rows)
-  const versions = rows.map((version) => ({ ...toDocumentVersionView(version), bytesReadable: readable(version) }))
+  // Which mail brought which Fassung (D36), through the threads this reader may read.
+  const origins = mailOriginsByVersion(await documentMailOrigins(session, document))
+  const versions = rows.map((version) => {
+    const mailOrigins = origins.get(version.id)
+    return { ...toDocumentVersionView(version), bytesReadable: readable(version), ...(mailOrigins ? { mailOrigins } : {}) }
+  })
   const reviewerUserIds = await openReviewRound(session.organizationId, documentId, versions)
   const people = await resolvePeople(session.organizationId, [...new Set([...versionActors(versions), ...reviewerUserIds])])
   return {

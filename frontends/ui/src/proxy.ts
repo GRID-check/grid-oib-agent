@@ -105,6 +105,15 @@ export const config = {
      *   proxy would buffer megabyte-sized replay bodies against
      *   `proxyClientMaxBodySize`. The route is `publicApiRoute` and forwards no
      *   cookie or credential.
+     * - api/internal/signed/ (the RFC 9421 signed internal routes,
+     *   `internalApiRoute` with `auth.signature`): a caller outside the cluster
+     *   pushes a raw body there, and a proxied body is buffered and, above
+     *   `proxyClientMaxBodySize`, handed to the route cut short without an
+     *   error. Skipping the proxy hands the route the unbuffered stream, which
+     *   `lib/api/bounded-body.ts` holds to the signed length and digest. The
+     *   routes authenticate themselves before reading a byte and carry no
+     *   session, so AuthKit has nothing to do there. Only this sub-path: the
+     *   token-guarded `/api/internal/*` routes stay on the matcher.
      *
      * API auth routes are allow-listed via middlewareAuth.unauthenticatedPaths
      * so AuthKit can complete the OAuth callback without a session.
@@ -115,6 +124,6 @@ export const config = {
      * unset/misconfigured — turning a config gap into a container that never
      * goes healthy).
      */
-    '/((?!_next/static|_next/image|favicon\\.ico$|icon\\.svg$|apple-icon\\.png$|manifest\\.webmanifest$|robots\\.txt$|sw\\.js$|icons/|art/|public|api/healthz|ingest/).*)',
+    '/((?!_next/static|_next/image|favicon\\.ico$|icon\\.svg$|apple-icon\\.png$|manifest\\.webmanifest$|robots\\.txt$|sw\\.js$|icons/|art/|public|api/healthz|ingest/|api/internal/signed/).*)',
   ],
 }

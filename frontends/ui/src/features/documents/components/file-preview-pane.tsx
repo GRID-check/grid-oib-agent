@@ -49,7 +49,7 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from '@/co
 import { InsetStage } from '@/components/ui/inset-stage'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { RevisionLinks } from '@/lib/documents/revision-links'
-import { documentTypeOf } from '@/lib/documents/tag-vocabulary'
+import { documentTypeOf, tagLabel } from '@/lib/documents/tag-vocabulary'
 import { ClampedText } from '@/components/ui/clamped-text'
 import { documentFileUrl } from '@/lib/documents/urls'
 import { useLocale, useTranslations } from '@/i18n'
@@ -1208,7 +1208,7 @@ export function FilePreviewPane({
               )}
               {showMetadataPanel && detectedType && (
                 <Badge variant="secondary" className="min-w-0 max-w-full shrink font-normal">
-                  <span className="truncate">{detectedType}</span>
+                  <span className="truncate">{tagLabel(detectedType, t)}</span>
                 </Badge>
               )}
             </div>

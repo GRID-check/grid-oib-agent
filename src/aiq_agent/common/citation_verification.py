@@ -100,6 +100,12 @@ class SourceEntry:
     # and it is what ``answer_envelope._gate_verdict`` reads to refuse a
     # normative verdict resting on an office document Piloti wrote itself.
     authored_by: str | None = None
+    # The FORMAT of the document the passage came from, when it states one:
+    # ``"mail"`` for a filed E-Mail-Verlauf (``source_kinds.MAIL_SOURCE_FORMAT``),
+    # whose sections are messages. Parsed from the ``Format:`` line. It places
+    # the passage in the mail lane of its shelf (``norm_registry.lane_for_hit``),
+    # so a clerk's e-mail is cited as an e-mail and never as building law.
+    source_format: str | None = None
     # Retrieved passage body for knowledge-layer hits (the chunk content the KB
     # tool returned, truncated at 1500 chars per chunk). Used by
     # ``verify_quoted_spans`` to check that a QUOTED sentence in the answer
@@ -695,6 +701,7 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             shelf=item.get("shelf"),
                             doc_class=item.get("doc_class"),
                             authored_by=item.get("authored_by"),
+                            source_format=item.get("source_format"),
                             chunk_text=item.get("chunk_text"),
                             clause=item.get("clause", item.get("punkt")),
                             score=item.get("score"),
@@ -1081,6 +1088,7 @@ def _entry_from_hit_fields(hit: GroundingHit, tool_name: str) -> SourceEntry:
         shelf=str(hit.shelf) if hit.shelf is not None else None,
         doc_class=(hit.doc_class or "").strip() or None,
         authored_by=hit.authored_by,
+        source_format=(hit.source_format or "").strip() or None,
         # The body as EVIDENCE: no truncation marker (the renderer adds it) and
         # no surrounding blank lines, so ``verify_quoted_spans`` matches an
         # answer's quote against the passage and nothing else.
@@ -1225,6 +1233,9 @@ _KL_DOC_CLASS_RE = re.compile(r"^(?:Dokumentart|Doc-Class):\s*(.+)$", re.MULTILI
 # structured, in the Trace-Lanes ``provenance`` object — never re-derived from
 # this sentence.
 _KL_PROVENANCE_RE = re.compile(r"^Herkunft:\s*(.+)$", re.MULTILINE)
+# The document's FORMAT (``grounding_block._header_lines``): ``Format: mail — E-Mail``.
+# Only the leading machine token is read, the way ``Dokumentart:`` is.
+_KL_FORMAT_RE = re.compile(r"^Format:\s*(.+)$", re.MULTILINE)
 # The Punkt the excerpt belongs to, as the chunker established it
 # (``clause_chunking.py``, measured 946/946 against the corpus's contents
 # pages) and ``_format_results`` states it. This is the citation form Austrian
@@ -1362,6 +1373,11 @@ def _parse_kl_authored_by(raw: str | None) -> str | None:
     return AGENT_AUTHOR if value.startswith(AGENT_AUTHORED_LANE_LABEL) else None
 
 
+def _parse_kl_source_format(raw: str | None) -> str | None:
+    """The machine token of a ``Format:`` value (``mail — E-Mail`` -> ``mail``), or None."""
+    return (raw or "").split("—")[0].strip() or None
+
+
 def _kl_entry(
     *,
     citation_key: str,
@@ -1370,6 +1386,7 @@ def _kl_entry(
     shelf: str | None = None,
     doc_class: str | None,
     authored_by: str | None = None,
+    source_format: str | None = None,
     chunk_text: str | None,
     tool_name: str,
     clause: str | None = None,
@@ -1392,6 +1409,7 @@ def _kl_entry(
         shelf=str(parsed_shelf) if parsed_shelf else None,
         doc_class=doc_class or None,
         authored_by=authored_by or None,
+        source_format=source_format or None,
         chunk_text=chunk_text or None,
         clause=(clause or "").strip() or None,
         score=score,
@@ -1462,6 +1480,7 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                     shelf=_first(_KL_SHELF_RE, header),
                     doc_class=_parse_kl_doc_class(_first(_KL_DOC_CLASS_RE, header)),
                     authored_by=_parse_kl_authored_by(_first(_KL_PROVENANCE_RE, header)),
+                    source_format=_parse_kl_source_format(_first(_KL_FORMAT_RE, header)),
                     chunk_text=_kl_block_body(block),
                     tool_name=tool_name,
                     clause=_first(_KL_CLAUSE_RE, header),
@@ -2090,6 +2109,7 @@ def source_lane(entry: SourceEntry, registry: NormRegistry | None = None) -> tup
         registry=registry,
         shelf=entry.shelf,
         authored_by=entry.authored_by,
+        source_format=entry.source_format,
     )
 
 

@@ -88,6 +88,7 @@ from .routes.ingest import add_ingest_routes
 from .routes.internal_tools import add_internal_tool_routes
 from .routes.jobs import register_job_routes
 from .routes.lesson_distill import add_lesson_distill_routes
+from .routes.mail import add_mail_routes
 from .routes.mail_archive import add_mail_archive_routes
 from .routes.maintenance import add_maintenance_routes
 from .routes.norms import add_norm_routes
@@ -359,6 +360,10 @@ def api_routers(llm_configs: Mapping[str, Any]) -> tuple[Callable[[APIRouter], N
         # Reads an Outlook archive the BFF staged, for its mail import (ADR-0085).
         # Internal-token only, off the external allowlist.
         add_mail_archive_routes,
+        # Reads one mail sent to a project's address for the BFF's receive job:
+        # own text, quoted blocks, calendar (DECISION D12). Internal-token only,
+        # off the external allowlist.
+        add_mail_routes,
         add_oib_routes,
         add_norm_routes,
         # A RIS document as text, so a RIS citation opens INSIDE Piloti rather

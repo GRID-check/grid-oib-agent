@@ -12,7 +12,7 @@ from fastapi import APIRouter
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from aiq_api.mail_archive.body_text import BodyText
+from aiq_api.mail.body_text import BodyText
 from aiq_api.mail_archive.reader import Address
 from aiq_api.mail_archive.reader import ArchiveError
 from aiq_api.mail_archive.reader import ArchiveMessage
@@ -34,7 +34,12 @@ MAIL = ArchiveMessage(
     subject="Plan",
     sender=Address("Anna", "anna@buero.at"),
     to=(Address("Bauamt", "bauamt@wien.gv.at"),),
+    bcc=(Address("Ablage", "ablage@buero.at"),),
     sent_at=datetime(2026, 9, 30, 8, 15, tzinfo=UTC),
+    message_id="<b@buero.at>",
+    in_reply_to="<a@wien.gv.at>",
+    references="<root@buero.at> <a@wien.gv.at>",
+    conversation_index="AdnCobPEAcmhssPU5fYHGCk6S1xtfg==",
     body=BodyText(text="Hallo", source="plain", truncated=False),
     attachments=(AttachmentInfo(0, "Grundriss Ä.pdf", "application/pdf", 5, inline=False, embedded_message=False),),
 )
@@ -63,10 +68,13 @@ class FakeArchive:
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", TOKEN)
-    holder = {"archive": FakeArchive()}
+    monkeypatch.setenv("SEAWEED_ENDPOINT", "http://seaweedfs:8333")
+    monkeypatch.delenv("SEAWEED_PUBLIC_ENDPOINT", raising=False)
+    holder = {"archive": FakeArchive(), "opened": []}
 
     @contextmanager
-    def use_archive(key, url, size):
+    def use_archive(url, size):
+        holder["opened"].append(url)
         yield holder["archive"]
 
     monkeypatch.setattr(route, "use_archive", use_archive)
@@ -84,6 +92,61 @@ def test_the_routes_refuse_a_caller_without_the_internal_token(client):
     assert response.status_code == 403
 
 
+#: URLs the archive must never be read from: another host, the store's host on
+#: another port (SeaweedFS's master and filer share it), credentials before the
+#: host, and a scheme that is not HTTP.
+OFF_STORE_URLS = [
+    "http://169.254.169.254/latest/meta-data/",
+    "http://seaweedfs:9333/cluster/status",
+    "http://seaweedfs:8333@internal-admin:80/",
+    "file:///etc/passwd",
+]
+
+
+@pytest.mark.parametrize("url", OFF_STORE_URLS)
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("/v1/mail-archive/messages", {"start": 0}),
+        ("/v1/mail-archive/attachment", {"position": 3, "index": 0}),
+    ],
+)
+def test_an_archive_url_off_the_object_store_is_refused_before_anything_is_read(client, url, path, body):
+    """The archive URL is the caller's, and this tier requests it: an SSRF unless it names the store."""
+    response = client.post(
+        path,
+        json={**body, "archive": {**ARCHIVE, "url": url}},
+        headers={"x-grid-internal-token": TOKEN},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "archive", "url"]
+    assert client.holder["opened"] == []
+
+
+def test_a_caller_without_the_token_learns_nothing_about_the_url_gate(client):
+    """The token is checked before the body: an outsider gets 403 whatever URL it sends, never 422."""
+    response = client.post(
+        "/v1/mail-archive/messages",
+        json={"archive": {**ARCHIVE, "url": OFF_STORE_URLS[0]}, "start": 0},
+    )
+    assert response.status_code == 403
+
+
+def test_the_archive_is_read_at_the_configured_origin_whatever_the_spelling(client):
+    """Same origin in another spelling: the archive is opened at the store as
+    configured, with only the object's path and presigned query from the caller."""
+    spelled = {**ARCHIVE, "url": "HTTP://SeaweedFS:8333/x?sig"}
+    response = client.post(
+        "/v1/mail-archive/messages",
+        json={"archive": spelled, "start": 0, "limit": 1},
+        headers={"x-grid-internal-token": TOKEN},
+    )
+
+    assert response.status_code == 200
+    assert client.holder["opened"] == ["http://seaweedfs:8333/x?sig"]
+
+
 def test_a_page_carries_mail_in_full_and_other_items_by_class(client):
     response = client.post(
         "/v1/mail-archive/messages",
@@ -98,6 +161,10 @@ def test_a_page_carries_mail_in_full_and_other_items_by_class(client):
     assert mail["sender"] == {"name": "Anna", "address": "anna@buero.at"}
     assert mail["sent_at"] == "2026-09-30T08:15:00+00:00"
     assert mail["body"] == {"text": "Hallo", "source": "plain", "truncated": False}
+    assert mail["bcc"] == [{"name": "Ablage", "address": "ablage@buero.at"}]
+    assert (mail["message_id"], mail["in_reply_to"]) == ("<b@buero.at>", "<a@wien.gv.at>")
+    assert mail["references"] == "<root@buero.at> <a@wien.gv.at>"
+    assert mail["conversation_index"] == "AdnCobPEAcmhssPU5fYHGCk6S1xtfg=="
     assert mail["attachments"][0]["filename"] == "Grundriss Ä.pdf"
     assert other == {"position": 4, "kind": "other", "message_class": "IPM.Contact", "folder_path": ["Kontakte"]}
     assert damaged == {

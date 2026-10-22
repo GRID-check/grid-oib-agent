@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend.test' }))
 
-import { filingFitBody, judgeFiling, keepKnownMoves } from './judge'
-import type { FilingJudgementInput } from './types'
+import { filingFitBody, judgeFiling, judgeMailFiling, keepKnownMoves, keepMailPlacements, mailFilingBody } from './judge'
+import type { FilingJudgementInput, MailFilingInput } from './types'
 
 const INPUT: FilingJudgementInput = {
   basis: 'name',
@@ -103,6 +103,85 @@ describe('judgeFiling', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
     await judgeFiling('org_1', { ...INPUT, documents: [] })
     await judgeFiling('org_1', { ...INPUT, folders: [], conventions: [] })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+const MAIL: MailFilingInput = {
+  locale: 'de',
+  folders: INPUT.folders,
+  conventions: INPUT.conventions,
+  attachments: [
+    { id: 'p1', file: 'Bescheid_MA37.pdf' },
+    { id: 'p2', file: 'Lageplan.dwg' },
+  ],
+  mail: { subject: 'AW: Einreichung ███', senderDomain: 'wien.gv.at', textId: 't1' },
+  trace: { mailId: 'mail-1', projectId: 'project-1' },
+}
+
+describe('a held mail (basis mail)', () => {
+  it('sends names and labels only: each attachment is an id and a name, in no folder, with nothing read', () => {
+    const body = mailFilingBody(MAIL) as Record<string, unknown>
+    expect(body).toMatchObject({
+      basis: 'mail',
+      purpose: 'upload',
+      documents: [
+        { id: 'p1', file: 'Bescheid_MA37.pdf' },
+        { id: 'p2', file: 'Lageplan.dwg' },
+      ],
+      mail: { subject: 'AW: Einreichung ███', sender_domain: 'wien.gv.at', text_id: 't1' },
+      trace: { batch_id: 'mail-1', project_id: 'project-1', shelf: 'project' },
+    })
+    for (const document of body.documents as Array<Record<string, unknown>>) {
+      expect(Object.keys(document).sort()).toEqual(['file', 'id'])
+    }
+    expect(Object.keys(body.mail as object).sort()).toEqual(['sender_domain', 'subject', 'text_id'])
+  })
+
+  it('keeps a placement the input grounds, with a Dokumentart of the vocabulary, and the text without one', () => {
+    expect(
+      keepMailPlacements(
+        [
+          { id: 'p1', folder: 'bescheide', type: 'Bescheid', reason: ' Ein  Bescheid. ' },
+          { id: 'p2', folder: 'Korrespondenz', type: 'Lieblingsplan', reason: 'Ein Lageplan.' },
+          { id: 't1', folder: 'Bescheide', type: 'Bescheid', reason: 'Schriftverkehr.' },
+          { id: 'p1', folder: 'Pläne/Einreichung', reason: 'doch' },
+          { id: 'ghost', folder: 'Bescheide', reason: 'x' },
+          { id: 'p2', folder: 'Erfunden', reason: 'x' },
+        ],
+        MAIL,
+      ),
+    ).toEqual([
+      { partId: 'p1', folder: 'Bescheide', newFolder: null, documentType: 'Bescheid', reason: 'Ein Bescheid.' },
+      { partId: 'p2', folder: 'Korrespondenz', newFolder: { description: 'Briefe und Mails' }, documentType: null, reason: 'Ein Lageplan.' },
+      { partId: 't1', folder: 'Bescheide', newFolder: null, documentType: null, reason: 'Schriftverkehr.' },
+    ])
+  })
+
+  it('asks once, as a mail, and answers the checked placements with the trace', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({
+        moves: [{ id: 'p1', folder: 'Bescheide', type: 'Bescheid', reason: 'Ein Bescheid.' }],
+        trace_id: 'abcdef0123456789abcdef0123456789',
+      }),
+    )
+    const judgement = await judgeMailFiling('org_1', MAIL)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual(mailFilingBody(MAIL))
+    expect(judgement).toEqual({
+      placements: [{ partId: 'p1', folder: 'Bescheide', newFolder: null, documentType: 'Bescheid', reason: 'Ein Bescheid.' }],
+      traceId: 'abcdef0123456789abcdef0123456789',
+      error: null,
+    })
+  })
+
+  it('fails open, and makes no call with nothing to place or nowhere to place it', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('down', { status: 503 }))
+    expect(await judgeMailFiling('org_1', MAIL)).toEqual({ placements: [], traceId: null, error: 'backend_503' })
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    fetchMock.mockClear()
+    await judgeMailFiling('org_1', { ...MAIL, attachments: [], mail: { ...MAIL.mail, textId: null } })
+    await judgeMailFiling('org_1', { ...MAIL, folders: [], conventions: [] })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })

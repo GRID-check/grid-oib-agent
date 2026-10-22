@@ -50,6 +50,7 @@ import { documentDisplayName, splitDocumentName } from '@/lib/documents/display-
 import { calendarDayIn, OFFICE_TIME_ZONE } from '@/lib/format'
 import { listDocumentVersions } from '@/lib/documents/version-repository'
 import { findProjectInOrg } from '@/lib/projects/repository'
+import { escapeInline, escapeLineStarts, escapeMarkdown } from '@/lib/text/markdown-escape'
 import { BlocksDocument } from '@/lib/pdf/blocks-to-pdf'
 import type { CoverFact } from '@/lib/pdf/branding'
 import { MAX_MARKDOWN_PDF_CHARS, PDF_MEDIA_TYPE, TABLE_CELL_COST_CHARS } from '@/lib/pdf/markdown-pdf'
@@ -343,24 +344,6 @@ const withHeader = (protocol: Protocol): DocBlock[] => [
   ...protocol.facts.map((fact) => labelled(fact.label, fact.value)),
   ...protocol.body,
 ]
-
-/**
- * Text, escaped so that it stays text: an Anmerkung that carries a `*` or a
- * `[` is what a person typed, not Markdown. Every ASCII punctuation may be
- * backslash-escaped in CommonMark; only the characters that act anywhere are
- * escaped here, the ones that act at a line's start by {@link escapeLineStarts}.
- */
-const escapeInline = (text: string): string => text.replace(/[\\`*_[\]<>|~]/g, (char) => `\\${char}`)
-
-/** „# Termin", „- offen", „1. Stock" at a line's start are text, not a heading or a list (`>` is escaped inline). */
-const escapeLineStarts = (text: string): string =>
-  text
-    .replace(/^(\s*)(#{1,6}|[+-])(?=[\s+-]|$)/gm, (_match, indent: string, marker: string) => `${indent}\\${marker}`)
-    .replace(/^(\s*\d{1,9})([.)])(?=\s|$)/gm, (_match, digits: string, mark: string) => `${digits}\\${mark}`)
-    .replace(/^(\s*)(=+\s*)$/gm, (_match, indent: string, rule: string) => `${indent}\\${rule}`)
-
-/** Inline text escaped and line starts neutralised: a string that stays text wherever it lands. */
-const escapeMarkdown = (text: string): string => escapeLineStarts(escapeInline(text))
 
 function runsToMarkdown(runs: readonly DocRun[]): string {
   return runs

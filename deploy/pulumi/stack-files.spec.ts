@@ -70,6 +70,43 @@ describe("committed stack files", () => {
     }
   });
 
+  /**
+   * The zone a stack's project mail routes on, as `loadConfig` resolves it:
+   * `inboundMailZoneId`, or `dnsZoneId` when the domain is the app zone's apex.
+   */
+  function inboundZone(config: StackConfig): string | undefined {
+    const domain = str(config, "inboundMailDomain");
+    if (domain === undefined) return undefined;
+    return (
+      str(config, "inboundMailZoneId") ??
+      (domain === str(config, "dnsZoneName") ? str(config, "dnsZoneId") : undefined)
+    );
+  }
+
+  it("give each project-mail zone at most one stack", () => {
+    // The Email Routing catch-all is one object per zone. A second stack on the
+    // same zone is no API error: its `up` repoints the catch-all at its own
+    // Worker, and from then on every mail lands in that stack's database.
+    const owners = new Map<string, string[]>();
+    for (const stack of stacks()) {
+      const zoneId = inboundZone(stack.config);
+      if (zoneId === undefined) continue;
+      owners.set(zoneId, [...(owners.get(zoneId) ?? []), stack.file]);
+    }
+    for (const [zoneId, files] of owners) {
+      expect(files.length, `zone ${zoneId} is claimed by ${files.join(", ")}`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("run the malware scanner wherever project mail is configured", () => {
+    // `loadConfig` refuses the pair at plan time (ADR-0133, ADR-0135); this
+    // says so on the pull request instead.
+    for (const stack of stacks()) {
+      if (str(stack.config, "inboundMailDomain") === undefined) continue;
+      expect(str(stack.config, "malwareScanEnabled"), stack.file).toBe("true");
+    }
+  });
+
   // `loadConfig` refuses them at plan time, which is the deploy failing; this
   // says so on the pull request instead (ADR-0115).
   it("set none of the retired Chroma and vector-switch keys", () => {

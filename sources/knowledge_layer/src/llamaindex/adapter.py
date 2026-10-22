@@ -678,6 +678,9 @@ EMBED_EXCLUDED_METADATA_KEYS = (
     "approved_by",
     "approved_at",
     "producer",
+    # A filed mail thread's format (``mail``): a lane and a filter, not a word of
+    # any message. The grounding block states it as its own ``Format:`` line.
+    "source_format",
 )
 
 
@@ -694,6 +697,17 @@ def _provenance_from_config(config: dict) -> dict[str, str]:
 
     provenance = parse_agent_provenance(config)
     return provenance_metadata(provenance) if provenance else {}
+
+
+def _source_format_from_config(config: dict) -> str | None:
+    """The format a job config states for its document: ``mail`` for a filed E-Mail-Verlauf, else ``None``.
+
+    ``POST /v1/ingest`` sets it only from ``mail_thread``; anything else in the key
+    is not a format this pipeline knows, and stamping it would invent a lane.
+    """
+    from aiq_agent.common.source_kinds import MAIL_SOURCE_FORMAT
+
+    return MAIL_SOURCE_FORMAT if config.get("source_format") == MAIL_SOURCE_FORMAT else None
 
 
 def _apply_metadata_exclusions(document: Any) -> None:
@@ -764,9 +778,15 @@ def _fit_rendered_metadata(document: Any, limit: int) -> list[str]:
 
 
 def _stamp_chunk_metadata(
-    documents: list[Any], *, doc_class: Any, provenance: dict[str, Any], chunk_size: int, file_name: str
+    documents: list[Any],
+    *,
+    doc_class: Any,
+    provenance: dict[str, Any],
+    chunk_size: int,
+    file_name: str,
+    source_format: str | None = None,
 ) -> None:
-    """Stamp ``doc_class`` and provenance on a file's documents and fit each header to half of ``chunk_size``.
+    """Stamp ``doc_class``, provenance and format on a file's documents; fit each header to half of ``chunk_size``.
 
     ``chunk_size`` is the one this job's splitter runs with (the job config's, which
     ``_ingest_job`` also sets on ``Settings``), not the ingestor's default: budgeted
@@ -780,6 +800,8 @@ def _stamp_chunk_metadata(
     for doc in documents:
         doc.metadata["doc_class"] = doc_class
         doc.metadata.update(provenance)
+        if source_format:
+            doc.metadata["source_format"] = source_format
         _apply_metadata_exclusions(doc)
         unrendered.update(_fit_rendered_metadata(doc, limit))
         longest = max(longest, _rendered_metadata_tokens(doc))
@@ -2834,6 +2856,80 @@ def _read_human_set_fields(collection_name: str, found: dict[str, _PreviousVersi
                     version.preserved.setdefault(name, value)
     except Exception:  # noqa: BLE001 — losing them must not keep the old chunks
         logger.warning("Could not read the previous versions' metadata; re-deriving it", exc_info=True)
+
+
+def _store_mail_facts(collection_name: str, file_name: str, config: dict, *, replaced: bool) -> None:
+    """Write the job's ``mail_thread`` and ``mail_origin`` onto the document's metadata row.
+
+    The store normalises both (``aiq_agent.knowledge.mail_facts``): an origin with
+    no date or no trust is not stored, and no key beyond the known ones is kept.
+    A record the job does not carry is written only to clear one a replaced
+    Fassung of the same name had.
+    """
+    from aiq_agent.knowledge import set_document_mail_origin
+    from aiq_agent.knowledge import set_document_mail_thread
+
+    thread, origin = config.get("mail_thread"), config.get("mail_origin")
+    if thread or replaced:
+        set_document_mail_thread(collection_name, file_name, thread if isinstance(thread, dict) else None)
+    if origin or replaced:
+        set_document_mail_origin(collection_name, file_name, origin if isinstance(origin, dict) else None)
+
+
+def _chosen_document_type(config: dict) -> str | None:
+    """The document type a person chose when the file was filed (``document_type``), or ``None``.
+
+    ``POST /v1/ingest`` already refuses a value outside the vocabulary; a job
+    queued before a vocabulary change can still carry one, and that is dropped
+    with a warning rather than stored, because the store keeps whatever it is
+    handed.
+    """
+    from aiq_agent.knowledge.document_classification import DOCUMENT_TYPE_TAGS
+
+    chosen = config.get("document_type")
+    if not chosen:
+        return None
+    if chosen not in DOCUMENT_TYPE_TAGS:
+        logger.warning("Ignoring a document_type outside the vocabulary: %r", chosen)
+        return None
+    return chosen
+
+
+def _with_document_type(tags: list[str] | None, document_type: str) -> list[str]:
+    """``tags`` with ``document_type`` as their one document type; the discipline tags stay, up to ``MAX_TAGS``.
+
+    Pure. Every other type tag goes, whether the classifier read it or a person
+    chose it earlier: the newest choice is what the document is.
+    """
+    from aiq_agent.knowledge.document_classification import DOCUMENT_TYPE_TAGS
+    from aiq_agent.knowledge.document_classification import MAX_TAGS
+
+    others = [tag for tag in tags or () if tag not in DOCUMENT_TYPE_TAGS and tag != document_type]
+    return [document_type, *others][:MAX_TAGS]
+
+
+def _keep_chosen_document_type(
+    collection_name: str, file_name: str, document_type: str, tags: list[str] | None
+) -> None:
+    """Store the chosen type on the row as a person's tags, so no later read replaces it. Fail-open.
+
+    The beside-part of :func:`_read_human_set_fields`: the type a person chose
+    at filing is a human-set field from the moment it is stored, and it rides
+    the store's one marker (``tags_set_by = 'person'``). That marker also keeps
+    the row's topics, exactly as a person's edit in the tag editor does.
+
+    The base is the person's tags when the row already has them (a re-upload,
+    or a row carried from another spelling), so their discipline tags survive;
+    otherwise the classifier's. A store that cannot be read answers ``{}``, and
+    the classifier's disciplines are then the base: the type still holds.
+    """
+    from aiq_agent.knowledge import get_document_person_tags
+    from aiq_agent.knowledge import set_document_tags_by_person
+
+    person = get_document_person_tags(collection_name, [file_name]).get(file_name)
+    base = person if person is not None else tags
+    if not set_document_tags_by_person(collection_name, file_name, _with_document_type(base, document_type)):
+        logger.warning("Could not store the chosen document type of %s in %s", file_name, collection_name)
 
 
 def _file_info_from_job(job: IngestionJobStatus, detail: FileProgress) -> FileInfo:
@@ -5370,6 +5466,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             segment_types=(doc.metadata.get("drawing_type") or "" for doc in text_documents),
                         )
 
+                    # The type a person chose at filing beats the classifier's and the
+                    # photo rule's, here already, so the permit check and the Fassung
+                    # reading below see what the document is.
+                    chosen_type = _chosen_document_type(config)
+                    if chosen_type:
+                        tags = _with_document_type(tags, chosen_type)
+
                     self._remember_permit(config, collection_name, file_name, tags, text_documents)
 
                     # Standalone images must appear in the per-turn
@@ -5413,12 +5516,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # row — and an empty dict for every human document leaves
                     # those chunks byte-for-byte unchanged.
                     provenance = _provenance_from_config(config)
+                    # The format rides the same loop for the same reason: a filed
+                    # E-Mail-Verlauf's chunks are placed in the mail lane where
+                    # retrieval reads them, and each `##` section the Markdown
+                    # chunker cut is one message (`text_formats.markdown_documents`).
                     _stamp_chunk_metadata(
                         all_documents,
                         doc_class=doc_class,
                         provenance=provenance,
                         chunk_size=chunk_size,
                         file_name=file_name,
+                        source_format=_source_format_from_config(config),
                     )
 
                     # Embedding is the expensive step; a run that lost its claim
@@ -5555,6 +5663,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             from aiq_agent.knowledge import set_document_capture
 
                             set_document_capture(collection_name, file_name, photo.as_metadata())
+                        # A filed mail (ADR-0134): the Verlauf's newest message and count, or the
+                        # message an attachment came with. Each Fassung states its own, so a
+                        # re-upload of the name as an ordinary file clears what the mail said.
+                        _store_mail_facts(collection_name, file_name, config, replaced=previous is not None)
 
                         # Persist the doc_class onto the freshly-created summary
                         # row, but never overwrite a human-set stored value —
@@ -5590,6 +5702,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             from aiq_agent.knowledge import set_document_tags_by_person
 
                             set_document_tags_by_person(collection_name, file_name, json.loads(preserved["tags"]))
+                        # After the carry above, so it lands on the person's own tags.
+                        if chosen_type:
+                            _keep_chosen_document_type(collection_name, file_name, chosen_type, tags)
                         if "topics" in preserved:
                             from aiq_agent.knowledge import set_document_topics_by_person
 

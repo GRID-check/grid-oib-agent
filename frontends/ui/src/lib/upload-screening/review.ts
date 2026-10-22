@@ -28,8 +28,10 @@ import {
 } from '@/lib/documents/repository'
 import { internalRead, isHeldAtRest } from '@/lib/documents/document-reader'
 import { getAccessibleDocument } from '@/lib/documents/access'
+import { storedFilingChoice } from '@/lib/documents/filing-choice'
 import { dispatchDocument, type DispatchDocumentResult } from '@/lib/documents/service'
 import { resolveDocumentFolderPath } from '@/lib/documents/folder-path'
+import { resolveReleasedRevisionOf } from '@/lib/documents/revision-upload'
 import { documentShelf } from '@/lib/documents/shelf'
 import { publishShelfChanged } from '@/lib/documents/shelf-live'
 import { inboxGroupKey } from '@/lib/inbox/registry'
@@ -88,6 +90,15 @@ export async function releaseQuarantinedDocument(
   // Released: on its shelf for everyone who may read it, from now on.
   publishShelfChanged(session.organizationId, documentShelf(doc))
 
+  // What the uploader chose for these bytes (a document type, the Fassung
+  // they replace): the held reading never stored it, so this one must. Read
+  // from the row loaded above, and only while it names these bytes. The
+  // Fassung is checked again: days may have passed since the upload.
+  const choice = storedFilingChoice(doc)
+  const revisionOf = choice?.revisionOfId
+    ? await resolveReleasedRevisionOf(session.organizationId, choice.revisionOfId, doc)
+    : null
+
   const { jobId, status } = await dispatchDocument({
     organizationId: session.organizationId,
     projectId: doc.projectId,
@@ -97,6 +108,8 @@ export async function releaseQuarantinedDocument(
     storageBucket: doc.storageBucket,
     collectionName: doc.collectionName,
     folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
+    ...(choice?.documentType ? { documentType: choice.documentType } : {}),
+    ...(revisionOf ? { revisionOf, revisionOfId: choice?.revisionOfId } : {}),
   })
 
   const reasons = quarantineVerdictOf(doc)?.reasons ?? []

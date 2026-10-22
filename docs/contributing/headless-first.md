@@ -23,6 +23,7 @@ only Piloti has"). Such an operation is still written, then withheld in
 | `product-config` | How Piloti itself works for the office | models and their versions, zero data retention, LLM keys and provider mode, budgets and usage, settings, standing instructions, upload screening, retention policies, curated skills on or off |
 | `model-compute` | Model work the caller can do itself, whose result is no office artifact | conversation titles, citation formatting, skill review |
 | `ui-state` | This person's own screen or device | push devices and preferences, the preference bag, read and unread marks |
+| `evidence` | Bytes kept as proof, which no model reads | a held or filed mail's original `.eml` (ADR-0134) |
 
 A domain feature that makes an office artifact with Piloti's knowledge stays on
 the door (`project-summary-generate`, `project-consistency-check`,
@@ -46,7 +47,7 @@ see.
 | When you | You must |
 |---|---|
 | Add an `app/api` route method a person calls | Add an operation for it in the same change |
-| Add a route that is not something a person does (transport, sign-in plumbing, typing) | Add it to `NOT_AN_AGENT_CAPABILITY` in `agent-reachability.spec.ts`, with a category and a reason |
+| Add a route that is not something a person does (transport, sign-in plumbing, typing) | Add it to `NOT_AN_AGENT_CAPABILITY` in `agent-reachability.spec.ts`, with a category and a reason. A service's route on `internalApiRoute` or `publicApiRoute` needs neither |
 | Add an operation | Give it its entry in `frontends/ui/src/lib/agent-api/exposure.config.ts`: who sees it (`external`, `piloti`, `platform`), with a `reason` unless it is `OFFERED`. Regenerate `tests/fixtures/exposure.json` ([how](../architecture/agent-surface.md#the-exposure-config)) |
 | Add a route that is product configuration, a proxied service, model compute or screen state | Write its operation; its exposure entry is `withheld: { category, reason }` |
 | Add or change something on the review canvas or in the chat | Its entry in `frontends/ui/src/lib/surface-parity/parity.config.ts`, with its mirror or a reason ([how](../architecture/agent-surface.md#surface-parity-canvas-and-chat)) |
@@ -63,7 +64,8 @@ see.
 - [ ] The route method has an operation, or an exemption with a category and a reason.
 - [ ] The operation has its entry in `exposure.config.ts`: office work, domain knowledge or Piloti itself is offered; anything else is `withheld`.
 - [ ] `name` is `<entity>-<verb>`, at most 52 characters, one operation per route method.
-- [ ] The description says when to call it, what comes back, where ids come from, what to call next.
+- [ ] The description says when to call it, what comes back, where ids come from, what to call next. It names only operations the same audience is offered (`description-references.spec.ts`).
+- [ ] A GET route writes nothing, not even on first read; creation is its own idempotent write.
 - [ ] `body` and `query` are the route's own schemas, not copies.
 - [ ] `destructive`, `readOnly` and `idempotent` are right where the defaults are not.
 - [ ] `cd frontends/ui && bunx vitest run src/lib/agent-api/` is green.

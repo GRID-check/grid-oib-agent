@@ -25,6 +25,7 @@ import type { Project } from '@/lib/db/schema'
 import {
   ProjectActivity,
   ProjectOpenLink,
+  ProjectMailWaiting,
   ProjectOverviewLink,
   ProjectSummaryLine,
 } from './project-atoms'
@@ -40,9 +41,14 @@ interface ProjectCardProps {
    * under the neutral label (see `ProjectActivity`).
    */
   activityAt?: string
+  /**
+   * Mails waiting in the project's E-Mail-Eingang for the viewer (ADR-0134);
+   * absent or 0 shows nothing. Only a reader who may file the mail gets one.
+   */
+  mailWaiting?: number
 }
 
-export function ProjectCard({ project, docCount = 0, activityAt }: ProjectCardProps): JSX.Element {
+export function ProjectCard({ project, docCount = 0, activityAt, mailWaiting = 0 }: ProjectCardProps): JSX.Element {
   // docCount is accepted for API stability but the card face mirrors the
   // click-dummy (name · summary · last activity) and does not surface it. The
   // dense list row does, where there is a column for it.
@@ -72,7 +78,8 @@ export function ProjectCard({ project, docCount = 0, activityAt }: ProjectCardPr
       {/* Footer tab on the tray: activity · time · Übersicht. */}
       <RaisedCardFooter>
         <ProjectActivity project={project} activityAt={activityAt} compact />
-        <ProjectOverviewLink project={project} showLabel className="-mr-2 ml-auto" />
+        <ProjectMailWaiting project={project} count={mailWaiting} className="ml-auto" />
+        <ProjectOverviewLink project={project} showLabel className={mailWaiting > 0 ? '-mr-2' : '-mr-2 ml-auto'} />
       </RaisedCardFooter>
     </RaisedCard>
   )

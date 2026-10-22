@@ -61,6 +61,8 @@ from .factory import set_document_display_title
 from .factory import set_document_doc_class
 from .factory import set_document_doc_class_suggestion
 from .factory import set_document_folder_path
+from .factory import set_document_mail_origin
+from .factory import set_document_mail_thread
 from .factory import set_document_page_count
 from .factory import set_document_provenance
 from .factory import set_document_revision_facts
@@ -138,6 +140,8 @@ __all__ = [
     "get_document_display_titles",
     "set_document_folder_path",
     "set_document_page_count",
+    "set_document_mail_thread",
+    "set_document_mail_origin",
     "set_document_provenance",
     "get_document_provenance",
     "get_document_folder_paths",

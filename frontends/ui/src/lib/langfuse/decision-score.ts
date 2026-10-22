@@ -12,8 +12,8 @@ import 'server-only'
  * Categorical because Langfuse charts it as a distribution, and the share of
  * `accepted` among the decisions is how often Piloti's work was right to
  * propose. `metadata` names the subject (`proposal`, `annotation`, `change`,
- * `intake_suggestion`) and its id, so a trace with several decisions is
- * readable.
+ * `intake_suggestion`, `inbound_mail_suggestion`) and its id, so a trace with
+ * several decisions is readable; a subject may add codes of its own (`detail`).
  *
  * The score id is derived from the subject, so a repeated call (a retried
  * request, a second replica) upserts instead of counting twice. A mark Piloti
@@ -55,8 +55,11 @@ import { upsertScore } from './feedback-score'
  * What was decided on. `intake_suggestion` is one value a reading of the
  * project's documents suggested (ADR-0111), confirmed or dismissed on the
  * review; it has no turn, so its caller passes the reading's trace id.
+ * `inbound_mail_suggestion` is where Piloti suggested filing one part of a
+ * held mail (ADR-0134, D21), filed there (accepted) or not (dismissed); its
+ * trace is the `filing-fit` generation's, stored on the part.
  */
-export type DecisionSubject = 'proposal' | 'annotation' | 'change' | 'intake_suggestion'
+export type DecisionSubject = 'proposal' | 'annotation' | 'change' | 'intake_suggestion' | 'inbound_mail_suggestion'
 export type Decision = 'accepted' | 'dismissed' | 'undone'
 
 /** The score's name in Langfuse. A contract: dashboards and filters select it by name. */
@@ -79,6 +82,8 @@ export interface DecisionScoreInput {
    * the project's documents, `research-job`). Wins over `origin`.
    */
   traceId?: string | null
+  /** Codes the subject adds to the score's metadata (never names, text or a person). */
+  detail?: Readonly<Record<string, string>>
 }
 
 /** The Langfuse score id for one subject. Stable, so a repeated decision upserts. */
@@ -92,6 +97,7 @@ export function toDecisionScore(input: {
   subject: DecisionSubject
   subjectId: string
   decision: Decision
+  detail?: Readonly<Record<string, string>>
 }): ScoreRequest {
   return {
     id: decisionScoreId(input.subject, input.subjectId),
@@ -99,7 +105,8 @@ export function toDecisionScore(input: {
     name: DECISION_SCORE_NAME,
     dataType: 'CATEGORICAL',
     value: input.decision,
-    metadata: { subject: input.subject, subject_id: input.subjectId },
+    // The subject and its id last, so a detail cannot rename what was decided on.
+    metadata: { ...input.detail, subject: input.subject, subject_id: input.subjectId },
   }
 }
 
@@ -136,7 +143,8 @@ async function originMessageId(input: DecisionScoreInput): Promise<string | null
     case 'change':
       return changeOriginMessage(input.organizationId, and(org, eq(pilotiChanges.id, input.subjectId)))
     case 'intake_suggestion':
-      // A reading is no turn: its trace comes with the input, or there is none.
+    case 'inbound_mail_suggestion':
+      // A reading and a suggestion job are no turn: the trace comes with the input, or there is none.
       return null
   }
 }

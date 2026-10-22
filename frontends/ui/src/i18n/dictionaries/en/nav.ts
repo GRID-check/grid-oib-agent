@@ -89,6 +89,8 @@ export const nav = {
     newProject: 'New project',
   },
   /** The phone's bottom tab bar (`components/shell/phone-tab-bar.tsx`). */
+  /** The muted count on Files in the rail and the tab bar: mail waiting in the E-Mail-Eingang. */
+  inboundMailWaiting: '{count, plural, one {# mail waiting to be filed} other {# mails waiting to be filed}}',
   tabBar: {
     label: 'Main navigation',
     /** Opens the sheet with the destinations the bar does not carry. */

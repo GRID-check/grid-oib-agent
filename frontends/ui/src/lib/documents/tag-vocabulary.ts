@@ -13,7 +13,15 @@
  * value the UI might send is still rejected 400 server-side).
  *
  * Keep the ORDER identical to the Python tuples; the parity test compares order.
+ *
+ * A tag is stored as written here. A new tag is an English token
+ * (`correspondence`) that a person reads through i18n, `files.documentTag.<token>`
+ * ({@link tagLabel}). The German values predate that rule and are still stored
+ * as such (metadata database, vector payloads); until their rename they are
+ * their own label.
  */
+
+import type { Translator } from '@/i18n'
 
 /** 1–2 of these describe what the document *is*. */
 export const DOCUMENT_TYPE_TAGS = [
@@ -27,6 +35,7 @@ export const DOCUMENT_TYPE_TAGS = [
   'Bescheid',
   'Norm/Richtlinie',
   'Vertrag',
+  'correspondence',
   'Foto',
   'Sonstiges',
 ] as const
@@ -71,6 +80,31 @@ export type TagGroupId = (typeof TAG_GROUPS)[number]['id']
  */
 export function documentTypeOf(tags: readonly string[] | null | undefined): DocumentTypeTag | undefined {
   return (tags ?? []).find((tag): tag is DocumentTypeTag => (DOCUMENT_TYPE_TAGS as readonly string[]).includes(tag))
+}
+
+/**
+ * The tags that are English tokens, each with its label in every dictionary
+ * under `files.documentTag`. The parity test holds this list to every token in
+ * the vocabulary, so a new token cannot ship without a label.
+ */
+export const LABELLED_TAGS = [
+  'correspondence',
+] as const
+
+export type LabelledTag = (typeof LABELLED_TAGS)[number]
+
+function isLabelledTag(tag: string): tag is LabelledTag {
+  return (LABELLED_TAGS as readonly string[]).includes(tag)
+}
+
+/**
+ * What a person reads for a stored tag. `t` is the `files` translator. A token
+ * reads as its label („Korrespondenz“, "Correspondence"); a German value and a
+ * free topic read as themselves. Every surface that shows, counts or matches a
+ * tag goes through this, so a token never reaches a person raw.
+ */
+export function tagLabel(tag: string, t: Translator): string {
+  return isLabelledTag(tag) ? t(`documentTag.${tag}`) : tag
 }
 
 /** Whether every tag in the list is part of the controlled vocabulary. */

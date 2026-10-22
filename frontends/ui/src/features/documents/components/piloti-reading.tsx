@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import { useLocale, useTranslations } from '@/i18n'
-import { DISCIPLINE_TAGS, DOCUMENT_TYPE_TAGS } from '@/lib/documents/tag-vocabulary'
+import { DISCIPLINE_TAGS, DOCUMENT_TYPE_TAGS, tagLabel } from '@/lib/documents/tag-vocabulary'
 import type { FileItem } from '../file-types'
 import { DocumentTagsEditor } from './document-tags-editor'
 import { DocumentTopicsEditor } from './document-topics-editor'
@@ -113,12 +113,12 @@ export function PilotiReading({
           <div className="flex flex-wrap items-center gap-1.5">
             {types.map((tag) => (
               <Chip key={tag} variant="default" size="sm" data-testid="piloti-reading-type">
-                {tag}
+                {tagLabel(tag, t)}
               </Chip>
             ))}
             {disciplines.map((tag) => (
               <Chip key={tag} variant="outline" size="sm">
-                {tag}
+                {tagLabel(tag, t)}
               </Chip>
             ))}
             {topics.map((topic) => (

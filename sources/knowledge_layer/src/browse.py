@@ -64,6 +64,11 @@ from pydantic import Field
 from aiq_agent.common.action_outcome import ActionOutcome
 from aiq_agent.common.source_kinds import canonical_shelf_value
 from aiq_agent.common.turn_status import ActionRow
+from aiq_agent.knowledge.mail_facts import mail_origin_label
+from aiq_agent.knowledge.mail_facts import mail_thread_date
+from aiq_agent.knowledge.mail_facts import mail_thread_label
+from aiq_agent.knowledge.mail_facts import normalise_mail_origin
+from aiq_agent.knowledge.mail_facts import normalise_mail_thread
 from aiq_agent.knowledge.page_count import page_number
 from aiq_agent.knowledge.title_block import display_date
 from aiq_agent.knowledge.title_block import document_key
@@ -198,16 +203,23 @@ class FileRow:
     revision_facts: Mapping[str, Any] | None = field(default=None, compare=False)
     #: Pages the document has, when the store knows (None: not recorded, never "zero").
     page_count: int | None = None
+    #: On a filed E-Mail-Verlauf: its newest message and count (``aiq_agent.knowledge.mail_facts``).
+    mail_thread: Mapping[str, Any] | None = field(default=None, compare=False)
+    #: On a file filed from a mail: the message it came with, sender trust included.
+    mail_origin: Mapping[str, Any] | None = field(default=None, compare=False)
 
     @property
     def document_date(self) -> str | None:
-        """The document's OWN date (ISO day): the title block's Stand, else the day a photo was taken.
+        """The document's OWN date (ISO day): the title block's Stand, else the day a photo was taken,
+        else a mail thread's newest message.
 
         The same rule as the ``document_date`` payload field (``qdrant/payload.py``), read from the
-        facts the row already carries. None for a document that prints none; never the upload date.
+        facts the row already carries. None for a document that prints none; never the upload date,
+        and never the day an attachment was mailed (that is its origin, not its date).
         """
-        stamp = str((self.revision_facts or {}).get("revision_date") or self.captured_at or "").strip()
-        return stamp[:10] or None
+        thread_date = mail_thread_date(self.mail_thread)
+        stamp = str((self.revision_facts or {}).get("revision_date") or self.captured_at or thread_date or "")
+        return stamp.strip()[:10] or None
 
     @property
     def searchable(self) -> str:
@@ -248,6 +260,8 @@ def file_row(row: Any) -> FileRow | None:
         change_basis=(str(_attr(row, "change_basis") or "").strip() or None),
         revision_facts=revision_facts if isinstance(revision_facts, dict) and revision_facts else None,
         page_count=page_number(_attr(row, "page_count")),
+        mail_thread=normalise_mail_thread(_attr(row, "mail_thread")),
+        mail_origin=normalise_mail_origin(_attr(row, "mail_origin")),
     )
 
 
@@ -623,6 +637,11 @@ def _row_line(row: FileRow, *, show_shelf: bool, mark: str | None = None) -> str
     title_block = title_block_label(row.revision_facts)
     if title_block:
         bits.append(f"Plankopf: {title_block}")
+    # A filed mail, in the words of the Verlauf's own headings: the sender's domain only when a
+    # signature confirmed it, „Domain nicht bestätigt“ otherwise (ADR-0134, RT-S2).
+    for mail_line in (mail_thread_label(row.mail_thread), mail_origin_label(row.mail_origin)):
+        if mail_line:
+            bits.append(mail_line)
     if mark:
         bits.append(mark)
     change = _change_bit(row)

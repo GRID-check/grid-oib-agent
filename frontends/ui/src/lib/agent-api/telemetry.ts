@@ -48,9 +48,13 @@ export interface McpCallContext {
 
 /**
  * What became of a call: run or proposed (`CallDecision`), refused, put to the
- * person to confirm (`confirm`), or not confirmed by them (`declined`).
+ * person to confirm (`confirm`), not confirmed by them (`declined`), or not
+ * run because it needs the person's yes and this client cannot ask for it
+ * (`person_required`, `confirmation.ts`). The last is not `refused`: nothing
+ * the caller may not do was asked, and counting it there would hide how often
+ * a client without form elicitation reaches for an operation it cannot run.
  */
-export type RecordedDecision = CallDecision | 'refused' | 'confirm' | 'declined'
+export type RecordedDecision = CallDecision | 'refused' | 'confirm' | 'declined' | 'person_required'
 
 function doorOf({ principal, door }: McpCallContext): CallDoor {
   if (door) return door

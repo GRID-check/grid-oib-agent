@@ -1,0 +1,7 @@
+{
+  "$comment": "One Outlook conversation, read from both of its sources. The mail archive reader (frontends/aiq_api/src/aiq_api/mail_archive/reader.py) returns PR_CONVERSATION_INDEX (0x0071) base64-encoded as `conversationIndexBase64`, the same text an inbound mail's Thread-Index header carries; the BFF derives the conversation GUID from either with ONE function, threadIndexGuid in frontends/ui/src/lib/mail-thread/mail-threading.ts (MS-OXOMSG 2.2.1.3: bytes 6..21, lower-case hex in byte order, 8-4-4-4-12). test_mail_archive_reader.py holds the reader to `bytesHex` -> `conversationIndexBase64`, mail-threading.spec.ts holds threadIndexGuid to `conversationIndexBase64` -> `guid` and to `childOfBase64` (a reply in the same conversation) -> the same `guid`. A GUID formatted anywhere else (Python's uuid.UUID(bytes_le=...) swaps the first three groups) would never match an inbound mail to its archived conversation.",
+  "bytesHex": "01d9c2a1b3c401c9a1b2c3d4e5f60718293a4b5c6d7e0000112233",
+  "conversationIndexBase64": "AdnCobPEAcmhssPU5fYHGCk6S1xtfgAAESIz",
+  "childOfBase64": "AdnCobPEAcmhssPU5fYHGCk6S1xtfgAAESIzAAAAAAA=",
+  "guid": "01c9a1b2-c3d4-e5f6-0718-293a4b5c6d7e"
+}

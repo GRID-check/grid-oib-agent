@@ -252,6 +252,57 @@ export interface GridConfig {
   };
 
   /**
+   * Project mail (ADR-0135, `platform/inbound-mail.ts`): Cloudflare Email
+   * Routing on `domain`, whose catch-all hands every unclaimed address to one
+   * Email Worker, which signs each message (RFC 9421) and posts it to the
+   * BFF's `/api/internal/signed/inbound-mail`.
+   *
+   * Three states, outermost switch first:
+   *   - **unset** (`inboundMailDomain` absent): nothing at Cloudflare, no
+   *     `GRID_INBOUND_MAIL_DOMAIN` on the frontend (the UI shows no address),
+   *     an empty key map (the route answers 503).
+   *   - **on**: routing, the catch-all pointing at the Worker, the Worker.
+   *   - **managed off** (`inboundMailEnabled: false`, the domain kept): the
+   *     catch-all stays declared but disabled, so Cloudflare refuses every
+   *     unclaimed address at SMTP time and the sender learns to write
+   *     elsewhere; the Worker is deleted once the catch-all no longer names
+   *     it. Removing the feature for good is this first, then the domain:
+   *     unsetting the domain alone would leave a catch-all naming a deleted
+   *     Worker (Email Routing itself is kept, `retainOnDelete`).
+   *
+   * `paused` is the incident lever inside "on": every delivery fails
+   * temporarily and senders retry for days; nothing bounces, nothing is lost.
+   */
+  inboundMail: {
+    /** `inboundMailDomain` is set: Email Routing and the catch-all are this stack's. */
+    configured: boolean;
+    /** Configured and not switched off: the Worker runs and the catch-all points at it. */
+    enabled: boolean;
+    /** Every delivery is answered with a temporary failure (`inboundMailPaused`). */
+    paused: boolean;
+    /**
+     * The address domain, and the APEX of the zone `zoneId` names: the app
+     * zone's own apex (the product domain, the recommended setup) or a domain
+     * of its own. Not a subdomain: Cloudflare's catch-all only exists for a
+     * zone's apex (the module header of `platform/inbound-mail.ts`).
+     */
+    domain: string;
+    /** Cloudflare zone whose apex is `domain`; `dns.zoneId` when `domain` is `dns.zoneName`. */
+    zoneId: string;
+    /**
+     * The BFF's key map, `GRID_INBOUND_MAIL_SIGNING_KEYS`: JSON, keyid →
+     * base64 secret, one or two entries. Empty while not enabled.
+     */
+    signingKeys: pulumi.Output<string>;
+    /** The keyid the Worker signs with, a key of `signingKeys`. */
+    signingKeyId: string;
+    /** Its secret, base64, bound to the Worker as `SIGNING_KEY`. */
+    signingKey: pulumi.Output<string>;
+    /** The same `cloudflareApiToken` DNS uses, with the scopes `platform/inbound-mail.ts` lists. */
+    apiToken: pulumi.Output<string>;
+  };
+
+  /**
    * Edge rate limiting — ADR-0040 layer L1. Enforced by Envoy Gateway's global
    * rate limit service against a dedicated counter store, so no application
    * implements it.
@@ -583,6 +634,23 @@ export interface GridConfig {
      * happens at the next restart past this age.
      */
     indexMaxAgeDays: number;
+  };
+
+  /**
+   * The malware scanner (ADR-0133, `app/clamav.ts`): clamd with freshclam,
+   * scanning what strangers send before anyone may file or download it. The
+   * frontend and the bff-jobs pool get `GRID_MALWARE_SCAN_URL` exactly when
+   * this is on; off, every scan fails closed with `not-configured`, and nothing
+   * that needs a clean scan is ever filed.
+   */
+  malwareScan: {
+    /**
+     * OFF by default: prepared, switched on per stack (`malwareScanEnabled`).
+     * The pod asks for 2 GiB and fetches signatures from database.clamav.net.
+     */
+    enabled: boolean;
+    /** `clamav/clamav` with its signatures baked in, pinned by digest (refused otherwise). */
+    image: string;
   };
 
   /**
@@ -1647,6 +1715,207 @@ function refuseRetiredVectorKeys(cfg: pulumi.Config): void {
   );
 }
 
+/**
+ * The malware scanner (ADR-0133). Two refusals, each of which would otherwise
+ * plan clean:
+ *
+ * - An image without a digest. The image carries the engine and the parser of
+ *   every hostile file it opens; a tag that moves under an unchanged plan is a
+ *   scanner nobody reviewed, and `ci/pinned_images.py` hands trivy only pins.
+ * - `malwareScanUrl`. There is no such knob: the BFF's URL is always this
+ *   stack's own Service. A stack that sets it, `fake://` above all, expects a
+ *   scanner it would not get; the fake is for a developer's machine only.
+ */
+function malwareScanConfig(cfg: pulumi.Config): GridConfig["malwareScan"] {
+  const url = cfg.get("malwareScanUrl");
+  if (url !== undefined) {
+    throw new Error(
+      `grid-oib:malwareScanUrl (${url.startsWith("fake:") ? "the development fake" : "set"}) is refused: a ` +
+        "stack scans with its own in-cluster clamd, and the URL the BFF gets is that Service's. Remove it " +
+        "with `pulumi config rm`, and set grid-oib:malwareScanEnabled to true to deploy the scanner (ADR-0133).",
+    );
+  }
+  const image =
+    cfg.get("malwareScanImage") ??
+    // `clamav/clamav` 1.5.4 (Alpine) with its signatures baked in, so a new pod
+    // serves at once and freshclam only fetches what changed since the build.
+    // Keep it equal to the Compose pin (deploy/compose/docker-compose.yaml).
+    "clamav/clamav:1.5.4@sha256:e19130cdebaeacc71fa46eab3ed6f69941f2f22aa5e08d55e9197f8edf43ce5e";
+  if (!/@sha256:[0-9a-f]{64}$/.test(image)) {
+    throw new Error(
+      `grid-oib:malwareScanImage "${image}" is refused: pin it by digest (<image>@sha256:<64 hex>), so ` +
+        "the scanner changes only when this file does and trivy scans the pin (ci/pinned_images.py).",
+    );
+  }
+  return { enabled: bool(cfg, "malwareScanEnabled", false), image };
+}
+
+/** The keyid shape the BFF accepts (`usableSigningKeys`, `frontends/ui/src/lib/internal-auth.ts`). */
+const SIGNING_KEY_ID = /^[A-Za-z0-9._-]{1,64}$/;
+
+/** What `pulumi config set` must be given for a signing key, in every message that refuses one. */
+const SIGNING_KEYS_HINT =
+  'grid-oib:inboundMailSigningKeys is a JSON object of keyid to a base64 secret of at least 32 bytes, ' +
+  'set with `pulumi config set --secret grid-oib:inboundMailSigningKeys \'{"mi-2026-10":"<openssl rand -base64 32>"}\'`';
+
+/**
+ * The Worker's key map, checked the way the BFF checks it, because the BFF
+ * answers a map it cannot use with a 503 on every delivery: the senders retry
+ * for days and then bounce, and nothing in the plan would have failed. Returns
+ * the keyids; only key NAMES and counts ever reach a message.
+ */
+function assertSigningKeys(raw: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`${SIGNING_KEYS_HINT}; the value is not JSON.`);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${SIGNING_KEYS_HINT}; the value is not an object.`);
+  }
+  const entries = Object.entries(parsed as Record<string, unknown>);
+  if (entries.length < 1 || entries.length > 2) {
+    throw new Error(
+      `${SIGNING_KEYS_HINT}, with one or two entries (two only while rotating); it has ${entries.length}.`,
+    );
+  }
+  for (const [keyId, secret] of entries) {
+    if (!SIGNING_KEY_ID.test(keyId)) {
+      throw new Error(`${SIGNING_KEYS_HINT}; the keyid "${keyId}" is not [A-Za-z0-9._-]{1,64}.`);
+    }
+    const base64 = typeof secret === "string" && /^[A-Za-z0-9+/]+={0,2}$/.test(secret) && secret.length % 4 === 0;
+    if (!base64 || Buffer.from(secret as string, "base64").length < 32) {
+      throw new Error(`${SIGNING_KEYS_HINT}; the secret of "${keyId}" is not base64 of at least 32 bytes.`);
+    }
+    // `DEV_DEFAULT_SIGNING_SECRET`, which the BFF refuses outside development.
+    if (secret === Buffer.from("grid-internal-dev-signing-secret").toString("base64")) {
+      throw new Error(`${SIGNING_KEYS_HINT}; "${keyId}" holds the well-known development secret.`);
+    }
+  }
+  return entries.map(([keyId]) => keyId);
+}
+
+/** What `inboundMailConfig` needs from the DNS section, already validated there. */
+interface InboundMailZoneContext {
+  dnsEnabled: boolean;
+  dnsZoneId: string;
+  dnsZoneName: string;
+  dnsZoneBaseline: boolean;
+  cloudflareApiToken: pulumi.Output<string> | undefined;
+  malwareScanEnabled: boolean;
+}
+
+/**
+ * Project mail (ADR-0135). Opt-in by setting the domain; everything else is
+ * then required together, because each half alone fails silently: a domain
+ * without a usable key map is a Worker whose every delivery answers 503 (the
+ * sender retries for days, then bounces), and a domain without the zone has
+ * nowhere to enable routing.
+ */
+function inboundMailConfig(cfg: pulumi.Config, zone: InboundMailZoneContext): GridConfig["inboundMail"] {
+  const domain = (cfg.get("inboundMailDomain") ?? "").trim().toLowerCase().replace(/\.$/, "");
+  // On the app zone's apex (the recommended setup: addresses on the product's
+  // own domain), the zone is the DNS zone and needs no second key.
+  const zoneId =
+    cfg.get("inboundMailZoneId") ?? (domain !== "" && domain === zone.dnsZoneName ? zone.dnsZoneId : "");
+  const configured = domain !== "";
+  const enabled = configured && bool(cfg, "inboundMailEnabled", true);
+  const paused = bool(cfg, "inboundMailPaused", false);
+  const off = {
+    configured,
+    enabled,
+    paused,
+    domain,
+    zoneId,
+    signingKeys: pulumi.secret(""),
+    signingKeyId: "",
+    signingKey: pulumi.secret(""),
+    apiToken: zone.cloudflareApiToken ?? pulumi.secret(""),
+  };
+  if (!configured) return off;
+
+  if (!zone.malwareScanEnabled) {
+    // Strangers can write to a project address (DECISION D3), and every part
+    // of what they send is scanned before anyone may file or download it. With
+    // the scanner off every scan fails closed, so every mail would wait
+    // forever: refuse the combination rather than deploy a feature that
+    // cannot file anything.
+    throw new Error(
+      "grid-oib:inboundMailDomain needs grid-oib:malwareScanEnabled=true: mail from anyone is scanned by " +
+        "the in-cluster ClamAV before it can be filed or downloaded (ADR-0133), and without the scanner " +
+        "nothing that arrives could ever be filed.",
+    );
+  }
+  if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(domain)) {
+    throw new Error(
+      `grid-oib:inboundMailDomain must be a bare domain name like "piloti.at" ` +
+        `(got "${domain}"): no scheme, no "@", no path.`,
+    );
+  }
+  requireSecretsTogether(
+    cfg,
+    ["cloudflareApiToken"],
+    "when grid-oib:inboundMailDomain is set (a Cloudflare token that may write the Worker and the zone's " +
+      "Email Routing; even managed off, the catch-all is this stack's)",
+  );
+  if (zoneId === "") {
+    throw new Error(
+      "grid-oib:inboundMailZoneId is required when grid-oib:inboundMailDomain is set: the " +
+        "Cloudflare zone (dashboard → the zone → Overview → API) whose apex is that domain. " +
+        "It may be left out when the domain is grid-oib:dnsZoneName.",
+    );
+  }
+  // The one mistake this can see without calling Cloudflare. The catch-all
+  // is an apex-only feature, so a subdomain of the DNS zone gets routing
+  // enabled, MX records and a Worker, and then refuses every message to an
+  // address nobody listed. `email-routing.ts` checks the general case against
+  // the zone's real name at preview time.
+  if (zoneId === zone.dnsZoneId && zone.dnsZoneName !== "" && domain !== zone.dnsZoneName) {
+    throw new Error(
+      `grid-oib:inboundMailDomain "${domain}" is not the apex of its zone ` +
+        `("${zone.dnsZoneName}"). Cloudflare Email Routing has no catch-all for subdomains, so ` +
+        "mail to project addresses there would be refused. Use the zone's apex " +
+        `("${zone.dnsZoneName}") or a domain that is a zone apex of its own (see ` +
+        'docs/deployment/kubernetes.md, "Project mail").',
+    );
+  }
+  // On the app zone the catch-all is a zone-level object beside the apex's
+  // MX and `_dmarc`: it belongs to the one stack that owns the zone. A second
+  // stack would silently repoint the catch-all at its own Worker.
+  if (zoneId === zone.dnsZoneId && (!zone.dnsEnabled || !zone.dnsZoneBaseline)) {
+    throw new Error(
+      "grid-oib:inboundMailDomain on the app zone needs grid-oib:dnsEnabled and " +
+        "grid-oib:dnsZoneBaseline: the catch-all and the apex's mail routing are zone-level, " +
+        "and only the stack owning the zone may manage them.",
+    );
+  }
+  if (!enabled) return off;
+
+  requireSecretsTogether(
+    cfg,
+    ["inboundMailSigningKeys"],
+    "when grid-oib:inboundMailDomain is set and the inbox is on (the keys the Worker signs with and " +
+      "the BFF verifies, ADR-0135)",
+  );
+  const keyIds = assertSigningKeys((cfg.get("inboundMailSigningKeys") ?? "").trim());
+  const signingKeyId = cfg.get("inboundMailSigningKeyId") ?? (keyIds.length === 1 ? keyIds[0] : "");
+  if (!keyIds.includes(signingKeyId)) {
+    throw new Error(
+      `grid-oib:inboundMailSigningKeyId must name the key the Worker signs with, one of ` +
+        `${keyIds.map((k) => `"${k}"`).join(", ")} (got "${signingKeyId}"). With two keys (a rotation) ` +
+        "it is required: the BFF accepts both while the Worker moves from the old to the new.",
+    );
+  }
+  const signingKeys = cfg.requireSecret("inboundMailSigningKeys").apply((v) => v.trim());
+  return {
+    ...off,
+    signingKeys,
+    signingKeyId,
+    signingKey: signingKeys.apply((v) => (JSON.parse(v) as Record<string, string>)[signingKeyId]),
+  };
+}
+
 /** The one-shot Chroma-to-Qdrant Job (`app/chroma-migration-job.ts`). */
 function chromaMigrationConfig(cfg: pulumi.Config): GridConfig["chromaMigration"] {
   return {
@@ -2604,6 +2873,17 @@ export function loadConfig(): GridConfig {
     }
   }
 
+  // ── Project mail (Cloudflare Email Routing, ADR-0135) ──────────────────────
+  const malwareScan = malwareScanConfig(cfg);
+  const inboundMail = inboundMailConfig(cfg, {
+    dnsEnabled,
+    dnsZoneId,
+    dnsZoneName,
+    dnsZoneBaseline,
+    cloudflareApiToken,
+    malwareScanEnabled: malwareScan.enabled,
+  });
+
   // ── PostHog: on by default in every stack (ADR-0100) ───────────────────────
   // The frontend, the Python tiers and the collector all read this one pair.
   // The SDK tiers capture with host + token alone (they no-op without them).
@@ -2697,6 +2977,8 @@ export function loadConfig(): GridConfig {
       dmarc: cfg.get("dnsDmarc"),
       apexRedirectTo: dnsApexRedirectTo,
     },
+
+    inboundMail,
 
     postgres: {
       instances: num(cfg, "pgInstances", 1),
@@ -2812,6 +3094,8 @@ export function loadConfig(): GridConfig {
       storageSize: cfg.get("geocoderStorageSize") ?? "10Gi",
       indexMaxAgeDays: positiveInt(cfg, "geocoderIndexMaxAgeDays", 30),
     },
+
+    malwareScan,
 
     chromaMigration: chromaMigrationConfig(cfg),
 

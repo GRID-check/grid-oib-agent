@@ -1,0 +1,62 @@
+From: "Huber, Anna" <anna.huber@ma37.wien.gv.at>
+To: Eva Berger <eva@berger-architektur.at>
+Subject: Bauverhandlung Bauplatz 12
+Date: Thu, 15 Oct 2026 11:00:00 +0200
+Message-ID: <e5@ma37.wien.gv.at>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed"
+
+--mixed
+Content-Type: multipart/alternative; boundary="alt"
+
+--alt
+Content-Type: text/plain; charset="utf-8"
+
+Die Bauverhandlung findet am 3. November statt.
+--alt
+Content-Type: text/calendar; charset="utf-8"; method=REQUEST
+
+BEGIN:VCALENDAR
+PRODID:-//Microsoft Corporation//Outlook 16.0 MIMEDIR//EN
+VERSION:2.0
+METHOD:REQUEST
+BEGIN:VTIMEZONE
+TZID:W. Europe Standard Time
+BEGIN:STANDARD
+DTSTART:16011028T030000
+RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=10
+TZOFFSETFROM:+0200
+TZOFFSETTO:+0100
+END:STANDARD
+BEGIN:DAYLIGHT
+DTSTART:16010325T020000
+RRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=3
+TZOFFSETFROM:+0100
+TZOFFSETTO:+0200
+END:DAYLIGHT
+END:VTIMEZONE
+BEGIN:VEVENT
+ORGANIZER;CN="Huber, Anna":mailto:anna.huber@ma37.wien.gv.at
+ATTENDEE;CN=Eva Berger;RSVP=TRUE:mailto:eva@berger-architektur.at
+DESCRIPTION:Die Bauverhandlung findet am 3. November statt.
+UID:040000008200E00074C5B7101A82E008000000001
+SUMMARY:Bauverhandlung Bauplatz 12
+DTSTART;TZID=W. Europe Standard Time:20261103T090000
+DTEND;TZID=W. Europe Standard Time:20261103T110000
+LOCATION:MA 37\, Dresdner Straße 73-75\, 1200 Wien
+SEQUENCE:0
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR
+--alt--
+--mixed
+Content-Type: application/ics; name="invite.ics"
+Content-Disposition: attachment; filename="invite.ics"
+Content-Transfer-Encoding: base64
+
+QkVHSU46VkNBTEVOREFSDQpWRVJTSU9OOjIuMA0KTUVUSE9EOlJFUVVFU1QNCkJFR0lOOlZFVkVO
+VA0KVUlEOjA0MDAwMDAwODIwMEUwMDA3NEM1QjcxMDFBODJFMDA4MDAwMDAwMDAxDQpTVU1NQVJZ
+OkJhdXZlcmhhbmRsdW5nIEJhdXBsYXR6IDEyDQpEVFNUQVJUOjIwMjYxMTAzVDA4MDAwMFoNCkRU
+RU5EOjIwMjYxMTAzVDEwMDAwMFoNClNFUVVFTkNFOjANCkVORDpWRVZFTlQNCkVORDpWQ0FMRU5E
+QVINCg==
+--mixed--

@@ -14,16 +14,27 @@ three file tools over the fixture, the ``files`` set runs the REAL ``list_files`
 
 Seeding is idempotent: a file whose chunks already carry this content's hash is not embedded again.
 ``FilesWorkspace`` is the fixture BFF's side: the turn context of a chat in this project.
-Chunking is not under test here, the tools are.
+Chunking is not under test here, the tools are, with one exception.
+
+**The E-Mail-Verlauf is chunked for real** (ADR-0134). A file with ``markdown:`` is the bytes the
+BFF's renderer wrote (``tests/fixtures/files_eval/mail/``, pinned by
+``frontends/ui/src/lib/mail-thread/files-eval-fixture.spec.ts``), cut by the knowledge layer's own
+Markdown chunker (``text_formats.markdown_documents``) and stamped ``source_format: mail`` the way
+an ingest job stamps it, because what its rows test is the message boundary: one section per
+message, the forged heading inside its real sender's section, a quote under the message that kept
+it. ``mail_facts:`` names the facts the BFF sends beside it (``mail_thread``, and ``mail_origin``
+per filed attachment), which land on the metadata row as the ingest job puts them there.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
 import uuid
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +59,11 @@ class FilesProject:
     description: str
     files: tuple[FixtureFile, ...]
     tags: dict[str, list[str]]
+    #: The files that are Markdown renditions, chunked by the real Markdown chunker (by name).
+    markdown: frozenset[str] = frozenset()
+    #: The ``mail_thread`` of each E-Mail-Verlauf and the ``mail_origin`` of each attachment, by name.
+    mail_threads: dict[str, dict[str, Any]] = field(default_factory=dict)
+    mail_origins: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def names(self) -> list[str]:
@@ -66,19 +82,45 @@ def load_project(path: Path = PROJECT) -> FilesProject:
         FixtureFile(f.name, refile.get(f.name, f.folder), f.added_at, f.revision_facts, f.pages) for f in base.files
     ]
     tags: dict[str, list[str]] = {}
+    markdown: set[str] = set()
+    threads: dict[str, dict[str, Any]] = {}
+    origins: dict[str, dict[str, Any]] = {}
     for item in raw.get("files") or []:
+        name = item["name"]
+        if item.get("markdown"):
+            # The rendition is ONE text; the chunker, not a page break, decides its passages.
+            pages: tuple[str, ...] = ((path.parent / item["markdown"]).read_text(encoding="utf-8"),)
+            markdown.add(name)
+        else:
+            pages = tuple(page.strip() for page in item["pages"])
         files.append(
             FixtureFile(
-                name=item["name"],
+                name=name,
                 folder=item.get("folder") or "",
                 added_at=item.get("added_at"),
                 revision_facts=item.get("revision_facts"),
-                pages=tuple(page.strip() for page in item["pages"]),
+                pages=pages,
             )
         )
-        tags[item["name"]] = list(item.get("tags") or [])
+        tags[name] = list(item.get("tags") or [])
+        if item.get("mail_facts"):
+            facts = json.loads((path.parent / item["mail_facts"]).read_text(encoding="utf-8"))
+            if item.get("markdown"):
+                threads[name] = facts["mail_thread"]
+            elif name in facts.get("mail_origins", {}):
+                origins[name] = facts["mail_origins"][name]
+            else:
+                raise ValueError(f"{item['mail_facts']} names no mail origin for {name}")
     project = raw["project"]
-    return FilesProject(project["collection"], project["description"], tuple(files), tags)
+    return FilesProject(
+        project["collection"],
+        project["description"],
+        tuple(files),
+        tags,
+        frozenset(markdown),
+        threads,
+        origins,
+    )
 
 
 def document_id(project: FilesProject, name: str) -> str:
@@ -91,7 +133,12 @@ def content_hash(file: FixtureFile) -> str:
 
 
 def chunk_specs(project: FilesProject, file: FixtureFile) -> list[dict[str, Any]]:
-    """One chunk per page: ``{chunk_id, text, metadata, ordinal}``, before any embedding."""
+    """One chunk per page: ``{chunk_id, text, metadata, ordinal}``, before any embedding.
+
+    A Markdown rendition is cut by the real chunker instead (:func:`markdown_chunk_specs`).
+    """
+    if file.name in project.markdown:
+        return markdown_chunk_specs(project, file)
     digest = content_hash(file)
     return [
         {
@@ -108,6 +155,38 @@ def chunk_specs(project: FilesProject, file: FixtureFile) -> list[dict[str, Any]
         }
         for number, text in enumerate(file.pages, start=1)
     ]
+
+
+def markdown_chunk_specs(project: FilesProject, file: FixtureFile) -> list[dict[str, Any]]:
+    """A Markdown rendition's chunks as an ingest job cuts and stamps them: one per section, its locator kept.
+
+    ``text_formats.markdown_documents`` is the chunker ``extract_text_format_documents`` runs for a
+    ``.md``; each section of a Verlauf is one message and well under the chunk budget, so the
+    splitter that follows it in a real job leaves it whole. The stored text is the breadcrumb and the
+    section, as the job stores it; the format is stamped as ``adapter._stamp_chunk_metadata`` does
+    for a job whose config carries ``mail_thread``.
+    """
+    from knowledge_layer.llamaindex.text_formats import markdown_documents
+
+    from aiq_agent.common.source_kinds import MAIL_SOURCE_FORMAT
+
+    digest = content_hash(file)
+    text = file.pages[0]
+    base = {"file_name": file.name, "file_size": len(text.encode("utf-8")), "source_encoding": "utf-8"}
+    specs = []
+    for ordinal, document in enumerate(markdown_documents(text, base)):
+        metadata = {**document.metadata, "fixture_hash": digest}
+        if file.name in project.mail_threads:
+            metadata["source_format"] = MAIL_SOURCE_FORMAT
+        specs.append(
+            {
+                "chunk_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{project.collection}/{file.name}/{ordinal}/{digest}")),
+                "text": document.text,
+                "ordinal": ordinal,
+                "metadata": metadata,
+            }
+        )
+    return specs
 
 
 def seed_problem() -> str | None:
@@ -145,6 +224,9 @@ def seed(project: FilesProject | None = None, *, embed: Any = None) -> dict[str,
     metadata = DocumentMetadataStore(os.environ["AIQ_SUMMARY_DB"])
     written: dict[str, int] = {}
     for file in project.files:
+        # The row first: the chunk write copies the row's facts onto the points (``writes.facts_by_file``),
+        # so a document date read off the row (a Plankopf's, a Verlauf's newest message) is on them at once.
+        register_metadata(metadata, project, file)
         specs = chunk_specs(project, file)
         have = (
             store.scroll(project.collection, {"file_name": file.name}, fields=["fixture_hash"])
@@ -170,18 +252,21 @@ def seed(project: FilesProject | None = None, *, embed: Any = None) -> dict[str,
                 "folder_path": file.folder or None,
             }
             written[file.name] = write_chunks(project.collection, file.name, records, identity=identity, config=config)
-        register_metadata(metadata, project, file)
     return written
 
 
 def register_metadata(store: Any, project: FilesProject, file: FixtureFile) -> None:
     """The file's row in the metadata store, as ingest and the Files pane leave it."""
-    summary = file.pages[0].splitlines()[0][:200]
+    summary = file.pages[0].splitlines()[0].lstrip("# ")[:200]
     store.register(project.collection, file.name, summary, project.tags.get(file.name) or None)
     if file.folder:
         store.set_folder_path(project.collection, file.name, file.folder)
     if file.revision_facts:
         store.set_revision_facts(project.collection, file.name, file.revision_facts)
+    if file.name in project.mail_threads:
+        store.set_mail_thread(project.collection, file.name, project.mail_threads[file.name])
+    if file.name in project.mail_origins:
+        store.set_mail_origin(project.collection, file.name, project.mail_origins[file.name])
 
 
 class FilesWorkspace:

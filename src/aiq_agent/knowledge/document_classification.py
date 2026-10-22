@@ -5,7 +5,7 @@ ingestion time:
 
 1. A one-sentence summary (``summarize_document_text``) — surfaced in the Files
    metadata panel and in the per-turn ``available_documents`` prompt line.
-2. A controlled set of German document tags (``classify_document_tags``) —
+2. A controlled set of document tags (``classify_document_tags``) —
    document type + OIB discipline — stored alongside the summary.
 
 The ingestor supplies the extracted text; everything downstream of it — the
@@ -55,6 +55,16 @@ CLASSIFY_MAX_INPUT_CHARS = 4000
 
 # 1–2 of these describe what the document *is*. Ordered + immutable so the
 # prompt renders deterministically and callers cannot mutate the vocabulary.
+#
+# A stored tag is a token, and a token is English: ``correspondence`` is the
+# first one, and a person reads it through i18n („Korrespondenz“, the UI's
+# ``files.documentTag`` dictionary). The German values beside it predate that
+# rule and are stored as such in the metadata database and in every vector
+# payload; their rename to English tokens, with a legacy read mapping like
+# ``LEGACY_DOC_CLASSES``, is one change of its own across both stores, the
+# prompts and the UI, not a side effect of adding a type.
+CORRESPONDENCE_TAG = "correspondence"
+
 DOCUMENT_TYPE_TAGS: tuple[str, ...] = (
     "Bebauungsplan",
     "Flächenwidmungsplan",
@@ -66,6 +76,7 @@ DOCUMENT_TYPE_TAGS: tuple[str, ...] = (
     "Bescheid",
     "Norm/Richtlinie",
     "Vertrag",
+    CORRESPONDENCE_TAG,
     "Foto",
     "Sonstiges",
 )
@@ -343,6 +354,8 @@ def _build_tag_prompt(text: str, file_name: str) -> str:
         "wortgleich.\n"
         "- Maximal 5 Schlagwörter insgesamt.\n"
         "- Erfinde keine neuen Schlagwörter.\n"
+        f"- {CORRESPONDENCE_TAG} steht für Korrespondenz: ein Brief oder eine E-Mail "
+        "zwischen Beteiligten.\n"
         "- Antworte NUR mit einem JSON-Array von Strings, ohne weiteren Text.\n\n"
         'Beispiel: ["Grundriss", "Brandschutz"]\n\n'
         "Dokumentinhalt:\n"
@@ -391,7 +404,7 @@ def _parse_tags(raw: str) -> list[str] | None:
 # =============================================================================
 # Tags as a decision (ADR-0064): the closed vocabulary is the question
 # =============================================================================
-# Picking 1–2 of twelve types and 0–3 of six disciplines is a decision, not a
+# Picking 1–2 of thirteen types and 0–3 of six disciplines is a decision, not a
 # generation: a choice and six nouls over the same text, answered by the
 # decision model in well under a second for a fraction of what the generative
 # call costs, and unable by construction to return a tag outside the
@@ -418,8 +431,12 @@ DOCUMENT_TYPE_CRITERIA: dict[str, str] = {
     "Bescheid": "An official decision or notice by an authority (Bescheid, Baubewilligung, Auflagen).",
     "Norm/Richtlinie": "A standard, guideline, regulation or law text (OIB-Richtlinie, ÖNORM, Bauordnung).",
     "Vertrag": "A contract or agreement between parties.",
+    CORRESPONDENCE_TAG: (
+        "Correspondence: a letter or e-mail exchanged between parties (a Schreiben, an E-Mail, a reply, "
+        "an authority's letter that is not itself a Bescheid)."
+    ),
     "Foto": "A photograph of a building, a site or a situation.",
-    "Sonstiges": "Anything else: a letter, minutes, a list, a schedule, a form, a presentation.",
+    "Sonstiges": "Anything else: minutes, a list, a schedule, a form, a presentation.",
 }
 
 #: What each discipline tag covers.
@@ -517,7 +534,7 @@ def decide_document_tags(text: str, file_name: str, *, organization_id: str | No
 
 
 def classify_document_tags(text: str, file_name: str, llm, *, organization_id: str | None = None) -> list[str] | None:
-    """Classify document text into 0–5 controlled German tags.
+    """Classify document text into 0–5 controlled tags.
 
     The decision model first (:func:`decide_document_tags`); the generative
     call only when no decision ran. Fully fail-open: a missing LLM, an LLM

@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod'
+import type { DocumentTypeTag } from '@/lib/documents/tag-vocabulary'
 import type { FilingBasis } from '@/lib/proposals/types'
 
 export type { FilingBasis }
@@ -78,6 +79,8 @@ export const filingFitResponseSchema = z.object({
         description: z.string().nullish(),
         /** The decision model's agreement with the folder; asked on the sort purpose only. */
         confidence: z.number().min(0).max(1).nullish(),
+        /** The Dokumentart the model names; answered on the mail basis only. */
+        type: z.string().nullish(),
       })
     )
     .default([]),
@@ -103,5 +106,49 @@ export interface FilingJudgement {
   /** The generation's trace, for the decision score; null when tracing is off or the call never ran. */
   traceId: string | null
   /** Why there is no judgement (`llm_not_configured`, `backend_502`, …); null when there is one, empty or not. */
+  error: string | null
+}
+
+// ── A held mail (`basis: mail`, ADR-0134, D21) ──────────────────────────────
+
+/**
+ * What the filing judgement reads of a mail that waits in the E-Mail-Eingang:
+ * names and labels only. There is no field for its text or its bytes, here
+ * or in the route's strict model, so neither can ride along.
+ */
+export interface MailFilingInput {
+  locale: string
+  /** The project's folders every member reads, each with its description and Dokumentarten. */
+  folders: FilingFolderInput[]
+  conventions: FilingConventionInput[]
+  /** The attachments to place: the part's id and its name, which passed the name check. */
+  attachments: Array<{ id: string; file: string }>
+  mail: {
+    /** Masked by the office's content check, as every reader sees it. */
+    subject: string | null
+    senderDomain: string | null
+    /** The text part, when the mail matched no E-Mail-Verlauf and its text would start one; else null. */
+    textId: string | null
+  }
+  trace: { mailId: string; projectId: string }
+}
+
+/** Where Piloti would file one part of a held mail, checked against the input. */
+export interface MailPlacement {
+  partId: string
+  /** The folder as the input spelled it. */
+  folder: string
+  /** A convention the project does not have yet: filing there creates it. */
+  newFolder: { description: string | null } | null
+  /** For an attachment, when the model named one of the vocabulary; always null for the text. */
+  documentType: DocumentTypeTag | null
+  reason: string
+}
+
+export interface MailFilingJudgement {
+  placements: MailPlacement[]
+  /** The `filing-fit` generation's trace, for the decision score; null when tracing is off or no call ran. */
+  traceId: string | null
+  /** Why there is no judgement; null when there is one, empty or not. */
   error: string | null
 }

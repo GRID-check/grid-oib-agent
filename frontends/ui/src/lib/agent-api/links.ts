@@ -1,7 +1,7 @@
 import 'server-only'
 /**
  * Links into the app on what the door answers: a project, a document, a task
- * run or a conversation carries `url`, the page a person opens to see it, so an
+ * run, a conversation or a held mail carries `url`, the page a person opens to see it, so an
  * outside agent can hand the person a link to what it found (PostHog's MCP puts
  * `_posthogUrl` on its rows for the same reason).
  *
@@ -85,6 +85,15 @@ const PAGES: Readonly<Record<LinkKind, Page>> = {
     // An ask names its conversation `conversationId`; a conversation is its own `id`.
     idOf: (row) => text(row.conversationId) ?? text(row.id),
     path: (id, row, callProject) => describeResource('conversation').deepLink(id, { projectId: projectOf(row, callProject) }),
+  },
+  'inbound-mail': {
+    // A held mail is decided on its own page in the project's E-Mail-Eingang (ADR-0134): the
+    // page an outside agent hands the person, since only they file it.
+    idOf: (row) => text(row.id),
+    path: (id, row, callProject) => {
+      const project = projectOf(row, callProject)
+      return project ? `/app/projects/${enc(project)}/files/mail/${enc(id)}` : null
+    },
   },
 }
 

@@ -311,6 +311,8 @@ export const projects: typeof en.projects = {
     open: '{name} öffnen',
     overview: 'Übersicht',
     overviewAria: 'Übersicht von {name} öffnen',
+    mailWaiting: '{count, plural, one {# E-Mail wartet} other {# E-Mails warten}}',
+    mailWaitingAria: '{count, plural, one {# E-Mail wartet in {name} auf Ablage} other {# E-Mails warten in {name} auf Ablage}}',
   },
   officeShelfCard: {
     title: 'Büroablage',

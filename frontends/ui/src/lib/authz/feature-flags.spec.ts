@@ -51,6 +51,7 @@ describe('the registry', () => {
         'collaboration',
         'deep-research',
         'folder-cards',
+        'inbound-mail',
         'mail-import',
         'office-conventions',
         'piloti-acts',

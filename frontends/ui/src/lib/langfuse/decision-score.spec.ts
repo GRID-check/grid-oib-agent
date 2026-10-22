@@ -151,6 +151,33 @@ describe('recordDecisionScore — finding the turn', () => {
     })
   })
 
+  it('puts a held mail’s suggestion decision on its filing-fit trace, with the codes of what was not followed', async () => {
+    await decision({
+      subject: 'inbound_mail_suggestion',
+      subjectId: 'part-1',
+      decision: 'dismissed',
+      traceId: TRACE,
+      // A detail cannot rename the subject.
+      detail: { folder: 'other', type: 'same', subject: 'proposal' },
+    })
+
+    expect(getAnswerTraceId).not.toHaveBeenCalled()
+    expect(api.create.mock.calls[0][0]).toEqual({
+      id: 'piloti-decision-inbound_mail_suggestion-part-1',
+      traceId: TRACE,
+      name: DECISION_SCORE_NAME,
+      dataType: 'CATEGORICAL',
+      value: 'dismissed',
+      metadata: { folder: 'other', type: 'same', subject: 'inbound_mail_suggestion', subject_id: 'part-1' },
+    })
+  })
+
+  it('posts nothing for a held mail’s suggestion without a trace', async () => {
+    await decision({ subject: 'inbound_mail_suggestion', subjectId: 'part-1', traceId: null })
+
+    expect(api.create).not.toHaveBeenCalled()
+  })
+
   it('posts nothing for an intake suggestion whose reading left no trace', async () => {
     await expect(decision({ subject: 'intake_suggestion', subjectId: 's', traceId: null })).resolves.toBeUndefined()
 

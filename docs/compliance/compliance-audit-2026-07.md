@@ -8,6 +8,16 @@
 - **Companion documents:** [`external-dependencies.md`](external-dependencies.md)
   (full third-party register + model-switching statement), the legal pages shipped at
   `frontends/ui/src/lib/legal/content/{de,en}.ts` (served at `/legal/*`).
+- **Status since the audit (checked 2026-10-22):** the text below is the July
+  state. Still open: the Art. 30 record, TOMs, the AVV/DPA template and the
+  DPIA (roadmap 5; no such document exists in the repo); organization and user
+  erasure and any export (roadmap 2); the audit trail still sends the actor's
+  email, client IP and user agent to WorkOS (`lib/audit/service.ts`,
+  `requestContext` and `actor.name`). Partly closed: the purger erases projects,
+  folders and conversations (`frontends/ui/purger/index.js`,
+  [`deletion-pipeline.md`](../architecture/deletion-pipeline.md)); chat
+  checkpoints idle past 14 days are deleted
+  (`GRID_CHAT_CHECKPOINT_RETENTION_SECONDS`, `aiq_api/routes/jobs.py`).
 
 ## Executive summary
 

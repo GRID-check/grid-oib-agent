@@ -63,8 +63,10 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field
 from typing import Any
 
 from pydantic import AliasChoices
@@ -198,6 +200,8 @@ class PassageTarget:
     shelf: str | None
     #: The current Fassung of this document when a PERSON confirmed it replaced, else None.
     current: str | None = None
+    #: The message this document came with, when a person filed it from a mail (``mail_facts``).
+    mail_origin: Mapping[str, Any] | None = field(default=None, compare=False)
 
 
 def _document_names(document: Any) -> list[str]:
@@ -286,6 +290,7 @@ async def _resolve_targets(entries: list[Any], document: str) -> list[PassageTar
                     file_name=str(getattr(candidate, "file_name", "")),
                     shelf=str(shelf) if shelf is not None else None,
                     current=_current_revision(candidate, docs),
+                    mail_origin=getattr(candidate, "mail_origin", None),
                 )
             )
     return targets
@@ -323,6 +328,31 @@ def _older_revision_notice(targets: Sequence[PassageTarget]) -> str:
     if not older:
         return ""
     return "".join(older_revision_line(name, current) for name, current in sorted(older))
+
+
+def _mail_origin_notice(targets: Sequence[PassageTarget]) -> str:
+    """The line that says which mail a document came with, in the words of its Verlauf (ADR-0134).
+
+    So a passage of an attachment is attributed to the message that brought it
+    („laut der E-Mail von Ing. Gruber vom 04.05.2026“), and a sender nobody
+    confirmed reads as „Domain nicht bestätigt“, never as the domain's owner.
+    Rides the notice slot like :func:`_older_revision_notice`; a file of a
+    restricted collection nobody admitted is never named.
+    """
+    from aiq_agent.knowledge.mail_facts import mail_origin_label
+    from aiq_agent.knowledge.restricted_use import may_name
+
+    lines = {
+        (target.file_name, label)
+        for target in targets
+        if may_name(target.collection) and (label := mail_origin_label(target.mail_origin))
+    }
+    return "".join(f"{name} {label}.\n\n" for name, label in sorted(lines))
+
+
+def _target_notices(targets: Sequence[PassageTarget]) -> str:
+    """Every notice about the documents read: an older Fassung first, then the mail it came with."""
+    return _older_revision_notice(targets) + _mail_origin_notice(targets)
 
 
 def older_revision_line(name: str, current: str) -> str:
@@ -1700,7 +1730,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
             _format_results,
             merged,
             query,
-            notice=_older_revision_notice(targets),
+            notice=_target_notices(targets),
             reading_of=_locus_label(document, clause, page),
         )
         logger.info("read_passage: %s returned %d chunk(s)", query, len(merged.chunks))
@@ -1770,7 +1800,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
             _format_results,
             merged,
             label,
-            notice=_older_revision_notice(targets),
+            notice=_target_notices(targets),
             trailer=trailer,
             reading_of=label,
         )
@@ -1802,7 +1832,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
             _format_results,
             _passage_result(passages, query),
             query,
-            notice=_older_revision_notice(targets),
+            notice=_target_notices(targets),
             trailer=_outline_block(entries),
             reading_of=document,
         )
@@ -1841,7 +1871,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
             _format_results,
             merged,
             query,
-            notice=_older_revision_notice(targets),
+            notice=_target_notices(targets),
             trailer=_NO_CLAUSES_LINE,
             reading_of=document,
         )

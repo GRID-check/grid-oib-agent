@@ -27,7 +27,7 @@ import { IngestFailureNotice } from '@/features/documents/components/ingest-fail
 import { QuarantineFindings } from '@/features/documents/components/quarantine-findings'
 import { RequestReviewButton } from '@/features/documents/components/request-review-button'
 import { useTranslations } from '@/i18n'
-import { documentTypeOf } from '@/lib/documents/tag-vocabulary'
+import { documentTypeOf, tagLabel } from '@/lib/documents/tag-vocabulary'
 import { displayNameOf, otherTags } from '../lib/upload-summary'
 import { FacetChip, useTallyLabel } from './upload-atoms'
 
@@ -99,7 +99,7 @@ export function UploadedFileRow({
             )}
             {type && (
               <Chip variant="outline" size="sm" title={tFiles('preview.indexed.documentType')}>
-                {type}
+                {tagLabel(type, tFiles)}
               </Chip>
             )}
             {tags.length > 0 && (
@@ -107,7 +107,7 @@ export function UploadedFileRow({
                 {tags.map((tag) => (
                   <li key={tag} className="contents">
                     <Chip variant="muted" size="sm">
-                      {tag}
+                      {tagLabel(tag, tFiles)}
                     </Chip>
                   </li>
                 ))}

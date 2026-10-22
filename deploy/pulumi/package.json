@@ -5,7 +5,7 @@
   "description": "Pulumi (TypeScript) program that deploys the Grid OIB stack to Kubernetes.",
   "main": "index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.worker.json",
     "test": "vitest run",
     "preview": "pulumi preview",
     "validate": "pulumi preview --json > .plan.json && node scripts/validate-crs.mjs .plan.json",
@@ -14,11 +14,14 @@
     "policy": "pulumi preview --policy-pack ./policy"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20261007.1",
     "@kubernetes-models/cert-manager": "^6.0.0",
     "@kubernetes-models/envoy-gateway": "^2.0.0",
     "@kubernetes-models/gateway-api": "^2.0.0",
     "@types/node": "^22.20.5",
     "ajv": "^8.20.0",
+    "http-message-signatures": "1.0.6",
+    "structured-headers": "2.1.1",
     "typescript": "^6.0.3",
     "vitest": "^5.0.4"
   },

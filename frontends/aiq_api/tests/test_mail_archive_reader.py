@@ -9,6 +9,8 @@ run by hand when its version moves.
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 from dataclasses import dataclass
 from dataclasses import field
@@ -25,6 +27,7 @@ from aiq_api.mail_archive.reader import AttachmentTooLargeError
 UNICODE = 0x001F
 INT32 = 0x0003
 BOOLEAN = 0x000B
+BINARY = 0x0102
 
 
 @dataclass
@@ -90,10 +93,12 @@ class Message:
     delivery_time: datetime | None = datetime(2026, 9, 30, 8, 16)
     attachments: list[Attachment] = field(default_factory=list)
     recipients: Recipients | None = None
+    #: Further MAPI properties, as ``props`` takes them.
+    extra: dict[str, tuple[int, object]] = field(default_factory=dict)
 
     @property
     def record_sets(self):
-        return props(x001A=(UNICODE, self.message_class), x5D01=(UNICODE, "anna@buero.at"))
+        return props(x001A=(UNICODE, self.message_class), x5D01=(UNICODE, "anna@buero.at"), **self.extra)
 
     @property
     def number_of_attachments(self):
@@ -229,6 +234,53 @@ def test_a_mail_reads_its_headers_recipients_and_attachments():
     assert forwarded.embedded_message is True
 
 
+#: One conversation as both sources carry it (``shared/thread-index.json``): the
+#: BFF's ``threadIndexGuid`` spec reads the same vector, so the archive and an
+#: inbound ``Thread-Index`` header cannot drift apart.
+THREAD_INDEX = json.loads((Path(__file__).resolve().parents[3] / "shared" / "thread-index.json").read_text())
+#: A conversation index as Outlook writes it: reserved byte, FILETIME, GUID, one child block.
+CONVERSATION_INDEX = bytes.fromhex(THREAD_INDEX["bytesHex"])
+
+
+def test_a_mail_reads_the_properties_a_thread_is_matched_on():
+    message = Message(
+        "AW: Stellplatznachweis",
+        extra={
+            "x1035": (UNICODE, "<b@buero.at>"),
+            "x1042": (UNICODE, "<a@wien.gv.at>"),
+            "x1039": (UNICODE, "<root@buero.at>\r\n <a@wien.gv.at>"),
+            "x0071": (BINARY, CONVERSATION_INDEX),
+        },
+        recipients=Recipients(
+            [
+                *props(x3001=(UNICODE, "Bauamt"), x39FE=(UNICODE, "bauamt@wien.gv.at"), x0C15=(INT32, 1)),
+                *props(x3001=(UNICODE, "Ablage"), x39FE=(UNICODE, "ablage@buero.at"), x0C15=(INT32, 3)),
+            ]
+        ),
+    )
+
+    mail = pst(Folder("Gesendete Elemente", [message])).page(0, 1).messages[0]
+    # As stored: the BFF parses the ids and derives the GUID, once for both sources.
+    assert (mail.message_id, mail.in_reply_to) == ("<b@buero.at>", "<a@wien.gv.at>")
+    assert mail.references == "<root@buero.at>\r\n <a@wien.gv.at>"
+    assert mail.conversation_index == THREAD_INDEX["conversationIndexBase64"]
+    assert mail.to == (reader.Address(name="Bauamt", address="bauamt@wien.gv.at"),)
+    assert mail.bcc == (reader.Address(name="Ablage", address="ablage@buero.at"),)
+
+
+@pytest.mark.parametrize("index", [b"", "not bytes"])
+def test_a_conversation_index_that_is_not_bytes_reads_as_none(index):
+    message = Message("x", extra={"x0071": (BINARY, index)})
+
+    assert pst(Folder("Posteingang", [message])).page(0, 1).messages[0].conversation_index is None
+
+
+def test_a_mail_without_thread_properties_reads_them_as_empty():
+    mail = pst(Folder("Posteingang", [Message("x")])).page(0, 1).messages[0]
+
+    assert (mail.in_reply_to, mail.references, mail.conversation_index, mail.bcc) == (None, None, None, ())
+
+
 def test_an_attachment_is_read_by_position_and_index_and_bounded():
     archive = pst(Folder("Posteingang", [Message("a"), Message("b", attachments=[Attachment(None, b"bytes!")])]))
 
@@ -307,8 +359,38 @@ def test_real_archives_page_through_completely():
         with path.open("rb") as file:
             archive = reader.open_archive(file)
             position, seen = 0, 0
+            threaded = 0
             while position is not None:
                 page = archive.page(position, 50)
                 seen += len(page.messages)
+                threaded += sum(1 for message in page.messages if message.conversation_index or message.in_reply_to)
                 position = page.next_position
             assert seen == archive.total, path.name
+            print(f"{path.name}: {seen} items, {threaded} with thread properties")
+
+
+@pytest.mark.skipif(not FIXTURES, reason="GRID_PST_FIXTURE_DIR names no directory of real archives")
+def test_real_archives_give_the_conversation_the_thread_index_header_carries():
+    """The archive's PR_CONVERSATION_INDEX and an inbound mail's Thread-Index name one conversation.
+
+    Checked where a received message kept its transport headers (Enron's do:
+    50 of 50 matched on 2026-10-22): the GUID (bytes 6 to 21) of both is the
+    same, so the BFF derives one string from an archived and an inbound copy.
+    """
+    import re
+
+    compared = 0
+    for path in sorted(Path(FIXTURES).glob("*.[po]st")):
+        with path.open("rb") as file:
+            archive = reader.open_archive(file)
+            for position, entry, local in archive._from(0):
+                message = entry.folder.get_sub_message(local)
+                headers = getattr(message, "transport_headers", None) or ""
+                match = re.search(r"^Thread-Index:\s*(\S+)", headers, re.MULTILINE | re.IGNORECASE)
+                if not match:
+                    continue
+                from_header = base64.b64decode(match.group(1) + "==")[6:22]
+                stored = archive.page(position, 1).messages[0].conversation_index
+                assert base64.b64decode(stored)[6:22] == from_header, (path.name, position)
+                compared += 1
+    assert compared, "no fixture message kept a Thread-Index header"

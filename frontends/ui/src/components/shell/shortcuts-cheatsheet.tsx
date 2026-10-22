@@ -114,6 +114,7 @@ export function ShortcutsCheatsheet({
   canAccessOfficeShelf = false,
   canCollaborate = false,
   canAccessInbox = false,
+  inboundMail = false,
 }: ShortcutsCheatsheetProps) {
   const t = useTranslations('shortcuts.cheatsheet')
   const tGroups = useTranslations('shortcuts.cheatsheet.groups')
@@ -130,8 +131,9 @@ export function ShortcutsCheatsheet({
         canAccessOfficeShelf,
         canCollaborate,
         canAccessInbox,
+        inboundMail,
       }),
-    [canViewOrganization, showKnowledge, showSkills, canAccessOfficeShelf, canCollaborate, canAccessInbox],
+    [canViewOrganization, showKnowledge, showSkills, canAccessOfficeShelf, canCollaborate, canAccessInbox, inboundMail],
   )
   const columns = React.useMemo(() => splitColumns(sections), [sections])
 

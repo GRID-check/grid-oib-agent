@@ -1,0 +1,32 @@
+---
+security:
+  - >
+    The mail-archive import's reading service no longer requests an archive
+    address that is not the office's own file storage. Before, it read any
+    address it was handed, so a caller holding the internal service token
+    could have made it fetch from inside the network.
+  - >
+    Every address the backend fetches or uploads to on a caller's behalf is
+    now checked in one place, against the storage's scheme, host and port,
+    and refused when its text could be read as two different hosts.
+  - >
+    The mail-archive reading service finds an archive it already has open only
+    by the file its address names. Before, it went by a name the caller stated
+    beside the address, so a caller holding the internal service token could
+    have read another office's open archive.
+  - >
+    An archive the reading service already has open is served only to an
+    address the file storage itself honours: the storage is asked for one
+    byte first. Before, an address naming the same file without a valid
+    signature was served the open archive's cached parts.
+  - >
+    The backend now sends every request to the office's file storage to the
+    storage's configured address, taking only the file's path and signature
+    from the address it is handed, so no spelling of an address can steer a
+    download, an upload or an archive read anywhere else.
+operators:
+  - >
+    The backend accepts a storage URL only when its scheme, host and port
+    match SEAWEED_ENDPOINT or SEAWEED_PUBLIC_ENDPOINT, no longer the host
+    alone. Both must stay the exact endpoints the web tier presigns against,
+    which every shipped deployment already sets.

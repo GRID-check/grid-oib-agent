@@ -1,8 +1,9 @@
 /**
  * @vitest-environment node
  *
- * Every Postgres integration spec runs somewhere. A `*.integration.spec.ts` that
- * reads `GRID_TEST_DATABASE_URL` skips itself everywhere except under
+ * Every Postgres integration spec runs somewhere. A spec that reads
+ * `GRID_TEST_DATABASE_URL` (a `*.integration.spec.ts`, or an end-to-end spec
+ * such as `inbound-mail/review-first.e2e.spec.ts`) skips itself everywhere except under
  * `task db:test:rls` (`scripts/rls-test-db.sh`), which names each file it runs.
  * A spec missing from that list is green in every gate and proves nothing:
  * `folder-cards/repository.integration.spec.ts` sat outside it while its review
@@ -24,18 +25,20 @@ const NOT_YET_RUN = new Set([
   'src/lib/retrieval-settings/service.integration.spec.ts',
 ])
 
-function integrationSpecs(dir: string): string[] {
+const THIS_SPEC = 'src/lib/db/integration-suite-coverage.spec.ts'
+
+function specs(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name)
-    if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : integrationSpecs(path)
-    return entry.name.endsWith('.integration.spec.ts') ? [relative(UI, path)] : []
+    if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : specs(path)
+    return /\.spec\.tsx?$/.test(entry.name) ? [relative(UI, path)] : []
   })
 }
 
 describe('the Postgres integration suite', () => {
   const script = readFileSync(SCRIPT, 'utf8')
-  const needingPostgres = integrationSpecs(join(UI, 'src')).filter((path) =>
-    readFileSync(join(UI, path), 'utf8').includes('GRID_TEST_DATABASE_URL'),
+  const needingPostgres = specs(join(UI, 'src')).filter(
+    (path) => path !== THIS_SPEC && readFileSync(join(UI, path), 'utf8').includes('GRID_TEST_DATABASE_URL'),
   )
 
   it('runs every spec that needs Postgres', () => {

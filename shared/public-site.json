@@ -1,0 +1,8 @@
+{
+  "$comment": "Public pages that text outside the website links to (the inbound-mail bounce texts, the UI's help links). The website's routes are held to these paths, so a moved page fails a spec rather than a sender's bounce. Paths are the site's German URLs: copy, not identifiers.",
+  "origin": "https://piloti.at",
+  "paths": {
+    "mailInbox": "/e-mail-eingang/",
+    "privacy": "/datenschutz/"
+  }
+}

@@ -71,6 +71,15 @@ class TestVocabulary:
         assert "Brandschutz" in ALLOWED_TAGS
         assert "Standsicherheit" in ALLOWED_TAGS
 
+    def test_the_generative_prompt_says_what_the_token_means(self):
+        """The fallback lists ``correspondence`` beside German words, so it says it is the Korrespondenz."""
+        assert "correspondence steht für Korrespondenz" in _build_tag_prompt("text", "brief.pdf")
+
+    def test_only_the_token_is_stored_never_its_german_label(self):
+        assert classify_document_tags("text", "f.eml", _llm_returning('["Korrespondenz", "correspondence"]')) == [
+            "correspondence"
+        ]
+
     def test_prompt_contains_every_vocabulary_member(self):
         """Drift guard: the prompt is built from the constants, so every
         allowed tag must literally appear in the prompt text."""
@@ -231,6 +240,16 @@ class TestTagsAreDecided:
         with install(_decision("Feuerschutz", {"Feuerschutz": 1.0}, {})):
             tags = classify_document_tags("text", "f.pdf", _llm_returning('["Schnitt"]'))
         assert tags == ["Schnitt"]
+
+    def test_correspondence_is_a_type_the_decision_offers_and_keeps(self, endpoint):
+        """An E-Mail-Verlauf is typed by its token; the old catch-all no longer claims a letter."""
+        install, seen = endpoint
+        with install(_decision("correspondence", {"correspondence": 0.93, "Sonstiges": 0.07}, {})):
+            tags = classify_document_tags("Sehr geehrte Frau Rainer, …", "AW_Termin.eml", None)
+        assert tags == ["correspondence"]
+        criteria = seen["body"]["questions"]["type"]["criteria"]
+        assert "letter or e-mail exchanged between parties" in criteria["correspondence"]
+        assert "letter" not in criteria["Sonstiges"]
 
     def test_empty_text_asks_nothing(self, endpoint):
         install, seen = endpoint

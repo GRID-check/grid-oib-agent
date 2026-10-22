@@ -81,6 +81,7 @@ export default function ShortcutsPreviewPage() {
           // prop defaults to false, and without this the "everything" variant
           // would quietly render a cheatsheet missing the `g i` jump.
           canAccessInbox={everything}
+          inboundMail={everything}
         />
         )}
       </main>
