@@ -122,13 +122,11 @@ export const DOCUMENT_VERSION_EFFECTS = [
   /** A live hint on the event hub. Never authoritative; the client re-reads. */
   'eventHint',
   /**
-   * Dispatch the published bytes to `/v1/ingest` with provenance.
-   *
-   * A NO-OP in this slice, and deliberately present anyway. Slice 4 is the one
-   * that may turn it on, and it may do so only together with the labelled-
-   * citation work — the build spec's own condition on this seam. Naming the slot
-   * now is what makes that a registry entry rather than a new call site inside
-   * `publish`, which is where the no-ingest rule would quietly stop being true.
+   * Dispatch the published bytes to `/v1/ingest` with provenance. A person's
+   * upload is dispatched only when its content hash was not already screened;
+   * a Piloti document is purged of its superseded chunks first and indexed
+   * under the `piloti/` namespace (`ingestPublished` in `lifecycle.ts`). This is
+   * the only place an agent-authored version reaches the index.
    */
   'ingestPublished',
   /**

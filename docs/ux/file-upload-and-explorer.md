@@ -1032,3 +1032,12 @@ never drains the shelf for the default view.
 Still open: a virtualised grid and list, and the kind/tag filters and the
 brief's content facts on the server once the backend's tags are mirrored into
 Postgres.
+
+## Parts to reuse
+
+A new review surface in Dateien composes what the existing ones use: the
+`SuggestionPanel` family (`components/ui/suggestion-panel.tsx`), `FolderPickerSheet`
+and `QuarantineFindings` (`features/documents/components/`), the decision and
+status atoms in `upload-decision-atoms.tsx` and `ingestion-atoms.tsx`, and
+`ItemList` (`components/ui/item.tsx`). A sub-place of Dateien is a route under
+`/files/` (`open-points`, `bin`), with its entry in `files-header-controls.tsx`.

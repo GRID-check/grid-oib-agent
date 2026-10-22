@@ -268,7 +268,10 @@ content of a version. It is not the link between two documents.
   Fassung 1.“).
 - **Publishing purges first.** The previous version's chunks go before the new
   bytes are sent, so a failed dispatch stops the document answering instead of
-  answering from the version somebody replaced.
+  answering from the version somebody replaced. ADR-0104 rule 2 (every read
+  Fassung stays indexed, keyed by its id) is accepted and not built: until it
+  is, search sees only the current Fassung of a name. Fassungen under
+  different file names are both indexed.
 - **Actors.** Approve, request changes, reject and publish are a person's. Piloti
   may create, update and submit.
 

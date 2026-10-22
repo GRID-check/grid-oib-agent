@@ -6249,7 +6249,7 @@
       "delete": {
         "operationId": "mail-import-cancel",
         "summary": "Cancel a mail import",
-        "description": "Cancels an import and discards the parts already sent. Only the person who started it, or an org project administrator, may cancel. Import ids come from mail-import-list.",
+        "description": "Cancels an import for good: the parts already sent and the staged archive are discarded, and it cannot be resumed. Mails already filed stay in the project (move them to the bin with document-bin). Only the person who started it, or an org project administrator, may cancel. Import ids come from mail-import-list.",
         "tags": [
           "documents"
         ],
@@ -6375,7 +6375,7 @@
       "post": {
         "operationId": "mail-import-complete",
         "summary": "Finish sending an Outlook archive",
-        "description": "Call once every part is sent: the parts are joined and the filing job is queued (HTTP 202). Answers the import with its status; follow it with mail-import-get. Refused with 409 when the import was cancelled meanwhile, and with 400 when a part is missing.",
+        "description": "Call once every part is sent: the parts are joined and the filing job is queued (HTTP 202). Answers the import with its status; follow it with mail-import-get. Refused with 409 when the import was cancelled meanwhile, and with 409 and details.missingParts (the first 50) while a part is absent or the wrong size: send those with mail-import-part-upload and call again.",
         "tags": [
           "documents"
         ],
@@ -6439,7 +6439,7 @@
       "get": {
         "operationId": "mail-import-list",
         "summary": "List a project’s mail imports",
-        "description": "The project's Outlook archive imports with their status and counts. Import ids feed mail-import-get and mail-import-cancel.",
+        "description": "The project's Outlook archive imports with their status and counts, newest first, 20 a page by default and at most 50 (`limit`); pass `nextCursor` back as `cursor` for the next page, null on the last. Import ids feed mail-import-get and mail-import-cancel.",
         "tags": [
           "documents"
         ],
@@ -6453,6 +6453,27 @@
               "description": "The project id, from project-list."
             },
             "description": "The project id, from project-list."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Default 20, max 50."
+            },
+            "description": "Default 20, max 50."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "The nextCursor of the previous page."
+            },
+            "description": "The nextCursor of the previous page."
           }
         ],
         "responses": {
@@ -6491,7 +6512,7 @@
       "post": {
         "operationId": "mail-import-start",
         "summary": "Start an Outlook archive import",
-        "description": "Registers a .pst or .ost archive (`filename`, `sizeBytes`, up to 25 GB) and answers the upload plan `{ import, partSize, partCount, uploadedParts }`. Send the parts with mail-import-part-upload, then call mail-import-complete.",
+        "description": "Registers a .pst or .ost archive (`filename`, `sizeBytes`, up to 25 GB) and answers the upload plan `{ import, partSize, partCount, uploadedParts }`. Send the parts with mail-import-part-upload, then call mail-import-complete. The mails are then filed with no proposal to approve, into the project folder \"E-Mail-Import/<archive name>\" as the person who started the import, each file through the same checks as any upload.",
         "tags": [
           "documents"
         ],

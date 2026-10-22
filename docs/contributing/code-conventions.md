@@ -127,5 +127,9 @@ per organization, changed in the dashboard with no deploy, and reaches the
 Python tier through the BFF (`GET /api/internal/stages`), which has no WorkOS
 client of its own. `GRID_FOLDER_CARDS` and `GRID_OFFICE_CONVENTIONS` were built
 as variables and replaced by the `folder-cards` and `office-conventions` flags;
-their tuning (`GRID_FOLDER_CARDS_MONTHLY_TOKENS`) stayed. Registering a flag:
+their tuning (`GRID_FOLDER_CARDS_MONTHLY_TOKENS`) stayed. One exception remains:
+`GRID_FILING_SUGGESTIONS=off` (`lib/filing/trigger.ts`) switches filing
+suggestions off for a whole deployment. It is still a variable, documented in
+[`environment-variables.md`](../deployment/environment-variables.md), and
+becomes a flag the next time filing suggestions are touched. Registering a flag:
 [`workos-provisioning.md`](../deployment/workos-provisioning.md).

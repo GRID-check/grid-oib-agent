@@ -24,13 +24,15 @@ vi.mock('./upload-batch', () => ({ sealImportBatch: vi.fn() }))
 vi.mock('./repository', () => ({
   insertMailImport: vi.fn(async (values: object) => ({ ...row(), ...values })),
   findMailImport: vi.fn(),
-  listProjectMailImports: vi.fn(async () => []),
+  listProjectMailImports: vi.fn(async () => ({ rows: [], next: null })),
+  findOpenMailImportOf: vi.fn(async () => null),
   updateMailImport: vi.fn(async (_org: string, _id: string, _from: unknown, patch: object) => ({ ...row(), ...patch })),
 }))
 
 import { ConflictError, ForbiddenError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { MailImport } from '@/lib/db/schema'
+import { decodeDocumentListCursor, encodeDocumentListCursor } from '@/lib/documents/list-cursor'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
 import { MAIL_IMPORT_PART_BYTES } from './config'
 import * as repository from './repository'
@@ -39,6 +41,7 @@ import {
   cancelMailImport,
   completeMailImportUpload,
   expectedPartSize,
+  listMailImports,
   missingParts,
   putMailImportPart,
   startMailImport,
@@ -130,9 +133,15 @@ describe('startMailImport', () => {
     await expect(startMailImport(session, PROJECT, { filename: 'a.pst', sizeBytes: 101 })).rejects.toThrow(/maximum/)
   })
 
-  it('refuses a second open import of the same person in the project', async () => {
-    vi.mocked(repository.listProjectMailImports).mockResolvedValueOnce([row({ status: 'importing' })])
-    await expect(startMailImport(session, PROJECT, { filename: 'b.ost', sizeBytes: 10 })).rejects.toBeInstanceOf(ConflictError)
+  it('refuses a second open import of the same person in the project, naming the open one', async () => {
+    vi.mocked(repository.findOpenMailImportOf).mockResolvedValueOnce(row({ status: 'importing' }))
+    const refusal = startMailImport(session, PROJECT, { filename: 'b.ost', sizeBytes: 10 })
+    await expect(refusal).rejects.toBeInstanceOf(ConflictError)
+    await expect(refusal).rejects.toMatchObject({ details: { importId: IMPORT } })
+    expect(repository.findOpenMailImportOf).toHaveBeenCalledWith('org_1', PROJECT, 'user_anna')
+    // Asked on its own, never read off a page of the list, which may not reach it.
+    expect(repository.listProjectMailImports).not.toHaveBeenCalled()
+    expect(repository.insertMailImport).not.toHaveBeenCalled()
   })
 
   it('refuses at the database what the read missed: two tabs starting at once', async () => {
@@ -150,6 +159,28 @@ describe('startMailImport', () => {
     expect(plan.partCount).toBe(3)
     expect(plan.uploadedParts).toEqual([])
     expect(plan.import).toMatchObject({ status: 'uploading', ownedByViewer: true, cancellable: true })
+  })
+})
+
+describe('listMailImports', () => {
+  const CURSOR = { createdAt: '2026-10-08T10:00:00.000000', id: IMPORT }
+
+  it('answers the first page at the default size, and the cursor of the next', async () => {
+    vi.mocked(repository.listProjectMailImports).mockResolvedValueOnce({ rows: [row()], next: CURSOR })
+    const list = await listMailImports(session, PROJECT)
+    expect(repository.listProjectMailImports).toHaveBeenCalledWith('org_1', PROJECT, { limit: 20, cursor: null })
+    expect(list.imports.map((view) => view.id)).toEqual([IMPORT])
+    expect(decodeDocumentListCursor(list.nextCursor ?? '')).toEqual(CURSOR)
+    expect(list).toMatchObject({ maxSizeBytes: expect.any(Number), partSize: PART })
+  })
+
+  it('reads the page after the cursor it was given, at the size asked for', async () => {
+    await listMailImports(session, PROJECT, { limit: 5, cursor: encodeDocumentListCursor(CURSOR) })
+    expect(repository.listProjectMailImports).toHaveBeenCalledWith('org_1', PROJECT, { limit: 5, cursor: CURSOR })
+  })
+
+  it('says the last page is the last', async () => {
+    expect((await listMailImports(session, PROJECT)).nextCursor).toBeNull()
   })
 })
 

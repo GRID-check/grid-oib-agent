@@ -379,6 +379,17 @@ mandatory) is deliberate: an ungated route is a security hole with no safe
 default, an unlimited route is a cost risk that has one. Reads are left to the
 edge's per-IP budget.
 
+A route declares its budget in the `apiRoute` options: `limits: { rule:
+DOCUMENT_UPLOAD_LIMIT }` for a tighter one (the factory charges it per
+`memberSubject`; the upload routes work this way), or `limits: { none: true,
+why: '…' }` for an exemption, where the sentence says who spends the budget
+instead (`app/api/realtime/send/route.ts`). A new rule is three edits: the rule
+in `lib/limits/rules.js`, its typed export in `catalog.ts`, and its entry in
+`LIMIT_CATALOG`. `enforce.spec.ts` checks only that no two catalogued rules
+share a name, so a rule left out of `LIMIT_CATALOG` is not caught. Call
+`enforceLimit(rule, memberSubject(session), units)` yourself only where one
+request costs several units or no route factory wraps the call.
+
 **One unit per request is the default, not the rule.** A route that does N times
 the work for one call has to charge N, or the budget stops bounding what the
 endpoint does. The messages route is the case in the tree today: it accepts

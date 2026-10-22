@@ -109,7 +109,7 @@ const HISTORY: MailImportView[] = [
 function state(variant: string): UseMailImports {
   const noop = async () => {}
   const base: UseMailImports = {
-    list: { imports: HISTORY, maxSizeBytes: 25e9, partSize: PART },
+    list: { imports: HISTORY, nextCursor: null, maxSizeBytes: 25e9, partSize: PART },
     loadError: false,
     sending: null,
     sendError: null,

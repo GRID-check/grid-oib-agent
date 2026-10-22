@@ -19,8 +19,16 @@ Routes are **thin transport adapters**. They:
   - `apiRoute(handler, options?)` — session-authenticated routes (the default).
     `options.permission` enforces an org/platform permission from the registry
     (`@/lib/authz/permissions`) before the handler runs.
-  - `internalApiRoute(label, handler, { tenancy })` — service-to-service routes guarded by
-    `GRID_INTERNAL_API_TOKEN` (fail-closed).
+  - `internalApiRoute(label, handler, { tenancy, tokenEnv? })` — service-to-service routes
+    guarded by the `x-grid-internal-token` header (`lib/internal-auth.ts`), compared with
+    `timingSafeEqual`; a wrong token answers 403. Fail-closed: an unset secret, or the
+    well-known dev default outside a dev environment, answers 503 and never serves.
+    `tenancy` is required: `{ fromPayload: '…' }` (the handler opens its own `withTenant`
+    scope once it has parsed the organization) or `{ crossTenant: 'why' }` (the audited
+    bypass). `tokenEnv` names a dedicated secret for a credential handed outside the
+    cluster (`GRID_CORPUS_EXPORT_TOKEN`), so a leak opens one route. A key derived from
+    such a secret (an HMAC) takes it through `usableInternalSecret()`, which applies the
+    same refusal.
   - `publicApiRoute(handler)` — intentionally unauthenticated (health checks
     only; anything else needs an ADR).
 - validate input **shape** with zod via `parseJsonBody` / `parseQuery`

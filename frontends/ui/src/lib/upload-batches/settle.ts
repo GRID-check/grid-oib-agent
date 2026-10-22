@@ -148,8 +148,9 @@ async function completionEmission(batch: UploadBatch): Promise<InboxEmission> {
  * member of the organization because there is no session to ask
  * (`isQuarantineReviewer`).
  *
- * Bounded by the directory's first page, as the storage alert is, and for the
- * same reason (`lib/storage/alerts.ts`): the reviewers are a small set.
+ * The directory is the whole roster (`autoPagination`), and each member is
+ * asked once. An unreadable directory reads as an empty one, so nobody is
+ * notified; that failure is not cached (`loadOrganizationDirectory`).
  */
 export async function quarantineReviewersOf(organizationId: string, document: Document): Promise<string[]> {
   const directory = await loadOrganizationDirectory(organizationId)

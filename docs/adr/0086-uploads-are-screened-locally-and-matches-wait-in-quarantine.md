@@ -157,26 +157,40 @@ German, and explains each verdict.
   `document.release_requested` inbox row naming the file. The queue links each
   project and Büroablage file to where it is filed, so a reviewer looks before
   deciding, and since 2026-10-13 decides there too (see the amendment below).
-- **What is not screened.** Files with no local text (images, scanned pages,
-  plans without a text layer) pass on the name gate alone, and the upload
-  summary says the content was not checked. The product owner chose this over
-  quarantining every scan or adding local OCR.
+- **What is not screened before a model reads it.** Files with no local text
+  (images, scanned pages, plans without a text layer) pass the local gates on
+  the name alone, and the upload summary says the content was not checked. The
+  product owner chose this over quarantining every scan or adding local OCR.
+  Such a file does reach a model: the vision model transcribes a scanned page
+  and captions an image. A scanned page's transcript is screened after that
+  call, before it is summarised or embedded, and a match holds the file with a
+  verdict that says the vision model read those pages: see „A transcript is
+  screened" in the 2026-10-17 amendment. A photo or other image is name-checked
+  only.
 
 ### Consequences
 
-* Good, because no matched file reaches an external model on any ingest path, and the next
-  caller of `dispatchIngest` is screened by construction.
+* Good, because no file whose locally read text or name matches reaches an external model on
+  any ingest path, and the next caller of `dispatchIngest` is screened by construction. A file
+  with no local text is the exception: the vision model reads a scanned page before its
+  transcript is screened, and captions an image that only its name was checked for.
 * Good, because every verdict names its rule, so an office can tune the list rather than
   distrust it.
 * Good, because the gates are deterministic, cheap, and need no model in the image.
 * Bad, because rules see words and number shapes, not meaning: a fee agreement titled
   „Vereinbarung.pdf" with no configured term in it passes. This is a filter the office
   steers, not a classifier, and the UI must not claim more.
-* Bad, because scans and images are only name-checked; an office that needs more needs local
-  OCR, which is a separate decision (image size, ingest time).
+* Bad, because scans and images are only name-checked before the vision model reads them; a
+  scan's transcript is screened after that call, an image's caption not at all. An office that
+  needs the content checked before any model call needs local OCR, which is a separate decision
+  (image size, ingest time).
 * Bad, because the name check in the browser is the only one that keeps bytes off our servers;
   the server-side repeat can only refuse to store, after the bytes arrived.
 * Bad, because a quarantined file occupies storage quota until someone acts on it.
+* Bad, because the reviewers' inbox notice is sent once, by the read that moved
+  the row, and is not retried when its write fails; the audit entry is retried
+  by the sweep (`lib/upload-batches/settle.ts`). A held file nobody was told
+  about waits in Organisation → Quarantäne until someone opens that queue.
 
 ### Confirmation
 

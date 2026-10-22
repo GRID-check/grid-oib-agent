@@ -1,0 +1,10 @@
+---
+fixes:
+  - >
+    In an Outlook archive import, a line of a mail that looks like a heading,
+    a list or a code block now stays plain text in the mail's note, so a mail
+    can no longer pose as a section of its own when Piloti cites it.
+  - >
+    The list of a project's Outlook imports now pages instead of stopping at
+    the twenty newest, so an older import that is still running can always be
+    found and cancelled.

@@ -63,6 +63,9 @@ can be switched off.
    by name only**. The summary says so, so nobody takes „nothing found" for
    „nothing there".
 
+Piloti does not scan files for viruses or macros. The checks above look for
+sensitive terms and numbers, not for malicious content.
+
 What Piloti drops on its own: system files a folder carries along, such as
 `.DS_Store`, `Thumbs.db` and Office lock files (`~$Vertrag.docx`).
 
@@ -161,6 +164,11 @@ model list, and its download, preview and thumbnail answer as if it did not
 exist. Piloti's assistant never reads it. Restoring a folder from the
 Papierkorb, changing a folder's access or re-indexing the project leaves it in
 quarantine; only allowing it takes it out.
+
+**How many the queue shows.** The Quarantäne list shows the newest 200 files
+you may review. It looks through the organization's 2,000 newest held files to
+find them, so in an organization with a very long quarantine an older file you
+may review can be missing until newer ones are allowed or deleted.
 
 **Before the check has finished**, a new file is held back the same way: you
 see your own upload at once, with its progress, and so do the people above;

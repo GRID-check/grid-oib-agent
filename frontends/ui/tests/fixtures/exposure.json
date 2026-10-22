@@ -725,10 +725,10 @@
    "domain": "documents",
    "sensitivity": null,
    "external": true,
-   "piloti": true,
+   "piloti": false,
    "platform": false,
    "withheld": null,
-   "reason": null
+   "reason": "Piloti holds no Outlook archive: the bytes come from the person’s disk, and a part is larger than any proposal a person can read"
   },
   "mail-import-get": {
    "kind": "catalog",
@@ -755,20 +755,20 @@
    "domain": "documents",
    "sensitivity": null,
    "external": true,
-   "piloti": true,
+   "piloti": false,
    "platform": false,
    "withheld": null,
-   "reason": null
+   "reason": "Piloti holds no Outlook archive: the bytes come from the person’s disk, and a part is larger than any proposal a person can read"
   },
   "mail-import-start": {
    "kind": "catalog",
    "domain": "documents",
    "sensitivity": null,
    "external": true,
-   "piloti": true,
+   "piloti": false,
    "platform": false,
    "withheld": null,
-   "reason": null
+   "reason": "Piloti holds no Outlook archive: the bytes come from the person’s disk, and a part is larger than any proposal a person can read"
   },
   "project-upload-list": {
    "kind": "catalog",

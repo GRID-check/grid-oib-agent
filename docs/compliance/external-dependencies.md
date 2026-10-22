@@ -49,6 +49,7 @@
 | **W&B / Jina** | — | Vestigial: env slots documented, **no code reads them** (`wandb` not even in lockfile) | No | Dead — remove | `WANDB_API_KEY`, `JINA_API_KEY` | negative code search |
 | **OTLP/Phoenix exporter** | configurable | NAT span export incl. LLM I/O; **no shipped config enables it** (console only). Identity enrichment: `AIQ_TRACE_USER_IDENTITY_MODE=full` adds cleartext email/name to spans (default `none`) | If enabled | Optional, off | workflow YAML; `AIQ_TRACE_*` | `aiq_api/auth/middleware.py:59-89` |
 | **Datadog RUM** | — | Frontend shim, no-ops unless deployment injects `DD_RUM` | If enabled | Optional, off | overlay | `shared/utils/rum.ts` |
+| **Cloudflare** | `api.cloudflare.com` (Pulumi, deploy time) + the zone's authoritative nameservers | DNS operator for `piloti.at` (`dnsEnabled` on dev and prod). Every app host, the apex included, is DNS-only (not proxied); only `www.piloti.at` is proxied, so Cloudflare's edge can redirect it to the apex | No. DNS lookups for every host; for `www` requests only, the visitor's IP and URL | Yes (dev, prod) | `cloudflareApiToken`, `dnsZoneId` (Pulumi) | `deploy/pulumi/src/platform/dns.ts` (`proxied: false` on host records, `wwwProxied`); `Pulumi.prod.yaml` (`dnsZoneBaseline`) |
 | **Google Fonts** | fonts.googleapis.com | **Build-time only** (`next/font` self-hosts at runtime); Next telemetry disabled in image | No | Build only | — | `app/layout.tsx:13`; `deploy/Dockerfile:104,119` |
 | **Build/CI**: PyPI, npm, Debian/nodesource, `nvcr.io`, GitHub Actions, Semgrep + gitleaks images (run in-CI, no source upload), OSV-Scanner (queries package names/versions against osv.dev) | — | provisioning/CI | Source code stays in CI; only dependency identifiers leave (OSV) | Build/CI | — | `.github/workflows/*` |
 
@@ -114,3 +115,9 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
    lists — remove.
 7. Uploaded document content leaves the deployment **by design** (embeddings/VLM/RAG
    to external providers); no local-embedding option exists in the repo.
+8. No malware scanning of uploads: no antivirus step exists. An upload is
+   admitted by extension allowlist (`assertUploadTypeAllowed`), size and the
+   content-term screen (ADR-0086); a mail-import attachment passes the same
+   gates (`lib/mail-import/filing.ts`). LibreOffice parses office files inside
+   Gotenberg, isolated and without egress (ADR-0070). A customer who needs
+   scanning does it upstream today (mail gateway, endpoint).

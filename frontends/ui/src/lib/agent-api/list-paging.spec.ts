@@ -39,7 +39,6 @@ const BASELINE: readonly string[] = [
   'document-version-reviewer-list',
   'hold-list',
   'inbox-unread-anchor-list',
-  'mail-import-list',
   'office-conventions-list',
   'office-shelf-folder-list',
   'organization-llm-credential-list',

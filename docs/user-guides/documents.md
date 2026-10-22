@@ -218,6 +218,19 @@ and the overlay says „Nur lesen“ in red instead of offering a drop that the
 server would refuse. A second drop while an upload is still running waits its
 turn, and Piloti says that it will follow, rather than dropping it.
 
+## Sorting the root folder into folders
+
+**Alle Dateien in Ordner einsortieren…** (the file area's menu, under
+„Erweitert“) asks Piloti to propose a folder for every file lying in the root
+folder of a project or of the Büroablage. It is offered to people who manage the
+files and may write at the root. Piloti first matches each file to an existing
+folder, then proposes new folders for the rest; you need at least one folder
+before it can start. Files Piloti has not read yet stay out. Nothing moves until
+you accept the proposal, and **Rückgängig** puts moved files back. The run is
+the server's: you can close the dialog and keep working, and Piloti tells you in
+the inbox when the proposal is ready to review
+([ADR-0121](../adr/0121-bulk-work-is-owned-by-the-server.md)).
+
 ## Uploading a whole folder
 
 A büro onboarding a project moves a directory tree, not a hand-picked list. Two
@@ -317,6 +330,9 @@ offered as its next Fassung, an unchanged one left alone.
   upload report, like any other file. A ZIP inside a ZIP is not unpacked.
 - **An `.ifczip` is not a ZIP of documents.** It is a building model and is
   uploaded as one, as before.
+- **Only the browser unpacks.** A ZIP that reaches Piloti any other way (a mail
+  attachment in an Outlook import, an agent's upload) is refused as a type
+  Piloti does not read; unpack it and upload its content.
 
 File names in ZIPs made by very old Windows versions, which did not mark their
 names as UTF-8, can show garbled umlauts; renaming the folder in Piloti fixes it.
@@ -540,6 +556,18 @@ edit the folder can answer.
 People assigned to the older document, and whoever uploaded it, get a note in the
 inbox when a newer Fassung is linked or uploaded under the same name, if they
 may open the newer one (see „The inbox“ in the chat guide).
+
+### Piloti notices a new Fassung
+
+When a document becomes the newer Fassung of another, Piloti can compare the
+pages that changed on its own and leave **proposed marks** where something
+moved, in the name of the person whose upload or link made the Fassung. Each
+mark waits for a person to take it over or dismiss it. That person gets one
+message in the document's chat and one inbox row, which opens the Prüfansicht at
+the first mark. Your organization's operator switches this on (the
+`piloti-notices` flag); with it off, nothing is compared until someone opens
+**Vergleichen**
+([ADR-0130](../adr/0130-piloti-notices-a-new-fassung.md)).
 
 ### Anmerkungen from an earlier Fassung, and the Protokoll
 

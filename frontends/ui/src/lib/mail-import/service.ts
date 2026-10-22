@@ -19,6 +19,7 @@ import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { MailImport } from '@/lib/db/schema'
 import { requireShelfWrite } from '@/lib/documents/shelf-authz'
+import { decodeDocumentListCursor, encodeDocumentListCursor } from '@/lib/documents/list-cursor'
 import { projectShelf } from '@/lib/documents/shelf'
 import { BFF_JOB_PRIORITY, requesterOf } from '@/lib/jobs-queue/types'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
@@ -39,17 +40,36 @@ import {
   stagingKey,
   type UploadedPart,
 } from './staging'
-import type { MailImportList, MailImportUploadPlan, MailImportView, StartMailImportInput } from './types'
+import {
+  MAIL_IMPORT_LIST_PAGE_SIZE,
+  type MailImportList,
+  type MailImportListQuery,
+  type MailImportUploadPlan,
+  type MailImportView,
+  type StartMailImportInput,
+} from './types'
 import { sealImportBatch } from './upload-batch'
 
-/** Imports one person may have open in one project at a time. */
-const OPEN_IMPORTS_PER_PERSON = 1
-
-export async function listMailImports(session: AuthorizedSession, projectId: string): Promise<MailImportList> {
+/**
+ * One page of the project's imports, newest first (ADR-0131 rule 3). The
+ * deployment's ceiling and part size ride along, so the dialog knows before a
+ * start what it may send.
+ */
+export async function listMailImports(
+  session: AuthorizedSession,
+  projectId: string,
+  query: MailImportListQuery = {},
+): Promise<MailImportList> {
   await requireProjectAccess(session, projectId, 'project:view')
-  const rows = await repository.listProjectMailImports(session.organizationId, projectId)
+  // The schema refused a cursor this list did not write; one that reaches here decodes.
+  const cursor = query.cursor ? decodeDocumentListCursor(query.cursor) : null
+  const page = await repository.listProjectMailImports(session.organizationId, projectId, {
+    limit: query.limit ?? MAIL_IMPORT_LIST_PAGE_SIZE,
+    cursor,
+  })
   return {
-    imports: rows.map((row) => toView(row, session)),
+    imports: page.rows.map((row) => toView(row, session)),
+    nextCursor: page.next ? encodeDocumentListCursor(page.next) : null,
     maxSizeBytes: maxArchiveBytes(),
     partSize: MAIL_IMPORT_PART_BYTES,
   }
@@ -65,11 +85,9 @@ export async function startMailImport(
   assertArchiveAccepted(input)
   await assertWithinStorageQuota(session.organizationId, input.sizeBytes)
 
-  const open = (await repository.listProjectMailImports(session.organizationId, projectId)).filter(
-    (row) => row.userId === session.userId && isOpen(row),
-  )
-  if (open.length >= OPEN_IMPORTS_PER_PERSON) {
-    throw new ConflictError('An import of yours is still running in this project.', { importId: open[0].id })
+  const open = await repository.findOpenMailImportOf(session.organizationId, projectId, session.userId)
+  if (open) {
+    throw new ConflictError('An import of yours is still running in this project.', { importId: open.id })
   }
 
   // The row first, the multipart upload second: the unique index refuses a

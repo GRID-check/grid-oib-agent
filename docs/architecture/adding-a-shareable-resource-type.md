@@ -57,11 +57,42 @@ and the event hub all take the type as data.
    `lib/sharing/registry.ts`.
 2. On your own table: a `visibility` column, a tenancy read and a visibility
    write.
-3. Per inbox item type: the schema union member, two registry entries
-   (`INBOX_TYPE_DEFINITIONS`, `INBOX_TYPE_PRESENTATION`) and its copy in both
-   dictionaries.
+3. Per inbox item type: the steps in
+   [Adding an inbox item type](#adding-an-inbox-item-type).
 4. Your surface's own toolbar/composer wiring, and hooking your delete path into
    the cascade in `lib/collaboration/cleanup.ts`.
+
+### Adding an inbox item type
+
+An inbox type need not belong to a shareable resource; the steps are the same.
+
+1. Add the type to `INBOX_ITEM_TYPES` (`lib/inbox/inbox-vocabulary.ts`; the
+   schema re-exports it).
+2. Add its `INBOX_TYPE_DEFINITIONS` entry (`lib/inbox/registry.ts`):
+   `actionable`, `grouping` (`collapse` or `per-anchor`), `retentionDays`,
+   `gate`, `email` and `push`.
+3. Add its `INBOX_TYPE_PRESENTATION` entry (`lib/inbox/types.ts`). A new icon
+   also goes into `ICONS` in `features/collaboration/components/InboxItemRow.tsx`.
+   Both records are `Record<InboxItemType, …>`, so `tsc` fails until each has
+   the entry.
+4. Add its copy under `collaboration.inbox.types.<i18nKey>` in every dictionary.
+5. Emit with `emitInboxItems`, keyed by `inboxGroupKey`, inside
+   `bestEffortInbox` so a failed row never fails the event. A recipient who is
+   the actor is dropped. The exception is an item that something retries until
+   it is written: `upload.completed` is emitted bare, so a failed write throws
+   and `settleUploadBatches` (`lib/upload-batches/settle.ts`) reopens the
+   batch for the sweep to complete and announce again. Wrapped, the batch
+   would stay completed and its uploader never told.
+6. Settle it when what it announced is answered or gone:
+   `resolveInboxItemsFor`, `resolveInboxItemsAnchoredOn`,
+   `markInboxItemsInertAnchoredOn` (`lib/inbox/service.ts`).
+7. Touch `lib/inbox/targets.ts` only for a new target kind (its deep link and
+   access check).
+8. No migration: `inbox_items.type` is text with no CHECK (migration 0177).
+   Retention follows from `retentionDays` (`lib/collaboration/retention.ts`
+   takes the longest).
+9. The specs that fail a missing piece: `registry.spec.ts`,
+   `push-policy.spec.ts`, `item-copy.spec.ts`, `targets.spec.ts`.
 
 ## 3. What is still leaking
 

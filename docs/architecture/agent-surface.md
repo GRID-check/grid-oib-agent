@@ -479,9 +479,9 @@ ceiling.
 | Column | Count |
 |---|---|
 | `external: true` | 232 |
-| `piloti: true` | 195 |
+| `piloti: true` | 192 |
 | `piloti: 'native:…'` | 17 |
-| `piloti: false` | 123 (49 withheld, 54 platform, 12 sensitive, 3 asks, 3 decisions, 2 skill reads) |
+| `piloti: false` | 126 (49 withheld, 54 platform, 12 sensitive, 3 asks, 3 decisions, 3 Outlook archive bytes, 2 skill reads) |
 | `platform: true` | 54 |
 | `withheld` | 49 (29 `product-config`, 13 `ui-state`, 4 `external-service`, 3 `model-compute`) |
 
@@ -688,7 +688,17 @@ Do this in the same change that adds or changes the route. The exemplar is
 7. **Say who sees it**: its entry in `exposure.config.ts`, `OFFERED` for office
    work, else the columns and a `reason` ([above](#the-exposure-config)). The
    catalog does not compile without it.
-8. **Run the gate**: `cd frontends/ui && bunx vitest run src/lib/agent-api/`. If
+8. **Name what it touches.** If Piloti may propose this write and its input
+   names an entity the card should show, or the proposal should be refused for,
+   that entity must be a target type: `OPERATION_TARGET_TYPES`
+   (`lib/proposals/types.ts`), the path-segment or input-key tables in
+   `operation-targets.ts`, and `findTargetPlace`
+   (`operation-targets-repository.ts`). An entity left out is not on the card
+   and `requireTargetsReadable` does not check it; only the route's own check
+   applies. Separately, an operation whose answer holds projects, documents,
+   task runs or conversations declares `links:`
+   ([Links into the app](#links-into-the-app)).
+9. **Run the gate**: `cd frontends/ui && bunx vitest run src/lib/agent-api/`. If
    your route was in the baseline, the "baseline only shrinks" test lists it;
    `UPDATE_FIXTURES=1` rewrites it and `tests/fixtures/exposure.json`; commit the diff.
 
@@ -732,6 +742,13 @@ where its ids come from and what to call next. Name the permission it needs when
 that decides whether the call works. `summary` is one line, for search and for
 `tools` mode.
 
+A description names only operations the door offers to the same audience
+(ADR-0131, rule 8). Piloti and an outside agent see different sets, so a
+description offered to Piloti must not name an external-only operation, and the
+other way round. `description-references.spec.ts` checks both audiences against
+a baseline that only shrinks. Put the pointer in an operation the audience that
+can follow it is offered, or leave it to search.
+
 ### Schemas
 
 `body`, `query` and `params` are zod and are exported to JSON Schema by
@@ -766,6 +783,13 @@ proposal stores the same original input.
 
 A hard delete with no restore is still catalogued, `destructive: true`, and says
 in the description that it cannot be undone. The client asks the person.
+
+A GET is `readOnly` by default, and Piloti runs a read-only operation without a
+person's card (`callDecision` in `policy.ts`). So a GET route creates, mints or
+stores nothing, not even on first read: a route that would make an address, a
+token or a row when it is read gets a separate idempotent write for the
+creation, and the GET answers "none yet". `read-only-writes.spec.ts` checks
+only non-GET operations, so review is the gate for a GET.
 
 ### Bytes in and out
 
@@ -807,7 +831,8 @@ The schemas are `uploadBodySchemaWith({ ...fields })` and `rawBodySchema` in
 size). The route's own parsing stays the gate, so name the real form fields in `fields` and add a
 `agent-upload.spec.ts` beside the route that proves the dispatcher's form passes its parser. An
 Outlook archive is three operations: `mail-import-start`, `mail-import-part-upload` (once per
-part), `mail-import-complete`.
+part), `mail-import-complete`. They are offered to outside agents only: Piloti has no archive to
+send, and a part is far past what a proposal may carry (`MAX_PROPOSED_INPUT_CHARS`).
 
 ### Links into the app
 
@@ -906,6 +931,13 @@ not offer is not an exemption: it is an operation, `withheld`
 channel, the proxies), browser sign-in plumbing (the AuthKit callback and
 redirect) and typing indicators. "Nobody would ask an agent to do that" is not a
 reason; an operation costs a few lines.
+
+A route exported through `internalApiRoute` (a service's token-guarded door: the
+scheduler, the purger) or `publicApiRoute` (health, signed images, the
+protected-resource metadata) is not a person's act, and the walker skips it
+(`personFacingRouteMethods`): it needs neither an operation nor an exemption,
+and an exemption for it fails as matching no route. A service's webhook stays
+on `internalApiRoute`; on `apiRoute` the walker would demand an operation.
 
 ## The ratchet
 

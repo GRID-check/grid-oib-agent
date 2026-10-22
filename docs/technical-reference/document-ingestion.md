@@ -75,7 +75,7 @@ Body: { projectId: string, file: File }
 
 1. **Auth check** — `requireAuthorizedSession()` + `requireProjectAccess(session, projectId, 'project:edit')`
 2. **Generate documentId** — `uuidv4()`
-3. **Store in SeaweedFS** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildStorageKey()` in `s3.ts`). The filename segment goes through `storageKeySegment`: separators are flattened, and a name the pipelines write beside the original (`_render.pdf`, `_thumb.jpg`, `_img`, `_bim`, compared without case) or a dot-only name gets a `_` prefix, so a user file named `_render.pdf` is stored as `__render.pdf` and cannot be mistaken for a derived object. The row keeps the user's filename
+3. **Store in SeaweedFS** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildStorageKey()` in `s3.ts`). The filename segment goes through `storageKeySegment`: separators are flattened, and a name the pipelines write beside the original (`_render.pdf`, `_thumb.jpg`, `_img`, `_bim`), a prefix the app stages under a project (`mail-imports`, the Outlook import's archive), each compared without case, or a dot-only name gets a `_` prefix, in every segment of the folder path as in the filename, so a user file named `_render.pdf` is stored as `__render.pdf` and cannot be mistaken for a derived object. The row keeps the user's filename
 4. **Insert DB row** — Drizzle `documents` table with `status: 'uploaded'`, storing `documentId`, `organizationId`, `projectId`, `createdBy`, `filename`, `storageKey`, `collectionName`, `fileSize`, `contentType`
 5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: INGEST_JOB_REF_TTL_SECONDS })`. 24 hours, not the 600 s `SEAWEED_PRESIGNED_URL_TTL_SECONDS` default the other signed reads use: the ingest job downloads the file when the bounded ingest pool reaches it, which can be well after dispatch (Step 3)
 6. **Trigger ingestion** — POST to `{BACKEND_URL}/v1/ingest` with `{ file_ref: presignedUrl, collection: collectionName, document_id: documentId, file_name: filename, folder_path }`. `file_name` is the row's own `documents.filename`, stated rather than derived from the presigned URL's last path segment, because it is the join key every chunk purge addresses
@@ -307,6 +307,23 @@ Three things change for an uploaded image.
   `[IMAGE from page N]` marker (`_strip_visual_marker`). The marker is for
   retrieval, which cites a page. People read the summary, so it starts with the
   description.
+- **Photo facts.** The EXIF of the original image is read before the JPEG
+  re-encode drops it (`photo_facts.read_photo_facts`) and stored as
+  `document_metadata.capture`: `captured_at`, `latitude`, `longitude`,
+  `camera`. People who may open the file see it. `latitude` and `longitude`
+  never reach a model; `captured_at` (as a date) and `camera` may. A re-ingest
+  writes `capture` again from the new bytes. `captured_at` also feeds the
+  `document_date` payload field, where the title block's `revision_date` wins
+  when both exist (`_document_date` in `qdrant/payload.py`).
+
+A project document's Dokumentart is its type tag (`DOCUMENT_TYPE_TAGS` in
+`aiq_agent/knowledge/document_classification.py`, mirrored in
+`lib/documents/tag-vocabulary.ts`), not `doc_class`, which classifies the base
+corpus; a letter or minutes is `Sonstiges`. An upload carries no type
+(`ShelfUploadInput` has no field for it), so a person or a job can set it only
+once the metadata row exists, through `PATCH /api/documents/[id]/tags`; from
+then on `tags_set_by = 'person'` keeps ingest and the backfill from replacing
+it.
 
 ### A re-upload replaces the previous version once it has indexed
 

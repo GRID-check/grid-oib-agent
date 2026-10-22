@@ -104,6 +104,19 @@ const ASK = {
   reason: 'how another agent consults Piloti; Piloti never asks Piloti (ADR-0124, the recursion lock)',
 } as const satisfies Exposure
 
+/**
+ * The Outlook import's byte protocol (start, part upload, complete). Piloti has
+ * no archive to send, and a part is 32 MiB, far past what a proposal may carry
+ * (`MAX_PROPOSED_INPUT_CHARS`), so offering it costs Piloti a tool slot and a
+ * proposal that is always refused. Watching and cancelling an import stay offered.
+ */
+const ARCHIVE_BYTES = {
+  external: true,
+  piloti: false,
+  reason:
+    'Piloti holds no Outlook archive: the bytes come from the person’s disk, and a part is larger than any proposal a person can read',
+} as const satisfies Exposure
+
 const NATIVE_READ = 'Piloti reads with this native tool itself; the door offers it to outside agents'
 const MEMORY =
   'Piloti keeps a note with its own `remember`, which records where the finding came from and keeps a restricted one in its project'
@@ -207,11 +220,11 @@ export const EXPOSURE = {
   'hold-list': OFFERED,
   'hold-release': SENSITIVE,
   'mail-import-cancel': OFFERED,
-  'mail-import-complete': OFFERED,
+  'mail-import-complete': ARCHIVE_BYTES,
   'mail-import-get': OFFERED,
   'mail-import-list': OFFERED,
-  'mail-import-part-upload': OFFERED,
-  'mail-import-start': OFFERED,
+  'mail-import-part-upload': ARCHIVE_BYTES,
+  'mail-import-start': ARCHIVE_BYTES,
   'project-upload-list': OFFERED,
   'quarantine-list': OFFERED,
   'session-document-upload': OFFERED,

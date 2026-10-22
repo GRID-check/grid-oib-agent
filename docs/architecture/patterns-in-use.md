@@ -151,6 +151,26 @@ commit was reviewed, so text published from a branch that never merges stays
 unreviewed; publish with `--apply` from `develop`. ADR-0060. **Enforced by:** `tests/test_prompts_push.py`; no drift
 workflow runs it on a schedule.
 
+## An act that must reach the audit trail: write the row, send it from the row
+
+The trail is WorkOS-native, with no app-side audit table, and
+`recordAuditEvent` never throws, so a lost call loses the line. An act whose
+line must not be lost (an automated decision, `system:upload_screening`) writes
+an outbox row in the same transaction as the act (`document_quarantine_decisions`,
+migration 0119), sends it from the request that moved it, and lets the upload
+sweep send what is still owed after a minute (`QUARANTINE_AUDIT_GRACE_MS`),
+marking `audited_at`; rows go once audited or after seven days. The event is
+built from the row alone, with the WorkOS idempotency key derived from the row
+id (`document.quarantined:<id>`, `quarantineEventKey`), so a row sent twice is
+one event. Automated actors are entries of `SYSTEM_ACTORS`
+(`lib/audit/service.ts`), never a user id. A document name goes into an event
+only where every member of its project may read the folder (`filedInOf`,
+ADR-0087). Registering the action in `lib/audit/schemas.mjs` is what makes it
+compile. [ADR-0086](../adr/0086-uploads-are-screened-locally-and-matches-wait-in-quarantine.md),
+[`workos-provisioning.md`](../deployment/workos-provisioning.md).
+**Enforced by:** `schemas.spec.ts` for the registry and `quarantine-audit.spec.ts`
+for this outbox; nothing makes a second automated decision use one.
+
 ## Headless first: one MCP surface
 
 Every capability a person has is an operation in
@@ -175,6 +195,54 @@ browser file against `ci/browser_work_loops.json`, where each count has its
 reason. A count may not grow and a new file may not appear.
 **Enforced by:** that ratchet, for pools only. A sequential browser loop is not
 counted, so review is the gate for it.
+
+### Adding a BFF job kind
+
+1. Add the kind to `BFF_JOB_KINDS` (`lib/jobs-queue/types.ts`) and say in that
+   file's header who it runs as. The column's CHECK takes any
+   `^[a-z][a-z0-9_]{0,63}$`, so no migration.
+2. Write its zod payload. A kind that runs as a person carries
+   `requester: requesterSchema`.
+3. Write the slice or step. A slice returns `JobSliceResult` (`done`,
+   `payload`, optional `notBefore`, which gives the claim back without
+   spending an attempt).
+4. Add its `JOB_HANDLERS` entry (`lib/jobs-queue/handlers.ts`; a kind without
+   one does not compile). `handler()` runs a slice as the requester, resolved
+   again every slice, and ends quietly when they left; `systemHandler` is one
+   step that throws to retry; `systemSliceHandler` is a sliced walk with no
+   session. A custom handler needs a reason in its comment: the mail import and
+   the root sort record a departed requester on a row the person sees, and the
+   wake may answer "not yet".
+5. Enqueue with `enqueueJob` (`lib/jobs-queue/enqueue.ts`: `notBefore`,
+   `jobId`, a same-transaction executor), or `insertJobIfAbsent`
+   (`repository.ts`) when one job per key is the contract.
+6. A system step or walk gets `{ last }` (`JobAttempt`): leave the truth behind
+   on the last claim.
+7. If the kind can strand rows when its job dies, give it a part in
+   `app/api/internal/maintenance/reconcile-background-work`.
+8. Spec the handler beside `handlers.intake.spec.ts`, and run
+   `queue.integration.spec.ts` if you touch the claim.
+
+### A job nobody asked for (ADR-0129, ADR-0130)
+
+The newest unasked background features (`lib/revision-notice/`,
+`lib/document-check/`, `lib/office-conventions/`, `lib/filing/root-sort-*`)
+share a shape; copy the closest one, since none has every part.
+
+- `queue.ts` (`import 'server-only'`): the gate (the organization's flag through
+  `isOrgFeatureEnabled`, as no session is at hand), then `insertJobIfAbsent`
+  with a deterministic job id, so a second enqueue while one waits is no second
+  job. It never throws into the event it rides on, and queues at `bulk`.
+- `job.ts`: a numbered header says what is asked again on every run (the
+  person, the flag, the budget through `unaskedSpendAllowed`, then the work),
+  because the job waited and rights are those of today.
+- `repository.ts` holds the SQL and `*-wire.ts` the zod shapes the route and the
+  operation share.
+- The migration header has the sections `What was missing`, `The row` and
+  `RLS` (0181), and invariants are named CHECKs (`root_sort_runs_lists_bounded`,
+  `office_conventions_computed_together`).
+
+**Enforced by:** review, and `rls-coverage.spec.ts` for the migration's RLS.
 
 ## Already recorded elsewhere
 

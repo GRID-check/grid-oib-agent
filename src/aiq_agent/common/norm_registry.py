@@ -1320,7 +1320,8 @@ def lane_for_hit(
         return ("building_law_ris", "Rechtsquelle (RIS)")
     # wien.gv.at is the curated MA-37 (Baupolizei Wien) registry pointer —
     # official municipal building information, Baurecht family, never Web.
-    # Mirrors the frontend laneForHitClient so both render paths agree.
+    # The frontend renders the lane and label it is sent; only the kind is
+    # derived there (`kindForLane` in source-kinds.ts mirrors `kind_for_lane`).
     if _host_matches(source_url, "wien.gv.at"):
         return ("authority", "Behördliche Information")
     if collection:  # a named KB collection that is not project/office_shelf: the base corpus

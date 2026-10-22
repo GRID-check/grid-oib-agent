@@ -46,6 +46,14 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
 | `bff-job-queue.ts` | `bff_job_queue`, `bff_job_lane_turns` — the BFF's durable background work (migration 0104, ADR-0079) |
 
+Two things drizzle's schema builder cannot declare live only in the migration
+and are kept in step by hand: a foreign key with a column list on its action
+(`ON DELETE SET NULL ("conversation_id")`, needed when the key is composite with
+`organization_id`, as in `0043_jobs.sql`) and an expression index
+(`COALESCE(…)`). A partial index, unique or not, can be declared with
+`.where(sql`…`)`, as `mail_imports_one_open_per_person_uidx` is; some older ones
+were written only in their migration.
+
 ---
 
 ## projects
@@ -150,7 +158,7 @@ export const conversations = pgTable('conversations', {
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
 
-**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM task_definitions` seq-scan this table; partial because job-produced conversations are a small minority and Drizzle's builder cannot express a partial index, so it lives only in the migration.
+**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM task_definitions` seq-scan this table; partial because job-produced conversations are a small minority and It is declared only in the migration, not in the schema file.
 
 ---
 
@@ -237,7 +245,7 @@ plan: the `plan_json` fence of a plan preview and the `approve {…}` reply
 Both have a `.down.sql`. The readers keep one table per vocabulary for the old
 spellings (`LEGACY_*`, listed in each migration's header) for one release.
 
-**Indexes:** `messages_conversation_created_idx` on `(conversation_id, created_at)` — conversation history reads (migration `0014`; Postgres does not auto-index FK columns); `idx_messages_run_id` on `(run_id)` **partial**, `WHERE run_id IS NOT NULL` (migration `0091`) — a run message is a small minority of all messages, and an index entry per chat message would be paid for on every insert. Drizzle's builder cannot express a partial index, so it lives only in the migration.
+**Indexes:** `messages_conversation_created_idx` on `(conversation_id, created_at)` — conversation history reads (migration `0014`; Postgres does not auto-index FK columns); `idx_messages_run_id` on `(run_id)` **partial**, `WHERE run_id IS NOT NULL` (migration `0091`) — a run message is a small minority of all messages, and an index entry per chat message would be paid for on every insert. It is declared only in the migration, not in the schema file.
 
 ---
 
@@ -342,7 +350,7 @@ export const documents = pgTable('documents', {
 
 - `uniq_documents_live_name_per_collection` — **UNIQUE**, on (`organization_id`, `collection_name`, `filename`), **PARTIAL** (`WHERE authored_by = 'user' OR filename LIKE 'piloti/%'`) — one live document per filename per collection over every row that can own chunks, because the ingest pipeline replaces passages by filename and a second row under one name is a ghost (migration `0074`, widened by `0083`). The predicate is two disjoint arms: `authored_by = 'user'` is 0074's rule, and `filename LIKE 'piloti/%'` covers the namespace an agent-authored document is filed under once a version of it may be published and therefore indexed (ADR-0054). They cannot meet — no browser produces a filename containing a slash, so no upload can reach the second arm — and a machine-authored row OUTSIDE the namespace is in neither: it carries a model-chosen name, owns no chunks, and must coexist with a person's file of the same name. Its columns and its FIRST arm are the WHERE clause of `findLiveDocumentByFilename`, the probe that makes a re-upload replace instead of insert; the index closes the concurrent-first-upload race the probe cannot. Its refusal is an OUTCOME, not a bug: `insertDocumentWithinQuota` maps a 23505 on THIS index (by name, `lib/documents/unique-conflicts.ts`) to `LiveFilenameTakenError`, a `409`, and the project and Archiv upload paths answer it by retrying once as a re-upload (`retryRacedUpload`) — the refused insert charged nothing and `admitOrDiscard` already deleted the loser's object, so the retry's bytes become the next version of the winner's document, under a `v<n>/<write id>/` key of their own, charged in full (ADR-0054 correction 14). The second arm has no probe and needs none — the document id inside the namespace is unique by construction, and the filing path's idempotency is `uniq_documents_authored_ref_producer_per_project` one level up — so it is the database refusing to hold a collision the application has no way to create. Created with `AND deleted_at IS NULL` and restated without it by migration `0077`, which dropped `documents.deleted_at`: the column was added by `0009` for a soft delete that documents never got (every document delete is a hard DELETE), so the clause was inert, and a predicate over a column nothing writes hides rows the day something does. `projects` and `conversations` keep their `deleted_at`.
 
-The three `authored_by` partial indexes above live **only in the migration** — drizzle's index builder cannot express a `WHERE` clause — with a NOTE beside the relevant column in `schema/documents.ts`; the filename one is declared in the schema as well. `documents.spec.ts` pins each one to its migration so a regeneration cannot quietly drop it.
+The three `authored_by` partial indexes above live **only in the migration** — they were never declared in the schema file, although `.where(sql`…`)` can express them — with a NOTE beside the relevant column in `schema/documents.ts`; the filename one is declared in the schema as well. `documents.spec.ts` pins each one to its migration so a regeneration cannot quietly drop it.
 
 **Constraints:**
 - `documents_folder_requires_project` — `folder_id IS NULL OR project_id IS NOT NULL OR scope = 'office_shelf'`: a filed document is a project document or an Archiv one. Introduced as "a document with a folder has a project" so the composite `(folder_id, project_id)` FK checks anything under MATCH SIMPLE (migrations `0030`, `0031`); widened by migration `0102`, whose next constraint now checks every folder reference whatever the project
@@ -915,6 +923,16 @@ Indexes: `upload_batches_project_created_idx` (a project's history, newest
 first) and the partial `upload_batches_open_idx` (`WHERE completed_at IS NULL`,
 the sweep). Repository: `lib/upload-batches/repository.ts`; the completion guard
 is proven against Postgres in `upload-batches.integration.spec.ts`.
+
+A batch whose inbox item could not be written is reopened (`completed_at` back
+to NULL, guarded on the completion time that call wrote), so the sweep
+completes it and tells the uploader again (`reopenCompletedBatches`,
+`lib/upload-batches/settle.ts`). `onDocumentsSettled`, the hook reconciliation
+calls, never throws into its caller; `settleUploadBatches` itself rethrows
+after the reopen. The intake reading (ADR-0111) and the filing-review queue
+start after the uploader was told and cannot undo the completion. The
+quarantine reviewers' inbox item is the exception: the read that moved the row
+sends it once and a failed write is not retried.
 
 ---
 
@@ -1546,7 +1564,7 @@ bulk), then oldest, with `FOR UPDATE SKIP LOCKED`.
 | `status` | text | `queued`, `claimed` or `dead` (CHECK). A finished job is **deleted**; a job that failed every attempt is `dead` and stays, with its reason, until `GRID_BFF_JOBS_DEAD_RETENTION_DAYS` after `dead_at`. When a row goes dead its `payload` is reduced to `runId`, `projectId`, `documentId` and `taskRunId` (`KEPT_PAYLOAD_KEYS`): the sweeps match a dead job by them, and nothing else of the report, requester or storage keys outlives the attempt. |
 | `attempts` | integer | Claims spent. A drain or a cap gives a claim back without spending one. |
 | `claimed_by`, `claimed_at`, `heartbeat_at` | text, timestamptz | A `claimed` row always has a holder and a heartbeat (CHECK); a claim silent for `GRID_BFF_JOBS_STALE_SECONDS` is claimed again. |
-| `not_before` | timestamptz | Migration 0104. A failed job is not claimed again before this: `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS` doubled per attempt, at most 15 minutes. NULL is no wait; a claim, a drain's release and a cap's release clear it. |
+| `not_before` | timestamptz | Migration 0104. A failed job is not claimed again before this: `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS` doubled per attempt, at most 15 minutes. NULL is no wait; a claim, a drain's release and a cap's release clear it. A slice that defers (not done, with a `notBefore`) sets it to the time asked without spending an attempt. |
 | `dead_at` | timestamptz | Migration 0104. Set when the row goes dead (CHECK `bff_job_queue_dead_stamped`: a dead row always has one), and what the retention counts from. |
 | `created_at`, `last_error` | timestamptz, text | |
 
@@ -1861,7 +1879,7 @@ Indexes: `uniq_inbox_items_recipient_group`;
 `idx_inbox_items_recipient_org_updated` (the list);
 `idx_inbox_items_target` (inert-marking + cascade); `idx_inbox_items_created_at`
 (retention prune); and the **partial** `idx_inbox_items_pending` — hand-written in
-the migration because the drizzle builder cannot express it — matching the badge
+the migration and not declared in the schema file — matching the badge
 predicate exactly (`archived_at IS NULL AND inert_at IS NULL AND (read_at IS NULL
 OR (actionable AND resolved_at IS NULL))`). Keep the predicate and
 `pendingPredicate()` in `lib/inbox/repository.ts` in step, or the badge silently

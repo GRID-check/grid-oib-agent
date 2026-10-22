@@ -62,12 +62,15 @@ under an alias (ADR-0103).
 verify`.** It needs PostgreSQL server binaries, so it runs separately. Run it
 whenever you touch the tenant boundary — and whenever you touch a claim that is
 really about SQL. The script (`scripts/rls-test-db.sh`) runs a fixed list of
-`*.integration.spec.ts` files, not a glob: tenant isolation, the two BIM query
-suites, and the memory service's "one fact, one live row" consolidation suite.
-A new database-backed spec has to be added to that list, or it only ever runs
-on a developer's machine. Each of those files also carries a
-`GRID_RLS_SUITE_REQUIRED` guard so the CI job fails if the database goes
-missing instead of skipping green.
+`*.integration.spec.ts` files, not a glob; the list in the script is the
+authority. A new database-backed spec has to be added to that list, or nothing
+in CI runs it: the spec itself skips without `GRID_TEST_DATABASE_URL`, and
+nothing checks the list is complete. On 2026-10-22 four were missing
+(`retrieval-settings/service` and the three `model-config/*` integration
+specs). Each listed file carries a `GRID_RLS_SUITE_REQUIRED` guard so the CI job
+fails if the database goes missing instead of skipping green; CI sets that
+variable (`.github/workflows/ci.yml`), the script does not, so a local run can
+still skip green.
 
 The per-migration sections at the end of that script prove a backfill, a data
 rewrite or a down migration on a clone of the chain. Once the migration has
@@ -702,7 +705,10 @@ The project has to exist where the tools read it. The suite seeds it itself
 `AIQ_QDRANT_URL`, the documents into the metadata store at `AIQ_SUMMARY_DB`, which
 must be a database URL). Seeding is idempotent and embeds only what changed; it
 needs the deployment's embedding key. Reseed after editing `project.yaml` by
-running the suite again.
+running the suite again. Because the seed bypasses the chunker, the files set
+does not see a change to how a Markdown, text or CSV file is cut into sections;
+for that, ingest a file for real and ask by hand, or add a case to the
+chunker's own specs.
 
 ```bash
 task be:eval:answer-suite -- --set files --arm both --runs 3 --out /tmp/pf/both

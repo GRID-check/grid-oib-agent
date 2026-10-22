@@ -1254,7 +1254,9 @@ died half way left no record of which half. Both are now jobs:
   period is the drain plus 30 s. A claim that has held its slot for ten
   minutes is given back the same way between two slices, so a job that runs
   for hours (an archive import) waits its turn behind the fair claim instead of
-  keeping the slot. A claim that lost its worker is taken again
+  keeping the slot. A slice that answers not done with a `notBefore` (a wake
+  waiting on the person's running turn) gives its claim back the same way and
+  is held until then (`defer` in `workers/job-queue.js`). A claim that lost its worker is taken again
   after `GRID_BFF_JOBS_STALE_SECONDS`. Every other end of an attempt spends
   it (a handler that threw, a slice past `GRID_BFF_JOBS_SLICE_TIMEOUT_MS`, a BFF
   that answered 5xx or not at all) and the job waits `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS`,

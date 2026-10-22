@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-21
+status: accepted
+date: 2026-10-22
 decision-makers: Grid engineering
 consulted: product owner; north-star scene 7 and its exemplar `ns-learn-office`
 informed: everyone working on filing, the turn context, project memory and the agent's file tools

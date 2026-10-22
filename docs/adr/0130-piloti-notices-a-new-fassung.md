@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-10-21
+status: accepted
+date: 2026-10-22
 decision-makers: Grid engineering
 consulted: product owner; north-star scene 5 (`docs/architecture/north-star-answers.md`, `ns-notice-new-document`)
 informed: everyone working on Fassungen, the review canvas, the inbox and the job pool

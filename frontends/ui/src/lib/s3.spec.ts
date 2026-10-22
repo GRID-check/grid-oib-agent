@@ -76,6 +76,28 @@ describe('storageKeySegment', () => {
     expect(storageKeySegment('render.pdf')).toBe('render.pdf')
   })
 
+  /**
+   * The Outlook import stages its archive at `<project>/mail-imports/<import
+   * id>/archive` (`lib/mail-import/staging.ts`). A person's folder of that name
+   * would file documents inside the stage, where a sweep of staged archives by
+   * prefix would take them with it.
+   */
+  it('never files a document under the import’s staging prefix', () => {
+    expect(storageKeySegment('mail-imports')).toBe('_mail-imports')
+    expect(storageKeySegment('Mail-Imports')).toBe('_Mail-Imports')
+    expect(storageKeySegment('mail-imports-2019')).toBe('mail-imports-2019')
+    const importId = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a01'
+    const stage = `org/org-1/project/proj-1/mail-imports/${importId}/`
+    for (const folder of ['mail-imports', `mail-imports/${importId}`, `MAIL-IMPORTS/${importId}`]) {
+      const key = buildStorageKey('org-1', 'proj-1', 'doc-1', 'archive', folder)
+      expect(key.toLowerCase().startsWith('org/org-1/project/proj-1/mail-imports/'), folder).toBe(false)
+      expect(key.startsWith(stage), folder).toBe(false)
+    }
+    expect(buildStorageKey('org-1', 'proj-1', 'doc-1', 'archive', `mail-imports/${importId}`)).toBe(
+      `org/org-1/project/proj-1/_mail-imports/${importId}/doc/doc-1/archive`,
+    )
+  })
+
   it('keeps an uploaded file off its own derived keys', () => {
     for (const name of ['_render.pdf', '_thumb.jpg']) {
       const key = buildStorageKey('org-1', 'proj-1', 'doc-1', name)

@@ -1,7 +1,11 @@
 # Deletion Pipeline: Projects, Folders, Documents, Conversations, Organizations
 
 **Date:** 2026-07-05
-**Status:** Phase 1 implemented
+**Status:** Built: projects, folders (the Papierkorb) and conversations go
+through the purger (`frontends/ui/purger/index.js`); documents are hard-deleted
+in the request. Not built: organization and user erasure (phases 4 and 5; the
+purger has no purger for either), so the organization and user sections below
+are design, not behaviour (checked 2026-10-22).
 **Branch:** feature/applicable-oib-standards (or follow-up branch)
 
 ## Problem
@@ -293,6 +297,7 @@ the row went first that request was refused and the collection was left behind.
 3. Delete `aiq_jobs` rows (`job_info`, `job_access`, `job_events`) for jobs referencing that collection
 4. Delete LangGraph checkpoints for all gathered conversation ids
 5. Delete all SeaweedFS objects under the prefix (paginated `ListObjectsV2` + batched `DeleteObjects` — first S3 delete code in the repo)
+   The buckets to sweep are asked of the rows, never derived (ADR-0043): `documents.storage_bucket` UNION `mail_imports.staging_bucket` for the project, plus the shared bucket, read before step 7 deletes the rows (`purger/purge-project.js`). A new table that stages objects for a project must join that UNION and get an assertion in `purge-project.spec.mjs`, or a project whose only rows are in that table never has its bucket swept. Stage under `org/<org>/project/<project>/…` and record the bucket on the row.
 6. Delete WorkOS FGA resource (`deleteResourceByExternalId`, `cascadeDelete: true`)
 7. Delete `conversations` rows explicitly, then the `projects` row (cascades `documents`, `project_folders`, project-scoped `project_memory`; org-scoped memory untouched)
 
@@ -384,8 +389,8 @@ One caution for honest positioning: this makes the *product capable of* GDPR-con
 1. **Phase 1:** queue + `legal_holds` tables + migrations + reaper skeleton (incl. hold guard) + purger compose service + **project** deletion end-to-end (dialog, endpoints, purge steps, restore, Recently deleted).
 2. **Phase 2:** **documents** (delete endpoint, dialog, purge steps — fixes SeaweedFS/Chroma leak).
 3. **Phase 3:** **conversations** (fixes checkpoint leak in session delete).
-4. **Phase 4:** **organizations** (offboarding; fan-out + WorkOS org delete) + hold APIs.
-5. **Phase 5:** **user erasure** (account delete + anonymization).
+4. **Phase 4:** **organizations** (offboarding; fan-out + WorkOS org delete) + hold APIs. The offboarding is not built; the hold API is (`app/api/holds`).
+5. **Phase 5:** **user erasure** (account delete + anonymization). Not built.
 
 ## Out of scope
 

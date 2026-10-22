@@ -16,6 +16,7 @@
  */
 
 import { normalizeFolderName } from '@/lib/projects/folders'
+import { escapeInline, escapeMarkdown } from '@/lib/text/markdown-escape'
 
 const VIENNA = 'Europe/Vienna'
 const MAX_FOLDER_NAME = 120
@@ -131,22 +132,34 @@ export function archiveFolderName(filename: string): string {
   return outlookFolderName(stem) || 'Outlook-Archiv'
 }
 
-/** The mail as a Markdown note: the headers a reader needs, then the text. */
+/**
+ * The mail as a Markdown note: the headers a reader needs, then the text.
+ *
+ * Everything that came with the mail is escaped (`lib/text/markdown-escape.ts`):
+ * the subject, every header and the body are what a stranger wrote, and the
+ * note is chunked one section per heading. Unescaped, a body line
+ * `## 14.10.2026 · MA 37` was a citable section of the note under a heading
+ * the Behörde never sent, and an unclosed fence hid every section after it.
+ * Only the note's own frame (its heading, the labels, the rule, the two
+ * remarks in italics) is Markdown.
+ */
 export function mailNote(mail: MailForNote, attachments: string[]): string {
-  const lines = [`# ${oneLine(mail.subject) || '(kein Betreff)'}`, '']
+  const subject = oneLine(mail.subject)
+  const lines = [`# ${subject ? escapeMarkdown(subject) : '(kein Betreff)'}`, '']
   const header: Array<[string, string]> = [
     ['Von', mail.sender ? formatAddress(mail.sender) : ''],
     ['An', mail.to.map(formatAddress).join(', ')],
     ['Cc', mail.cc.map(formatAddress).join(', ')],
     ['Gesendet', readableTime(mail.sentAt)],
     ['Empfangen', readableTime(mail.receivedAt)],
-    ['Outlook-Ordner', mail.folderPath.join(' / ')],
-    ['Anhänge', attachments.join(', ')],
+    ['Outlook-Ordner', mail.folderPath.map(oneLine).join(' / ')],
+    ['Anhänge', attachments.map(oneLine).join(', ')],
   ]
   for (const [label, value] of header) {
-    if (value) lines.push(`- **${label}:** ${value}`)
+    // One line after the label, so nothing in it stands at a line's start.
+    if (value) lines.push(`- **${label}:** ${escapeInline(oneLine(value))}`)
   }
-  lines.push('', '---', '', mail.body.text || '*(Diese E-Mail hat keinen Text.)*')
+  lines.push('', '---', '', mail.body.text ? escapeMarkdown(mail.body.text) : '*(Diese E-Mail hat keinen Text.)*')
   if (mail.body.truncated) lines.push('', '*(Der Text war länger und wurde beim Import gekürzt.)*')
   return `${lines.join('\n')}\n`
 }
@@ -163,8 +176,14 @@ function readableTime(iso: string | null): string {
   return stamp === 'ohne Datum' ? '' : stamp.replace(/(\d{2})\.(\d{2})$/, '$1:$2')
 }
 
+/**
+ * Runs of white space as one space. The separators JavaScript's `\s` misses but
+ * Python's `splitlines()` ends a line at (`\x1c`–`\x1e`, `\x85`) count too:
+ * the chunker reads the note with Python, so a header that is one line here
+ * must be one line there.
+ */
 function oneLine(value: string): string {
-  return value.replace(/\s+/g, ' ').trim()
+  return value.replace(/[\s\x1c-\x1f\x85]+/g, ' ').trim()
 }
 
 /** One name segment: no separators, no control characters, one Unicode form. */

@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
 import {
@@ -19,11 +19,10 @@ import {
   type MailImportStatus,
   type NewMailImport,
 } from '@/lib/db/schema'
+import { CURSOR_TIMESTAMP_FORMAT, type DocumentListCursor } from '@/lib/documents/list-cursor'
 import { isUuid } from '@/lib/ids'
 
-/** One project's imports shown at once. Newest first; older ones are history. */
-export const MAIL_IMPORT_LIST_LIMIT = 20
-
+const OPEN_STATUSES: MailImportStatus[] = ['uploading', 'queued', 'importing']
 const ENDED_STATUSES: MailImportStatus[] = ['completed', 'failed', 'cancelled']
 
 /** Insert the row, or null when the person already has an open import in the project (the unique index). */
@@ -47,15 +46,79 @@ export async function findMailImport(organizationId: string, projectId: string, 
   return row ?? null
 }
 
-export function listProjectMailImports(organizationId: string, projectId: string): Promise<MailImport[]> {
-  return withTenant({ organizationId }, () =>
+/** One page of a project's imports, and the position of its last one when another page follows. */
+export interface MailImportPage {
+  rows: MailImport[]
+  next: DocumentListCursor | null
+}
+
+/**
+ * One page of the project's imports, newest first (`created_at DESC, id DESC`,
+ * the order `mail_imports_org_project_created_idx` serves). The position is
+ * compared as the column's microsecond UTC text, as every keyset list here is
+ * (`lib/documents/list-cursor.ts` says why a JS `Date` would skip rows).
+ */
+export async function listProjectMailImports(
+  organizationId: string,
+  projectId: string,
+  page: { limit: number; cursor: DocumentListCursor | null },
+): Promise<MailImportPage> {
+  const fetched = await withTenant({ organizationId }, () =>
+    getDb()
+      .select({
+        row: mailImports,
+        cursorAt: sql<string>`to_char(${mailImports.createdAt} AT TIME ZONE 'UTC', ${CURSOR_TIMESTAMP_FORMAT})`,
+      })
+      .from(mailImports)
+      .where(
+        and(
+          eq(mailImports.organizationId, organizationId),
+          eq(mailImports.projectId, projectId),
+          afterCursor(page.cursor),
+        ),
+      )
+      .orderBy(desc(mailImports.createdAt), desc(mailImports.id))
+      .limit(page.limit + 1),
+  )
+  const kept = fetched.slice(0, page.limit)
+  const last = kept.at(-1)
+  return {
+    rows: kept.map((entry) => entry.row),
+    next: fetched.length > page.limit && last ? { createdAt: String(last.cursorAt), id: last.row.id } : null,
+  }
+}
+
+function afterCursor(cursor: DocumentListCursor | null): SQL | undefined {
+  if (!cursor) return undefined
+  return sql`(${mailImports.createdAt}, ${mailImports.id}) < ((${cursor.createdAt})::timestamp AT TIME ZONE 'UTC', ${cursor.id}::uuid)`
+}
+
+/**
+ * The import this person still has open in the project, if any: the one the
+ * unique index lets them have. Asked on its own, not read off a list page, so
+ * an open import older than a page of finished ones still answers a second
+ * start with its id.
+ */
+export async function findOpenMailImportOf(
+  organizationId: string,
+  projectId: string,
+  userId: string,
+): Promise<MailImport | null> {
+  const [row] = await withTenant({ organizationId }, () =>
     getDb()
       .select()
       .from(mailImports)
-      .where(eq(mailImports.projectId, projectId))
-      .orderBy(desc(mailImports.createdAt))
-      .limit(MAIL_IMPORT_LIST_LIMIT),
+      .where(
+        and(
+          eq(mailImports.organizationId, organizationId),
+          eq(mailImports.projectId, projectId),
+          eq(mailImports.userId, userId),
+          inArray(mailImports.status, OPEN_STATUSES),
+        ),
+      )
+      .limit(1),
   )
+  return row ?? null
 }
 
 export type MailImportPatch = Partial<
